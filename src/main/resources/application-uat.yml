@@ -1,0 +1,11 @@
+spring:
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+    google:
+      genai:
+        api-key: ${GOOGLE_GENAI_API_KEY:}
+        chat:
+          options:
+            model: ${GOOGLE_GENAI_MODEL:gemini-3.1-flash-lite-preview}
+            # thinking-level: HIGH

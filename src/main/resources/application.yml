@@ -1,0 +1,38 @@
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  profiles:
+    active: dev
+  application:
+    name: java-system-agent
+
+slack:
+  app-token: ${SLACK_APP_TOKEN:}
+  bot-token: ${SLACK_BOT_TOKEN:}
+  signing-secret: ${SLACK_SIGNING_SECRET:}
+
+entry-point:
+  call-graph-depth: 3
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: alpha
+    tagsSorter: alpha
+    displayRequestDuration: true
+
+logging:
+  level:
+    '[com.java.system.agent]': DEBUG
+    '[org.springframework.ai]': DEBUG
+
+git:
+  username: ${GIT_USERNAME:}
+  token: ${GIT_TOKEN:}
+  repos:
+    test-repo:
+      url: ${REPO_TEST_URL:}
+      api-host: ${REPO_TEST_API_HOST:}
+      default-branch: ${REPO_TEST_DEFAULT_BRANCH:main}

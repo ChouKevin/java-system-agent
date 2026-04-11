@@ -1,0 +1,19 @@
+services:
+  app:
+    build: .
+    # 產出檔案有權限問題，指定user
+    user: "${UID:-1000}:${GID:-1000}"
+    command: mvn spring-boot:run
+    stdin_open: true
+    tty: true
+    environment:
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - .:/workspace:cached
+      - ./logs:/workspace/logs
+    ports:
+      - "8080:8080"
+

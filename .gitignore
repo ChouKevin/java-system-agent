@@ -1,0 +1,32 @@
+# Maven
+target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Env
+.env
+
+# Logs
+logs/
+
+# Repos (keep test fixture)
+repos/*
+!repos/test
+
+# Ollama
+ollama/
+
+# Claude Code
+CLAUDE.md
+docs/superpowers/
+.claude/
+
+# jdtls
+.project
+.factorypath
+.classpath
+.settings/
