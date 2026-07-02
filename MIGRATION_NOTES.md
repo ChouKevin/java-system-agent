@@ -1,5 +1,10 @@
 # Migration Notes
 
+## 2026-07-02 - Development Workflow Notes
+
+- `docs/superpowers/` is intentionally ignored by `.gitignore`; do not force-add Superpowers-generated specs unless the ignore policy changes.
+- The fixture static-analysis design spec remains local under `docs/superpowers/specs/` for planning context and should not be part of repository history in the current workflow.
+
 ## 2026-07-02 - Structured Analysis Result
 
 ### Added
