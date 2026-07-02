@@ -1,0 +1,24 @@
+{
+  "rootSignature": "com.example.basic.BasicController#public String getBasic(@PathVariable Long id)",
+  "expectedMethodCount": 4,
+  "expectedEdgeCount": 3,
+  "expectedNodes": [
+    {
+      "signatureContains": "BasicRepository#findById",
+      "type": "DATA_ACCESS",
+      "className": "BasicRepository"
+    }
+  ],
+  "expectedEdges": [
+    {
+      "fromContains": "BasicServiceImpl#public String getName(Long id)",
+      "toContains": "BasicRepository#findById"
+    }
+  ],
+  "expectedSql": [
+    {
+      "methodContains": "BasicRepository#findById",
+      "sqlContains": "SELECT name FROM basic_orders WHERE id = #{id}"
+    }
+  ]
+}
