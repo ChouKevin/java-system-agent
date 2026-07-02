@@ -1,5 +1,11 @@
 # Migration Notes
 
+## 2026-07-03 - Fixture-Based Static Analysis Tests
+
+- Added `src/test/resources/fixtures/spring-basic` as the first deterministic static-analysis regression fixture.
+- Kept `repos/test` as a managed demo repository; it is not slimmed in this change.
+- Future cleanup can move duplicate regression-only cases from `repos/test` into `src/test/resources/fixtures/*` after equivalent fixture coverage exists.
+
 ## 2026-07-02 - Development Workflow Notes
 
 - `docs/superpowers/` is intentionally ignored by `.gitignore`; do not force-add Superpowers-generated specs unless the ignore policy changes.
