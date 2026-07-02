@@ -1,10 +1,14 @@
 package com.java.system.agent.analysis;
 
 import com.java.system.agent.analysis.model.ApiRef;
+import com.java.system.agent.analysis.model.AnalysisErrorCode;
+import com.java.system.agent.analysis.model.AnalysisMetadata;
+import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.EntryPointClass;
 import com.java.system.agent.analysis.model.EntryPointType;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import com.java.system.agent.analysis.model.RepoDescriptor;
+import com.java.system.agent.analysis.exception.UnknownRepoException;
 import com.java.system.agent.analysis.port.RepoRegistryPort;
 import com.java.system.agent.analysis.port.SourceCodePort;
 import com.java.system.agent.analysis.trie.ApiEntryPointRef;
@@ -56,9 +60,44 @@ public class AnalysisService {
                                             String packageName,
                                             String className,
                                             String methodName) {
-        Path repoRoot = sourceCodePort.sourceRoot(repoId);
-        String relativePath = resolveRelativePath(repoRoot, packageName, className);
-        return javaCallGraphAnalyzer.analyzeFlattened(repoRoot, relativePath, methodName);
+        AnalysisResult<FlattenedCallGraph> result = analyzeMethodStructured(
+                repoId, packageName, className, methodName);
+        if (result.data() != null) {
+            return result.data();
+        }
+        return FlattenedCallGraph.builder().methods(List.of()).build();
+    }
+
+    public AnalysisResult<FlattenedCallGraph> analyzeMethodStructured(String repoId,
+                                                                      String packageName,
+                                                                      String className,
+                                                                      String methodName) {
+        AnalysisMetadata metadata = AnalysisMetadata.now(repoId, packageName, className, methodName);
+        try {
+            Path repoRoot = sourceCodePort.sourceRoot(repoId);
+            if (repoRoot == null) {
+                return AnalysisResult.failed(
+                        AnalysisErrorCode.REPO_NOT_FOUND,
+                        "Repository root was not resolved",
+                        repoId,
+                        metadata);
+            }
+            String relativePath = resolveRelativePath(repoRoot, packageName, className);
+            return javaCallGraphAnalyzer.analyzeFlattenedResult(repoRoot, relativePath, methodName, metadata);
+        } catch (UnknownRepoException e) {
+            return AnalysisResult.failed(
+                    AnalysisErrorCode.REPO_NOT_FOUND,
+                    "Repository was not found",
+                    e.getMessage(),
+                    metadata);
+        } catch (Exception e) {
+            log.error("Structured analysis failed for {}.{}.{}", repoId, className, methodName, e);
+            return AnalysisResult.failed(
+                    AnalysisErrorCode.INTERNAL_ERROR,
+                    "Unexpected analysis failure",
+                    e.getMessage(),
+                    metadata);
+        }
     }
 
     /**

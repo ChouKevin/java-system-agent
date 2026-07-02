@@ -3,14 +3,17 @@ package com.java.system.agent.analysis.callgraph;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.java.system.agent.analysis.model.AnalysisErrorCode;
+import com.java.system.agent.analysis.model.AnalysisMetadata;
+import com.java.system.agent.analysis.model.AnalysisResult;
+import com.java.system.agent.analysis.model.AnalysisWarning;
+import com.java.system.agent.analysis.model.FlattenedCallGraph;
+import com.java.system.agent.analysis.parser.ProjectParserService;
 import com.java.system.agent.analysis.type.ClassMetadataService;
 import com.java.system.agent.analysis.type.ScopeTypeResolver;
-import com.java.system.agent.analysis.parser.ProjectParserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-
-import com.java.system.agent.analysis.model.FlattenedCallGraph;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -40,7 +43,6 @@ public class JavaCallGraphAnalyzer {
         this.maxDepth = maxDepth;
     }
 
-    /** 分析並扁平化 call graph — facade 層唯一入口 */
     public FlattenedCallGraph analyzeFlattened(Path repoRoot, String relativeFilePath, String methodName) {
         CallGraph callGraph = analyze(repoRoot, relativeFilePath, methodName);
         if (callGraph == null) {
@@ -51,20 +53,45 @@ public class JavaCallGraphAnalyzer {
         return CallGraphVisitor.flattenToOptimized(callGraph, GraphVisitorConfig.defaultConfig());
     }
 
-    /** 分析 call graph（回傳原始樹狀結構，供 callgraph 內部或測試使用） */
-    CallGraph analyze(Path repoRoot, String relativeFilePath, String methodName) {
-        log.info("Analyzing call graph for '{}' in '{}'", methodName, relativeFilePath);
-
+    public AnalysisResult<FlattenedCallGraph> analyzeFlattenedResult(
+            Path repoRoot,
+            String relativeFilePath,
+            String methodName,
+            AnalysisMetadata metadata) {
         try {
-            // 預熱：確保 parser + metadata cache 在 builder 遞迴前就位
-            JavaParser javaParser = projectParserService.getOrCreateParser(repoRoot);
-            classMetadataService.ensureInitialized(repoRoot);
+            CallGraph callGraph = analyzeOrThrow(repoRoot, relativeFilePath, methodName);
+            FlattenedCallGraph flattened = callGraph == null
+                    ? FlattenedCallGraph.builder().methods(List.of()).build()
+                    : CallGraphVisitor.flattenToOptimized(callGraph, GraphVisitorConfig.defaultConfig());
+            List<AnalysisWarning> warnings = unresolvedWarnings(flattened);
+            if (!warnings.isEmpty()) {
+                return AnalysisResult.partial(flattened, warnings, List.of(), metadata);
+            }
+            return AnalysisResult.success(flattened, metadata);
+        } catch (IOException e) {
+            log.error("Error reading source file: {}", e.getMessage(), e);
+            return AnalysisResult.failed(
+                    AnalysisErrorCode.PARSE_FAILED,
+                    "Failed to read or parse source file",
+                    e.getMessage(),
+                    metadata);
+        } catch (RuntimeException e) {
+            log.error("Error analyzing call graph: {}", e.getMessage(), e);
+            AnalysisErrorCode code = classifyRuntimeFailure(e);
+            return AnalysisResult.failed(code, messageFor(code), e.getMessage(), metadata);
+        } catch (Exception e) {
+            log.error("Unexpected error analyzing call graph: {}", e.getMessage(), e);
+            return AnalysisResult.failed(
+                    AnalysisErrorCode.INTERNAL_ERROR,
+                    "Unexpected analysis failure",
+                    e.getMessage(),
+                    metadata);
+        }
+    }
 
-            Path absoluteFilePath = repoRoot.resolve(relativeFilePath);
-            CompilationUnit paramsCu = parseCompilationUnit(javaParser, absoluteFilePath);
-            MethodDeclaration targetMethod = findTargetMethod(paramsCu, methodName, relativeFilePath);
-            Map<String, String> dtoClasses = dtoAnalyzer.analyze(targetMethod);
-            return callGraphBuilder.build(targetMethod, repoRoot, dtoClasses, maxDepth);
+    CallGraph analyze(Path repoRoot, String relativeFilePath, String methodName) {
+        try {
+            return analyzeOrThrow(repoRoot, relativeFilePath, methodName);
         } catch (IOException e) {
             log.error("Error reading source file: {}", e.getMessage(), e);
             return null;
@@ -72,6 +99,51 @@ public class JavaCallGraphAnalyzer {
             log.error("Error analyzing call graph: {}", e.getMessage(), e);
             return null;
         }
+    }
+
+    private CallGraph analyzeOrThrow(Path repoRoot, String relativeFilePath, String methodName) throws IOException {
+        log.info("Analyzing call graph for '{}' in '{}'", methodName, relativeFilePath);
+
+        JavaParser javaParser = projectParserService.getOrCreateParser(repoRoot);
+        classMetadataService.ensureInitialized(repoRoot);
+
+        Path absoluteFilePath = repoRoot.resolve(relativeFilePath);
+        CompilationUnit paramsCu = parseCompilationUnit(javaParser, absoluteFilePath);
+        MethodDeclaration targetMethod = findTargetMethod(paramsCu, methodName, relativeFilePath);
+        Map<String, String> dtoClasses = dtoAnalyzer.analyze(targetMethod);
+        return callGraphBuilder.build(targetMethod, repoRoot, dtoClasses, maxDepth);
+    }
+
+    private List<AnalysisWarning> unresolvedWarnings(FlattenedCallGraph flattened) {
+        if (flattened == null || flattened.getMethods() == null) {
+            return List.of();
+        }
+        return flattened.getMethods().stream()
+                .filter(method -> method.getCallType() == CallType.UNRESOLVED)
+                .map(method -> new AnalysisWarning(
+                        "UNRESOLVED_CALL",
+                        "Call graph contains an unresolved method",
+                        method.getSignature()))
+                .toList();
+    }
+
+    private AnalysisErrorCode classifyRuntimeFailure(RuntimeException e) {
+        String message = e.getMessage() != null ? e.getMessage() : "";
+        if (message.contains("not found")) {
+            return AnalysisErrorCode.ENTRYPOINT_NOT_FOUND;
+        }
+        if (message.contains("Failed to parse")) {
+            return AnalysisErrorCode.PARSE_FAILED;
+        }
+        return AnalysisErrorCode.INTERNAL_ERROR;
+    }
+
+    private String messageFor(AnalysisErrorCode code) {
+        return switch (code) {
+            case ENTRYPOINT_NOT_FOUND -> "Entrypoint method was not found";
+            case PARSE_FAILED -> "Failed to parse source file";
+            default -> "Call graph analysis failed";
+        };
     }
 
     private CompilationUnit parseCompilationUnit(JavaParser parser, Path absoluteFilePath)
@@ -134,5 +206,4 @@ public class JavaCallGraphAnalyzer {
         }
         return true;
     }
-
 }

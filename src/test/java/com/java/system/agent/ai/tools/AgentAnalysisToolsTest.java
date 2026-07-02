@@ -2,6 +2,8 @@ package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.analysis.AnalysisService;
+import com.java.system.agent.analysis.model.AnalysisErrorCode;
+import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,15 +36,15 @@ class AgentAnalysisToolsTest {
     void findCallGraph_callsAnalysisService_withCorrectArgs() {
         FlattenedCallGraph callGraph = FlattenedCallGraph.builder()
                 .rootSignature("calculate").methods(List.of()).build();
-        when(analysisService.analyzeMethod(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(callGraph);
+        when(analysisService.analyzeMethodStructured(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(AnalysisResult.success(callGraph, null));
         AgentAnalysisTools tools = new AgentAnalysisTools(
                 analysisService, mockStreamingClient(List.of("說明")), objectMapper);
 
         tools.findCallGraph("test-repo",
                 "com.example.service", "MainService", "calculate", emptyToolContext());
 
-        verify(analysisService).analyzeMethod(
+        verify(analysisService).analyzeMethodStructured(
                 "test-repo", "com.example.service", "MainService", "calculate");
     }
 
@@ -50,8 +52,8 @@ class AgentAnalysisToolsTest {
     void findCallGraph_returnsConcatenatedInnerLlmChunks() {
         FlattenedCallGraph callGraph = FlattenedCallGraph.builder()
                 .rootSignature("calculate").methods(List.of()).build();
-        when(analysisService.analyzeMethod(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(callGraph);
+        when(analysisService.analyzeMethodStructured(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(AnalysisResult.success(callGraph, null));
         AgentAnalysisTools tools = new AgentAnalysisTools(
                 analysisService, mockStreamingClient(List.of("業務", "說明", "內容")), objectMapper);
 
@@ -65,8 +67,8 @@ class AgentAnalysisToolsTest {
     void findCallGraph_wiresCallGraphExpandTools_toInnerLlm() {
         FlattenedCallGraph callGraph = FlattenedCallGraph.builder()
                 .rootSignature("calculate").methods(List.of()).build();
-        when(analysisService.analyzeMethod(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(callGraph);
+        when(analysisService.analyzeMethodStructured(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(AnalysisResult.success(callGraph, null));
         ChatClient innerClient = mock(ChatClient.class);
         ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
         ChatClient.StreamResponseSpec streamSpec = mock(ChatClient.StreamResponseSpec.class);
@@ -88,8 +90,8 @@ class AgentAnalysisToolsTest {
     void findCallGraph_recordsCallToRecorder_whenPresent() {
         FlattenedCallGraph callGraph = FlattenedCallGraph.builder()
                 .rootSignature("calculate").methods(List.of()).build();
-        when(analysisService.analyzeMethod(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(callGraph);
+        when(analysisService.analyzeMethodStructured(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(AnalysisResult.success(callGraph, null));
         ToolCallRecorder recorder = mock(ToolCallRecorder.class);
         AgentAnalysisTools tools = new AgentAnalysisTools(
                 analysisService, mockStreamingClient(List.of("ok")), objectMapper);
@@ -98,6 +100,24 @@ class AgentAnalysisToolsTest {
                 toolContextWith(Map.of("recorder", recorder)));
 
         verify(recorder).record(anyString(), anyString());
+    }
+
+    @Test
+    void findCallGraph_returnsStructuredFailureJson_whenAnalysisFails() {
+        when(analysisService.analyzeMethodStructured(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(AnalysisResult.failed(
+                        AnalysisErrorCode.ENTRYPOINT_NOT_FOUND,
+                        "Entrypoint method was not found",
+                        "missing",
+                        null));
+        AgentAnalysisTools tools = new AgentAnalysisTools(
+                analysisService, mock(ChatClient.class), objectMapper);
+
+        String result = tools.findCallGraph(
+                "test-repo", "pkg", "Cls", "missing", emptyToolContext());
+
+        assertThat(result).contains("\"status\":\"FAILED\"");
+        assertThat(result).contains("ENTRYPOINT_NOT_FOUND");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

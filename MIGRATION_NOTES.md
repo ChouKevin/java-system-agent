@@ -1,5 +1,22 @@
 # Migration Notes
 
+## 2026-07-02 - Structured Analysis Result
+
+### Added
+
+- Added `AnalysisResult<T>` for structured `SUCCESS`, `PARTIAL`, and `FAILED` analysis outcomes.
+- Added structured analysis errors, warnings, metadata, and error codes.
+- Added `AnalysisService.analyzeMethodStructured(...)` for callers that need failure details.
+
+### Compatibility
+
+- Existing `AnalysisService.analyzeMethod(...)` remains available and still returns an empty graph on failure for legacy controller compatibility.
+- LLM tool adapters now use structured analysis results internally so failed analysis is not silently presented as a successful empty graph.
+
+### Verification
+
+- `mvn test` passed with 144 tests.
+
 ## 2026-07-02 - Dependency Upgrade Baseline
 
 ### Updated

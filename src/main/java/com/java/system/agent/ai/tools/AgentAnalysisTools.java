@@ -2,6 +2,8 @@ package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.analysis.AnalysisService;
+import com.java.system.agent.analysis.model.AnalysisResult;
+import com.java.system.agent.analysis.model.AnalysisStatus;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -42,12 +44,15 @@ public class AgentAnalysisTools {
         recordCall(toolContext, repoId, className, methodSignature);
 
         String userQuery = (String) toolContext.getContext().getOrDefault("userQuery", "");
-        FlattenedCallGraph callGraph = analysisService.analyzeMethod(
+        AnalysisResult<FlattenedCallGraph> analysisResult = analysisService.analyzeMethodStructured(
                 repoId, packageName, className, methodSignature);
         StringBuilder result = new StringBuilder();
 
         try {
-            String callGraphJson = objectMapper.writeValueAsString(callGraph);
+            String callGraphJson = objectMapper.writeValueAsString(analysisResult);
+            if (analysisResult.status() == AnalysisStatus.FAILED) {
+                return callGraphJson;
+            }
             CallGraphExpandTools expandTools = new CallGraphExpandTools(analysisService);
 
             log.debug("findCallGraph: starting inner LLM for {}.{}", className, methodSignature);

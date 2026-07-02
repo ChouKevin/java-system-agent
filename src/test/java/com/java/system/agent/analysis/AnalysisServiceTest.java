@@ -2,6 +2,11 @@ package com.java.system.agent.analysis;
 
 import com.java.system.agent.analysis.callgraph.JavaCallGraphAnalyzer;
 import com.java.system.agent.analysis.entrypoint.EntryPointCacheService;
+import com.java.system.agent.analysis.exception.UnknownRepoException;
+import com.java.system.agent.analysis.model.AnalysisErrorCode;
+import com.java.system.agent.analysis.model.AnalysisResult;
+import com.java.system.agent.analysis.model.AnalysisStatus;
+import com.java.system.agent.analysis.model.AnalysisWarning;
 import com.java.system.agent.analysis.model.ApiRef;
 import com.java.system.agent.analysis.model.EntryPointClass;
 import com.java.system.agent.analysis.model.EntryPointType;
@@ -56,20 +61,111 @@ class AnalysisServiceTest {
         when(sourceRootResolver.resolveSourceRoots(repoRoot))
                 .thenReturn(List.of(repoRoot.resolve("src/main/java")));
         FlattenedCallGraph expected = FlattenedCallGraph.builder().methods(List.of()).build();
-        when(javaCallGraphAnalyzer.analyzeFlattened(
-                repoRoot,
-                "src/main/java/com/example/controller/FooController.java",
-                "doStuff"))
-                .thenReturn(expected);
+        when(javaCallGraphAnalyzer.analyzeFlattenedResult(
+                eq(repoRoot),
+                eq("src/main/java/com/example/controller/FooController.java"),
+                eq("doStuff"),
+                any()))
+                .thenReturn(AnalysisResult.success(expected, null));
 
         FlattenedCallGraph result = analysisService.analyzeMethod(
                 "test-repo", "com.example.controller", "FooController", "doStuff");
 
         assertSame(expected, result);
-        verify(javaCallGraphAnalyzer).analyzeFlattened(
-                repoRoot,
-                "src/main/java/com/example/controller/FooController.java",
-                "doStuff");
+        verify(javaCallGraphAnalyzer).analyzeFlattenedResult(
+                eq(repoRoot),
+                eq("src/main/java/com/example/controller/FooController.java"),
+                eq("doStuff"),
+                any());
+    }
+
+    @Test
+    void analyzeMethodStructured_returnsFailed_whenRepoNotFound() {
+        when(sourceCodePort.sourceRoot("missing-repo"))
+                .thenThrow(new UnknownRepoException("missing-repo"));
+
+        AnalysisResult<FlattenedCallGraph> result = analysisService.analyzeMethodStructured(
+                "missing-repo", "com.example", "MissingService", "run");
+
+        assertEquals(AnalysisStatus.FAILED, result.status());
+        assertEquals(AnalysisErrorCode.REPO_NOT_FOUND, result.errors().get(0).code());
+        assertNull(result.data());
+    }
+
+    @Test
+    void analyzeMethodStructured_preservesFailedAnalyzerResult() {
+        Path repoRoot = Path.of("/repos/test");
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
+        when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
+                .thenReturn(AnalysisResult.failed(
+                        AnalysisErrorCode.ENTRYPOINT_NOT_FOUND,
+                        "Entrypoint method was not found",
+                        "missing",
+                        null));
+
+        AnalysisResult<FlattenedCallGraph> result = analysisService.analyzeMethodStructured(
+                "test-repo", "com.example", "MissingService", "missing");
+
+        assertEquals(AnalysisStatus.FAILED, result.status());
+        assertEquals(AnalysisErrorCode.ENTRYPOINT_NOT_FOUND, result.errors().get(0).code());
+    }
+
+    @Test
+    void analyzeMethod_returnsEmptyGraph_whenStructuredAnalysisFailsForCompatibility() {
+        Path repoRoot = Path.of("/repos/test");
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
+        when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
+                .thenReturn(AnalysisResult.failed(
+                        AnalysisErrorCode.PARSE_FAILED,
+                        "Failed to parse source file",
+                        "bad java",
+                        null));
+
+        FlattenedCallGraph result = analysisService.analyzeMethod(
+                "test-repo", "com.example", "BrokenService", "run");
+
+        assertNotNull(result);
+        assertTrue(result.getMethods().isEmpty());
+    }
+
+    @Test
+    void analyzeMethodStructured_distinguishesSuccessfulEmptyGraph() {
+        Path repoRoot = Path.of("/repos/test");
+        FlattenedCallGraph emptyGraph = FlattenedCallGraph.builder().methods(List.of()).build();
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
+        when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
+                .thenReturn(AnalysisResult.success(emptyGraph, null));
+
+        AnalysisResult<FlattenedCallGraph> result = analysisService.analyzeMethodStructured(
+                "test-repo", "com.example", "LeafService", "leaf");
+
+        assertEquals(AnalysisStatus.SUCCESS, result.status());
+        assertSame(emptyGraph, result.data());
+        assertTrue(result.data().getMethods().isEmpty());
+    }
+
+    @Test
+    void analyzeMethodStructured_preservesPartialResultWithWarnings() {
+        Path repoRoot = Path.of("/repos/test");
+        FlattenedCallGraph partialGraph = FlattenedCallGraph.builder().methods(List.of()).build();
+        AnalysisWarning warning = new AnalysisWarning(
+                "UNRESOLVED_CALL",
+                "Call graph contains an unresolved method",
+                "MissingService#run");
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
+        when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
+                .thenReturn(AnalysisResult.partial(partialGraph, List.of(warning), List.of(), null));
+
+        AnalysisResult<FlattenedCallGraph> result = analysisService.analyzeMethodStructured(
+                "test-repo", "com.example", "PartialService", "run");
+
+        assertEquals(AnalysisStatus.PARTIAL, result.status());
+        assertSame(partialGraph, result.data());
+        assertEquals("UNRESOLVED_CALL", result.warnings().get(0).code());
     }
 
     @Test

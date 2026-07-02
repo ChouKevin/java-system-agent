@@ -1,6 +1,9 @@
 package com.java.system.agent.ai.tools;
 
 import com.java.system.agent.analysis.AnalysisService;
+import com.java.system.agent.analysis.model.AnalysisErrorCode;
+import com.java.system.agent.analysis.model.AnalysisResult;
+import com.java.system.agent.analysis.model.AnalysisStatus;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,49 +32,43 @@ class CallGraphExpandToolsTest {
     }
 
     @Test
-    void findCallGraph_callsAnalysisService_withCorrectArgs() {
-        when(analysisService.analyzeMethod(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(FlattenedCallGraph.builder().methods(List.of()).build());
+    void findCallGraph_callsStructuredAnalysisService_withCorrectArgs() {
+        when(analysisService.analyzeMethodStructured(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(AnalysisResult.success(
+                        FlattenedCallGraph.builder().methods(List.of()).build(),
+                        null));
 
         tools.findCallGraph("test-repo",
                 "com.example.service", "MainService", "calculate");
 
-        verify(analysisService).analyzeMethod(
+        verify(analysisService).analyzeMethodStructured(
                 "test-repo", "com.example.service", "MainService", "calculate");
     }
 
     @Test
-    void findCallGraph_returnsFlattenedCallGraph() {
-        FlattenedCallGraph expected = FlattenedCallGraph.builder()
+    void findCallGraph_returnsStructuredResult() {
+        FlattenedCallGraph graph = FlattenedCallGraph.builder()
                 .rootSignature("calculate").methods(List.of()).build();
-        when(analysisService.analyzeMethod(anyString(), anyString(), anyString(), anyString()))
+        AnalysisResult<FlattenedCallGraph> expected = AnalysisResult.success(graph, null);
+        when(analysisService.analyzeMethodStructured(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(expected);
 
-        FlattenedCallGraph result = tools.findCallGraph(
+        AnalysisResult<FlattenedCallGraph> result = tools.findCallGraph(
                 "test-repo", "pkg", "MainService", "calculate");
 
         assertThat(result).isEqualTo(expected);
     }
 
     @Test
-    void findCallGraph_returnsEmptyGraph_whenAnalysisServiceReturnsNull() {
-        when(analysisService.analyzeMethod(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(null);
-
-        FlattenedCallGraph result = tools.findCallGraph(
-                "test-repo", "pkg", "MainService", "calculate");
-
-        assertThat(result.getMethods()).isEmpty();
-    }
-
-    @Test
-    void findCallGraph_returnsEmptyGraph_whenAnalysisServiceThrows() {
-        when(analysisService.analyzeMethod(anyString(), anyString(), anyString(), anyString()))
+    void findCallGraph_returnsFailedResult_whenAnalysisServiceThrows() {
+        when(analysisService.analyzeMethodStructured(anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new RuntimeException("parse error"));
 
-        FlattenedCallGraph result = tools.findCallGraph(
+        AnalysisResult<FlattenedCallGraph> result = tools.findCallGraph(
                 "test-repo", "pkg", "MainService", "calculate");
 
-        assertThat(result.getMethods()).isEmpty();
+        assertThat(result.status()).isEqualTo(AnalysisStatus.FAILED);
+        assertThat(result.errors()).hasSize(1);
+        assertThat(result.errors().get(0).code()).isEqualTo(AnalysisErrorCode.INTERNAL_ERROR);
     }
 }
