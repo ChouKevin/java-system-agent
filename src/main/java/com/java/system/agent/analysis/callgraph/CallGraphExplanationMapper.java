@@ -11,6 +11,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,6 +93,7 @@ public class CallGraphExplanationMapper {
         String packageName = parsedSignature.packageName();
         String className = parsedSignature.className();
         String methodName = parsedSignature.methodName();
+        List<String> parameterTypes = parsedSignature.parameterTypes();
 
         if (!StringUtils.hasText(packageName)) {
             packageName = node.getPackagePath();
@@ -103,31 +105,32 @@ public class CallGraphExplanationMapper {
             methodName = node.getMethodName();
         }
 
-        return new MethodId(repoId, packageName, className, methodName, List.of());
+        return new MethodId(repoId, packageName, className, methodName, parameterTypes);
     }
 
     private ParsedSignature parseSignature(String signature) {
         if (!StringUtils.hasText(signature)) {
-            return new ParsedSignature(null, null, null);
+            return new ParsedSignature(null, null, null, List.of());
         }
 
         int separatorIndex = signature.indexOf('#');
         if (separatorIndex < 0) {
-            return new ParsedSignature(null, null, null);
+            return new ParsedSignature(null, null, null, List.of());
         }
 
         String owner = signature.substring(0, separatorIndex);
         String declaration = signature.substring(separatorIndex + 1);
         if (!StringUtils.hasText(owner) || !StringUtils.hasText(declaration)) {
-            return new ParsedSignature(null, null, null);
+            return new ParsedSignature(null, null, null, List.of());
         }
 
         int ownerClassSeparator = owner.lastIndexOf('.');
         String packageName = ownerClassSeparator >= 0 ? owner.substring(0, ownerClassSeparator) : null;
         String className = ownerClassSeparator >= 0 ? owner.substring(ownerClassSeparator + 1) : owner;
         String methodName = parseMethodName(declaration);
+        List<String> parameterTypes = parseParameterTypes(declaration);
 
-        return new ParsedSignature(packageName, className, methodName);
+        return new ParsedSignature(packageName, className, methodName, parameterTypes);
     }
 
     private String parseMethodName(String declaration) {
@@ -145,6 +148,43 @@ public class CallGraphExplanationMapper {
             return trimmedMethodPart.substring(lastWhitespace + 1);
         }
         return trimmedMethodPart;
+    }
+
+    private List<String> parseParameterTypes(String declaration) {
+        int parameterStart = declaration.indexOf('(');
+        int parameterEnd = declaration.lastIndexOf(')');
+        if (parameterStart < 0 || parameterEnd <= parameterStart + 1) {
+            return List.of();
+        }
+
+        String parameterPart = declaration.substring(parameterStart + 1, parameterEnd).trim();
+        if (!StringUtils.hasText(parameterPart)) {
+            return List.of();
+        }
+
+        return Arrays.stream(parameterPart.split(","))
+                .map(this::parseParameterType)
+                .filter(StringUtils::hasText)
+                .toList();
+    }
+
+    private String parseParameterType(String parameter) {
+        String trimmedParameter = parameter.trim();
+        if (!StringUtils.hasText(trimmedParameter)) {
+            return null;
+        }
+
+        List<String> parts = Arrays.stream(trimmedParameter.split("\\s+"))
+                .filter(part -> !"final".equals(part))
+                .filter(part -> !part.startsWith("@"))
+                .toList();
+        if (parts.isEmpty()) {
+            return null;
+        }
+        if (parts.size() == 1) {
+            return parts.get(0);
+        }
+        return String.join(" ", parts.subList(0, parts.size() - 1));
     }
 
     private Resolution resolve(CallGraph caller, CallGraph callee) {
@@ -187,7 +227,11 @@ public class CallGraphExplanationMapper {
         return Map.copyOf(values);
     }
 
-    private record ParsedSignature(String packageName, String className, String methodName) {
+    private record ParsedSignature(
+            String packageName,
+            String className,
+            String methodName,
+            List<String> parameterTypes) {
     }
 
     private record Resolution(

@@ -142,7 +142,7 @@ class CallGraphFixtureTest {
                 new CallGraphExplanationMapper(),
                 4);
         CallGraph unresolvedChild = CallGraph.leaf(
-                "com.example.MissingService#void missing()",
+                null,
                 "MissingService",
                 "missing",
                 CallType.UNRESOLVED,
@@ -171,6 +171,8 @@ class CallGraphFixtureTest {
         assertEquals(AnalysisStatus.PARTIAL, result.status());
         assertTrue(result.warnings().stream()
                 .anyMatch(warning -> "UNRESOLVED_CALL".equals(warning.code())));
+        assertTrue(result.warnings().stream()
+                .anyMatch(warning -> "MissingService#missing".equals(warning.location())));
         assertTrue(result.data().edges().stream()
                 .anyMatch(edge -> ResolutionStrategy.UNRESOLVED.equals(edge.resolutionStrategy())));
     }

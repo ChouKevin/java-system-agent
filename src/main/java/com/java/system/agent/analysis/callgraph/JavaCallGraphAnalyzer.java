@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -208,7 +209,7 @@ public class JavaCallGraphAnalyzer {
             return;
         }
         if (CallType.UNRESOLVED.equals(callGraph.getCallType())) {
-            AnalysisWarning warning = unresolvedWarning(callGraph.getSignature());
+            AnalysisWarning warning = unresolvedWarning(unresolvedLocation(callGraph));
             warningsByLocation.putIfAbsent(warning.location(), warning);
         }
         if (CollectionUtils.isEmpty(callGraph.getCalledMethods())) {
@@ -237,6 +238,22 @@ public class JavaCallGraphAnalyzer {
                 "UNRESOLVED_CALL",
                 "Call graph contains an unresolved method",
                 signature);
+    }
+
+    private String unresolvedLocation(CallGraph callGraph) {
+        if (StringUtils.hasText(callGraph.getSignature())) {
+            return callGraph.getSignature();
+        }
+        if (StringUtils.hasText(callGraph.getClassName()) && StringUtils.hasText(callGraph.getMethodName())) {
+            return callGraph.getClassName() + "#" + callGraph.getMethodName();
+        }
+        if (StringUtils.hasText(callGraph.getMethodName())) {
+            return callGraph.getMethodName();
+        }
+        if (StringUtils.hasText(callGraph.getClassName())) {
+            return callGraph.getClassName();
+        }
+        return "unknown unresolved call";
     }
 
     private String warningKey(AnalysisWarning warning) {

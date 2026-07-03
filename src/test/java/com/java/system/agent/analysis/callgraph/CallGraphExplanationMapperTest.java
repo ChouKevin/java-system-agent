@@ -101,6 +101,40 @@ class CallGraphExplanationMapperTest {
     }
 
     @Test
+    void should_keep_overloaded_methods_as_distinct_nodes() {
+        CallGraph findByCode = CallGraph.builder()
+                .signature("com.example.BasicRepository#String find(String code)")
+                .className("BasicRepository")
+                .packagePath("com.example")
+                .methodName("find")
+                .callType(CallType.DATA_ACCESS)
+                .build();
+        CallGraph findById = CallGraph.builder()
+                .signature("com.example.BasicRepository#String find(Long id)")
+                .className("BasicRepository")
+                .packagePath("com.example")
+                .methodName("find")
+                .callType(CallType.DATA_ACCESS)
+                .build();
+        CallGraph service = CallGraph.builder()
+                .signature("com.example.BasicService#public String getBasic(Long id)")
+                .className("BasicService")
+                .packagePath("com.example")
+                .methodName("getBasic")
+                .callType(CallType.INTERNAL_SERVICE)
+                .calledMethods(List.of(findByCode, findById))
+                .build();
+
+        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+
+        Assertions.assertEquals(3, graph.nodes().size());
+        Assertions.assertTrue(graph.nodes().stream()
+                .anyMatch(node -> node.methodId().parameterTypes().equals(List.of("String"))));
+        Assertions.assertTrue(graph.nodes().stream()
+                .anyMatch(node -> node.methodId().parameterTypes().equals(List.of("Long"))));
+    }
+
+    @Test
     void should_map_unresolved_edge_with_warning() {
         CallGraph unresolved = CallGraph.builder()
                 .methodName("missingCall")
