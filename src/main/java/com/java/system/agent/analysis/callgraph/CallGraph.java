@@ -32,6 +32,9 @@ public class CallGraph {
     @JsonPropertyDescription("方法類型")
     private CallType callType;
 
+    @JsonPropertyDescription("Resolution evidence for the edge from parent node to this node")
+    private CallResolutionEvidence resolutionEvidence;
+
     @JsonPropertyDescription("方法描述 (Javadoc / Profile / 分析摘要)")
     private String desc;
 

@@ -165,6 +165,7 @@ class CallGraphControllerTest {
                 null,
                 ResolutionStrategy.SAME_CLASS_METHOD,
                 0.9,
+                List.of(),
                 List.of());
         return new ExplainableCallGraph(
                 root,

@@ -68,9 +68,10 @@ public class CallGraphExplanationMapper {
                     callerId,
                     calleeId,
                     calleeId.methodName(),
-                    null,
+                    resolution.lineNumber(),
                     resolution.resolutionStrategy(),
                     resolution.confidence(),
+                    resolution.evidence(),
                     resolution.warnings()));
             collect(repoId, child, nodesByMethodId, edges);
         }
@@ -188,14 +189,30 @@ public class CallGraphExplanationMapper {
     }
 
     private Resolution resolve(CallGraph caller, CallGraph callee) {
+        CallResolutionEvidence explicitEvidence = callee.getResolutionEvidence();
+        if (explicitEvidence != null) {
+            return new Resolution(
+                    explicitEvidence.resolutionStrategy(),
+                    explicitEvidence.confidence(),
+                    List.copyOf(explicitEvidence.evidence()),
+                    List.copyOf(explicitEvidence.warnings()),
+                    explicitEvidence.lineNumber());
+        }
         if (CallType.UNRESOLVED.equals(callee.getCallType())) {
             return new Resolution(
                     ResolutionStrategy.UNRESOLVED,
                     UNRESOLVED_CONFIDENCE,
-                    List.of("Call could not be resolved"));
+                    List.of("FALLBACK_CALL_TYPE_UNRESOLVED"),
+                    List.of("Call could not be resolved"),
+                    null);
         }
         if (CallType.DATA_ACCESS.equals(callee.getCallType())) {
-            return new Resolution(ResolutionStrategy.MYBATIS_MAPPER, DATA_ACCESS_CONFIDENCE, List.of());
+            return new Resolution(
+                    ResolutionStrategy.MYBATIS_MAPPER,
+                    DATA_ACCESS_CONFIDENCE,
+                    List.of("FALLBACK_CALL_TYPE_DATA_ACCESS"),
+                    List.of(),
+                    null);
         }
         if (CallType.INTERFACE.equals(caller.getCallType())) {
             int implementationCount = CollectionUtils.isEmpty(caller.getCalledMethods())
@@ -205,19 +222,33 @@ public class CallGraphExplanationMapper {
                 return new Resolution(
                         ResolutionStrategy.INTERFACE_SINGLE_IMPL,
                         INTERFACE_SINGLE_IMPL_CONFIDENCE,
-                        List.of());
+                        List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
+                        List.of(),
+                        null);
             }
             if (implementationCount > 1) {
                 return new Resolution(
                         ResolutionStrategy.INTERFACE_MULTI_IMPL,
                         INTERFACE_MULTI_IMPL_CONFIDENCE,
-                        List.of("Multiple interface implementations matched"));
+                        List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
+                        List.of("Multiple interface implementations matched"),
+                        null);
             }
         }
         if (CallType.EXTERNAL_LIB.equals(callee.getCallType())) {
-            return new Resolution(ResolutionStrategy.UNKNOWN, EXTERNAL_LIB_CONFIDENCE, List.of());
+            return new Resolution(
+                    ResolutionStrategy.UNKNOWN,
+                    EXTERNAL_LIB_CONFIDENCE,
+                    List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
+                    List.of(),
+                    null);
         }
-        return new Resolution(ResolutionStrategy.HEURISTIC_NAME_MATCH, HEURISTIC_CONFIDENCE, List.of());
+        return new Resolution(
+                ResolutionStrategy.HEURISTIC_NAME_MATCH,
+                HEURISTIC_CONFIDENCE,
+                List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
+                List.of(),
+                null);
     }
 
     private Map<String, String> immutableMap(Map<String, String> values) {
@@ -237,6 +268,8 @@ public class CallGraphExplanationMapper {
     private record Resolution(
             ResolutionStrategy resolutionStrategy,
             double confidence,
-            List<String> warnings) {
+            List<String> evidence,
+            List<String> warnings,
+            Integer lineNumber) {
     }
 }

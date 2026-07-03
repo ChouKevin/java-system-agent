@@ -9,5 +9,6 @@ public record CallEdge(
         Integer lineNumber,
         ResolutionStrategy resolutionStrategy,
         double confidence,
+        List<String> evidence,
         List<String> warnings) {
 }

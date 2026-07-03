@@ -77,6 +77,40 @@ class CallGraphExplanationMapperTest {
     }
 
     @Test
+    void should_copy_explicit_evidence_to_edge() {
+        CallResolutionEvidence evidence = new CallResolutionEvidence(
+                ResolutionStrategy.SPRING_BEAN_BY_TYPE,
+                0.95,
+                List.of("RECEIVER_FIELD_TYPE", "TARGET_METHOD_FOUND"),
+                List.of(),
+                12);
+        CallGraph repository = CallGraph.builder()
+                .signature("com.example.BasicRepository#String findName(Long id)")
+                .className("BasicRepository")
+                .packagePath("com.example")
+                .methodName("findName")
+                .callType(CallType.DATA_ACCESS)
+                .resolutionEvidence(evidence)
+                .build();
+        CallGraph service = CallGraph.builder()
+                .signature("com.example.BasicService#public String getBasic(Long id)")
+                .className("BasicService")
+                .packagePath("com.example")
+                .methodName("getBasic")
+                .callType(CallType.INTERNAL_SERVICE)
+                .calledMethods(List.of(repository))
+                .build();
+
+        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+
+        CallEdge edge = graph.edges().get(0);
+        Assertions.assertEquals(ResolutionStrategy.SPRING_BEAN_BY_TYPE, edge.resolutionStrategy());
+        Assertions.assertEquals(0.95, edge.confidence());
+        Assertions.assertEquals(List.of("RECEIVER_FIELD_TYPE", "TARGET_METHOD_FOUND"), edge.evidence());
+        Assertions.assertEquals(12, edge.lineNumber());
+    }
+
+    @Test
     void should_use_parsed_method_name_for_call_expression() {
         CallGraph dataAccess = CallGraph.builder()
                 .signature("com.example.BasicRepository#String findName(Long id)")
