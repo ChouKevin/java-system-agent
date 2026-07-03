@@ -62,6 +62,7 @@ class CallGraphControllerTest {
                 .andExpect(jsonPath("$.data.nodes[0].methodId.className").value("OrderService"))
                 .andExpect(jsonPath("$.data.edges[0].resolutionStrategy").value("SAME_CLASS_METHOD"))
                 .andExpect(jsonPath("$.data.edges[0].confidence").value(0.9))
+                .andExpect(jsonPath("$.data.edges[0].evidence[0]").value("TEST_EVIDENCE"))
                 .andExpect(jsonPath("$.data.legacyFlattened.rootSignature").value("OrderService#createOrder"));
 
         verify(analysisService).analyzeMethodExplainableStructured(
@@ -165,7 +166,7 @@ class CallGraphControllerTest {
                 null,
                 ResolutionStrategy.SAME_CLASS_METHOD,
                 0.9,
-                List.of(),
+                List.of("TEST_EVIDENCE"),
                 List.of());
         return new ExplainableCallGraph(
                 root,

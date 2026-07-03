@@ -9,6 +9,7 @@ import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import com.java.system.agent.analysis.model.MethodId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
@@ -83,6 +84,34 @@ class AgentAnalysisToolsTest {
         tools.findCallGraph("test-repo", "pkg", "Cls", "method", emptyToolContext());
 
         verify(requestSpec).tools(any(Object[].class));
+    }
+
+    @Test
+    void findCallGraph_instructsInnerLlmToUseResolutionEvidence() {
+        ExplainableCallGraph callGraph = explainableGraph("calculate");
+        when(analysisService.analyzeMethodExplainableStructured(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(AnalysisResult.success(callGraph, null));
+        ChatClient innerClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.StreamResponseSpec streamSpec = mock(ChatClient.StreamResponseSpec.class);
+        when(innerClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.tools(any(Object[].class))).thenReturn(requestSpec);
+        when(requestSpec.stream()).thenReturn(streamSpec);
+        when(streamSpec.content()).thenReturn(Flux.just("ok"));
+        AgentAnalysisTools tools = new AgentAnalysisTools(
+                analysisService, innerClient, objectMapper);
+
+        tools.findCallGraph("test-repo", "pkg", "Cls", "method", emptyToolContext());
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(requestSpec).user(promptCaptor.capture());
+        assertThat(promptCaptor.getValue()).contains("edge.evidence");
+        assertThat(promptCaptor.getValue()).contains("edge.resolutionStrategy");
+        assertThat(promptCaptor.getValue()).contains("analyzer facts");
+        assertThat(promptCaptor.getValue()).contains("MULTIPLE_INTERFACE_IMPLEMENTATIONS");
+        assertThat(promptCaptor.getValue()).contains("candidate ambiguity");
     }
 
     @Test
