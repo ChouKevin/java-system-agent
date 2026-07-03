@@ -115,6 +115,9 @@ class CallGraphFixtureTest {
                 .filter(edge -> edge.resolutionStrategy() != null)
                 .toList()
                 .isEmpty());
+        assertTrue(result.data().edges().stream()
+                .filter(edge -> "findById".equals(edge.callee().methodName()))
+                .anyMatch(edge -> edge.evidence().contains("MYBATIS_XML_SQL_FOUND")));
     }
 
     @Test

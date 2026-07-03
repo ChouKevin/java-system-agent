@@ -122,7 +122,10 @@ public class AgentAnalysisTools {
                 請將以下程式碼呼叫鏈翻譯為業務流程說明：
                 Explainable graph JSON guidance:
                 - Read data.nodes for methods and data.edges for caller-to-callee relationships.
-                - Use edge.resolutionStrategy, edge.confidence, and edge.warnings when judging reliability.
+                - Read edge.evidence together with edge.resolutionStrategy when judging reliability.
+                - Treat evidence as analyzer facts and warnings as uncertainty.
+                - When evidence contains MULTIPLE_INTERFACE_IMPLEMENTATIONS, explain candidate ambiguity instead of naming one implementation as certain.
+                - Use edge.resolutionStrategy, edge.confidence, edge.evidence, and edge.warnings when judging reliability.
                 - Treat LOW confidence or UNRESOLVED edges as uncertainty, and call find_call_graph again when expansion is needed.
 
                 %s
