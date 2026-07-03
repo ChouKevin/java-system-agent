@@ -194,8 +194,8 @@ public class CallGraphExplanationMapper {
             return new Resolution(
                     explicitEvidence.resolutionStrategy(),
                     explicitEvidence.confidence(),
-                    List.copyOf(explicitEvidence.evidence()),
-                    List.copyOf(explicitEvidence.warnings()),
+                    immutableList(explicitEvidence.evidence()),
+                    immutableList(explicitEvidence.warnings()),
                     explicitEvidence.lineNumber());
         }
         if (CallType.UNRESOLVED.equals(callee.getCallType())) {
@@ -256,6 +256,13 @@ public class CallGraphExplanationMapper {
             return Map.of();
         }
         return Map.copyOf(values);
+    }
+
+    private List<String> immutableList(List<String> values) {
+        if (CollectionUtils.isEmpty(values)) {
+            return List.of();
+        }
+        return List.copyOf(values);
     }
 
     private record ParsedSignature(
