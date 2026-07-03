@@ -2,7 +2,8 @@ package com.java.system.agent.api;
 
 import com.java.system.agent.analysis.AnalysisService;
 import com.java.system.agent.analysis.model.ApiRef;
-import com.java.system.agent.analysis.model.FlattenedCallGraph;
+import com.java.system.agent.analysis.model.AnalysisResult;
+import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -34,7 +35,8 @@ class AnalysisController {
     @PostMapping("/analysis/api-call-graph")
     @Operation(summary = "Get call graph by API path",
                description = "Find call graph by providing an API path and HTTP method. Searches across all repositories.")
-    public ResponseEntity<FlattenedCallGraph> getApiCallGraph(@Valid @RequestBody ApiCallGraphRequest request) {
+    public ResponseEntity<AnalysisResult<ExplainableCallGraph>> getApiCallGraph(
+            @Valid @RequestBody ApiCallGraphRequest request) {
         log.info("Looking up call graph for {} {}", request.httpMethod(), request.apiPath());
 
         List<ApiRef> refs = analysisService.lookupApi(request.apiPath(), request.httpMethod());
@@ -44,7 +46,8 @@ class AnalysisController {
         }
 
         ApiRef r = refs.get(0);
-        FlattenedCallGraph graph = analysisService.analyzeMethod(r.repoId(), r.packageName(), r.className(), r.methodName());
+        AnalysisResult<ExplainableCallGraph> graph = analysisService.analyzeMethodExplainableStructured(
+                r.repoId(), r.packageName(), r.className(), r.methodName());
         return ResponseEntity.ok(graph);
     }
 }

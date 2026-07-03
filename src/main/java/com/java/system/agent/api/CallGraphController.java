@@ -1,6 +1,8 @@
 package com.java.system.agent.api;
 
 import com.java.system.agent.analysis.AnalysisService;
+import com.java.system.agent.analysis.model.AnalysisResult;
+import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,9 +32,10 @@ class CallGraphController {
 
     @PostMapping("/analysis/call-graph/{repo}")
     @Operation(summary = "Get call graph", description = "Get call graph for a specific method.")
-    public ResponseEntity<FlattenedCallGraph> getCallGraph(@PathVariable String repo,
-                                                           @Valid @RequestBody MethodRequest method) {
-        FlattenedCallGraph graph = analysisService.analyzeMethod(
+    public ResponseEntity<AnalysisResult<ExplainableCallGraph>> getCallGraph(
+            @PathVariable String repo,
+            @Valid @RequestBody MethodRequest method) {
+        AnalysisResult<ExplainableCallGraph> graph = analysisService.analyzeMethodExplainableStructured(
                 repo, method.packageName(), method.className(), method.methodSignature());
         return ResponseEntity.ok(graph);
     }
