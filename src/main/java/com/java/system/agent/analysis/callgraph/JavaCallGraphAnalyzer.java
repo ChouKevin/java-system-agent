@@ -7,11 +7,13 @@ import com.java.system.agent.analysis.model.AnalysisErrorCode;
 import com.java.system.agent.analysis.model.AnalysisMetadata;
 import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.AnalysisWarning;
+import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import com.java.system.agent.analysis.parser.ProjectParserService;
 import com.java.system.agent.analysis.type.ClassMetadataService;
 import com.java.system.agent.analysis.type.ScopeTypeResolver;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +31,7 @@ public class JavaCallGraphAnalyzer {
     private final ClassMetadataService classMetadataService;
     private final DtoAnalyzer dtoAnalyzer;
     private final CallGraphBuilder callGraphBuilder;
+    private final CallGraphExplanationMapper callGraphExplanationMapper;
     private final int maxDepth;
 
     public JavaCallGraphAnalyzer(ProjectParserService projectParserService,
@@ -36,10 +39,26 @@ public class JavaCallGraphAnalyzer {
             DtoAnalyzer dtoAnalyzer,
             CallGraphBuilder callGraphBuilder,
             @Value("${entry-point.call-graph-depth:5}") int maxDepth) {
+        this(projectParserService,
+                classMetadataService,
+                dtoAnalyzer,
+                callGraphBuilder,
+                new CallGraphExplanationMapper(),
+                maxDepth);
+    }
+
+    @Autowired
+    public JavaCallGraphAnalyzer(ProjectParserService projectParserService,
+            ClassMetadataService classMetadataService,
+            DtoAnalyzer dtoAnalyzer,
+            CallGraphBuilder callGraphBuilder,
+            CallGraphExplanationMapper callGraphExplanationMapper,
+            @Value("${entry-point.call-graph-depth:5}") int maxDepth) {
         this.projectParserService = projectParserService;
         this.classMetadataService = classMetadataService;
         this.callGraphBuilder = callGraphBuilder;
         this.dtoAnalyzer = dtoAnalyzer;
+        this.callGraphExplanationMapper = callGraphExplanationMapper;
         this.maxDepth = maxDepth;
     }
 
@@ -60,9 +79,7 @@ public class JavaCallGraphAnalyzer {
             AnalysisMetadata metadata) {
         try {
             CallGraph callGraph = analyzeOrThrow(repoRoot, relativeFilePath, methodName);
-            FlattenedCallGraph flattened = callGraph == null
-                    ? FlattenedCallGraph.builder().methods(List.of()).build()
-                    : CallGraphVisitor.flattenToOptimized(callGraph, GraphVisitorConfig.defaultConfig());
+            FlattenedCallGraph flattened = flatten(callGraph);
             List<AnalysisWarning> warnings = unresolvedWarnings(flattened);
             if (!warnings.isEmpty()) {
                 return AnalysisResult.partial(flattened, warnings, List.of(), metadata);
@@ -81,6 +98,43 @@ public class JavaCallGraphAnalyzer {
             return AnalysisResult.failed(code, messageFor(code), e.getMessage(), metadata);
         } catch (Exception e) {
             log.error("Unexpected error analyzing call graph: {}", e.getMessage(), e);
+            return AnalysisResult.failed(
+                    AnalysisErrorCode.INTERNAL_ERROR,
+                    "Unexpected analysis failure",
+                    e.getMessage(),
+                    metadata);
+        }
+    }
+
+    public AnalysisResult<ExplainableCallGraph> analyzeExplainableResult(
+            String repoId,
+            Path repoRoot,
+            String relativeFilePath,
+            String methodName,
+            AnalysisMetadata metadata) {
+        try {
+            CallGraph callGraph = analyzeOrThrow(repoRoot, relativeFilePath, methodName);
+            FlattenedCallGraph flattened = flatten(callGraph);
+            ExplainableCallGraph explainableCallGraph =
+                    callGraphExplanationMapper.map(repoId, callGraph, flattened);
+            List<AnalysisWarning> warnings = unresolvedWarnings(flattened);
+            if (!warnings.isEmpty()) {
+                return AnalysisResult.partial(explainableCallGraph, warnings, List.of(), metadata);
+            }
+            return AnalysisResult.success(explainableCallGraph, metadata);
+        } catch (IOException e) {
+            log.error("Error reading source file: {}", e.getMessage(), e);
+            return AnalysisResult.failed(
+                    AnalysisErrorCode.PARSE_FAILED,
+                    "Failed to read or parse source file",
+                    e.getMessage(),
+                    metadata);
+        } catch (RuntimeException e) {
+            log.error("Error analyzing explainable call graph: {}", e.getMessage(), e);
+            AnalysisErrorCode code = classifyRuntimeFailure(e);
+            return AnalysisResult.failed(code, messageFor(code), e.getMessage(), metadata);
+        } catch (Exception e) {
+            log.error("Unexpected error analyzing explainable call graph: {}", e.getMessage(), e);
             return AnalysisResult.failed(
                     AnalysisErrorCode.INTERNAL_ERROR,
                     "Unexpected analysis failure",
@@ -112,6 +166,13 @@ public class JavaCallGraphAnalyzer {
         MethodDeclaration targetMethod = findTargetMethod(paramsCu, methodName, relativeFilePath);
         Map<String, String> dtoClasses = dtoAnalyzer.analyze(targetMethod);
         return callGraphBuilder.build(targetMethod, repoRoot, dtoClasses, maxDepth);
+    }
+
+    private FlattenedCallGraph flatten(CallGraph callGraph) {
+        if (callGraph == null) {
+            return FlattenedCallGraph.builder().methods(List.of()).build();
+        }
+        return CallGraphVisitor.flattenToOptimized(callGraph, GraphVisitorConfig.defaultConfig());
     }
 
     private List<AnalysisWarning> unresolvedWarnings(FlattenedCallGraph flattened) {

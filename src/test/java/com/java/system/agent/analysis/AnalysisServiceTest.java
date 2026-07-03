@@ -10,7 +10,9 @@ import com.java.system.agent.analysis.model.AnalysisWarning;
 import com.java.system.agent.analysis.model.ApiRef;
 import com.java.system.agent.analysis.model.EntryPointClass;
 import com.java.system.agent.analysis.model.EntryPointType;
+import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
+import com.java.system.agent.analysis.model.MethodId;
 import com.java.system.agent.analysis.model.RepoDescriptor;
 import com.java.system.agent.analysis.parser.ProjectParserService;
 import com.java.system.agent.analysis.parser.SourceRootResolver;
@@ -21,11 +23,13 @@ import com.java.system.agent.analysis.trie.ApiTrieService;
 import com.java.system.agent.analysis.type.ClassMetadataService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,6 +84,33 @@ class AnalysisServiceTest {
     }
 
     @Test
+    void should_delegateToAnalyzerForExplainableGraph_when_fileNotFoundInSourceRoots() {
+        Path repoRoot = Path.of("/repos/test");
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceRootResolver.resolveSourceRoots(repoRoot))
+                .thenReturn(List.of(repoRoot.resolve("src/main/java")));
+        ExplainableCallGraph expected = emptyExplainableGraph();
+        when(javaCallGraphAnalyzer.analyzeExplainableResult(
+                eq("test-repo"),
+                eq(repoRoot),
+                eq("src/main/java/com/example/controller/FooController.java"),
+                eq("doStuff"),
+                any()))
+                .thenReturn(AnalysisResult.success(expected, null));
+
+        ExplainableCallGraph result = analysisService.analyzeMethodExplainable(
+                "test-repo", "com.example.controller", "FooController", "doStuff");
+
+        assertSame(expected, result);
+        verify(javaCallGraphAnalyzer).analyzeExplainableResult(
+                eq("test-repo"),
+                eq(repoRoot),
+                eq("src/main/java/com/example/controller/FooController.java"),
+                eq("doStuff"),
+                any());
+    }
+
+    @Test
     void analyzeMethodStructured_returnsFailed_whenRepoNotFound() {
         when(sourceCodePort.sourceRoot("missing-repo"))
                 .thenThrow(new UnknownRepoException("missing-repo"));
@@ -112,6 +143,25 @@ class AnalysisServiceTest {
     }
 
     @Test
+    void analyzeMethodExplainableStructured_preservesFailedAnalyzerResult() {
+        Path repoRoot = Path.of("/repos/test");
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
+        when(javaCallGraphAnalyzer.analyzeExplainableResult(anyString(), any(), anyString(), anyString(), any()))
+                .thenReturn(AnalysisResult.failed(
+                        AnalysisErrorCode.ENTRYPOINT_NOT_FOUND,
+                        "Entrypoint method was not found",
+                        "missing",
+                        null));
+
+        AnalysisResult<ExplainableCallGraph> result = analysisService.analyzeMethodExplainableStructured(
+                "test-repo", "com.example", "MissingService", "missing");
+
+        assertEquals(AnalysisStatus.FAILED, result.status());
+        assertEquals(AnalysisErrorCode.ENTRYPOINT_NOT_FOUND, result.errors().get(0).code());
+    }
+
+    @Test
     void analyzeMethod_returnsEmptyGraph_whenStructuredAnalysisFailsForCompatibility() {
         Path repoRoot = Path.of("/repos/test");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
@@ -128,6 +178,27 @@ class AnalysisServiceTest {
 
         assertNotNull(result);
         assertTrue(result.getMethods().isEmpty());
+    }
+
+    @Test
+    void analyzeMethodExplainable_returnsEmptyGraph_whenStructuredAnalysisFailsForCompatibility() {
+        Path repoRoot = Path.of("/repos/test");
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
+        when(javaCallGraphAnalyzer.analyzeExplainableResult(anyString(), any(), anyString(), anyString(), any()))
+                .thenReturn(AnalysisResult.failed(
+                        AnalysisErrorCode.PARSE_FAILED,
+                        "Failed to parse source file",
+                        "bad java",
+                        null));
+
+        ExplainableCallGraph result = analysisService.analyzeMethodExplainable(
+                "test-repo", "com.example", "BrokenService", "run");
+
+        assertNotNull(result);
+        assertTrue(result.nodes().isEmpty());
+        assertTrue(result.edges().isEmpty());
+        assertTrue(result.legacyFlattened().getMethods().isEmpty());
     }
 
     @Test
@@ -223,7 +294,12 @@ class AnalysisServiceTest {
 
         analysisService.reloadRepo("test-repo");
 
-        var inOrder = inOrder(sourceRootResolver, projectParserService, entryPointCacheService, classMetadataService, apiTrieService);
+        InOrder inOrder = inOrder(
+                sourceRootResolver,
+                projectParserService,
+                entryPointCacheService,
+                classMetadataService,
+                apiTrieService);
         inOrder.verify(sourceRootResolver).invalidate(repoRoot);
         inOrder.verify(projectParserService).invalidate(repoRoot);
         inOrder.verify(entryPointCacheService).reload(repoRoot);
@@ -240,5 +316,15 @@ class AnalysisServiceTest {
         List<RepoDescriptor> result = analysisService.allRepos();
 
         assertSame(expected, result);
+    }
+
+    private ExplainableCallGraph emptyExplainableGraph() {
+        MethodId root = new MethodId("test-repo", "com.example", "FooController", "doStuff", List.of());
+        return new ExplainableCallGraph(
+                root,
+                List.of(),
+                List.of(),
+                Map.of(),
+                FlattenedCallGraph.builder().methods(List.of()).build());
     }
 }

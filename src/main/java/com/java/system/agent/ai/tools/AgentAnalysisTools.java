@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.analysis.AnalysisService;
 import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.AnalysisStatus;
-import com.java.system.agent.analysis.model.FlattenedCallGraph;
+import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ToolContext;
@@ -44,7 +44,7 @@ public class AgentAnalysisTools {
         recordCall(toolContext, repoId, className, methodSignature);
 
         String userQuery = (String) toolContext.getContext().getOrDefault("userQuery", "");
-        AnalysisResult<FlattenedCallGraph> analysisResult = analysisService.analyzeMethodStructured(
+        AnalysisResult<ExplainableCallGraph> analysisResult = analysisService.analyzeMethodExplainableStructured(
                 repoId, packageName, className, methodSignature);
         StringBuilder result = new StringBuilder();
 
@@ -120,6 +120,10 @@ public class AgentAnalysisTools {
     private String innerUserPrompt(String callGraphJson) {
         return """
                 請將以下程式碼呼叫鏈翻譯為業務流程說明：
+                Explainable graph JSON guidance:
+                - Read data.nodes for methods and data.edges for caller-to-callee relationships.
+                - Use edge.resolutionStrategy, edge.confidence, and edge.warnings when judging reliability.
+                - Treat LOW confidence or UNRESOLVED edges as uncertainty, and call find_call_graph again when expansion is needed.
 
                 %s
                 """.formatted(callGraphJson);

@@ -4,6 +4,10 @@ import com.java.system.agent.analysis.fixture.ExpectedGraphLoader;
 import com.java.system.agent.analysis.fixture.ExpectedGraphSpec;
 import com.java.system.agent.analysis.fixture.FixtureRepoLoader;
 import com.java.system.agent.analysis.fixture.GraphAssert;
+import com.java.system.agent.analysis.model.AnalysisMetadata;
+import com.java.system.agent.analysis.model.AnalysisResult;
+import com.java.system.agent.analysis.model.AnalysisStatus;
+import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import com.java.system.agent.analysis.parser.ProjectParserService;
 import com.java.system.agent.analysis.parser.SourceRootResolver;
@@ -12,6 +16,10 @@ import com.java.system.agent.analysis.type.MapperXmlSqlExtractor;
 import com.java.system.agent.analysis.type.ScopeTypeResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class CallGraphFixtureTest {
 
@@ -40,6 +48,7 @@ class CallGraphFixtureTest {
                 classMetadataService,
                 new DtoAnalyzer(),
                 callGraphBuilder,
+                new CallGraphExplanationMapper(),
                 4);
         fixtureRepoLoader = new FixtureRepoLoader();
         expectedGraphLoader = new ExpectedGraphLoader(fixtureRepoLoader);
@@ -67,6 +76,28 @@ class CallGraphFixtureTest {
         ExpectedGraphSpec spec = expectedGraphLoader.load(FIXTURE, "mybatis-xml");
 
         GraphAssert.assertMatches(graph, spec);
+    }
+
+    @Test
+    void should_return_explainable_graph_with_legacy_flattened_fixture() {
+        AnalysisResult<ExplainableCallGraph> result = analyzer.analyzeExplainableResult(
+                FIXTURE,
+                fixtureRepoLoader.fixtureRoot(FIXTURE),
+                fixtureRepoLoader.sourceFile(FIXTURE, CONTROLLER_SOURCE),
+                "getBasic",
+                AnalysisMetadata.now(FIXTURE, "com.example.basic", "BasicController", "getBasic"));
+
+        assertNotEquals(AnalysisStatus.FAILED, result.status());
+        assertNotNull(result.data());
+        assertNotNull(result.data().root());
+        assertNotNull(result.data().legacyFlattened());
+        assertFalse(result.data().nodes().isEmpty());
+        assertFalse(result.data().edges().isEmpty());
+        assertFalse(result.data().legacyFlattened().getMethods().isEmpty());
+        assertFalse(result.data().edges().stream()
+                .filter(edge -> edge.resolutionStrategy() != null)
+                .toList()
+                .isEmpty());
     }
 
     private FlattenedCallGraph analyzeBasicController() {
