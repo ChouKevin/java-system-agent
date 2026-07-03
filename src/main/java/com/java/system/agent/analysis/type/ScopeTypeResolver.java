@@ -213,9 +213,15 @@ public class ScopeTypeResolver {
     public Optional<String> extractScopeName(MethodCallExpr call) {
         return call.getScope()
                 .filter(scope -> scope.isNameExpr() || scope.isFieldAccessExpr())
-                .map(scope -> scope.isFieldAccessExpr()
-                        ? scope.asFieldAccessExpr().getNameAsString()
-                        : scope.toString());
+                .flatMap(scope -> {
+                    if (scope.isNameExpr()) {
+                        return Optional.of(scope.toString());
+                    }
+                    if (scope.asFieldAccessExpr().getScope().isThisExpr()) {
+                        return Optional.of(scope.asFieldAccessExpr().getNameAsString());
+                    }
+                    return Optional.empty();
+                });
     }
 
     /** 移除泛型型別參數：{@code List<String>} → {@code List} */

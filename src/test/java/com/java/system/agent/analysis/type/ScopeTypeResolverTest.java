@@ -116,6 +116,49 @@ class ScopeTypeResolverTest {
     // ── baseMapper ──────────────────────────────────────────────────────────
 
     @Test
+    void should_resolve_this_field_access_scope() {
+        String code =
+                "package com.example;\n" +
+                "public class MyService {\n" +
+                "    private Client client;\n" +
+                "    public void process() {\n" +
+                "        this.client.call();\n" +
+                "    }\n" +
+                "}";
+
+        CompilationUnit cu = parser.parse(code).getResult().get();
+        ClassOrInterfaceDeclaration cls = cu.findAll(ClassOrInterfaceDeclaration.class).get(0);
+        MethodDeclaration method = cls.getMethods().get(0);
+        MethodCallExpr call = method.findAll(MethodCallExpr.class).get(0);
+
+        Optional<String> result = scopeTypeResolver.inferTypeName(call, method, cls);
+
+        assertTrue(result.isPresent());
+        assertEquals("Client", result.get());
+    }
+
+    @Test
+    void should_not_resolve_arbitrary_nested_field_access_scope_as_current_class_member() {
+        String code =
+                "package com.example;\n" +
+                "public class MyService {\n" +
+                "    private Client client;\n" +
+                "    public void process(Holder holder) {\n" +
+                "        holder.client.call();\n" +
+                "    }\n" +
+                "}";
+
+        CompilationUnit cu = parser.parse(code).getResult().get();
+        ClassOrInterfaceDeclaration cls = cu.findAll(ClassOrInterfaceDeclaration.class).get(0);
+        MethodDeclaration method = cls.getMethods().get(0);
+        MethodCallExpr call = method.findAll(MethodCallExpr.class).get(0);
+
+        Optional<String> result = scopeTypeResolver.inferTypeName(call, method, cls);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
     void should_return_empty_when_baseMapper_but_no_ServiceImpl_extends() {
         String serviceCode =
                 "package com.example.service;\n" +

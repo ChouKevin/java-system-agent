@@ -259,12 +259,14 @@ public class CallGraphBuilder {
             List<String> dataAccessEvidence = evidenceCodes(
                     receiver,
                     "TARGET_METADATA_FOUND",
-                    "MYBATIS_MAPPER_ANNOTATION");
-            if (dataAccess.xmlSqlFound()) {
+                    hasMapperAnnotation(metadata)
+                            ? "MYBATIS_MAPPER_ANNOTATION"
+                            : "DATA_ACCESS_METADATA_FOUND");
+            if ("MYBATIS_XML_SQL_FOUND".equals(dataAccess.sqlEvidenceCode())) {
                 dataAccessEvidence = new ArrayList<>(dataAccessEvidence);
                 dataAccessEvidence.add("MYBATIS_XML_SQL_FOUND");
             }
-            if (dataAccess.annotationSqlFound() && !dataAccess.xmlSqlFound()) {
+            if ("MYBATIS_ANNOTATION_SQL_FOUND".equals(dataAccess.sqlEvidenceCode())) {
                 dataAccessEvidence = new ArrayList<>(dataAccessEvidence);
                 dataAccessEvidence.add("MYBATIS_ANNOTATION_SQL_FOUND");
             }
@@ -348,16 +350,28 @@ public class CallGraphBuilder {
                 .map(ClassMetadata.MethodSignature::sql)
                 .filter(StringUtils::hasText)
                 .orElse(null);
-        String sql = StringUtils.hasText(annotationSql)
-                ? annotationSql
-                : xmlSqlOpt.orElse(null);
+        String xmlSql = xmlSqlOpt.filter(StringUtils::hasText).orElse(null);
+        String sql = StringUtils.hasText(xmlSql) ? xmlSql : annotationSql;
+        String sqlEvidenceCode = null;
+        if (StringUtils.hasText(xmlSql)) {
+            sqlEvidenceCode = "MYBATIS_XML_SQL_FOUND";
+        } else if (StringUtils.hasText(annotationSql)) {
+            sqlEvidenceCode = "MYBATIS_ANNOTATION_SQL_FOUND";
+        }
 
         CallGraph node = CallGraph.leafWithCode(signature, metadata.className(), methodName,
                 CallType.DATA_ACCESS, null, sql);
-        return new DataAccessResolution(
-                node,
-                xmlSqlOpt.filter(StringUtils::hasText).isPresent(),
-                StringUtils.hasText(annotationSql));
+        return new DataAccessResolution(node, sqlEvidenceCode);
+    }
+
+    private boolean hasMapperAnnotation(ClassMetadata metadata) {
+        if (metadata.annotations() == null) {
+            return false;
+        }
+        return metadata.annotations().stream()
+                .anyMatch(annotation -> "Mapper".equals(annotation)
+                        || "org.apache.ibatis.annotations.Mapper".equals(annotation)
+                        || annotation.endsWith(".Mapper"));
     }
 
     private boolean hasMyBatisSqlAnnotation(ClassMetadata.MethodSignature methodSignature) {
@@ -377,8 +391,7 @@ public class CallGraphBuilder {
 
     private record DataAccessResolution(
             CallGraph node,
-            boolean xmlSqlFound,
-            boolean annotationSqlFound) {
+            String sqlEvidenceCode) {
     }
 
     /** Fallback when AST method declaration is not found in the resolved class. */
@@ -517,7 +530,7 @@ public class CallGraphBuilder {
         for (ClassMetadata metadata : candidates) {
             // 不用 shouldRecurse 過濾 — interface 的實作本身就是 call graph 需要的，
             // 即使是純 Java class（strategy pattern、domain model 等）也應納入分析
-            boolean hasMethod = metadata.methods().stream()
+            boolean hasMethod = metadata.methods() != null && metadata.methods().stream()
                     .anyMatch(m -> m.name().equals(methodName) && m.paramCount() == paramCount);
 
             if (!hasMethod) {

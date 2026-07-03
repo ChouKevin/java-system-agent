@@ -4,6 +4,7 @@ import com.java.system.agent.analysis.model.AnalysisMetadata;
 import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.AnalysisStatus;
 import com.java.system.agent.analysis.model.CallEdge;
+import com.java.system.agent.analysis.model.CallNode;
 import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import com.java.system.agent.analysis.model.ResolutionStrategy;
 import com.java.system.agent.analysis.parser.ProjectParserService;
@@ -211,6 +212,94 @@ class CallGraphBuilderResolutionEvidenceTest {
     }
 
     @Test
+    void should_align_sql_evidence_with_displayed_xml_sql_when_annotation_and_xml_exist(@TempDir Path repoRoot)
+            throws IOException {
+        writeSource(repoRoot, "BasicService.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicService {
+                    private BasicRepository basicRepository;
+
+                    String getBasic(String id) {
+                        return basicRepository.findName(id);
+                    }
+                }
+                """);
+        writeSource(repoRoot, "BasicRepository.java", """
+                package com.example.basic;
+
+                import org.apache.ibatis.annotations.Mapper;
+                import org.apache.ibatis.annotations.Select;
+
+                @Mapper
+                interface BasicRepository {
+                    @Select("SELECT annotation_name FROM basic WHERE id = #{id}")
+                    String findName(String id);
+                }
+                """);
+        writeResource(repoRoot, "mapper/BasicRepository.xml", """
+                <?xml version="1.0" encoding="UTF-8" ?>
+                <mapper namespace="com.example.basic.BasicRepository">
+                    <select id="findName">
+                        SELECT xml_name FROM basic WHERE id = #{id}
+                    </select>
+                </mapper>
+                """);
+
+        AnalysisResult<ExplainableCallGraph> result = analyze(repoRoot, "getBasic");
+
+        assertNotEquals(AnalysisStatus.FAILED, result.status());
+        CallEdge edge = edgeTo(result.data(), "findName");
+        CallNode node = nodeFor(result.data(), "findName");
+        assertTrue(node.code().contains("xml_name"));
+        assertFalse(node.code().contains("annotation_name"));
+        assertTrue(edge.evidence().contains("MYBATIS_XML_SQL_FOUND"));
+        assertFalse(edge.evidence().contains("MYBATIS_ANNOTATION_SQL_FOUND"));
+    }
+
+    @Test
+    void should_not_claim_mybatis_mapper_annotation_for_non_mybatis_data_access(@TempDir Path repoRoot)
+            throws IOException {
+        writeSource(repoRoot, "BasicService.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicService {
+                    private BasicRepository basicRepository;
+
+                    String getBasic(String id) {
+                        return basicRepository.findName(id);
+                    }
+                }
+                """);
+        writeSource(repoRoot, "BasicRepository.java", """
+                package com.example.basic;
+
+                import org.springframework.data.jpa.repository.JpaRepository;
+
+                interface BasicRepository extends JpaRepository<BasicEntity, String> {
+                    String findName(String id);
+                }
+
+                class BasicEntity {
+                }
+                """);
+
+        AnalysisResult<ExplainableCallGraph> result = analyze(repoRoot, "getBasic");
+
+        assertNotEquals(AnalysisStatus.FAILED, result.status());
+        CallEdge edge = edgeTo(result.data(), "findName");
+        assertEquals(ResolutionStrategy.MYBATIS_MAPPER, edge.resolutionStrategy());
+        assertFalse(edge.evidence().contains("MYBATIS_MAPPER_ANNOTATION"));
+        assertTrue(edge.evidence().contains("DATA_ACCESS_METADATA_FOUND"));
+    }
+
+    @Test
     void should_not_label_interface_without_implementation_as_single_impl(@TempDir Path repoRoot)
             throws IOException {
         writeSource(repoRoot, "BasicService.java", """
@@ -260,10 +349,24 @@ class CallGraphBuilderResolutionEvidenceTest {
         Files.writeString(sourceFile, code);
     }
 
+    private void writeResource(Path repoRoot, String fileName, String content) throws IOException {
+        Path resourceFile = repoRoot.resolve("src/main/resources").resolve(fileName);
+        Files.createDirectories(resourceFile.getParent());
+        Files.writeString(resourceFile, content);
+    }
+
     private CallEdge edgeTo(ExplainableCallGraph graph, String methodName) {
         assertNotNull(graph);
         return graph.edges().stream()
                 .filter(edge -> methodName.equals(edge.callee().methodName()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private CallNode nodeFor(ExplainableCallGraph graph, String methodName) {
+        assertNotNull(graph);
+        return graph.nodes().stream()
+                .filter(node -> methodName.equals(node.methodId().methodName()))
                 .findFirst()
                 .orElseThrow();
     }
