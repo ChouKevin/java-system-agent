@@ -151,6 +151,63 @@ class CallGraphBuilderResolutionEvidenceTest {
     }
 
     @Test
+    void should_treat_parameter_and_local_variable_receiver_types_as_inferred_not_spring_beans(
+            @TempDir Path repoRoot) throws IOException {
+        writeSource(repoRoot, "BasicService.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicService {
+                    String fromParameter(BasicCollaborator collaborator, String id) {
+                        return collaborator.fromParameter(id);
+                    }
+
+                    String fromLocalVariable(String id) {
+                        BasicCollaborator collaborator = new BasicCollaborator();
+                        return collaborator.fromLocalVariable(id);
+                    }
+                }
+                """);
+        writeSource(repoRoot, "BasicCollaborator.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicCollaborator {
+                    String fromParameter(String id) {
+                        return id;
+                    }
+
+                    String fromLocalVariable(String id) {
+                        return id;
+                    }
+                }
+                """);
+
+        AnalysisResult<ExplainableCallGraph> parameterResult = analyze(repoRoot, "fromParameter");
+        AnalysisResult<ExplainableCallGraph> localVariableResult = analyze(repoRoot, "fromLocalVariable");
+
+        assertNotEquals(AnalysisStatus.FAILED, parameterResult.status());
+        CallEdge parameterEdge = edgeTo(parameterResult.data(), "fromParameter");
+        assertEquals(ResolutionStrategy.HEURISTIC_NAME_MATCH, parameterEdge.resolutionStrategy());
+        assertEquals(0.65, parameterEdge.confidence());
+        assertTrue(parameterEdge.evidence().contains("RECEIVER_PARAMETER_TYPE"));
+        assertTrue(parameterEdge.evidence().contains("TARGET_METHOD_FOUND"));
+        assertTrue(parameterEdge.warnings().contains("Receiver type inferred from parameter or local variable"));
+
+        assertNotEquals(AnalysisStatus.FAILED, localVariableResult.status());
+        CallEdge localVariableEdge = edgeTo(localVariableResult.data(), "fromLocalVariable");
+        assertEquals(ResolutionStrategy.HEURISTIC_NAME_MATCH, localVariableEdge.resolutionStrategy());
+        assertEquals(0.65, localVariableEdge.confidence());
+        assertTrue(localVariableEdge.evidence().contains("RECEIVER_LOCAL_VARIABLE_TYPE"));
+        assertTrue(localVariableEdge.evidence().contains("TARGET_METHOD_FOUND"));
+        assertTrue(localVariableEdge.warnings().contains("Receiver type inferred from parameter or local variable"));
+    }
+
+    @Test
     void should_attach_unresolved_receiver_evidence(@TempDir Path repoRoot) throws IOException {
         writeSource(repoRoot, "BasicService.java", """
                 package com.example.basic;
@@ -294,9 +351,13 @@ class CallGraphBuilderResolutionEvidenceTest {
 
         assertNotEquals(AnalysisStatus.FAILED, result.status());
         CallEdge edge = edgeTo(result.data(), "findName");
-        assertEquals(ResolutionStrategy.MYBATIS_MAPPER, edge.resolutionStrategy());
+        assertEquals(ResolutionStrategy.UNKNOWN, edge.resolutionStrategy());
+        assertEquals(0.70, edge.confidence());
         assertFalse(edge.evidence().contains("MYBATIS_MAPPER_ANNOTATION"));
+        assertFalse(edge.evidence().contains("MYBATIS_XML_SQL_FOUND"));
+        assertFalse(edge.evidence().contains("MYBATIS_ANNOTATION_SQL_FOUND"));
         assertTrue(edge.evidence().contains("DATA_ACCESS_METADATA_FOUND"));
+        assertTrue(edge.warnings().contains("Data access metadata detected without MyBatis mapper evidence"));
     }
 
     @Test

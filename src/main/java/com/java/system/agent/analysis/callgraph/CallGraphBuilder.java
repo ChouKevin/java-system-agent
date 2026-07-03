@@ -20,6 +20,11 @@ import java.util.*;
 @Component
 public class CallGraphBuilder {
 
+    private static final String RECEIVER_TYPE_INFERENCE_WARNING =
+            "Receiver type inferred from parameter or local variable";
+    private static final String NON_MYBATIS_DATA_ACCESS_WARNING =
+            "Data access metadata detected without MyBatis mapper evidence";
+
     private final CallGraphClassifier classifier;
     private final ClassMetadataService classMetadataService;
     private final ScopeTypeResolver scopeTypeResolver;
@@ -189,7 +194,8 @@ public class CallGraphBuilder {
         return switch (receiver.origin()) {
             case SAME_CLASS -> ResolutionStrategy.SAME_CLASS_METHOD;
             case STATIC_CLASS -> ResolutionStrategy.STATIC_METHOD;
-            case FIELD, PARAMETER, LOCAL_VARIABLE -> ResolutionStrategy.SPRING_BEAN_BY_TYPE;
+            case FIELD -> ResolutionStrategy.SPRING_BEAN_BY_TYPE;
+            case PARAMETER, LOCAL_VARIABLE -> ResolutionStrategy.HEURISTIC_NAME_MATCH;
             default -> ResolutionStrategy.HEURISTIC_NAME_MATCH;
         };
     }
@@ -198,8 +204,15 @@ public class CallGraphBuilder {
         return switch (receiver.origin()) {
             case SAME_CLASS, FIELD -> 0.95;
             case STATIC_CLASS -> 0.90;
-            case PARAMETER, LOCAL_VARIABLE -> 0.85;
+            case PARAMETER, LOCAL_VARIABLE -> 0.65;
             default -> 0.70;
+        };
+    }
+
+    private List<String> methodWarnings(ResolvedReceiver receiver) {
+        return switch (receiver.origin()) {
+            case PARAMETER, LOCAL_VARIABLE -> List.of(RECEIVER_TYPE_INFERENCE_WARNING);
+            default -> List.of();
         };
     }
 
@@ -256,10 +269,12 @@ public class CallGraphBuilder {
                     methodName,
                     argCount,
                     ctx.repoRoot());
+            boolean hasMapperAnnotation = hasMapperAnnotation(metadata);
+            boolean hasMyBatisPlusDataAccess = isMyBatisPlusDataAccess(metadata);
             List<String> dataAccessEvidence = evidenceCodes(
                     receiver,
                     "TARGET_METADATA_FOUND",
-                    hasMapperAnnotation(metadata)
+                    hasMapperAnnotation
                             ? "MYBATIS_MAPPER_ANNOTATION"
                             : "DATA_ACCESS_METADATA_FOUND");
             if ("MYBATIS_XML_SQL_FOUND".equals(dataAccess.sqlEvidenceCode())) {
@@ -270,11 +285,19 @@ public class CallGraphBuilder {
                 dataAccessEvidence = new ArrayList<>(dataAccessEvidence);
                 dataAccessEvidence.add("MYBATIS_ANNOTATION_SQL_FOUND");
             }
+            if (hasMyBatisPlusDataAccess) {
+                dataAccessEvidence = new ArrayList<>(dataAccessEvidence);
+                dataAccessEvidence.add("MYBATIS_PLUS_BASE_MAPPER");
+            }
+            boolean hasMyBatisEvidence = hasMapperAnnotation
+                    || "MYBATIS_XML_SQL_FOUND".equals(dataAccess.sqlEvidenceCode())
+                    || "MYBATIS_ANNOTATION_SQL_FOUND".equals(dataAccess.sqlEvidenceCode())
+                    || hasMyBatisPlusDataAccess;
             children.add(withEvidence(dataAccess.node(), evidence(
-                    ResolutionStrategy.MYBATIS_MAPPER,
-                    0.95,
+                    hasMyBatisEvidence ? ResolutionStrategy.MYBATIS_MAPPER : ResolutionStrategy.UNKNOWN,
+                    hasMyBatisEvidence ? 0.95 : 0.70,
                     dataAccessEvidence,
-                    List.of(),
+                    hasMyBatisEvidence ? List.of() : List.of(NON_MYBATIS_DATA_ACCESS_WARNING),
                     call)));
             return;
         }
@@ -372,6 +395,14 @@ public class CallGraphBuilder {
                 .anyMatch(annotation -> "Mapper".equals(annotation)
                         || "org.apache.ibatis.annotations.Mapper".equals(annotation)
                         || annotation.endsWith(".Mapper"));
+    }
+
+    private boolean isMyBatisPlusDataAccess(ClassMetadata metadata) {
+        return metadata.implementedTypes().stream()
+                .anyMatch(type -> type.contains("BaseMapper"))
+                || metadata.extendedTypes().stream()
+                .anyMatch(type -> type.contains("BaseMapper"))
+                || classifier.isImplOfMyBatis(metadata);
     }
 
     private boolean hasMyBatisSqlAnnotation(ClassMetadata.MethodSignature methodSignature) {
@@ -501,7 +532,7 @@ public class CallGraphBuilder {
                         methodResolutionStrategy(receiver),
                         methodConfidence(receiver),
                         evidenceCodes(receiver, "TARGET_METADATA_FOUND", "TARGET_METHOD_FOUND"),
-                        List.of(),
+                        methodWarnings(receiver),
                         call)));
             } else {
                 children.add(buildMethodNotFoundNode(qualifiedSignature, metadata, methodName, receiver, call));
