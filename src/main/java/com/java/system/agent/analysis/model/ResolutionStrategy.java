@@ -1,0 +1,16 @@
+package com.java.system.agent.analysis.model;
+
+public enum ResolutionStrategy {
+    JAVA_SYMBOL_SOLVER,
+    SAME_CLASS_METHOD,
+    STATIC_METHOD,
+    SPRING_BEAN_BY_TYPE,
+    SPRING_BEAN_BY_QUALIFIER,
+    INTERFACE_SINGLE_IMPL,
+    INTERFACE_MULTI_IMPL,
+    MYBATIS_MAPPER,
+    FEIGN_CLIENT,
+    HEURISTIC_NAME_MATCH,
+    UNRESOLVED,
+    UNKNOWN
+}

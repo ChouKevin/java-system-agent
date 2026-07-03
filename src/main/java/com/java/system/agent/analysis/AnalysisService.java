@@ -6,6 +6,7 @@ import com.java.system.agent.analysis.model.AnalysisMetadata;
 import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.EntryPointClass;
 import com.java.system.agent.analysis.model.EntryPointType;
+import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import com.java.system.agent.analysis.model.RepoDescriptor;
 import com.java.system.agent.analysis.exception.UnknownRepoException;
@@ -27,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -92,6 +94,56 @@ public class AnalysisService {
                     metadata);
         } catch (Exception e) {
             log.error("Structured analysis failed for {}.{}.{}", repoId, className, methodName, e);
+            return AnalysisResult.failed(
+                    AnalysisErrorCode.INTERNAL_ERROR,
+                    "Unexpected analysis failure",
+                    e.getMessage(),
+                    metadata);
+        }
+    }
+
+    public ExplainableCallGraph analyzeMethodExplainable(String repoId,
+                                                         String packageName,
+                                                         String className,
+                                                         String methodName) {
+        AnalysisResult<ExplainableCallGraph> result = analyzeMethodExplainableStructured(
+                repoId, packageName, className, methodName);
+        if (result.data() != null) {
+            return result.data();
+        }
+        return new ExplainableCallGraph(
+                null,
+                List.of(),
+                List.of(),
+                Map.of(),
+                FlattenedCallGraph.builder().methods(List.of()).build());
+    }
+
+    public AnalysisResult<ExplainableCallGraph> analyzeMethodExplainableStructured(String repoId,
+                                                                                   String packageName,
+                                                                                   String className,
+                                                                                   String methodName) {
+        AnalysisMetadata metadata = AnalysisMetadata.now(repoId, packageName, className, methodName);
+        try {
+            Path repoRoot = sourceCodePort.sourceRoot(repoId);
+            if (repoRoot == null) {
+                return AnalysisResult.failed(
+                        AnalysisErrorCode.REPO_NOT_FOUND,
+                        "Repository root was not resolved",
+                        repoId,
+                        metadata);
+            }
+            String relativePath = resolveRelativePath(repoRoot, packageName, className);
+            return javaCallGraphAnalyzer.analyzeExplainableResult(
+                    repoId, repoRoot, relativePath, methodName, metadata);
+        } catch (UnknownRepoException e) {
+            return AnalysisResult.failed(
+                    AnalysisErrorCode.REPO_NOT_FOUND,
+                    "Repository was not found",
+                    e.getMessage(),
+                    metadata);
+        } catch (Exception e) {
+            log.error("Explainable analysis failed for {}.{}.{}", repoId, className, methodName, e);
             return AnalysisResult.failed(
                     AnalysisErrorCode.INTERNAL_ERROR,
                     "Unexpected analysis failure",
