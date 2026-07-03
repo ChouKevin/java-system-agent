@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -169,6 +170,79 @@ class CallGraphBuilderResolutionEvidenceTest {
         CallEdge edge = edgeTo(result.data(), "fetch");
         assertEquals(ResolutionStrategy.UNRESOLVED, edge.resolutionStrategy());
         assertTrue(edge.evidence().contains("RECEIVER_TYPE_UNRESOLVED"));
+    }
+
+    @Test
+    void should_not_claim_xml_evidence_for_annotation_sql(@TempDir Path repoRoot) throws IOException {
+        writeSource(repoRoot, "BasicService.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicService {
+                    private BasicRepository basicRepository;
+
+                    String getBasic(String id) {
+                        return basicRepository.findName(id);
+                    }
+                }
+                """);
+        writeSource(repoRoot, "BasicRepository.java", """
+                package com.example.basic;
+
+                import org.apache.ibatis.annotations.Mapper;
+                import org.apache.ibatis.annotations.Select;
+
+                @Mapper
+                interface BasicRepository {
+                    @Select("SELECT name FROM basic WHERE id = #{id}")
+                    String findName(String id);
+                }
+                """);
+
+        AnalysisResult<ExplainableCallGraph> result = analyze(repoRoot, "getBasic");
+
+        assertNotEquals(AnalysisStatus.FAILED, result.status());
+        CallEdge edge = edgeTo(result.data(), "findName");
+        assertEquals(ResolutionStrategy.MYBATIS_MAPPER, edge.resolutionStrategy());
+        assertFalse(edge.evidence().contains("MYBATIS_XML_SQL_FOUND"));
+        assertTrue(edge.evidence().contains("MYBATIS_ANNOTATION_SQL_FOUND"));
+    }
+
+    @Test
+    void should_not_label_interface_without_implementation_as_single_impl(@TempDir Path repoRoot)
+            throws IOException {
+        writeSource(repoRoot, "BasicService.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicService {
+                    private BasicGateway basicGateway;
+
+                    String getBasic(String id) {
+                        return basicGateway.fetch(id);
+                    }
+                }
+                """);
+        writeSource(repoRoot, "BasicGateway.java", """
+                package com.example.basic;
+
+                interface BasicGateway {
+                    String fetch(String id);
+                }
+                """);
+
+        AnalysisResult<ExplainableCallGraph> result = analyze(repoRoot, "getBasic");
+
+        assertNotEquals(AnalysisStatus.FAILED, result.status());
+        CallEdge edge = edgeTo(result.data(), "fetch");
+        assertEquals(ResolutionStrategy.UNRESOLVED, edge.resolutionStrategy());
+        assertFalse(edge.evidence().contains("SINGLE_INTERFACE_IMPLEMENTATION"));
+        assertTrue(edge.evidence().contains("METHOD_SOURCE_NOT_FOUND"));
+        assertTrue(edge.warnings().contains("No interface implementation matched"));
     }
 
     private AnalysisResult<ExplainableCallGraph> analyze(Path repoRoot, String methodName) {

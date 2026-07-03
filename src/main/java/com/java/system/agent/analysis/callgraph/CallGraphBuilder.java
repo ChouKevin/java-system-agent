@@ -250,16 +250,25 @@ public class CallGraphBuilder {
                 : metadata.className() + "#" + methodName;
 
         if (classifier.isDatabaseLayer(metadata)) {
-            CallGraph dataAccess = buildDataAccessNode(signature, metadata, methodName, argCount, ctx.repoRoot());
+            DataAccessResolution dataAccess = buildDataAccessNode(
+                    signature,
+                    metadata,
+                    methodName,
+                    argCount,
+                    ctx.repoRoot());
             List<String> dataAccessEvidence = evidenceCodes(
                     receiver,
                     "TARGET_METADATA_FOUND",
                     "MYBATIS_MAPPER_ANNOTATION");
-            if (StringUtils.hasText(dataAccess.getCode())) {
+            if (dataAccess.xmlSqlFound()) {
                 dataAccessEvidence = new ArrayList<>(dataAccessEvidence);
                 dataAccessEvidence.add("MYBATIS_XML_SQL_FOUND");
             }
-            children.add(withEvidence(dataAccess, evidence(
+            if (dataAccess.annotationSqlFound() && !dataAccess.xmlSqlFound()) {
+                dataAccessEvidence = new ArrayList<>(dataAccessEvidence);
+                dataAccessEvidence.add("MYBATIS_ANNOTATION_SQL_FOUND");
+            }
+            children.add(withEvidence(dataAccess.node(), evidence(
                     ResolutionStrategy.MYBATIS_MAPPER,
                     0.95,
                     dataAccessEvidence,
@@ -326,21 +335,50 @@ public class CallGraphBuilder {
         processResolvedType(typeAstOpt.get(), metadata, methodName, argCount, signature, receiver, call, ctx, children);
     }
 
-    private CallGraph buildDataAccessNode(String signature, ClassMetadata metadata,
+    private DataAccessResolution buildDataAccessNode(String signature, ClassMetadata metadata,
             String methodName, int paramCount, Path repoRoot) {
-        String sql = metadata.methods() == null ? null
+        Optional<ClassMetadata.MethodSignature> methodSignatureOpt = metadata.methods() == null
+                ? Optional.empty()
                 : metadata.methods().stream()
                         .filter(m -> m.name().equals(methodName) && m.paramCount() == paramCount)
-                        .map(ClassMetadata.MethodSignature::sql)
-                        .findFirst()
-                        .orElse(null);
+                        .findFirst();
+        Optional<String> xmlSqlOpt = classMetadataService.findMapperXmlSql(metadata, methodName, repoRoot);
+        String annotationSql = methodSignatureOpt
+                .filter(this::hasMyBatisSqlAnnotation)
+                .map(ClassMetadata.MethodSignature::sql)
+                .filter(StringUtils::hasText)
+                .orElse(null);
+        String sql = StringUtils.hasText(annotationSql)
+                ? annotationSql
+                : xmlSqlOpt.orElse(null);
 
-        if (sql == null) {
-            sql = classMetadataService.findMapperXmlSql(metadata, methodName, repoRoot).orElse(null);
-        }
-
-        return CallGraph.leafWithCode(signature, metadata.className(), methodName,
+        CallGraph node = CallGraph.leafWithCode(signature, metadata.className(), methodName,
                 CallType.DATA_ACCESS, null, sql);
+        return new DataAccessResolution(
+                node,
+                xmlSqlOpt.filter(StringUtils::hasText).isPresent(),
+                StringUtils.hasText(annotationSql));
+    }
+
+    private boolean hasMyBatisSqlAnnotation(ClassMetadata.MethodSignature methodSignature) {
+        if (methodSignature.annotations() == null) {
+            return false;
+        }
+        return methodSignature.annotations().stream()
+                .anyMatch(annotation -> "Select".equals(annotation)
+                        || "Update".equals(annotation)
+                        || "Insert".equals(annotation)
+                        || "Delete".equals(annotation)
+                        || annotation.endsWith(".Select")
+                        || annotation.endsWith(".Update")
+                        || annotation.endsWith(".Insert")
+                        || annotation.endsWith(".Delete"));
+    }
+
+    private record DataAccessResolution(
+            CallGraph node,
+            boolean xmlSqlFound,
+            boolean annotationSqlFound) {
     }
 
     /** Fallback when AST method declaration is not found in the resolved class. */
@@ -391,6 +429,17 @@ public class CallGraphBuilder {
             List<ImplResult> implementations = findImplementationsByName(className, methodName, paramCount, ctx);
 
             CallGraph interfaceNode = CallGraph.branch(qualifiedSignature, className, methodName, CallType.INTERFACE);
+            if (implementations.isEmpty()) {
+                interfaceNode.setResolutionEvidence(evidence(
+                        ResolutionStrategy.UNRESOLVED,
+                        0.20,
+                        evidenceCodes(receiver, "TARGET_METADATA_FOUND", "METHOD_SOURCE_NOT_FOUND"),
+                        List.of("No interface implementation matched"),
+                        call));
+                children.add(interfaceNode);
+                return;
+            }
+
             boolean hasMultipleImplementations = implementations.size() > 1;
             ResolutionStrategy strategy = hasMultipleImplementations
                     ? ResolutionStrategy.INTERFACE_MULTI_IMPL
