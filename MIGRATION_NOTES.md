@@ -1,12 +1,5 @@
 # Migration Notes
 
-## 2026-07-03 - Explainable Call Graph Model
-
-- Added an explainable call graph model centered on `ExplainableCallGraph`, `CallNode`, `CallEdge`, and `MethodId`.
-- Migrated Slack, tool, and HTTP API boundaries to return `AnalysisResult<ExplainableCallGraph>` so callers can inspect analysis status, warnings, errors, nodes, edges, and resolution details.
-- Kept the legacy flattened compatibility path at `/analysis/call-graph/{repo}/flatten` and in `ExplainableCallGraph.legacyFlattened`.
-- Initial `ResolutionStrategy` classifications are intentionally conservative: interface, MyBatis/data-access, external, unresolved, and heuristic cases are marked explicitly until deeper symbol evidence is available.
-
 ## 2026-07-03 - Fixture-Based Static Analysis Tests
 
 - Added `src/test/resources/fixtures/spring-basic` as the first deterministic static-analysis regression fixture.
