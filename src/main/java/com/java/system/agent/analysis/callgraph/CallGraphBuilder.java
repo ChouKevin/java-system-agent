@@ -4,7 +4,10 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.java.system.agent.analysis.model.ClassMetadata;
+import com.java.system.agent.analysis.model.ResolutionStrategy;
 import com.java.system.agent.analysis.type.ClassMetadataService;
+import com.java.system.agent.analysis.type.ScopeTypeResolver.ReceiverOrigin;
+import com.java.system.agent.analysis.type.ScopeTypeResolver.ResolvedReceiver;
 import com.java.system.agent.analysis.type.ScopeTypeResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -154,19 +157,72 @@ public class CallGraphBuilder {
         return CallType.INTERNAL_CLASS;
     }
 
+    private CallGraph withEvidence(CallGraph node, CallResolutionEvidence evidence) {
+        node.setResolutionEvidence(evidence);
+        return node;
+    }
+
+    private CallResolutionEvidence evidence(
+            ResolutionStrategy strategy,
+            double confidence,
+            List<String> evidence,
+            List<String> warnings,
+            MethodCallExpr call) {
+        return new CallResolutionEvidence(
+                strategy,
+                confidence,
+                List.copyOf(evidence),
+                List.copyOf(warnings),
+                call.getBegin().map(position -> position.line).orElse(null));
+    }
+
+    private List<String> evidenceCodes(ResolvedReceiver receiver, String... codes) {
+        List<String> values = new ArrayList<>();
+        if (receiver != null && StringUtils.hasText(receiver.evidenceCode())) {
+            values.add(receiver.evidenceCode());
+        }
+        values.addAll(Arrays.asList(codes));
+        return values;
+    }
+
+    private ResolutionStrategy methodResolutionStrategy(ResolvedReceiver receiver) {
+        return switch (receiver.origin()) {
+            case SAME_CLASS -> ResolutionStrategy.SAME_CLASS_METHOD;
+            case STATIC_CLASS -> ResolutionStrategy.STATIC_METHOD;
+            case FIELD, PARAMETER, LOCAL_VARIABLE -> ResolutionStrategy.SPRING_BEAN_BY_TYPE;
+            default -> ResolutionStrategy.HEURISTIC_NAME_MATCH;
+        };
+    }
+
+    private double methodConfidence(ResolvedReceiver receiver) {
+        return switch (receiver.origin()) {
+            case SAME_CLASS, FIELD -> 0.95;
+            case STATIC_CLASS -> 0.90;
+            case PARAMETER, LOCAL_VARIABLE -> 0.85;
+            default -> 0.70;
+        };
+    }
+
     private void processMethodCall(MethodCallExpr call, TraversalCtx ctx, List<CallGraph> children,
             MethodDeclaration currentMethod, ClassOrInterfaceDeclaration currentClass,
             ClassMetadata callerMetadata) {
 
-        Optional<String> typeNameOpt = scopeTypeResolver.inferTypeName(call, currentMethod, currentClass);
+        Optional<ResolvedReceiver> receiverOpt = scopeTypeResolver.resolveReceiver(call, currentMethod, currentClass);
 
-        if (typeNameOpt.isEmpty()) {
-            children.add(CallGraph.leaf(null, null, call.getNameAsString(),
-                    CallType.UNRESOLVED, null));
+        if (receiverOpt.isEmpty()) {
+            CallGraph unresolved = CallGraph.leaf(null, null, call.getNameAsString(),
+                    CallType.UNRESOLVED, null);
+            children.add(withEvidence(unresolved, evidence(
+                    ResolutionStrategy.UNRESOLVED,
+                    0.10,
+                    List.of("RECEIVER_TYPE_UNRESOLVED"),
+                    List.of("Receiver type could not be resolved"),
+                    call)));
             return;
         }
 
-        String targetClassName = typeNameOpt.get();
+        ResolvedReceiver receiver = receiverOpt.get();
+        String targetClassName = receiver.typeName();
         String methodName = call.getNameAsString();
         int argCount = call.getArguments().size();
 
@@ -176,8 +232,14 @@ public class CallGraphBuilder {
                 : classMetadataService.findClassMetadataByName(targetClassName, currentMethod, ctx.repoRoot());
 
         if (metadataOpt.isEmpty()) {
-            children.add(CallGraph.leaf(null, null, methodName,
-                    CallType.EXTERNAL_LIB, null));
+            CallGraph external = CallGraph.leaf(null, targetClassName, methodName,
+                    CallType.EXTERNAL_LIB, null);
+            children.add(withEvidence(external, evidence(
+                    ResolutionStrategy.UNKNOWN,
+                    0.50,
+                    evidenceCodes(receiver, "TARGET_METADATA_MISSING"),
+                    List.of("Target metadata could not be resolved"),
+                    call)));
             return;
         }
 
@@ -188,7 +250,21 @@ public class CallGraphBuilder {
                 : metadata.className() + "#" + methodName;
 
         if (classifier.isDatabaseLayer(metadata)) {
-            children.add(buildDataAccessNode(signature, metadata, methodName, argCount, ctx.repoRoot()));
+            CallGraph dataAccess = buildDataAccessNode(signature, metadata, methodName, argCount, ctx.repoRoot());
+            List<String> dataAccessEvidence = evidenceCodes(
+                    receiver,
+                    "TARGET_METADATA_FOUND",
+                    "MYBATIS_MAPPER_ANNOTATION");
+            if (StringUtils.hasText(dataAccess.getCode())) {
+                dataAccessEvidence = new ArrayList<>(dataAccessEvidence);
+                dataAccessEvidence.add("MYBATIS_XML_SQL_FOUND");
+            }
+            children.add(withEvidence(dataAccess, evidence(
+                    ResolutionStrategy.MYBATIS_MAPPER,
+                    0.95,
+                    dataAccessEvidence,
+                    List.of(),
+                    call)));
             return;
         }
 
@@ -196,34 +272,58 @@ public class CallGraphBuilder {
             boolean isCustomMethod = metadata.methods() != null && metadata.methods().stream()
                     .anyMatch(m -> m.name().equals(methodName) && m.paramCount() == argCount);
             if (!isCustomMethod) {
-                children.add(CallGraph.leaf(signature, metadata.className(), methodName,
-                        CallType.DATA_ACCESS, "Inherited MyBatis Service Method (Database Layer)"));
+                CallGraph inherited = CallGraph.leaf(signature, metadata.className(), methodName,
+                        CallType.DATA_ACCESS, "Inherited MyBatis Service Method (Database Layer)");
+                children.add(withEvidence(inherited, evidence(
+                        ResolutionStrategy.MYBATIS_MAPPER,
+                        0.85,
+                        evidenceCodes(receiver, "TARGET_METADATA_FOUND", "MYBATIS_PLUS_INHERITED_METHOD"),
+                        List.of(),
+                        call)));
                 return;
             }
         }
 
         if (classifier.isLombokGenerated(metadata, methodName)) {
-            children.add(CallGraph.leaf(signature, metadata.className(), methodName,
-                    CallType.GENERATED_CODE, null));
+            CallGraph generated = CallGraph.leaf(signature, metadata.className(), methodName,
+                    CallType.GENERATED_CODE, null);
+            children.add(withEvidence(generated, evidence(
+                    ResolutionStrategy.UNKNOWN,
+                    0.80,
+                    evidenceCodes(receiver, "LOMBOK_GENERATED_METHOD"),
+                    List.of(),
+                    call)));
             return;
         }
 
         // 工具類的 static method 會在這被過濾，未來可能加白名單
-        if (!classifier.shouldRecurse(metadata)) {
-            children.add(CallGraph.leaf(signature, metadata.className(), methodName,
-                    CallType.INTERNAL_CLASS, "Filtered (Not a Bean/Business Component)"));
+        if (!classifier.shouldRecurse(metadata) && !ReceiverOrigin.STATIC_CLASS.equals(receiver.origin())) {
+            CallGraph filtered = CallGraph.leaf(signature, metadata.className(), methodName,
+                    CallType.INTERNAL_CLASS, "Filtered (Not a Bean/Business Component)");
+            children.add(withEvidence(filtered, evidence(
+                    ResolutionStrategy.HEURISTIC_NAME_MATCH,
+                    0.60,
+                    evidenceCodes(receiver, "TARGET_METADATA_FOUND"),
+                    List.of("Target class is not a traversable Spring component"),
+                    call)));
             return;
         }
 
         Optional<ClassOrInterfaceDeclaration> typeAstOpt = classMetadataService.resolveToAST(metadata, ctx.repoRoot());
 
         if (typeAstOpt.isEmpty()) {
-            children.add(CallGraph.leaf(signature, metadata.className(), methodName,
-                    CallType.UNRESOLVED, "Source code parse failed"));
+            CallGraph parseFailed = CallGraph.leaf(signature, metadata.className(), methodName,
+                    CallType.UNRESOLVED, "Source code parse failed");
+            children.add(withEvidence(parseFailed, evidence(
+                    ResolutionStrategy.UNRESOLVED,
+                    0.20,
+                    evidenceCodes(receiver, "SOURCE_PARSE_FAILED"),
+                    List.of("Source code parse failed"),
+                    call)));
             return;
         }
 
-        processResolvedType(typeAstOpt.get(), metadata, methodName, argCount, signature, ctx, children);
+        processResolvedType(typeAstOpt.get(), metadata, methodName, argCount, signature, receiver, call, ctx, children);
     }
 
     private CallGraph buildDataAccessNode(String signature, ClassMetadata metadata,
@@ -244,24 +344,45 @@ public class CallGraphBuilder {
     }
 
     /** Fallback when AST method declaration is not found in the resolved class. */
-    private CallGraph buildMethodNotFoundNode(String signature, ClassMetadata metadata, String methodName) {
+    private CallGraph buildMethodNotFoundNode(String signature, ClassMetadata metadata, String methodName,
+            ResolvedReceiver receiver, MethodCallExpr call) {
         if (classifier.isImplOfMyBatis(metadata)) {
-            return CallGraph.leaf(signature, metadata.className(), methodName,
-                    CallType.DATA_ACCESS, "Inherited MyBatis Service Method (Database Layer)");
+            return withEvidence(CallGraph.leaf(signature, metadata.className(), methodName,
+                    CallType.DATA_ACCESS, "Inherited MyBatis Service Method (Database Layer)"), evidence(
+                    ResolutionStrategy.MYBATIS_MAPPER,
+                    0.85,
+                    evidenceCodes(receiver, "TARGET_METADATA_FOUND", "MYBATIS_PLUS_INHERITED_METHOD"),
+                    List.of(),
+                    call));
         }
         if (classifier.isLombokGenerated(metadata, methodName)) {
-            return CallGraph.leaf(signature, metadata.className(), methodName,
-                    CallType.GENERATED_CODE, null);
+            return withEvidence(CallGraph.leaf(signature, metadata.className(), methodName,
+                    CallType.GENERATED_CODE, null), evidence(
+                    ResolutionStrategy.UNKNOWN,
+                    0.80,
+                    evidenceCodes(receiver, "LOMBOK_GENERATED_METHOD"),
+                    List.of(),
+                    call));
         }
         CallType type = classifier.detectType(metadata);
         String desc = classifier.shouldRecurse(metadata)
                 ? "Method source not found in class"
                 : "Filtered (Not a Bean/Business Component)";
-        return CallGraph.leaf(signature, metadata.className(), methodName, type, desc);
+        List<String> warnings = classifier.shouldRecurse(metadata)
+                ? List.of("Method source not found in class")
+                : List.of("Target class is not a traversable Spring component");
+        return withEvidence(CallGraph.leaf(signature, metadata.className(), methodName, type, desc), evidence(
+                classifier.shouldRecurse(metadata)
+                        ? ResolutionStrategy.UNRESOLVED
+                        : ResolutionStrategy.HEURISTIC_NAME_MATCH,
+                classifier.shouldRecurse(metadata) ? 0.35 : 0.60,
+                evidenceCodes(receiver, "TARGET_METADATA_FOUND", "METHOD_SOURCE_NOT_FOUND"),
+                warnings,
+                call));
     }
 
     private void processResolvedType(ClassOrInterfaceDeclaration typeAst, ClassMetadata metadata,
-            String methodName, int paramCount, String qualifiedSignature,
+            String methodName, int paramCount, String qualifiedSignature, ResolvedReceiver receiver, MethodCallExpr call,
             TraversalCtx ctx, List<CallGraph> children) {
 
         String className = metadata.className();
@@ -270,9 +391,35 @@ public class CallGraphBuilder {
             List<ImplResult> implementations = findImplementationsByName(className, methodName, paramCount, ctx);
 
             CallGraph interfaceNode = CallGraph.branch(qualifiedSignature, className, methodName, CallType.INTERFACE);
+            boolean hasMultipleImplementations = implementations.size() > 1;
+            ResolutionStrategy strategy = hasMultipleImplementations
+                    ? ResolutionStrategy.INTERFACE_MULTI_IMPL
+                    : ResolutionStrategy.INTERFACE_SINGLE_IMPL;
+            double confidence = hasMultipleImplementations ? 0.60 : 0.90;
+            List<String> interfaceEvidence = evidenceCodes(
+                    receiver,
+                    hasMultipleImplementations
+                            ? "MULTIPLE_INTERFACE_IMPLEMENTATIONS"
+                            : "SINGLE_INTERFACE_IMPLEMENTATION",
+                    "TARGET_METHOD_FOUND");
+            List<String> warnings = hasMultipleImplementations
+                    ? List.of("Multiple interface implementations matched")
+                    : List.of();
+            interfaceNode.setResolutionEvidence(evidence(
+                    strategy,
+                    confidence,
+                    interfaceEvidence,
+                    warnings,
+                    call));
 
             for (ImplResult implResult : implementations) {
                 CallGraph implGraph = buildGraph(MethodCtx.of(implResult.method()), ctx);
+                implGraph.setResolutionEvidence(evidence(
+                        strategy,
+                        confidence,
+                        interfaceEvidence,
+                        warnings,
+                        call));
 
                 if (!implResult.metadata().profiles().isEmpty()) {
                     String profileInfo = "[Profiles: " + String.join(", ", implResult.metadata().profiles()) + "]";
@@ -287,9 +434,15 @@ public class CallGraphBuilder {
             Optional<MethodDeclaration> deckOpt = findMethodInClass(typeAst, methodName, paramCount);
 
             if (deckOpt.isPresent()) {
-                children.add(buildGraph(MethodCtx.of(deckOpt.get()), ctx));
+                CallGraph resolvedGraph = buildGraph(MethodCtx.of(deckOpt.get()), ctx);
+                children.add(withEvidence(resolvedGraph, evidence(
+                        methodResolutionStrategy(receiver),
+                        methodConfidence(receiver),
+                        evidenceCodes(receiver, "TARGET_METADATA_FOUND", "TARGET_METHOD_FOUND"),
+                        List.of(),
+                        call)));
             } else {
-                children.add(buildMethodNotFoundNode(qualifiedSignature, metadata, methodName));
+                children.add(buildMethodNotFoundNode(qualifiedSignature, metadata, methodName, receiver, call));
             }
         }
     }

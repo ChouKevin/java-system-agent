@@ -37,6 +37,21 @@ import java.util.Optional;
 @Component
 public class ScopeTypeResolver {
 
+    public enum ReceiverOrigin {
+        SAME_CLASS,
+        STATIC_CLASS,
+        FIELD,
+        PARAMETER,
+        LOCAL_VARIABLE,
+        UNKNOWN
+    }
+
+    public record ResolvedReceiver(
+            String typeName,
+            ReceiverOrigin origin,
+            String evidenceCode) {
+    }
+
     /**
      * 推斷 MethodCallExpr 呼叫者的類別名稱（AST 版本）
      * <ul>
@@ -48,6 +63,13 @@ public class ScopeTypeResolver {
     public Optional<String> inferTypeName(MethodCallExpr call,
             MethodDeclaration currentMethod,
             ClassOrInterfaceDeclaration currentClass) {
+        return resolveReceiver(call, currentMethod, currentClass)
+                .map(ResolvedReceiver::typeName);
+    }
+
+    public Optional<ResolvedReceiver> resolveReceiver(MethodCallExpr call,
+            MethodDeclaration currentMethod,
+            ClassOrInterfaceDeclaration currentClass) {
         if (currentClass == null) {
             return Optional.empty();
         }
@@ -55,7 +77,10 @@ public class ScopeTypeResolver {
         if (call.getScope().isPresent()) {
             Expression scope = call.getScope().get();
             if (scope.isThisExpr()) {
-                return Optional.of(currentClass.getNameAsString());
+                return Optional.of(new ResolvedReceiver(
+                        currentClass.getNameAsString(),
+                        ReceiverOrigin.SAME_CLASS,
+                        "SAME_CLASS_RECEIVER"));
             }
             if (scope.isNameExpr() || scope.isFieldAccessExpr()) {
                 Optional<String> scopeName = extractScopeName(call);
@@ -64,13 +89,16 @@ public class ScopeTypeResolver {
                 String name = scopeName.get();
 
                 // 先嘗試當作變數解析（instance method call）
-                Optional<String> fromVar = inferTypeName(name, currentMethod, currentClass);
+                Optional<ResolvedReceiver> fromVar = resolveReceiverName(name, currentMethod, currentClass);
                 if (fromVar.isPresent()) return fromVar;
 
                 // Fallback: 首字母大寫 → static method call，scope 本身就是類別名
                 // e.g. MyUtils.doSomething(), Collections.emptyList()
                 if (!name.isEmpty() && Character.isUpperCase(name.charAt(0))) {
-                    return Optional.of(name);
+                    return Optional.of(new ResolvedReceiver(
+                            name,
+                            ReceiverOrigin.STATIC_CLASS,
+                            "STATIC_CLASS_SCOPE"));
                 }
 
                 return Optional.empty();
@@ -78,7 +106,10 @@ public class ScopeTypeResolver {
             return Optional.empty();
         }
 
-        return Optional.of(currentClass.getNameAsString());
+        return Optional.of(new ResolvedReceiver(
+                currentClass.getNameAsString(),
+                ReceiverOrigin.SAME_CLASS,
+                "SAME_CLASS_RECEIVER"));
     }
 
     /**
@@ -87,8 +118,11 @@ public class ScopeTypeResolver {
      */
     public Optional<String> inferTypeName(String varName, MethodDeclaration method,
             ClassOrInterfaceDeclaration cls) {
-        Optional<String> fromMethod = resolveFromMethodScope(varName, method);
-        if (fromMethod.isPresent()) return fromMethod;
+        Optional<String> fromParameter = resolveFromParameters(varName, method);
+        if (fromParameter.isPresent()) return fromParameter;
+
+        Optional<String> fromLocalVariable = resolveFromLocalVariables(varName, method);
+        if (fromLocalVariable.isPresent()) return fromLocalVariable;
 
         // 類別欄位
         for (FieldDeclaration field : cls.getFields()) {
@@ -113,12 +147,60 @@ public class ScopeTypeResolver {
     }
 
     /** 方法參數 → 區域變數 */
-    private Optional<String> resolveFromMethodScope(String varName, MethodDeclaration method) {
+    private Optional<ResolvedReceiver> resolveReceiverName(String varName, MethodDeclaration method,
+            ClassOrInterfaceDeclaration cls) {
+        Optional<String> fromParameter = resolveFromParameters(varName, method);
+        if (fromParameter.isPresent()) {
+            return Optional.of(new ResolvedReceiver(
+                    fromParameter.get(),
+                    ReceiverOrigin.PARAMETER,
+                    "RECEIVER_PARAMETER_TYPE"));
+        }
+
+        Optional<String> fromLocalVariable = resolveFromLocalVariables(varName, method);
+        if (fromLocalVariable.isPresent()) {
+            return Optional.of(new ResolvedReceiver(
+                    fromLocalVariable.get(),
+                    ReceiverOrigin.LOCAL_VARIABLE,
+                    "RECEIVER_LOCAL_VARIABLE_TYPE"));
+        }
+
+        for (FieldDeclaration field : cls.getFields()) {
+            for (VariableDeclarator var : field.getVariables()) {
+                if (var.getNameAsString().equals(varName)) {
+                    return Optional.of(new ResolvedReceiver(
+                            var.getType().asString(),
+                            ReceiverOrigin.FIELD,
+                            "RECEIVER_FIELD_TYPE"));
+                }
+            }
+        }
+
+        if ("baseMapper".equals(varName)) {
+            return cls.getExtendedTypes().stream()
+                    .filter(t -> t.getNameAsString().equals("ServiceImpl"))
+                    .findFirst()
+                    .flatMap(t -> t.getTypeArguments()
+                            .filter(args -> !args.isEmpty())
+                            .map(args -> new ResolvedReceiver(
+                                    stripGenerics(args.get(0).asString()),
+                                    ReceiverOrigin.FIELD,
+                                    "RECEIVER_FIELD_TYPE")));
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<String> resolveFromParameters(String varName, MethodDeclaration method) {
         for (Parameter p : method.getParameters()) {
             if (p.getNameAsString().equals(varName)) {
                 return Optional.of(p.getType().asString());
             }
         }
+        return Optional.empty();
+    }
+
+    private Optional<String> resolveFromLocalVariables(String varName, MethodDeclaration method) {
         for (VariableDeclarator var : method.findAll(VariableDeclarator.class)) {
             if (var.getNameAsString().equals(varName)) {
                 return Optional.of(var.getType().asString());
@@ -131,7 +213,9 @@ public class ScopeTypeResolver {
     public Optional<String> extractScopeName(MethodCallExpr call) {
         return call.getScope()
                 .filter(scope -> scope.isNameExpr() || scope.isFieldAccessExpr())
-                .map(Expression::toString);
+                .map(scope -> scope.isFieldAccessExpr()
+                        ? scope.asFieldAccessExpr().getNameAsString()
+                        : scope.toString());
     }
 
     /** 移除泛型型別參數：{@code List<String>} → {@code List} */
