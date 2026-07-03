@@ -3,6 +3,7 @@ package com.java.system.agent.analysis.fixture;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import com.java.system.agent.analysis.model.FlattenedMethodNode;
 import org.junit.jupiter.api.Assertions;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -72,7 +73,7 @@ public final class GraphAssert {
     }
 
     private static boolean matchesEdge(FlattenedMethodNode node, ExpectedGraphSpec.EdgeSpec edgeSpec) {
-        if (!contains(node.getSignature(), edgeSpec.fromContains()) || node.getCallees() == null) {
+        if (!contains(node.getSignature(), edgeSpec.fromContains()) || CollectionUtils.isEmpty(node.getCallees())) {
             return false;
         }
         return node.getCallees().stream().anyMatch(callee -> contains(callee, edgeSpec.toContains()));
