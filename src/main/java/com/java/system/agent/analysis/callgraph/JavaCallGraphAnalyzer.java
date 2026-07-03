@@ -16,10 +16,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -117,7 +119,9 @@ public class JavaCallGraphAnalyzer {
             FlattenedCallGraph flattened = flatten(callGraph);
             ExplainableCallGraph explainableCallGraph =
                     callGraphExplanationMapper.map(repoId, callGraph, flattened);
-            List<AnalysisWarning> warnings = unresolvedWarnings(flattened);
+            List<AnalysisWarning> warnings = mergeWarnings(
+                    unresolvedWarnings(flattened),
+                    unresolvedWarnings(callGraph));
             if (!warnings.isEmpty()) {
                 return AnalysisResult.partial(explainableCallGraph, warnings, List.of(), metadata);
             }
@@ -186,6 +190,57 @@ public class JavaCallGraphAnalyzer {
                         "Call graph contains an unresolved method",
                         method.getSignature()))
                 .toList();
+    }
+
+    private List<AnalysisWarning> unresolvedWarnings(CallGraph callGraph) {
+        if (callGraph == null) {
+            return List.of();
+        }
+        LinkedHashMap<String, AnalysisWarning> warningsByLocation = new LinkedHashMap<>();
+        collectUnresolvedWarnings(callGraph, warningsByLocation);
+        return List.copyOf(warningsByLocation.values());
+    }
+
+    private void collectUnresolvedWarnings(
+            CallGraph callGraph,
+            LinkedHashMap<String, AnalysisWarning> warningsByLocation) {
+        if (callGraph == null) {
+            return;
+        }
+        if (CallType.UNRESOLVED.equals(callGraph.getCallType())) {
+            AnalysisWarning warning = unresolvedWarning(callGraph.getSignature());
+            warningsByLocation.putIfAbsent(warning.location(), warning);
+        }
+        if (CollectionUtils.isEmpty(callGraph.getCalledMethods())) {
+            return;
+        }
+        for (CallGraph child : callGraph.getCalledMethods()) {
+            collectUnresolvedWarnings(child, warningsByLocation);
+        }
+    }
+
+    private List<AnalysisWarning> mergeWarnings(
+            List<AnalysisWarning> flattenedWarnings,
+            List<AnalysisWarning> explainableWarnings) {
+        LinkedHashMap<String, AnalysisWarning> warningsByKey = new LinkedHashMap<>();
+        for (AnalysisWarning warning : flattenedWarnings) {
+            warningsByKey.putIfAbsent(warningKey(warning), warning);
+        }
+        for (AnalysisWarning warning : explainableWarnings) {
+            warningsByKey.putIfAbsent(warningKey(warning), warning);
+        }
+        return List.copyOf(warningsByKey.values());
+    }
+
+    private AnalysisWarning unresolvedWarning(String signature) {
+        return new AnalysisWarning(
+                "UNRESOLVED_CALL",
+                "Call graph contains an unresolved method",
+                signature);
+    }
+
+    private String warningKey(AnalysisWarning warning) {
+        return warning.code() + ":" + warning.location();
     }
 
     private AnalysisErrorCode classifyRuntimeFailure(RuntimeException e) {

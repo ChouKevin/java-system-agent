@@ -1,5 +1,7 @@
 package com.java.system.agent.analysis.callgraph;
 
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.java.system.agent.analysis.fixture.ExpectedGraphLoader;
 import com.java.system.agent.analysis.fixture.ExpectedGraphSpec;
 import com.java.system.agent.analysis.fixture.FixtureRepoLoader;
@@ -9,6 +11,7 @@ import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.AnalysisStatus;
 import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
+import com.java.system.agent.analysis.model.ResolutionStrategy;
 import com.java.system.agent.analysis.parser.ProjectParserService;
 import com.java.system.agent.analysis.parser.SourceRootResolver;
 import com.java.system.agent.analysis.type.ClassMetadataService;
@@ -16,10 +19,24 @@ import com.java.system.agent.analysis.type.MapperXmlSqlExtractor;
 import com.java.system.agent.analysis.type.ScopeTypeResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class CallGraphFixtureTest {
 
@@ -98,6 +115,64 @@ class CallGraphFixtureTest {
                 .filter(edge -> edge.resolutionStrategy() != null)
                 .toList()
                 .isEmpty());
+    }
+
+    @Test
+    void should_return_partial_when_explainable_graph_contains_unresolved_edge(@TempDir Path repoRoot)
+            throws IOException {
+        Path sourceFile = repoRoot.resolve("src/main/java/com/example/ExampleController.java");
+        Files.createDirectories(sourceFile.getParent());
+        Files.writeString(sourceFile, """
+                package com.example;
+
+                class ExampleController {
+                    void run() {
+                    }
+                }
+                """);
+        ProjectParserService projectParserService = mock(ProjectParserService.class);
+        ClassMetadataService classMetadataService = mock(ClassMetadataService.class);
+        DtoAnalyzer dtoAnalyzer = mock(DtoAnalyzer.class);
+        CallGraphBuilder callGraphBuilder = mock(CallGraphBuilder.class);
+        JavaCallGraphAnalyzer analyzerWithUnresolvedEdge = new JavaCallGraphAnalyzer(
+                projectParserService,
+                classMetadataService,
+                dtoAnalyzer,
+                callGraphBuilder,
+                new CallGraphExplanationMapper(),
+                4);
+        CallGraph unresolvedChild = CallGraph.leaf(
+                "com.example.MissingService#void missing()",
+                "MissingService",
+                "missing",
+                CallType.UNRESOLVED,
+                null);
+        CallGraph root = CallGraph.builder()
+                .signature("com.example.ExampleController#void run()")
+                .className("ExampleController")
+                .packagePath("com.example")
+                .methodName("run")
+                .callType(CallType.INTERNAL_CONTROLLER)
+                .calledMethods(List.of(unresolvedChild))
+                .build();
+
+        when(projectParserService.getOrCreateParser(repoRoot)).thenReturn(new JavaParser());
+        when(dtoAnalyzer.analyze(any(MethodDeclaration.class))).thenReturn(Map.of());
+        when(callGraphBuilder.build(any(MethodDeclaration.class), eq(repoRoot), anyMap(), eq(4)))
+                .thenReturn(root);
+
+        AnalysisResult<ExplainableCallGraph> result = analyzerWithUnresolvedEdge.analyzeExplainableResult(
+                "test-repo",
+                repoRoot,
+                repoRoot.relativize(sourceFile).toString(),
+                "run",
+                AnalysisMetadata.now("test-repo", "com.example", "ExampleController", "run"));
+
+        assertEquals(AnalysisStatus.PARTIAL, result.status());
+        assertTrue(result.warnings().stream()
+                .anyMatch(warning -> "UNRESOLVED_CALL".equals(warning.code())));
+        assertTrue(result.data().edges().stream()
+                .anyMatch(edge -> ResolutionStrategy.UNRESOLVED.equals(edge.resolutionStrategy())));
     }
 
     private FlattenedCallGraph analyzeBasicController() {
