@@ -4,7 +4,7 @@ import com.java.system.agent.analysis.parser.SourceRootResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -12,11 +12,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for MapperXmlSqlExtractor.
- * Uses repos/test which contains OrderMapper.xml as a fixture.
+ * Uses a multi-module fixture that contains OrderMapper.xml.
  */
 public class MapperXmlSqlExtractorTest {
 
-    private static final String ORDER_MAPPER = "com.example.mybatisplus.OrderMapper";
+    private static final Path REPO_ROOT = Path.of("src/test/resources/fixtures/multi-module-data-access");
+    private static final String ORDER_MAPPER = "com.example.persistence.OrderMapper";
 
     private MapperXmlSqlExtractor extractor;
 
@@ -28,7 +29,7 @@ public class MapperXmlSqlExtractorTest {
     @Test
     void should_find_sql_when_mapper_xml_contains_select_statement() {
         // OrderMapper.xml has <select id="findByOrderNo" ...>
-        Optional<String> sql = extractor.findSql(ORDER_MAPPER, "findByOrderNo", Paths.get("repos/test"));
+        Optional<String> sql = extractor.findSql(ORDER_MAPPER, "findByOrderNo", REPO_ROOT);
 
         assertTrue(sql.isPresent(), "SQL should be found for findByOrderNo");
         assertTrue(sql.get().contains("orders"), "SQL should reference the table");
@@ -37,7 +38,7 @@ public class MapperXmlSqlExtractorTest {
 
     @Test
     void should_return_empty_when_method_not_in_xml() {
-        Optional<String> sql = extractor.findSql(ORDER_MAPPER, "nonExistentMethod", Paths.get("repos/test"));
+        Optional<String> sql = extractor.findSql(ORDER_MAPPER, "nonExistentMethod", REPO_ROOT);
 
         assertFalse(sql.isPresent(), "Should return empty for unknown method");
     }
@@ -45,7 +46,7 @@ public class MapperXmlSqlExtractorTest {
     @Test
     void should_return_empty_when_namespace_not_found() {
         Optional<String> sql = extractor.findSql(
-                "com.example.NonExistentMapper", "someMethod", Paths.get("repos/test"));
+                "com.example.NonExistentMapper", "someMethod", REPO_ROOT);
 
         assertFalse(sql.isPresent(), "Should return empty for unknown namespace");
     }
@@ -53,7 +54,7 @@ public class MapperXmlSqlExtractorTest {
     @Test
     void should_normalize_whitespace_in_extracted_sql() {
         // OrderMapper.xml SQL is written with extra indentation and newlines
-        Optional<String> sql = extractor.findSql(ORDER_MAPPER, "findByOrderNo", Paths.get("repos/test"));
+        Optional<String> sql = extractor.findSql(ORDER_MAPPER, "findByOrderNo", REPO_ROOT);
 
         assertTrue(sql.isPresent());
         assertFalse(sql.get().contains("\n"), "SQL should not contain newlines after normalization");
@@ -62,8 +63,8 @@ public class MapperXmlSqlExtractorTest {
 
     @Test
     void should_use_cache_on_second_call() {
-        Optional<String> first = extractor.findSql(ORDER_MAPPER, "findByOrderNo", Paths.get("repos/test"));
-        Optional<String> second = extractor.findSql(ORDER_MAPPER, "findByOrderNo", Paths.get("repos/test"));
+        Optional<String> first = extractor.findSql(ORDER_MAPPER, "findByOrderNo", REPO_ROOT);
+        Optional<String> second = extractor.findSql(ORDER_MAPPER, "findByOrderNo", REPO_ROOT);
 
         assertTrue(first.isPresent());
         assertTrue(second.isPresent());
@@ -72,11 +73,11 @@ public class MapperXmlSqlExtractorTest {
 
     @Test
     void should_clear_cache_after_reload() {
-        extractor.findSql(ORDER_MAPPER, "findByOrderNo", Paths.get("repos/test"));
+        extractor.findSql(ORDER_MAPPER, "findByOrderNo", REPO_ROOT);
 
-        extractor.invalidate(Paths.get("repos/test"));
+        extractor.invalidate(REPO_ROOT);
 
-        Optional<String> sql = extractor.findSql(ORDER_MAPPER, "findByOrderNo", Paths.get("repos/test"));
+        Optional<String> sql = extractor.findSql(ORDER_MAPPER, "findByOrderNo", REPO_ROOT);
 
         assertTrue(sql.isPresent(), "SQL should still be found after reload");
     }
@@ -85,9 +86,9 @@ public class MapperXmlSqlExtractorTest {
     void should_not_find_annotation_based_mapper_in_xml() {
         // UserMapper uses @Select annotations — no XML file defines it
         Optional<String> sql = extractor.findSql(
-                "com.example.repository.UserMapper", "findById", Paths.get("repos/test"));
+                "com.example.persistence.OrderMapper", "annotationOnly", REPO_ROOT);
 
         assertFalse(sql.isPresent(),
-                "UserMapper.findById is annotation-based; XML extractor should return empty");
+                "annotationOnly is annotation-based; XML extractor should return empty");
     }
 }

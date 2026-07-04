@@ -80,6 +80,33 @@ class CallGraphBuilderResolutionEvidenceTest {
     }
 
     @Test
+    void should_resolve_data_access_nodes_across_multi_module_fixture() {
+        Path repoRoot = Path.of("src/test/resources/fixtures/multi-module-data-access");
+
+        AnalysisResult<ExplainableCallGraph> result = analyzer.analyzeExplainableResult(
+                "test-repo",
+                repoRoot,
+                "module-service/src/main/java/com/example/service/OrderApplicationService.java",
+                "loadOrder",
+                AnalysisMetadata.now(
+                        "test-repo",
+                        "com.example.service",
+                        "OrderApplicationService",
+                        "loadOrder"));
+
+        assertEquals(AnalysisStatus.SUCCESS, result.status());
+        assertEquals(CallType.DATA_ACCESS, nodeForClass(result.data(), "OrderMapper").callType());
+        assertEquals(CallType.DATA_ACCESS, nodeForClass(result.data(), "OrderJpaRepository").callType());
+        assertEquals(CallType.DATA_ACCESS, nodeForClass(result.data(), "JdbcOrderRepository").callType());
+        assertTrue(result.data().edges().stream()
+                .anyMatch(edge -> "OrderMapper".equals(edge.callee().className())));
+        assertTrue(result.data().edges().stream()
+                .anyMatch(edge -> "OrderJpaRepository".equals(edge.callee().className())));
+        assertTrue(result.data().edges().stream()
+                .anyMatch(edge -> "JdbcOrderRepository".equals(edge.callee().className())));
+    }
+
+    @Test
     void should_attach_repo_relative_source_locations_to_nodes_and_edges(@TempDir Path repoRoot)
             throws IOException {
         writeSource(repoRoot, "BasicService.java", """
@@ -699,6 +726,14 @@ class CallGraphBuilderResolutionEvidenceTest {
         assertNotNull(graph);
         return graph.nodes().stream()
                 .filter(node -> methodName.equals(node.methodId().methodName()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private CallNode nodeForClass(ExplainableCallGraph graph, String className) {
+        assertNotNull(graph);
+        return graph.nodes().stream()
+                .filter(node -> className.equals(node.methodId().className()))
                 .findFirst()
                 .orElseThrow();
     }

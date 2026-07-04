@@ -19,72 +19,74 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * ClassMetadataService 測試
- * 使用 repos/test 的真實程式碼作為 fixture
- */
 class ClassMetadataServiceTest {
 
-    private static final Path REPO_ROOT = Paths.get("repos/test");
-    private static final Path SRC_ROOT = REPO_ROOT.resolve("src/main/java");
+    private static final Path REPO_ROOT = Paths.get("src/test/resources/fixtures/multi-module-data-access");
+    private static final Path SERVICE_SRC_ROOT = REPO_ROOT.resolve("module-service/src/main/java");
 
     private ClassMetadataService classMetadataService;
     private JavaParser parser;
 
     @BeforeEach
     void setUp() {
-        ProjectParserService projectParserService = new ProjectParserService(new SourceRootResolver());
-        classMetadataService = new ClassMetadataService(new MapperXmlSqlExtractor(new SourceRootResolver()), projectParserService, new SourceRootResolver());
+        SourceRootResolver sourceRootResolver = new SourceRootResolver();
+        ProjectParserService projectParserService = new ProjectParserService(sourceRootResolver);
+        classMetadataService = new ClassMetadataService(
+                new MapperXmlSqlExtractor(sourceRootResolver),
+                projectParserService,
+                sourceRootResolver);
         classMetadataService.ensureInitialized(REPO_ROOT);
         parser = new JavaParser(new ParserConfiguration());
     }
 
     @Test
     void findBySimpleName_samePackage() throws Exception {
-        MethodDeclaration contextMethod = parseMethodFromResource("com.example.service", "MainService");
+        MethodDeclaration contextMethod = parseMethodFromServiceResource(
+                "com.example.service", "OrderApplicationService");
 
         Optional<ClassMetadata> result = classMetadataService.findClassMetadataByName(
-                "HelperService", contextMethod, REPO_ROOT
-        );
+                "OrderServiceHelper", contextMethod, REPO_ROOT);
 
         assertTrue(result.isPresent());
-        assertEquals("HelperService", result.get().className());
+        assertEquals("OrderServiceHelper", result.get().className());
         assertEquals("com.example.service", result.get().packageName());
     }
 
     @Test
     void findByQualifiedName() throws Exception {
-        MethodDeclaration contextMethod = parseMethodFromResource("com.example.service", "MainService");
+        MethodDeclaration contextMethod = parseMethodFromServiceResource(
+                "com.example.service", "OrderApplicationService");
 
         Optional<ClassMetadata> result = classMetadataService.findClassMetadataByName(
-                "com.example.contract.MyImpl", contextMethod, REPO_ROOT
-        );
+                "com.example.persistence.JdbcOrderRepository", contextMethod, REPO_ROOT);
 
         assertTrue(result.isPresent());
-        assertEquals("MyImpl", result.get().className());
-        assertEquals("com.example.contract", result.get().packageName());
+        assertEquals("JdbcOrderRepository", result.get().className());
+        assertEquals("com.example.persistence", result.get().packageName());
     }
 
     @Test
     void findBySimpleName_withImport() throws Exception {
-        MethodDeclaration contextMethod = parseMethodFromResource("com.example.service", "MainService");
+        MethodDeclaration contextMethod = parseMethodFromServiceResource(
+                "com.example.service", "OrderApplicationService");
 
         Optional<ClassMetadata> result = classMetadataService.findClassMetadataByName(
-                "MyInterface", contextMethod, REPO_ROOT
-        );
+                "OrderMapper", contextMethod, REPO_ROOT);
 
         assertTrue(result.isPresent());
-        assertEquals("MyInterface", result.get().className());
-        assertEquals("com.example.contract", result.get().packageName());
+        assertEquals("OrderMapper", result.get().className());
+        assertEquals("com.example.persistence", result.get().packageName());
     }
 
     @Test
     void resolveToAST() {
-        Path helperFile = SRC_ROOT.resolve("com/example/service/HelperService.java");
+        Path helperFile = SERVICE_SRC_ROOT.resolve("com/example/service/OrderServiceHelper.java");
         ClassMetadata metadata = ClassMetadata.builder()
-                .className("HelperService")
+                .className("OrderServiceHelper")
                 .packageName("com.example.service")
                 .filePath(helperFile)
                 .build();
@@ -92,8 +94,9 @@ class ClassMetadataServiceTest {
         Optional<ClassOrInterfaceDeclaration> ast = classMetadataService.resolveToAST(metadata, REPO_ROOT);
 
         assertTrue(ast.isPresent());
-        assertEquals("HelperService", ast.get().getNameAsString());
-        assertTrue(ast.get().getMethods().stream().anyMatch(m -> m.getNameAsString().equals("doSomething")));
+        assertEquals("OrderServiceHelper", ast.get().getNameAsString());
+        assertTrue(ast.get().getMethods().stream()
+                .anyMatch(method -> method.getNameAsString().equals("normalize")));
     }
 
     @Test
@@ -136,13 +139,9 @@ class ClassMetadataServiceTest {
         assertNull(method.endLine());
     }
 
-    // =========================================================================
-    // Helper
-    // =========================================================================
-
-    private MethodDeclaration parseMethodFromResource(String packageName, String className)
+    private MethodDeclaration parseMethodFromServiceResource(String packageName, String className)
             throws IOException {
-        Path file = SRC_ROOT.resolve(packageName.replace('.', '/') + "/" + className + ".java");
+        Path file = SERVICE_SRC_ROOT.resolve(packageName.replace('.', '/') + "/" + className + ".java");
         String source = Files.readString(file);
         CompilationUnit cu = parser.parse(source).getResult()
                 .orElseThrow(() -> new RuntimeException("Failed to parse " + file));
