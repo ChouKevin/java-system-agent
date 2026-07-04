@@ -6,6 +6,7 @@ import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.java.system.agent.analysis.model.ClassMetadata;
 
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Set;
@@ -46,6 +47,13 @@ public class CallGraphClassifier {
             "org.springframework.data.jpa.repository.JpaRepository",
             "org.apache.ibatis.annotations.Mapper",
             "Mapper", "Repository");
+    private static final Set<String> DATA_ACCESS_BASE_TYPES = Set.of(
+            "BaseMapper",
+            "JpaRepository",
+            "CrudRepository",
+            "PagingAndSortingRepository",
+            "MongoRepository",
+            "R2dbcRepository");
     private static final Set<String> RPC_ANNOTATIONS = Set.of(
             "org.springframework.cloud.openfeign.FeignClient",
             "FeignClient");
@@ -74,7 +82,7 @@ public class CallGraphClassifier {
 
         boolean isMapper = matchesAny(annotations, REPO_ANNOTATIONS);
         boolean isDbExt = metadata.extendedTypes().stream()
-                .anyMatch(t -> t.contains("BaseMapper") || t.contains("JpaRepository"));
+                .anyMatch(this::isDataAccessBaseType);
         if (isMapper || isDbExt) return CallType.DATA_ACCESS;
 
         if (matchesAny(annotations, COMPONENT_ANNOTATIONS)) return CallType.INTERNAL_COMPONENT;
@@ -91,7 +99,7 @@ public class CallGraphClassifier {
         boolean isMapper = hasAnnotation(typeDecl, REPO_ANNOTATIONS);
         boolean isDbExt = typeDecl.getExtendedTypes().stream().anyMatch(t -> {
             String n = t.getNameAsString();
-            return n.contains("BaseMapper") || n.contains("JpaRepository");
+            return isDataAccessBaseType(n);
         });
         if (isMapper || isDbExt) return CallType.DATA_ACCESS;
 
@@ -118,9 +126,14 @@ public class CallGraphClassifier {
         if (hasMapperAnn) return true;
 
         return metadata.implementedTypes().stream()
-                .anyMatch(t -> t.contains("BaseMapper") || t.contains("JpaRepository"))
+                .anyMatch(this::isDataAccessBaseType)
             || metadata.extendedTypes().stream()
-                .anyMatch(t -> t.contains("BaseMapper") || t.contains("JpaRepository"));
+                .anyMatch(this::isDataAccessBaseType);
+    }
+
+    private boolean isDataAccessBaseType(String typeName) {
+        return StringUtils.hasText(typeName)
+                && DATA_ACCESS_BASE_TYPES.stream().anyMatch(typeName::contains);
     }
 
     /**

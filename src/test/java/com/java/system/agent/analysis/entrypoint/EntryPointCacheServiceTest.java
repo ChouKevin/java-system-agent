@@ -109,7 +109,7 @@ class EntryPointCacheServiceTest {
 
     @Test
     void testFilterByTypes_ReturnsOnlyMatchingType() {
-        Path repoRoot = Paths.get("repos/test");
+        Path repoRoot = Paths.get("src/test/resources/fixtures/multi-module-data-access");
         EntryPointCacheService realService = new EntryPointCacheService(new ProjectParserService(new SourceRootResolver()), new SourceRootResolver());
 
         // test repo 只有 @RabbitListener（MQ），沒有 API 和 SCHEDULE

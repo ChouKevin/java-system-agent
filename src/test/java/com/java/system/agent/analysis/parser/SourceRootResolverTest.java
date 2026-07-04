@@ -96,6 +96,28 @@ class SourceRootResolverTest {
     }
 
     @Test
+    void should_resolve_source_roots_from_multi_module_fixture() {
+        Path repoRoot = Path.of("src/test/resources/fixtures/multi-module-data-access");
+
+        List<Path> roots = resolver.resolveSourceRoots(repoRoot);
+
+        assertEquals(3, roots.size());
+        assertTrue(roots.stream().anyMatch(path -> path.endsWith("module-api/src/main/java")));
+        assertTrue(roots.stream().anyMatch(path -> path.endsWith("module-service/src/main/java")));
+        assertTrue(roots.stream().anyMatch(path -> path.endsWith("module-persistence/src/main/java")));
+    }
+
+    @Test
+    void should_resolve_resource_roots_from_multi_module_fixture() {
+        Path repoRoot = Path.of("src/test/resources/fixtures/multi-module-data-access");
+
+        List<Path> roots = resolver.resolveResourceRoots(repoRoot);
+
+        assertEquals(1, roots.size());
+        assertTrue(roots.get(0).endsWith("module-persistence/src/main/resources"));
+    }
+
+    @Test
     void should_return_empty_when_no_source_root_exists(@TempDir Path tempDir) {
         List<Path> roots = resolver.resolveSourceRoots(tempDir);
         assertTrue(roots.isEmpty());

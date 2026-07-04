@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
@@ -96,5 +97,31 @@ public class CallGraphClassifierTest {
                 .build();
 
         assertTrue(classifier.isBuilderAnnotated(builderClass));
+    }
+
+    @Test
+    void should_classify_common_spring_data_repositories_as_data_access() {
+        CallGraphClassifier classifier = new CallGraphClassifier();
+        List<String> repositoryTypes = List.of(
+                "JpaRepository<OrderEntity, String>",
+                "CrudRepository<OrderEntity, String>",
+                "PagingAndSortingRepository<OrderEntity, String>",
+                "MongoRepository<OrderEntity, String>",
+                "R2dbcRepository<OrderEntity, String>");
+
+        for (String repositoryType : repositoryTypes) {
+            ClassMetadata metadata = ClassMetadata.builder()
+                    .className("OrderRepository")
+                    .packageName("com.example.persistence")
+                    .isInterface(true)
+                    .annotations(List.of())
+                    .implementedTypes(List.of())
+                    .extendedTypes(List.of(repositoryType))
+                    .methods(List.of())
+                    .build();
+
+            assertEquals(CallType.DATA_ACCESS, classifier.detectType(metadata), repositoryType);
+            assertTrue(classifier.isDatabaseLayer(metadata), repositoryType);
+        }
     }
 }
