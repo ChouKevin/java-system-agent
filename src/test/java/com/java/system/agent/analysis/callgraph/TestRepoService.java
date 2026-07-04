@@ -4,8 +4,11 @@ import com.java.system.agent.analysis.entrypoint.EntryPointCacheService;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import com.java.system.agent.analysis.model.MethodRef;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.stream.Stream;
 
 /**
  * Test helper that provides access to the internal CallGraph tree structure
@@ -13,10 +16,20 @@ import java.nio.file.Paths;
  * the AnalysisService facade (which returns FlattenedCallGraph).
  */
 public class TestRepoService {
+    private static final Path DEFAULT_REPO_ROOT = Paths.get("repos/test");
+
     private final JavaCallGraphAnalyzer javaCallGraphAnalyzer;
+    private final Path repoRoot;
 
     public TestRepoService(EntryPointCacheService entryPointCacheService, JavaCallGraphAnalyzer javaCallGraphAnalyzer) {
+        this(DEFAULT_REPO_ROOT, entryPointCacheService, javaCallGraphAnalyzer);
+    }
+
+    public TestRepoService(Path repoRoot,
+                           EntryPointCacheService entryPointCacheService,
+                           JavaCallGraphAnalyzer javaCallGraphAnalyzer) {
         this.javaCallGraphAnalyzer = javaCallGraphAnalyzer;
+        this.repoRoot = repoRoot;
     }
 
     public String repoId() {
@@ -24,7 +37,7 @@ public class TestRepoService {
     }
 
     public Path repoRoot() {
-        return Paths.get("repos/test");
+        return repoRoot;
     }
 
     public String description() {
@@ -49,6 +62,20 @@ public class TestRepoService {
     }
 
     private String toRelativePath(MethodRef method) {
+        Path packagePath = Paths.get(method.packageName().replace('.', '/'), method.className() + ".java");
+        try (Stream<Path> paths = Files.walk(repoRoot)) {
+            return paths
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.endsWith(packagePath))
+                    .findFirst()
+                    .map(path -> repoRoot.relativize(path).toString())
+                    .orElseGet(() -> defaultRelativePath(method));
+        } catch (IOException e) {
+            return defaultRelativePath(method);
+        }
+    }
+
+    private String defaultRelativePath(MethodRef method) {
         return "src/main/java/"
             + method.packageName().replace('.', '/') + "/"
             + method.className() + ".java";

@@ -28,17 +28,18 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Surfaces the SQL in the flattened response (via {@code code} field)</li>
  * </ol>
  *
- * <p>Uses {@code repos/test/src/main/java/com/example/mybatisplus/OrderServiceImpl.java}
- * which extends {@code ServiceImpl<OrderMapper, Order>} and calls
+ * <p>Uses the multi-module data access fixture. {@code OrderMyBatisPlusService}
+ * extends {@code ServiceImpl<OrderMapper, OrderEntity>} and calls
  * {@code baseMapper.findByOrderNo(orderNo)}.
  * The SQL for {@code findByOrderNo} is defined in
- * {@code repos/test/src/main/resources/mapper/OrderMapper.xml}.
+ * {@code module-persistence/src/main/resources/mapper/OrderMapper.xml}.
  */
 public class BaseMapperCallGraphTest {
 
-    private static final Path TEST_REPO = Paths.get("repos/test");
+    private static final Path TEST_REPO = Paths.get("src/test/resources/fixtures/multi-module-data-access");
     private static final String SERVICE_FILE =
-            "src/main/java/com/example/mybatisplus/OrderServiceImpl.java";
+            "module-service/src/main/java/com/example/service/OrderMyBatisPlusService.java";
+    private static final String SERVICE_METHOD = "findOrder";
 
     private JavaCallGraphAnalyzer analyzer;
 
@@ -55,10 +56,10 @@ public class BaseMapperCallGraphTest {
 
     @Test
     void should_resolve_baseMapper_call_as_DATA_ACCESS_with_xml_sql() {
-        // OrderServiceImpl.getOrderByNo calls baseMapper.findByOrderNo(orderNo)
+        // OrderMyBatisPlusService.findOrder calls baseMapper.findByOrderNo(orderNo)
         // baseMapper type = OrderMapper (from ServiceImpl<OrderMapper, Order>)
         // SQL defined in OrderMapper.xml
-        CallGraph graph = analyzer.analyze(TEST_REPO, SERVICE_FILE, "getOrderByNo");
+        CallGraph graph = analyzer.analyze(TEST_REPO, SERVICE_FILE, SERVICE_METHOD);
 
         assertNotNull(graph, "Call graph should be built");
 
@@ -82,7 +83,7 @@ public class BaseMapperCallGraphTest {
         // This is the bug the user hit: CallGraphVisitor was using node.getCode() for
         // DATA_ACCESS nodes — SQL is stored in node.getCode() (sql merged into code).
         // Result: "code": null in the flattened response even when SQL exists.
-        CallGraph graph = analyzer.analyze(TEST_REPO, SERVICE_FILE, "getOrderByNo");
+        CallGraph graph = analyzer.analyze(TEST_REPO, SERVICE_FILE, SERVICE_METHOD);
 
         assertNotNull(graph);
         FlattenedCallGraph flattened = CallGraphVisitor.flattenToOptimized(graph, GraphVisitorConfig.defaultConfig());
@@ -102,7 +103,7 @@ public class BaseMapperCallGraphTest {
 
     @Test
     void should_not_recurse_into_mapper_data_access_node() {
-        CallGraph graph = analyzer.analyze(TEST_REPO, SERVICE_FILE, "getOrderByNo");
+        CallGraph graph = analyzer.analyze(TEST_REPO, SERVICE_FILE, SERVICE_METHOD);
 
         assertNotNull(graph);
         CallGraph mapperCall = findChildByMethodName(graph, "findByOrderNo");
@@ -120,7 +121,7 @@ public class BaseMapperCallGraphTest {
         //   className   = "OrderMapper"
         //   methodSignature = "findByOrderNo"
         // The root node IS the DATA_ACCESS mapper method, not a service calling it.
-        String mapperFile = "src/main/java/com/example/mybatisplus/OrderMapper.java";
+        String mapperFile = "module-persistence/src/main/java/com/example/persistence/OrderMapper.java";
         CallGraph graph = analyzer.analyze(TEST_REPO, mapperFile, "findByOrderNo");
 
         assertNotNull(graph);

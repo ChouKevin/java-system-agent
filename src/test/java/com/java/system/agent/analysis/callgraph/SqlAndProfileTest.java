@@ -26,6 +26,9 @@ import java.util.Optional;
  */
 public class SqlAndProfileTest {
 
+    private static final Path FIXTURE_REPO =
+            Paths.get("src/test/resources/fixtures/multi-module-data-access");
+
     private TestRepoService service;
     private ClassMetadataService classMetadataService;
 
@@ -41,8 +44,8 @@ public class SqlAndProfileTest {
         CallGraphBuilder callGraphBuilder = new CallGraphBuilder(classifier, classMetadataService, scopeTypeResolver);
 
         JavaCallGraphAnalyzer javaCallGraphAnalyzer = new JavaCallGraphAnalyzer(projectParserService, classMetadataService, dtoAnalyzer, callGraphBuilder, 5);
-        service = new TestRepoService(entryPointCacheService, javaCallGraphAnalyzer);
-        classMetadataService.ensureInitialized(Paths.get("repos/test"));
+        service = new TestRepoService(FIXTURE_REPO, entryPointCacheService, javaCallGraphAnalyzer);
+        classMetadataService.ensureInitialized(FIXTURE_REPO);
     }
 
     // =========================================================================
@@ -74,7 +77,7 @@ public class SqlAndProfileTest {
     @Test
     public void testAnnotationSqlInMetadata() {
         // Directly verify that UserMapper metadata has SQL in MethodSignature
-        Path repoRoot = Paths.get("repos/test");
+        Path repoRoot = FIXTURE_REPO;
         Optional<ClassMetadata> metadataOpt = classMetadataService.findClassMetadata(repoRoot, "UserMapper", "com.example.repository");
 
         Assertions.assertTrue(metadataOpt.isPresent(), "UserMapper metadata should exist");
@@ -142,7 +145,7 @@ public class SqlAndProfileTest {
     @Test
     public void testProfileAnnotationInMetadata() {
         // Verify that @Profile annotations are correctly extracted into metadata
-        Path repoRoot = Paths.get("repos/test");
+        Path repoRoot = FIXTURE_REPO;
 
         // Check StripePaymentStrategy
         Optional<ClassMetadata> stripeMeta = classMetadataService.findClassMetadata(repoRoot, "StripePaymentStrategy", "com.example.strategy");
