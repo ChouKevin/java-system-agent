@@ -10,11 +10,13 @@ import com.java.system.agent.analysis.parser.ProjectParserService;
 import com.java.system.agent.analysis.parser.SourceRootResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -92,6 +94,46 @@ class ClassMetadataServiceTest {
         assertTrue(ast.isPresent());
         assertEquals("HelperService", ast.get().getNameAsString());
         assertTrue(ast.get().getMethods().stream().anyMatch(m -> m.getNameAsString().equals("doSomething")));
+    }
+
+    @Test
+    void shouldExtractMethodSourceSpan(@TempDir Path repoRoot) throws IOException {
+        Path sourceFile = repoRoot.resolve("src/main/java/com/example/basic/BasicService.java");
+        Files.createDirectories(sourceFile.getParent());
+        Files.writeString(sourceFile, """
+                package com.example.basic;
+
+                class BasicService {
+                    String getBasic(String id) {
+                        return id.trim();
+                    }
+                }
+                """);
+
+        classMetadataService.ensureInitialized(repoRoot);
+
+        ClassMetadata metadata = classMetadataService.findClassMetadata(
+                        repoRoot, "BasicService", "com.example.basic")
+                .orElseThrow();
+        ClassMetadata.MethodSignature method = metadata.methods().stream()
+                .filter(candidate -> candidate.name().equals("getBasic"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(4, method.startLine());
+        assertEquals(6, method.endLine());
+    }
+
+    @Test
+    void shouldAllowLegacyMethodSignatureConstructorWithoutSourceSpan() {
+        ClassMetadata.MethodSignature method = new ClassMetadata.MethodSignature(
+                "getBasic",
+                1,
+                List.of("String"),
+                List.of(),
+                null);
+
+        assertNull(method.startLine());
+        assertNull(method.endLine());
     }
 
     // =========================================================================

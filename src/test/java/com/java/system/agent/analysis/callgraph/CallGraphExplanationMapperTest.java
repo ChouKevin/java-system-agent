@@ -1,16 +1,87 @@
 package com.java.system.agent.analysis.callgraph;
 
 import com.java.system.agent.analysis.model.CallEdge;
+import com.java.system.agent.analysis.model.CallNode;
 import com.java.system.agent.analysis.model.ExplainableCallGraph;
+import com.java.system.agent.analysis.model.MethodId;
 import com.java.system.agent.analysis.model.ResolutionStrategy;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 class CallGraphExplanationMapperTest {
 
     private final CallGraphExplanationMapper mapper = new CallGraphExplanationMapper();
+
+    @Test
+    void should_allow_legacy_call_node_constructor_without_source_location() {
+        CallNode node = new CallNode(
+                new MethodId("test-repo", "com.example", "BasicService", "getBasic", List.of()),
+                "com.example.BasicService#getBasic",
+                CallType.INTERNAL_SERVICE,
+                Map.of(),
+                "String getBasic() {}");
+
+        Assertions.assertNull(node.sourceFile());
+        Assertions.assertNull(node.startLine());
+        Assertions.assertNull(node.endLine());
+    }
+
+    @Test
+    void should_copy_node_source_location() {
+        CallGraph service = CallGraph.builder()
+                .signature("com.example.BasicService#public String getBasic(Long id)")
+                .className("BasicService")
+                .packagePath("com.example")
+                .methodName("getBasic")
+                .callType(CallType.INTERNAL_SERVICE)
+                .sourceFile("src/main/java/com/example/BasicService.java")
+                .startLine(15)
+                .endLine(24)
+                .build();
+
+        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+
+        CallNode node = graph.nodes().get(0);
+        Assertions.assertEquals("src/main/java/com/example/BasicService.java", node.sourceFile());
+        Assertions.assertEquals(15, node.startLine());
+        Assertions.assertEquals(24, node.endLine());
+    }
+
+    @Test
+    void should_copy_edge_source_file_and_line_number() {
+        CallResolutionEvidence evidence = new CallResolutionEvidence(
+                ResolutionStrategy.SPRING_BEAN_BY_TYPE,
+                0.95,
+                List.of("RECEIVER_FIELD_TYPE"),
+                List.of(),
+                "src/main/java/com/example/BasicService.java",
+                42);
+        CallGraph repository = CallGraph.builder()
+                .signature("com.example.BasicRepository#String findName(Long id)")
+                .className("BasicRepository")
+                .packagePath("com.example")
+                .methodName("findName")
+                .callType(CallType.DATA_ACCESS)
+                .resolutionEvidence(evidence)
+                .build();
+        CallGraph service = CallGraph.builder()
+                .signature("com.example.BasicService#public String getBasic(Long id)")
+                .className("BasicService")
+                .packagePath("com.example")
+                .methodName("getBasic")
+                .callType(CallType.INTERNAL_SERVICE)
+                .calledMethods(List.of(repository))
+                .build();
+
+        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+
+        CallEdge edge = graph.edges().get(0);
+        Assertions.assertEquals("src/main/java/com/example/BasicService.java", edge.sourceFile());
+        Assertions.assertEquals(42, edge.lineNumber());
+    }
 
     @Test
     void should_map_interface_single_implementation_edge() {

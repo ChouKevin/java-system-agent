@@ -68,6 +68,7 @@ public class CallGraphExplanationMapper {
                     callerId,
                     calleeId,
                     calleeId.methodName(),
+                    resolution.sourceFile(),
                     resolution.lineNumber(),
                     resolution.resolutionStrategy(),
                     resolution.confidence(),
@@ -82,9 +83,9 @@ public class CallGraphExplanationMapper {
                 methodId,
                 node.getSignature(),
                 node.getCallType(),
-                null,
-                null,
-                null,
+                node.getSourceFile(),
+                node.getStartLine(),
+                node.getEndLine(),
                 immutableMap(node.getAnnotations()),
                 node.getCode());
     }
@@ -196,6 +197,7 @@ public class CallGraphExplanationMapper {
                     explicitEvidence.confidence(),
                     immutableList(explicitEvidence.evidence()),
                     immutableList(explicitEvidence.warnings()),
+                    explicitEvidence.sourceFile(),
                     explicitEvidence.lineNumber());
         }
         if (CallType.UNRESOLVED.equals(callee.getCallType())) {
@@ -204,6 +206,7 @@ public class CallGraphExplanationMapper {
                     UNRESOLVED_CONFIDENCE,
                     List.of("FALLBACK_CALL_TYPE_UNRESOLVED"),
                     List.of("Call could not be resolved"),
+                    null,
                     null);
         }
         if (CallType.DATA_ACCESS.equals(callee.getCallType())) {
@@ -212,6 +215,7 @@ public class CallGraphExplanationMapper {
                     DATA_ACCESS_CONFIDENCE,
                     List.of("FALLBACK_CALL_TYPE_DATA_ACCESS"),
                     List.of(),
+                    null,
                     null);
         }
         if (CallType.INTERFACE.equals(caller.getCallType())) {
@@ -224,6 +228,7 @@ public class CallGraphExplanationMapper {
                         INTERFACE_SINGLE_IMPL_CONFIDENCE,
                         List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
                         List.of(),
+                        null,
                         null);
             }
             if (implementationCount > 1) {
@@ -232,6 +237,7 @@ public class CallGraphExplanationMapper {
                         INTERFACE_MULTI_IMPL_CONFIDENCE,
                         List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
                         List.of("Multiple interface implementations matched"),
+                        null,
                         null);
             }
         }
@@ -241,6 +247,7 @@ public class CallGraphExplanationMapper {
                     EXTERNAL_LIB_CONFIDENCE,
                     List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
                     List.of(),
+                    null,
                     null);
         }
         return new Resolution(
@@ -248,6 +255,7 @@ public class CallGraphExplanationMapper {
                 HEURISTIC_CONFIDENCE,
                 List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
                 List.of(),
+                null,
                 null);
     }
 
@@ -277,6 +285,7 @@ public class CallGraphExplanationMapper {
             double confidence,
             List<String> evidence,
             List<String> warnings,
+            String sourceFile,
             Integer lineNumber) {
     }
 }

@@ -123,6 +123,9 @@ public class AgentAnalysisTools {
                 Explainable graph JSON guidance:
                 - Read data.nodes for methods and data.edges for caller-to-callee relationships.
                 - Read edge.evidence together with edge.resolutionStrategy when judging reliability.
+                - Read node.sourceFile, node.startLine, node.endLine, edge.sourceFile, and edge.lineNumber as source coordinates.
+                - Treat source coordinates as snapshot evidence, not stable identifiers after codebase updates.
+                - Revalidate important coordinates with semantic keys such as repoId, packageName, className, methodName, signature, and callExpression before citing exact code locations.
                 - Treat evidence as analyzer facts and warnings as uncertainty.
                 - When evidence contains MULTIPLE_INTERFACE_IMPLEMENTATIONS, explain candidate ambiguity instead of naming one implementation as certain.
                 - Use edge.resolutionStrategy, edge.confidence, edge.evidence, and edge.warnings when judging reliability.

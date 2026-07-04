@@ -9,5 +9,15 @@ public record CallResolutionEvidence(
         double confidence,
         List<String> evidence,
         List<String> warnings,
+        String sourceFile,
         Integer lineNumber) {
+
+    public CallResolutionEvidence(
+            ResolutionStrategy resolutionStrategy,
+            double confidence,
+            List<String> evidence,
+            List<String> warnings,
+            Integer lineNumber) {
+        this(resolutionStrategy, confidence, evidence, warnings, null, lineNumber);
+    }
 }

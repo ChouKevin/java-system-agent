@@ -172,6 +172,8 @@ public class ClassMetadataService {
                                     .map(a -> a.getNameAsString())
                                     .toList())
                             .sql(sql)
+                            .startLine(m.getBegin().map(position -> position.line).orElse(null))
+                            .endLine(m.getEnd().map(position -> position.line).orElse(null))
                             .build();
                 })
                 .toList();
