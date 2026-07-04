@@ -112,6 +112,12 @@ class AgentAnalysisToolsTest {
         assertThat(promptCaptor.getValue()).contains("analyzer facts");
         assertThat(promptCaptor.getValue()).contains("MULTIPLE_INTERFACE_IMPLEMENTATIONS");
         assertThat(promptCaptor.getValue()).contains("candidate ambiguity");
+        assertThat(promptCaptor.getValue()).contains("sourceFile");
+        assertThat(promptCaptor.getValue()).contains("startLine");
+        assertThat(promptCaptor.getValue()).contains("lineNumber");
+        assertThat(promptCaptor.getValue()).contains("snapshot evidence, not stable identifiers after codebase updates");
+        assertThat(promptCaptor.getValue()).contains("before citing exact code locations");
+        assertThat(promptCaptor.getValue()).contains("semantic keys such as repoId, packageName, className, methodName, signature, and callExpression");
     }
 
     @Test

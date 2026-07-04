@@ -29,6 +29,15 @@ public class CallGraph {
     @JsonPropertyDescription("方法名稱")
     private String methodName;
 
+    @JsonPropertyDescription("Source file path for this method, when available")
+    private String sourceFile;
+
+    @JsonPropertyDescription("Start line for this method, when available")
+    private Integer startLine;
+
+    @JsonPropertyDescription("End line for this method, when available")
+    private Integer endLine;
+
     @JsonPropertyDescription("方法類型")
     private CallType callType;
 

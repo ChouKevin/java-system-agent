@@ -29,8 +29,19 @@ public record ClassMetadata(
         int paramCount,
         List<String> paramTypes,
         List<String> annotations,
-        String sql
-    ) {}
+        String sql,
+        Integer startLine,
+        Integer endLine
+    ) {
+        public MethodSignature(
+                String name,
+                int paramCount,
+                List<String> paramTypes,
+                List<String> annotations,
+                String sql) {
+            this(name, paramCount, paramTypes, annotations, sql, null, null);
+        }
+    }
     
     /** 欄位資訊 */
     @Builder

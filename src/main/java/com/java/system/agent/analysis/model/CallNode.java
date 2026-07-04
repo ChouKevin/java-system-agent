@@ -13,4 +13,13 @@ public record CallNode(
         Integer endLine,
         Map<String, String> annotations,
         String code) {
+
+    public CallNode(
+            MethodId methodId,
+            String signature,
+            CallType callType,
+            Map<String, String> annotations,
+            String code) {
+        this(methodId, signature, callType, null, null, null, annotations, code);
+    }
 }

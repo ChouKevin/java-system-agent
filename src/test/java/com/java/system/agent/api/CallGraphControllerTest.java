@@ -60,7 +60,12 @@ class CallGraphControllerTest {
                 .andExpect(jsonPath("$.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.root.methodName").value("createOrder"))
                 .andExpect(jsonPath("$.data.nodes[0].methodId.className").value("OrderService"))
-                .andExpect(jsonPath("$.data.edges[0].resolutionStrategy").value("SAME_CLASS_METHOD"))
+                .andExpect(jsonPath("$.data.nodes[0].sourceFile").value("src/main/java/com/example/OrderService.java"))
+                .andExpect(jsonPath("$.data.nodes[0].startLine").value(10))
+                .andExpect(jsonPath("$.data.nodes[0].endLine").value(20))
+                .andExpect(jsonPath("$.data.edges[0].sourceFile").value("src/main/java/com/example/OrderService.java"))
+                .andExpect(jsonPath("$.data.edges[0].lineNumber").value(12))
+                .andExpect(jsonPath("$.data.edges[0].resolutionStrategy").value("SPRING_BEAN_BY_TYPE"))
                 .andExpect(jsonPath("$.data.edges[0].confidence").value(0.9))
                 .andExpect(jsonPath("$.data.edges[0].evidence[0]").value("TEST_EVIDENCE"))
                 .andExpect(jsonPath("$.data.legacyFlattened.rootSignature").value("OrderService#createOrder"));
@@ -163,8 +168,9 @@ class CallGraphControllerTest {
                 root,
                 callee,
                 "save",
-                null,
-                ResolutionStrategy.SAME_CLASS_METHOD,
+                "src/main/java/com/example/OrderService.java",
+                12,
+                ResolutionStrategy.SPRING_BEAN_BY_TYPE,
                 0.9,
                 List.of("TEST_EVIDENCE"),
                 List.of());
