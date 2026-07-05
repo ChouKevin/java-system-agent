@@ -1,15 +1,19 @@
 package com.java.system.agent.analysis.type;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * AST 型別推斷 — 從變數名稱與方法呼叫的 scope 解析出宣告的型別名稱
@@ -41,6 +45,8 @@ public class ScopeTypeResolver {
         SAME_CLASS,
         STATIC_CLASS,
         FIELD,
+        CONSTRUCTOR_INJECTED_FIELD,
+        QUALIFIED_CONSTRUCTOR_INJECTED_FIELD,
         PARAMETER,
         LOCAL_VARIABLE,
         UNKNOWN
@@ -165,6 +171,11 @@ public class ScopeTypeResolver {
                     "RECEIVER_LOCAL_VARIABLE_TYPE"));
         }
 
+        Optional<ResolvedReceiver> fromConstructor = resolveFromConstructorAssignedField(varName, cls);
+        if (fromConstructor.isPresent()) {
+            return fromConstructor;
+        }
+
         for (FieldDeclaration field : cls.getFields()) {
             for (VariableDeclarator var : field.getVariables()) {
                 if (var.getNameAsString().equals(varName)) {
@@ -189,6 +200,81 @@ public class ScopeTypeResolver {
         }
 
         return Optional.empty();
+    }
+
+    private Optional<ResolvedReceiver> resolveFromConstructorAssignedField(
+            String fieldName, ClassOrInterfaceDeclaration cls) {
+        return cls.getConstructors().stream()
+                .flatMap(constructor -> constructor.getBody()
+                        .findAll(AssignExpr.class).stream()
+                        .flatMap(assignment -> resolveConstructorAssignment(
+                                fieldName, constructor, assignment).stream()))
+                .findFirst();
+    }
+
+    private Optional<ResolvedReceiver> resolveConstructorAssignment(
+            String fieldName, ConstructorDeclaration constructor, AssignExpr assignment) {
+        Optional<String> assignedFieldName = assignedFieldName(assignment.getTarget());
+        if (assignedFieldName.isEmpty() || !fieldName.equals(assignedFieldName.get())) {
+            return Optional.empty();
+        }
+        if (!assignment.getValue().isNameExpr()) {
+            return Optional.empty();
+        }
+
+        String parameterName = assignment.getValue().asNameExpr().getNameAsString();
+        return constructor.getParameters().stream()
+                .filter(parameter -> parameter.getNameAsString().equals(parameterName))
+                .findFirst()
+                .map(this::constructorParameterReceiver);
+    }
+
+    private Optional<String> assignedFieldName(Expression target) {
+        if (target.isFieldAccessExpr() && target.asFieldAccessExpr().getScope().isThisExpr()) {
+            return Optional.of(target.asFieldAccessExpr().getNameAsString());
+        }
+        if (target.isNameExpr()) {
+            return Optional.of(target.asNameExpr().getNameAsString());
+        }
+        return Optional.empty();
+    }
+
+    private ResolvedReceiver constructorParameterReceiver(Parameter parameter) {
+        Optional<String> qualifier = extractQualifierName(parameter);
+        if (qualifier.isPresent()) {
+            return new ResolvedReceiver(
+                    parameter.getType().asString(),
+                    ReceiverOrigin.QUALIFIED_CONSTRUCTOR_INJECTED_FIELD,
+                    "RECEIVER_CONSTRUCTOR_PARAMETER_TYPE;SPRING_QUALIFIER:" + qualifier.get());
+        }
+        return new ResolvedReceiver(
+                parameter.getType().asString(),
+                ReceiverOrigin.CONSTRUCTOR_INJECTED_FIELD,
+                "RECEIVER_CONSTRUCTOR_PARAMETER_TYPE");
+    }
+
+    private Optional<String> extractQualifierName(Parameter parameter) {
+        return parameter.getAnnotations().stream()
+                .filter(annotation -> annotation.getNameAsString().equals("Qualifier")
+                        || annotation.getNameAsString().endsWith(".Qualifier"))
+                .flatMap(annotation -> {
+                    if (annotation.isSingleMemberAnnotationExpr()) {
+                        return Stream.of(stripQuotes(annotation.asSingleMemberAnnotationExpr()
+                                .getMemberValue().toString()));
+                    }
+                    if (annotation.isNormalAnnotationExpr()) {
+                        return annotation.asNormalAnnotationExpr().getPairs().stream()
+                                .filter(pair -> pair.getNameAsString().equals("value"))
+                                .map(pair -> stripQuotes(pair.getValue().toString()));
+                    }
+                    return Stream.empty();
+                })
+                .filter(StringUtils::hasText)
+                .findFirst();
+    }
+
+    private String stripQuotes(String value) {
+        return value.replaceAll("^\"|\"$", "");
     }
 
     private Optional<String> resolveFromParameters(String varName, MethodDeclaration method) {

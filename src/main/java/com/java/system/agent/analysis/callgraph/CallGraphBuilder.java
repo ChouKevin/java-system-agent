@@ -294,7 +294,9 @@ public class CallGraphBuilder {
     private List<String> evidenceCodes(ResolvedReceiver receiver, String... codes) {
         List<String> values = new ArrayList<>();
         if (receiver != null && StringUtils.hasText(receiver.evidenceCode())) {
-            values.add(receiver.evidenceCode());
+            values.addAll(Arrays.stream(receiver.evidenceCode().split(";"))
+                    .filter(StringUtils::hasText)
+                    .toList());
         }
         values.addAll(Arrays.asList(codes));
         return values;
@@ -305,6 +307,8 @@ public class CallGraphBuilder {
             case SAME_CLASS -> ResolutionStrategy.SAME_CLASS_METHOD;
             case STATIC_CLASS -> ResolutionStrategy.STATIC_METHOD;
             case FIELD -> ResolutionStrategy.SPRING_BEAN_BY_TYPE;
+            case CONSTRUCTOR_INJECTED_FIELD -> ResolutionStrategy.SPRING_BEAN_BY_TYPE;
+            case QUALIFIED_CONSTRUCTOR_INJECTED_FIELD -> ResolutionStrategy.SPRING_BEAN_BY_QUALIFIER;
             case PARAMETER, LOCAL_VARIABLE -> ResolutionStrategy.HEURISTIC_NAME_MATCH;
             default -> ResolutionStrategy.HEURISTIC_NAME_MATCH;
         };
@@ -312,7 +316,7 @@ public class CallGraphBuilder {
 
     private double methodConfidence(ResolvedReceiver receiver) {
         return switch (receiver.origin()) {
-            case SAME_CLASS, FIELD -> 0.95;
+            case SAME_CLASS, FIELD, CONSTRUCTOR_INJECTED_FIELD, QUALIFIED_CONSTRUCTOR_INJECTED_FIELD -> 0.95;
             case STATIC_CLASS -> 0.90;
             case PARAMETER, LOCAL_VARIABLE -> 0.65;
             default -> 0.70;

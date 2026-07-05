@@ -321,6 +321,131 @@ class CallGraphBuilderResolutionEvidenceTest {
     }
 
     @Test
+    void should_attach_constructor_injection_evidence(@TempDir Path repoRoot) throws IOException {
+        writeSource(repoRoot, "BasicService.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicService {
+                    private final BasicRepository basicRepository;
+
+                    BasicService(BasicRepository basicRepository) {
+                        this.basicRepository = basicRepository;
+                    }
+
+                    String getBasic(String id) {
+                        return basicRepository.findName(id);
+                    }
+                }
+                """);
+        writeSource(repoRoot, "BasicRepository.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Repository;
+
+                @Repository
+                class BasicRepository {
+                    String findName(String id) {
+                        return id;
+                    }
+                }
+                """);
+
+        AnalysisResult<ExplainableCallGraph> result = analyze(repoRoot, "getBasic");
+
+        assertNotEquals(AnalysisStatus.FAILED, result.status());
+        CallEdge edge = edgeTo(result.data(), "findName");
+        assertEquals(ResolutionStrategy.SPRING_BEAN_BY_TYPE, edge.resolutionStrategy());
+        assertTrue(edge.evidence().contains("RECEIVER_CONSTRUCTOR_PARAMETER_TYPE"));
+        assertTrue(edge.evidence().contains("TARGET_METHOD_FOUND"));
+    }
+
+    @Test
+    void should_attach_constructor_qualifier_evidence(@TempDir Path repoRoot) throws IOException {
+        writeSource(repoRoot, "BasicService.java", """
+                package com.example.basic;
+
+                import org.springframework.beans.factory.annotation.Qualifier;
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicService {
+                    private final BasicRepository basicRepository;
+
+                    BasicService(@Qualifier("primaryBasicRepository") BasicRepository basicRepository) {
+                        this.basicRepository = basicRepository;
+                    }
+
+                    String getBasic(String id) {
+                        return basicRepository.findName(id);
+                    }
+                }
+                """);
+        writeSource(repoRoot, "BasicRepository.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Repository;
+
+                @Repository
+                class BasicRepository {
+                    String findName(String id) {
+                        return id;
+                    }
+                }
+                """);
+
+        AnalysisResult<ExplainableCallGraph> result = analyze(repoRoot, "getBasic");
+
+        assertNotEquals(AnalysisStatus.FAILED, result.status());
+        CallEdge edge = edgeTo(result.data(), "findName");
+        assertEquals(ResolutionStrategy.SPRING_BEAN_BY_QUALIFIER, edge.resolutionStrategy());
+        assertTrue(edge.evidence().contains("RECEIVER_CONSTRUCTOR_PARAMETER_TYPE"));
+        assertTrue(edge.evidence().contains("SPRING_QUALIFIER:primaryBasicRepository"));
+        assertTrue(edge.evidence().contains("TARGET_METHOD_FOUND"));
+    }
+
+    @Test
+    void should_keep_field_evidence_when_constructor_assignment_has_no_matching_parameter(
+            @TempDir Path repoRoot) throws IOException {
+        writeSource(repoRoot, "BasicService.java", """
+                package com.example.basic;
+
+                import org.springframework.stereotype.Service;
+
+                @Service
+                class BasicService {
+                    private final BasicRepository basicRepository;
+
+                    BasicService() {
+                        this.basicRepository = createRepository();
+                    }
+
+                    String getBasic(String id) {
+                        return basicRepository.findName(id);
+                    }
+                }
+                """);
+        writeSource(repoRoot, "BasicRepository.java", """
+                package com.example.basic;
+
+                class BasicRepository {
+                    String findName(String id) {
+                        return id;
+                    }
+                }
+                """);
+
+        AnalysisResult<ExplainableCallGraph> result = analyze(repoRoot, "getBasic");
+
+        assertNotEquals(AnalysisStatus.FAILED, result.status());
+        CallEdge edge = edgeTo(result.data(), "findName");
+        assertEquals(ResolutionStrategy.HEURISTIC_NAME_MATCH, edge.resolutionStrategy());
+        assertFalse(edge.evidence().contains("RECEIVER_CONSTRUCTOR_PARAMETER_TYPE"));
+    }
+
+    @Test
     void should_treat_parameter_and_local_variable_receiver_types_as_inferred_not_spring_beans(
             @TempDir Path repoRoot) throws IOException {
         writeSource(repoRoot, "BasicService.java", """
