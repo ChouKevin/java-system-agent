@@ -31,7 +31,7 @@ public class CallGraphExpandTools {
         try {
             return analysisService.analyzeMethodExplainableStructured(repoId, packageName, className, methodSignature);
         } catch (Exception e) {
-            log.error("CallGraphExpandTools failed for {}.{}", className, methodSignature, e);
+            log.error("CallGraphExpandTools failed for {}.{}: {}", className, methodSignature, e.getMessage());
             return AnalysisResult.failed(
                     AnalysisErrorCode.INTERNAL_ERROR,
                     "Call graph expansion failed",
