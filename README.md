@@ -159,6 +159,34 @@ repos/
 
 A committed example is available at `repos/test-repo`. It shows the expected source layout, mapper resource location, top-level service map, business map, and per-group documents.
 
+## Adding Another Repository
+
+To add another repository, place the source code under `repos/{repoId}/` and keep the business documents beside that source tree. The minimum useful structure is:
+
+```
+repos/
+  service-map.md
+  {repoId}/
+    src/main/java/...
+    src/main/resources/...
+    docs/
+      business-map.md
+      summary.md
+      business-groups/
+        {groupName}.md
+```
+
+Update these files together:
+
+| File | Required content |
+|------|------------------|
+| `repos/service-map.md` | Add the new `repoId`, service purpose, and primary document path. |
+| `repos/{repoId}/docs/business-map.md` | List every business group and link to `business-groups/{groupName}.md`. |
+| `repos/{repoId}/docs/business-groups/{groupName}.md` | Describe the business purpose, required input data, behavior, dependencies, and `find_call_graph` parameters. |
+| `repos/{repoId}/docs/summary.md` | Summarize the service in business language. |
+
+The expected lookup path is `read_service_map -> read_business_map -> read_business_group_doc -> find_call_graph`. Each business group document should list source lookup rows with `repoId`, `packageName`, `className`, and `methodSignature` values that match real Java source under `repos/{repoId}/src/main/java`.
+
 ### Key Config: Call Graph Depth
 
 ```yaml

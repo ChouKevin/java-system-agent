@@ -1,49 +1,26 @@
 # Migration Notes
 
-## 2026-07-04 - Follow-up Roadmap For Fixture Migration And LLM Flow
+## 2026-07-05 - Demo Repository And Document Contract
 
 ### Current State
 
-- `uat` has fixture migration work through PR8.
-- Regression-only static analysis cases are moving into deterministic fixtures under `src/test/resources/fixtures/*`.
-- `generic-limitation` and `legacy-callgraph` fixtures now cover the former generic, depth, visited-signature, interface, source-extraction, and MQ detection regression cases.
-- The old regression-oriented demo folder has been removed from this branch.
-- `repos/test-repo` is now the committed user-facing example repository. It contains source code, mapper resources, `repos/test-repo/docs/business-map.md`, `repos/test-repo/docs/business-groups/*.md`, and `repos/test-repo/docs/summary.md`.
-- The LLM document flow now depends on `repos/service-map.md`, `repos/{repoId}/docs/business-map.md`, and `repos/{repoId}/docs/business-groups/*.md`.
-- Local planning notes under ignored paths should not be force-added unless the repository policy changes.
+- Regression-only static analysis cases live under `src/test/resources/fixtures/*`.
+- `repos/test-repo` is the committed user-facing example repository.
+- The runtime document contract is `repos/service-map.md`, `repos/{repoId}/docs/business-map.md`, and `repos/{repoId}/docs/business-groups/*.md`.
+- The exposed document tool for group details is `read_business_group_doc`.
+- Demo repository contract coverage verifies that business group documents point to real, analyzable Java entry points.
 
 ### Remaining Directions
 
-1. Keep analyzer regression coverage fixture-based.
-   - Add fixtures for multi-module Spring Boot repositories.
-   - Add representative data-access variants beyond the current mapper/JPA coverage where useful, such as JDBC template, MyBatis-Plus, QueryDSL, or Spring Data JDBC.
-   - Keep each fixture narrowly scoped so regression scenarios do not accumulate in the demo repository again.
-
-2. Keep the runtime example aligned with the LLM tool chain.
-   - Runtime tools resolve `repoId` to `repos/{repoId}`; `test-repo` maps to `repos/test-repo`.
-   - Adapter and tool tests should continue guarding `service-map.md`, `business-map.md`, and `business-groups/{groupName}.md` paths.
-   - Update `repos/service-map.md` when adding another committed example repo.
-
-3. Improve the LLM context contract.
-   - Document the outer LLM contract: `repoId`, business group, entry point, available documents, and when to call source-analysis tools.
-   - Document the inner loop-engineering contract: call graph nodes, edges, evidence, confidence, and source coordinates as snapshot evidence.
-   - Treat source coordinates as rebuildable analysis output because they can move when the codebase changes.
-
-4. Reduce noisy test output.
-   - Remove or gate large `System.out.println` JSON dumps in call graph tests after the fixture migration is stable.
-   - Prefer assertions and focused snapshot-style checks over console output as regression evidence.
-
-### Recommended Execution Order
-
-1. Re-scan references to the old demo folder and confirm they only appear as deleted historical paths in git diff.
-2. Add the next analyzer fixture only when it protects a real supported framework or data-access pattern.
-3. Keep `repos/test-repo` focused on explaining repository usage, not regression edge cases.
-4. Re-run the full Maven test suite after each fixture or demo-contract change.
+1. Add analyzer fixtures only for supported framework or data-access patterns that are not already covered.
+2. Keep `repos/test-repo` focused on onboarding and usage examples, not regression edge cases.
+3. Update `repos/service-map.md` and README onboarding instructions when adding another committed example repository.
+4. Keep noisy test output low; prefer assertions over console dumps.
 
 ### Review Questions
 
-- Which data-access libraries should be first-class fixture coverage for the next analyzer iteration?
-- Should `repos/test-repo` stay as the only committed example, or should future examples be split by architecture style?
+- Which data-access libraries should become first-class fixture coverage next?
+- Should future examples be split by architecture style, or should `repos/test-repo` remain the single canonical example?
 
 ## 2026-07-03 - Fixture-Based Static Analysis Tests
 
