@@ -84,36 +84,36 @@ class RepoDocAdapterTest {
         assertThat(result).isEmpty();
     }
 
-    // ── readSkillDoc ──────────────────────────────────────────────────────
+    // ── readBusinessGroupDoc ───────────────────────────────────────────────
 
     @Test
-    void readSkillDoc_should_return_file_content_when_file_exists() throws IOException {
-        Path docPath = root.resolve("repos/test-repo/docs/skills/event.md");
+    void readBusinessGroupDoc_should_return_file_content_when_file_exists() throws IOException {
+        Path docPath = root.resolve("repos/test-repo/docs/business-groups/order-checkout.md");
         Files.createDirectories(docPath.getParent());
-        Files.writeString(docPath, "## Event skill doc");
+        Files.writeString(docPath, "# 訂單結帳\n建立訂單並準備付款");
 
-        String result = adapter.readSkillDoc("test-repo", "event");
+        String result = adapter.readBusinessGroupDoc("test-repo", "order-checkout");
 
-        assertThat(result).isEqualTo("## Event skill doc");
+        assertThat(result).isEqualTo("# 訂單結帳\n建立訂單並準備付款");
     }
 
     @Test
-    void readSkillDoc_should_return_empty_when_groupName_is_blank() {
-        String result = adapter.readSkillDoc("test-repo", "  ");
+    void readBusinessGroupDoc_should_return_empty_when_groupName_is_blank() {
+        String result = adapter.readBusinessGroupDoc("test-repo", "  ");
 
         assertThat(result).isEmpty();
     }
 
     @Test
-    void readSkillDoc_should_return_empty_when_groupName_is_null() {
-        String result = adapter.readSkillDoc("test-repo", null);
+    void readBusinessGroupDoc_should_return_empty_when_groupName_is_null() {
+        String result = adapter.readBusinessGroupDoc("test-repo", null);
 
         assertThat(result).isEmpty();
     }
 
     @Test
-    void readSkillDoc_should_return_empty_when_file_missing() {
-        String result = adapter.readSkillDoc("test-repo", "nonexistent");
+    void readBusinessGroupDoc_should_return_empty_when_file_missing() {
+        String result = adapter.readBusinessGroupDoc("test-repo", "nonexistent");
 
         assertThat(result).isEmpty();
     }

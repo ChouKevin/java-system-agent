@@ -52,7 +52,7 @@ public class RequestScopedToolCallRecorder implements ToolCallRecorder {
         return switch (toolName) {
             case ToolNames.READ_SERVICE_MAP -> "[read_service_map]";
             case ToolNames.READ_BUSINESS_MAP -> formatReadBusinessMap(argsJson);
-            case ToolNames.READ_SKILL_DOC -> formatReadSkillDoc(argsJson);
+            case ToolNames.READ_BUSINESS_GROUP_DOC -> formatReadBusinessGroupDoc(argsJson);
             case ToolNames.FIND_CALL_GRAPH -> formatFindCallGraph(argsJson);
             default -> "[%s]".formatted(toolName);
         };
@@ -64,11 +64,11 @@ public class RequestScopedToolCallRecorder implements ToolCallRecorder {
                 .orElse("[read_business_map]");
     }
 
-    private String formatReadSkillDoc(String argsJson) {
+    private String formatReadBusinessGroupDoc(String argsJson) {
         return parseArgs(argsJson)
-                .map(args -> "[read_skill_doc] repo: `%s` | group: `%s`"
+                .map(args -> "[read_business_group_doc] repo: `%s` | group: `%s`"
                         .formatted(args.get("repoId"), args.get("groupName")))
-                .orElse("[read_skill_doc]");
+                .orElse("[read_business_group_doc]");
     }
 
     private String formatFindCallGraph(String argsJson) {

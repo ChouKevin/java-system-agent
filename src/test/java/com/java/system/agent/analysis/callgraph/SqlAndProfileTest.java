@@ -1,6 +1,5 @@
 package com.java.system.agent.analysis.callgraph;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.analysis.type.ClassMetadataService;
 import com.java.system.agent.analysis.type.MapperXmlSqlExtractor;
 import com.java.system.agent.analysis.type.ScopeTypeResolver;
@@ -66,12 +65,6 @@ public class SqlAndProfileTest {
         Assertions.assertNotNull(mapperCall.getCode(), "SQL should be extracted from @Select annotation");
         Assertions.assertTrue(mapperCall.getCode().contains("SELECT"), "SQL should contain SELECT statement");
 
-        try {
-            System.out.println("=== SQL Extraction Test ===");
-            System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(graph));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 
     @Test
@@ -134,12 +127,6 @@ public class SqlAndProfileTest {
         Assertions.assertTrue(cashFound,
                 "CashPaymentStrategy (pure Java, no Spring annotation) should be found");
 
-        try {
-            System.out.println("=== Multiple Implementations Test ===");
-            System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(graph));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 
     @Test

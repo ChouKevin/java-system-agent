@@ -1,6 +1,6 @@
 package com.java.system.agent.analysis.callgraph;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.analysis.fixture.FixtureRepoLoader;
 import com.java.system.agent.analysis.type.ClassMetadataService;
 import com.java.system.agent.analysis.type.MapperXmlSqlExtractor;
 import com.java.system.agent.analysis.type.ScopeTypeResolver;
@@ -20,6 +20,8 @@ import java.util.stream.Collectors;
 
 public class CallGraphTest {
 
+    private static final String FIXTURE = "legacy-callgraph";
+
     private TestRepoService service;
     private TestRepoService serviceDepth3;
 
@@ -35,13 +37,19 @@ public class CallGraphTest {
         CallGraphBuilder callGraphBuilder = new CallGraphBuilder(classifier, classMetadataService, scopeTypeResolver);
 
         JavaCallGraphAnalyzer javaCallGraphAnalyzer = new JavaCallGraphAnalyzer(projectParserService, classMetadataService, dtoAnalyzer, callGraphBuilder, 5);
-        service = new TestRepoService(entryPointCacheService, javaCallGraphAnalyzer);
+        service = new TestRepoService(
+                new FixtureRepoLoader().fixtureRoot(FIXTURE),
+                entryPointCacheService,
+                javaCallGraphAnalyzer);
 
         // maxDepth=3 for TRAVERSAL_CUTOFF tests
         ClassMetadataService cms3 = new ClassMetadataService(new MapperXmlSqlExtractor(new SourceRootResolver()), new ProjectParserService(new SourceRootResolver()), new SourceRootResolver());
         CallGraphBuilder cgb3 = new CallGraphBuilder(classifier, cms3, new ScopeTypeResolver());
         JavaCallGraphAnalyzer analyzer3 = new JavaCallGraphAnalyzer(new ProjectParserService(new SourceRootResolver()), cms3, new DtoAnalyzer(), cgb3, 3);
-        serviceDepth3 = new TestRepoService(entryPointCacheService, analyzer3);
+        serviceDepth3 = new TestRepoService(
+                new FixtureRepoLoader().fixtureRoot(FIXTURE),
+                entryPointCacheService,
+                analyzer3);
     }
 
     @Test
@@ -95,11 +103,6 @@ public class CallGraphTest {
         // We set MAX_DEPTH = 5 in Analyzer.
         // It shouldn't crash.
 
-        try {
-            System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(graph));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 
     @Test
@@ -197,12 +200,6 @@ public class CallGraphTest {
         // TRAVERSAL_CUTOFF should include source code
         Assertions.assertNotNull(cutoff.getCode(), "TRAVERSAL_CUTOFF node should include source code");
 
-        try {
-            System.out.println("=== TRAVERSAL_CUTOFF Flattened Output ===");
-            System.out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(flattened));
-        } catch (Exception e) {
-            // ignore
-        }
     }
 
     @Test

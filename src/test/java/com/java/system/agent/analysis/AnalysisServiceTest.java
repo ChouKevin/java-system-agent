@@ -60,7 +60,7 @@ class AnalysisServiceTest {
 
     @Test
     void should_delegateToAnalyzerWithFallbackPath_when_fileNotFoundInSourceRoots() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot))
                 .thenReturn(List.of(repoRoot.resolve("src/main/java")));
@@ -85,7 +85,7 @@ class AnalysisServiceTest {
 
     @Test
     void should_delegateToAnalyzerForExplainableGraph_when_fileNotFoundInSourceRoots() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot))
                 .thenReturn(List.of(repoRoot.resolve("src/main/java")));
@@ -125,7 +125,7 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodStructured_preservesFailedAnalyzerResult() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
@@ -144,7 +144,7 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodExplainableStructured_preservesFailedAnalyzerResult() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeExplainableResult(anyString(), any(), anyString(), anyString(), any()))
@@ -163,7 +163,7 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethod_returnsEmptyGraph_whenStructuredAnalysisFailsForCompatibility() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
@@ -182,7 +182,7 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodExplainable_returnsEmptyGraph_whenStructuredAnalysisFailsForCompatibility() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeExplainableResult(anyString(), any(), anyString(), anyString(), any()))
@@ -203,7 +203,7 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodStructured_distinguishesSuccessfulEmptyGraph() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         FlattenedCallGraph emptyGraph = FlattenedCallGraph.builder().methods(List.of()).build();
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
@@ -220,7 +220,7 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodStructured_preservesPartialResultWithWarnings() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         FlattenedCallGraph partialGraph = FlattenedCallGraph.builder().methods(List.of()).build();
         AnalysisWarning warning = new AnalysisWarning(
                 "UNRESOLVED_CALL",
@@ -241,7 +241,7 @@ class AnalysisServiceTest {
 
     @Test
     void scanEntryPoints_defaultsToAllWhenNoTypes() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(entryPointCacheService.getEntryPoints(repoRoot, EntryPointType.ALL))
                 .thenReturn(List.of());
@@ -254,7 +254,7 @@ class AnalysisServiceTest {
 
     @Test
     void scanEntryPoints_passesSpecificTypes() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
         when(entryPointCacheService.getEntryPoints(repoRoot, List.of(EntryPointType.API)))
                 .thenReturn(List.of());
@@ -289,7 +289,7 @@ class AnalysisServiceTest {
 
     @Test
     void should_evictAllCachesInOrder_when_reloadRepo() {
-        Path repoRoot = Path.of("/repos/test");
+        Path repoRoot = Path.of("/repos/test-repo");
         when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
 
         analysisService.reloadRepo("test-repo");
@@ -310,7 +310,7 @@ class AnalysisServiceTest {
     @Test
     void allRepos_delegatesToPort() {
         List<RepoDescriptor> expected = List.of(
-                new RepoDescriptor("test-repo", "Test", "desc", Path.of("/repos/test")));
+                new RepoDescriptor("test-repo", "Test", "desc", Path.of("/repos/test-repo")));
         when(repoRegistryPort.all()).thenReturn(expected);
 
         List<RepoDescriptor> result = analysisService.allRepos();

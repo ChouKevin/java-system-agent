@@ -8,7 +8,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-/** Stateless tool provider — LLM 用來讀取 service-map、business-map、skill docs。 */
+/** Stateless tool provider — LLM 用來讀取 service-map、business-map、業務群組文件。 */
 @Slf4j
 @Component
 public class DocumentTools {
@@ -42,15 +42,15 @@ public class DocumentTools {
                 + content + "\n";
     }
 
-    @Tool(name = ToolNames.READ_SKILL_DOC,
-          description = "讀取指定業務群組的 skill 文件，取得詳細業務說明與進入點資訊")
-    public String readSkillDoc(
+    @Tool(name = ToolNames.READ_BUSINESS_GROUP_DOC,
+          description = "讀取指定業務群組文件，取得詳細業務說明與進入點資訊")
+    public String readBusinessGroupDoc(
             @ToolParam(description = "目標 repo 的名稱") String repoId,
-            @ToolParam(description = "業務群組名稱，例如 event、rank") String groupName,
+            @ToolParam(description = "業務群組名稱，例如 order-checkout、payment-settlement") String groupName,
             ToolContext toolContext) {
-        recordCall(toolContext, ToolNames.READ_SKILL_DOC,
+        recordCall(toolContext, ToolNames.READ_BUSINESS_GROUP_DOC,
                 String.format("{\"repoId\":\"%s\",\"groupName\":\"%s\"}", repoId, groupName));
-        String content = repoDocPort.readSkillDoc(repoId, groupName);
+        String content = repoDocPort.readBusinessGroupDoc(repoId, groupName);
         if (!StringUtils.hasText(content)) {
             return "";
         }

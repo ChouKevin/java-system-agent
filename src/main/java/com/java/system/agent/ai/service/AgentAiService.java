@@ -81,7 +81,7 @@ public class AgentAiService {
                                 Set.of(
                                         ToolNames.READ_SERVICE_MAP,
                                         ToolNames.READ_BUSINESS_MAP,
-                                        ToolNames.READ_SKILL_DOC),
+                                        ToolNames.READ_BUSINESS_GROUP_DOC),
                                 "📚 文件查閱紀錄"))
                         .filter(StringUtils::hasText))
                 .concatWith(Mono.fromCallable(() -> recorder.getSummaryForTools(
@@ -99,10 +99,10 @@ public class AgentAiService {
                 可用 tool 與使用指引：
                 - read_service_map：取得系統所有 repo 的業務概覽。用於判斷目標 repo，若使用者已明確指定 repo 則跳過
                 - read_business_map(repoId)：取得指定 repo 的業務群組清單。用於定位相關業務群組
-                - read_skill_doc(repoId, groupName)：取得業務群組的詳細進入點說明。用於找出具體的進入點方法
+                - read_business_group_doc(repoId, groupName)：取得業務群組的詳細進入點說明。用於找出具體的進入點方法
                 - find_call_graph(repoId, packageName, className, methodSignature)：分析指定方法的業務流程與判斷條件
-                  - 方法名稱必須來自 read_skill_doc 文件中明確列出的進入點，禁止傳入編造的名稱（如 "all methods"、"*"）
-                  - 查詢整個 Controller 或類別時，先用 read_skill_doc 找出所有進入點，再逐一呼叫
+                  - 方法名稱必須來自 read_business_group_doc 文件中明確列出的進入點，禁止傳入編造的名稱（如 "all methods"、"*"）
+                  - 查詢整個 Controller 或類別時，先用 read_business_group_doc 找出所有進入點，再逐一呼叫
                   - 當使用者詢問業務邏輯、流程、規則、判斷、計算、條件時，必須呼叫此 tool 取得依據
 
                 自主決策原則：
@@ -110,7 +110,7 @@ public class AgentAiService {
                 - 問題模糊或跨 repo 時，從 read_service_map 開始逐步縮小範圍
                 - 若無法判斷目標 repo，列出候選項請使用者確認
                 - 若涉及多個 repo，分別查詢後整合回答
-                - read_skill_doc 不足以回答時，主動對相關進入點呼叫 find_call_graph
+                - read_business_group_doc 不足以回答時，主動對相關進入點呼叫 find_call_graph
                 - tool 回傳空結果時，告知使用者該文件尚未建立
                 - 禁止在資訊不足時臆測或編造業務邏輯；誠實告知不足之處
 

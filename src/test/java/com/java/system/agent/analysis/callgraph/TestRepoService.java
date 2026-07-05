@@ -16,14 +16,9 @@ import java.util.stream.Stream;
  * the AnalysisService facade (which returns FlattenedCallGraph).
  */
 public class TestRepoService {
-    private static final Path DEFAULT_REPO_ROOT = Paths.get("repos/test");
 
     private final JavaCallGraphAnalyzer javaCallGraphAnalyzer;
     private final Path repoRoot;
-
-    public TestRepoService(EntryPointCacheService entryPointCacheService, JavaCallGraphAnalyzer javaCallGraphAnalyzer) {
-        this(DEFAULT_REPO_ROOT, entryPointCacheService, javaCallGraphAnalyzer);
-    }
 
     public TestRepoService(Path repoRoot,
                            EntryPointCacheService entryPointCacheService,

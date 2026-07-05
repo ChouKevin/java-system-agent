@@ -46,13 +46,13 @@ class RepoDocAdapter implements RepoDocPort {
     }
 
     @Override
-    public String readSkillDoc(String repoId, String groupName) {
+    public String readBusinessGroupDoc(String repoId, String groupName) {
         Assert.hasText(repoId, "repoId must not be blank");
         if (!StringUtils.hasText(groupName)) {
-            log.warn("readSkillDoc called with blank groupName for repo {}", repoId);
+            log.warn("readBusinessGroupDoc called with blank groupName for repo {}", repoId);
             return "";
         }
-        Path path = Path.of(workDir, "repos", repoId, "docs", "skills", groupName + ".md");
+        Path path = Path.of(workDir, "repos", repoId, "docs", "business-groups", groupName + ".md");
         return readFile(path);
     }
 

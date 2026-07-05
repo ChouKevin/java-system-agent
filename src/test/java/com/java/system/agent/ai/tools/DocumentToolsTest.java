@@ -66,28 +66,28 @@ class DocumentToolsTest {
         assertThat(result).isEmpty();
     }
 
-    // ── readSkillDoc ──────────────────────────────────────────────────────
+    // ── readBusinessGroupDoc ──────────────────────────────────────────────
 
     @Test
-    void readSkillDoc_should_wrap_content_with_header() {
+    void readBusinessGroupDoc_should_wrap_content_with_header() {
         RepoDocPort port = mock(RepoDocPort.class);
-        when(port.readSkillDoc("test-repo", "event")).thenReturn("raw skill doc content");
+        when(port.readBusinessGroupDoc("test-repo", "order-checkout")).thenReturn("raw business group content");
         DocumentTools tools = new DocumentTools(port);
 
-        String result = tools.readSkillDoc("test-repo", "event", NO_RECORDER);
+        String result = tools.readBusinessGroupDoc("test-repo", "order-checkout", NO_RECORDER);
 
-        assertThat(result).startsWith("========================================\n## 業務群組: event (test-repo)\n");
-        assertThat(result).contains("raw skill doc content");
-        verify(port).readSkillDoc("test-repo", "event");
+        assertThat(result).startsWith("========================================\n## 業務群組: order-checkout (test-repo)\n");
+        assertThat(result).contains("raw business group content");
+        verify(port).readBusinessGroupDoc("test-repo", "order-checkout");
     }
 
     @Test
-    void readSkillDoc_should_return_empty_when_port_returns_empty() {
+    void readBusinessGroupDoc_should_return_empty_when_port_returns_empty() {
         RepoDocPort port = mock(RepoDocPort.class);
-        when(port.readSkillDoc("test-repo", "event")).thenReturn("");
+        when(port.readBusinessGroupDoc("test-repo", "order-checkout")).thenReturn("");
         DocumentTools tools = new DocumentTools(port);
 
-        String result = tools.readSkillDoc("test-repo", "event", NO_RECORDER);
+        String result = tools.readBusinessGroupDoc("test-repo", "order-checkout", NO_RECORDER);
 
         assertThat(result).isEmpty();
     }
@@ -121,16 +121,16 @@ class DocumentToolsTest {
     }
 
     @Test
-    void readSkillDoc_should_record_call_when_recorder_in_context() {
+    void readBusinessGroupDoc_should_record_call_when_recorder_in_context() {
         RepoDocPort port = mock(RepoDocPort.class);
-        when(port.readSkillDoc("test-repo", "event")).thenReturn("");
+        when(port.readBusinessGroupDoc("test-repo", "order-checkout")).thenReturn("");
         DocumentTools tools = new DocumentTools(port);
         ToolCallRecorder recorder = mock(ToolCallRecorder.class);
         ToolContext ctx = new ToolContext(Map.of("recorder", recorder));
 
-        tools.readSkillDoc("test-repo", "event", ctx);
+        tools.readBusinessGroupDoc("test-repo", "order-checkout", ctx);
 
-        verify(recorder).record(ToolNames.READ_SKILL_DOC,
-                "{\"repoId\":\"test-repo\",\"groupName\":\"event\"}");
+        verify(recorder).record(ToolNames.READ_BUSINESS_GROUP_DOC,
+                "{\"repoId\":\"test-repo\",\"groupName\":\"order-checkout\"}");
     }
 }

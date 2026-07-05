@@ -53,15 +53,15 @@ class RequestScopedToolCallRecorderTest {
     }
 
     @Test
-    void getSummaryForTools_formatsReadSkillDoc_withRepoAndGroup() {
-        recorder.record(ToolNames.READ_SKILL_DOC,
-                "{\"repoId\":\"BONUS_SERVICE\",\"groupName\":\"event\"}");
+    void getSummaryForTools_formatsReadBusinessGroupDoc_withRepoAndGroup() {
+        recorder.record(ToolNames.READ_BUSINESS_GROUP_DOC,
+                "{\"repoId\":\"test-repo\",\"groupName\":\"order-checkout\"}");
 
-        String summary = recorder.getSummaryForTools(Set.of(ToolNames.READ_SKILL_DOC), "title");
+        String summary = recorder.getSummaryForTools(Set.of(ToolNames.READ_BUSINESS_GROUP_DOC), "title");
 
-        assertThat(summary).contains("[read_skill_doc]");
-        assertThat(summary).contains("BONUS_SERVICE");
-        assertThat(summary).contains("event");
+        assertThat(summary).contains("[read_business_group_doc]");
+        assertThat(summary).contains("repo: `test-repo`");
+        assertThat(summary).contains("group: `order-checkout`");
     }
 
     @Test

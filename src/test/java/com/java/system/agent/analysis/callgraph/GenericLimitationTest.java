@@ -2,6 +2,7 @@ package com.java.system.agent.analysis.callgraph;
 
 import com.java.system.agent.analysis.model.MethodRef;
 import com.java.system.agent.analysis.entrypoint.EntryPointCacheService;
+import com.java.system.agent.analysis.fixture.FixtureRepoLoader;
 import com.java.system.agent.analysis.parser.ProjectParserService;
 import com.java.system.agent.analysis.parser.SourceRootResolver;
 import com.java.system.agent.analysis.type.ClassMetadataService;
@@ -24,23 +25,31 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>單層泛型欄位 — stripGenerics 後仍可正確定位 class</li>
  * </ol>
  *
- * 範例程式碼位於 {@code repos/test/src/main/java/com/example/generic/}
+ * 範例程式碼位於 {@code src/test/resources/fixtures/generic-limitation}
  */
 public class GenericLimitationTest {
+
+    private static final String FIXTURE = "generic-limitation";
 
     private TestRepoService service;
 
     @BeforeEach
     void setUp() {
-        ProjectParserService projectParserService = new ProjectParserService(new SourceRootResolver());
-        ClassMetadataService classMetadataService = new ClassMetadataService(new MapperXmlSqlExtractor(new SourceRootResolver()), new ProjectParserService(new SourceRootResolver()), new SourceRootResolver());
+        SourceRootResolver sourceRootResolver = new SourceRootResolver();
+        ProjectParserService projectParserService = new ProjectParserService(sourceRootResolver);
+        ClassMetadataService classMetadataService = new ClassMetadataService(
+                new MapperXmlSqlExtractor(sourceRootResolver),
+                new ProjectParserService(sourceRootResolver),
+                sourceRootResolver);
         ScopeTypeResolver scopeTypeResolver = new ScopeTypeResolver();
         CallGraphBuilder callGraphBuilder = new CallGraphBuilder(
                 new CallGraphClassifier(), classMetadataService, scopeTypeResolver);
         JavaCallGraphAnalyzer analyzer = new JavaCallGraphAnalyzer(
                 projectParserService, classMetadataService, new DtoAnalyzer(), callGraphBuilder, 5);
         service = new TestRepoService(
-                new EntryPointCacheService(projectParserService, new SourceRootResolver()), analyzer);
+                new FixtureRepoLoader().fixtureRoot(FIXTURE),
+                new EntryPointCacheService(projectParserService, sourceRootResolver),
+                analyzer);
     }
 
     // =========================================================================

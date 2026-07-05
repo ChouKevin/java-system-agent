@@ -13,14 +13,16 @@ target/
 # Logs
 logs/
 
-# Repos (keep test fixture)
+# Repos (keep committed demo only)
 repos/*
-!repos/test
+!repos/service-map.md
+!repos/test-repo/
+!repos/test-repo/**
 
 # Ollama
 ollama/
 
-# Claude Code
+# Local planning/tool files
 CLAUDE.md
 docs/superpowers/
 .claude/

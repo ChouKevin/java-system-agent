@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.order.OrderRepository">
+    <insert id="createPendingOrder">
+        INSERT INTO orders (customer_id, shipping_address, total_amount, status)
+        VALUES (#{customerId}, #{shippingAddress}, #{totalAmount}, 'PENDING_PAYMENT')
+    </insert>
+
+    <update id="markPaid">
+        UPDATE orders
+        SET status = 'PAID', paid_amount = #{confirmedAmount}
+        WHERE order_id = #{orderId}
+    </update>
+</mapper>

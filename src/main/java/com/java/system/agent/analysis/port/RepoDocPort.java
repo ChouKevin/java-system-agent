@@ -2,7 +2,7 @@ package com.java.system.agent.analysis.port;
 
 import com.java.system.agent.analysis.exception.UnknownRepoException;
 
-/** 讀取 repo 相關的 LLM 文件（service-map、business-map、skill doc、summary） */
+/** 讀取 repo 相關的 LLM 文件（service-map、business-map、業務群組文件、summary） */
 public interface RepoDocPort {
 
     /** 讀取頂層 service-map，描述所有 repo 概覽 */
@@ -16,11 +16,11 @@ public interface RepoDocPort {
     String readBusinessMap(String repoId);
 
     /**
-     * 讀取指定 repo 的 skill 文件
+     * 讀取指定 repo 的業務群組文件
      *
      * @throws UnknownRepoException 找不到 repoId 對應的 repo 時拋出
      */
-    String readSkillDoc(String repoId, String groupName);
+    String readBusinessGroupDoc(String repoId, String groupName);
 
     /**
      * 讀取指定 repo 的 summary

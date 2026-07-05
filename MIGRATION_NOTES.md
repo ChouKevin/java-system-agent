@@ -5,67 +5,56 @@
 ### Current State
 
 - `uat` has fixture migration work through PR8.
-- Regression-only static analysis cases are being moved from `repos/test` into deterministic fixtures under `src/test/resources/fixtures/*`.
-- `repos/test` is still retained because it may still serve demo, legacy test, and historical behavior roles.
-- The user-facing LLM flow still depends on runtime repository paths and documentation under `repos/{repoId}/`, including `repos/service-map.md`, `repos/{repoId}/docs/business-map.md`, and `repos/{repoId}/docs/skills/*.md`.
-- `docs/superpowers/` is intentionally ignored by `.gitignore`; do not force-add Superpowers-generated planning files unless the repository policy changes.
+- Regression-only static analysis cases are moving into deterministic fixtures under `src/test/resources/fixtures/*`.
+- `generic-limitation` and `legacy-callgraph` fixtures now cover the former generic, depth, visited-signature, interface, source-extraction, and MQ detection regression cases.
+- The old regression-oriented demo folder has been removed from this branch.
+- `repos/test-repo` is now the committed user-facing example repository. It contains source code, mapper resources, `repos/test-repo/docs/business-map.md`, `repos/test-repo/docs/business-groups/*.md`, and `repos/test-repo/docs/summary.md`.
+- The LLM document flow now depends on `repos/service-map.md`, `repos/{repoId}/docs/business-map.md`, and `repos/{repoId}/docs/business-groups/*.md`.
+- Local planning notes under ignored paths should not be force-added unless the repository policy changes.
 
 ### Remaining Directions
 
-1. Finish separating regression fixtures from the demo repository.
-   - Move remaining regression-focused coverage, such as generic resolution cases, into dedicated fixture folders.
-   - Review tests that still mock or reference `/repos/test` and decide whether those references are intentional demo behavior or only legacy naming.
-   - Keep `repos/test` until `rg -n "repos/test" src/test/java src/test/resources repos` shows only intentional demo references remain.
+1. Keep analyzer regression coverage fixture-based.
+   - Add fixtures for multi-module Spring Boot repositories.
+   - Add representative data-access variants beyond the current mapper/JPA coverage where useful, such as JDBC template, MyBatis-Plus, QueryDSL, or Spring Data JDBC.
+   - Keep each fixture narrowly scoped so regression scenarios do not accumulate in the demo repository again.
 
-2. Align the runtime demo repository with the LLM tool chain.
-   - Runtime tools resolve `repoId` to `repos/{repoId}`; for example, `test-repo` should map to `repos/test-repo`.
-   - If a maintained demo repository is needed, add or clone it as `repos/test-repo` and update `repos/service-map.md`.
-   - Keep adapter tests that guard the expected documentation paths used by Slack, tool, and API flows.
+2. Keep the runtime example aligned with the LLM tool chain.
+   - Runtime tools resolve `repoId` to `repos/{repoId}`; `test-repo` maps to `repos/test-repo`.
+   - Adapter and tool tests should continue guarding `service-map.md`, `business-map.md`, and `business-groups/{groupName}.md` paths.
+   - Update `repos/service-map.md` when adding another committed example repo.
 
 3. Improve the LLM context contract.
    - Document the outer LLM contract: `repoId`, business group, entry point, available documents, and when to call source-analysis tools.
    - Document the inner loop-engineering contract: call graph nodes, edges, evidence, confidence, and source coordinates as snapshot evidence.
    - Treat source coordinates as rebuildable analysis output because they can move when the codebase changes.
 
-4. Continue analyzer fixture coverage.
-   - Add fixtures for multi-module Spring Boot repositories.
-   - Add representative data-access variants beyond the current mapper/JPA coverage where useful, such as JDBC template, MyBatis-Plus, QueryDSL, or Spring Data JDBC.
-   - Keep each fixture narrowly scoped so duplicate fixture cases do not recreate a second `repos/test`.
-
-5. Reduce noisy test output.
+4. Reduce noisy test output.
    - Remove or gate large `System.out.println` JSON dumps in call graph tests after the fixture migration is stable.
    - Prefer assertions and focused snapshot-style checks over console output as regression evidence.
 
-6. Finalize the `repos/test` slim-down decision.
-   - Do not delete `repos/test` until the LLM question-to-tool flow has a replacement demo or an explicit decision that no demo repo is required.
-   - If `repos/test` remains a demo repo, document that purpose clearly and remove only duplicated regression-only content.
-   - If `repos/test` is replaced by `repos/test-repo`, migrate service-map and business-doc examples before deleting the old folder.
-
 ### Recommended Execution Order
 
-1. Migrate remaining generic-resolution and legacy call graph cases to fixtures.
-2. Re-scan references to `repos/test` and classify each as demo, runtime contract, or legacy test naming.
-3. Decide whether the runtime demo should be `repos/test`, `repos/test-repo`, or an external cloned repo.
-4. Update demo repository documentation and `repos/service-map.md` only after the runtime path decision is made.
-5. Add or update tests that protect the LLM path contract.
-6. Remove duplicated fixture/demo content and then re-run the full Maven test suite.
+1. Re-scan references to the old demo folder and confirm they only appear as deleted historical paths in git diff.
+2. Add the next analyzer fixture only when it protects a real supported framework or data-access pattern.
+3. Keep `repos/test-repo` focused on explaining repository usage, not regression edge cases.
+4. Re-run the full Maven test suite after each fixture or demo-contract change.
 
 ### Review Questions
 
-- Should `repos/test` remain as the named demo repository, or should it be migrated to `repos/test-repo` to match existing adapter expectations?
-- Should the demo repository be committed into this repo, cloned during setup, or generated as a fixture-like sample?
 - Which data-access libraries should be first-class fixture coverage for the next analyzer iteration?
+- Should `repos/test-repo` stay as the only committed example, or should future examples be split by architecture style?
 
 ## 2026-07-03 - Fixture-Based Static Analysis Tests
 
 - Added `src/test/resources/fixtures/spring-basic` as the first deterministic static-analysis regression fixture.
-- Kept `repos/test` as a managed demo repository; it is not slimmed in this change.
-- Future cleanup can move duplicate regression-only cases from `repos/test` into `src/test/resources/fixtures/*` after equivalent fixture coverage exists.
+- Kept the former managed demo repository; it is not slimmed in this change.
+- Future cleanup can move duplicate regression-only cases from the former demo repository into `src/test/resources/fixtures/*` after equivalent fixture coverage exists.
 
 ## 2026-07-02 - Development Workflow Notes
 
-- `docs/superpowers/` is intentionally ignored by `.gitignore`; do not force-add Superpowers-generated specs unless the ignore policy changes.
-- The fixture static-analysis design spec remains local under `docs/superpowers/specs/` for planning context and should not be part of repository history in the current workflow.
+- Local planning notes are intentionally ignored; do not force-add them unless the ignore policy changes.
+- The fixture static-analysis design notes remain local for planning context and should not be part of repository history in the current workflow.
 
 ## 2026-07-02 - Structured Analysis Result
 
