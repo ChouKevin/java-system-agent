@@ -14,6 +14,7 @@ public class AgentLoopRunner implements AgentLoop {
 
     public static final String FALLBACK = "目前資訊不足，無法完成分析";
     public static final String REVISION_NOTICE = "↻ 自我審查未過，修正中";
+    public static final String UNVERIFIED_NOTE = "⚠️ 以下回答未通過完整自我審查，僅供參考\n\n";
 
     private final StepExecutor stepExecutor;
     private final TerminationPolicy terminationPolicy;
@@ -58,7 +59,7 @@ public class AgentLoopRunner implements AgentLoop {
 
                 LoopDecision decision = terminationPolicy.decide(state);
                 if (decision.isStop()) {
-                    String answer = safeAnswer(lastAnswer);
+                    String answer = markUnverified(safeAnswer(lastAnswer));
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
@@ -68,7 +69,7 @@ public class AgentLoopRunner implements AgentLoop {
                     Candidate candidate = StringUtils.hasText(lastAnswer)
                             ? new Candidate(lastAnswer)
                             : stepExecutor.forceAnswer(state);
-                    String answer = safeAnswer(candidate);
+                    String answer = markUnverified(safeAnswer(candidate));
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
@@ -82,7 +83,7 @@ public class AgentLoopRunner implements AgentLoop {
                     log.warn("[{}] step failed, finalizing with best-effort answer", role, e);
                     state = state.recordStep(new LoopStep(state.iteration(),
                             "模型呼叫失敗: " + e.getMessage(), List.of(), null));
-                    String answer = safeAnswer(lastAnswer);
+                    String answer = markUnverified(safeAnswer(lastAnswer));
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
@@ -137,5 +138,12 @@ public class AgentLoopRunner implements AgentLoop {
             return answer;
         }
         return FALLBACK;
+    }
+
+    private String markUnverified(String answer) {
+        if (FALLBACK.equals(answer)) {
+            return answer;
+        }
+        return UNVERIFIED_NOTE + answer;
     }
 }

@@ -104,9 +104,9 @@ class AgentLoopRunnerTest {
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
         assertThat(stepCalls).hasValue(1);
-        assertThat(events).contains(new LoopEvent.Token("先用這版回答"));
+        assertThat(events).contains(new LoopEvent.Token(AgentLoopRunner.UNVERIFIED_NOTE + "先用這版回答"));
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
-        assertThat(done.result().finalAnswer()).isEqualTo("先用這版回答");
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "先用這版回答");
         assertThat(done.result().accepted()).isFalse();
     }
 
@@ -147,9 +147,26 @@ class AgentLoopRunnerTest {
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
-        assertThat(events).contains(new LoopEvent.Token("直接回答"));
+        assertThat(events).contains(new LoopEvent.Token(AgentLoopRunner.UNVERIFIED_NOTE + "直接回答"));
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
-        assertThat(done.result().finalAnswer()).isEqualTo("直接回答");
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "直接回答");
+        assertThat(done.result().accepted()).isFalse();
+    }
+
+    @Test
+    void stopWithRejectedDraft_marksAnswerUnverified() {
+        StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
+                "整理回覆", new Candidate("被拒的草稿"));
+        TerminationPolicy terminationPolicy = state -> state.iteration() < 1
+                ? LoopDecision.CONTINUE
+                : LoopDecision.STOP;
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, terminationPolicy,
+                (candidate, state) -> Verdict.revise("臆測"), "test");
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).startsWith(AgentLoopRunner.UNVERIFIED_NOTE);
         assertThat(done.result().accepted()).isFalse();
     }
 
