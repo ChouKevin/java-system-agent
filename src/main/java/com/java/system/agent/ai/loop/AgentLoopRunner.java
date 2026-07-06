@@ -13,6 +13,7 @@ import java.util.function.Consumer;
 public class AgentLoopRunner implements AgentLoop {
 
     public static final String FALLBACK = "目前資訊不足，無法完成分析";
+    public static final String REVISION_NOTICE = "↻ 自我審查未過，修正中";
 
     private final StepExecutor stepExecutor;
     private final TerminationPolicy terminationPolicy;
@@ -109,6 +110,7 @@ public class AgentLoopRunner implements AgentLoop {
                 }
                 if (outcome.isFinalCandidate()) {
                     state = state.injectCritique(verdict.critique());
+                    sink.next(new LoopEvent.Progress(REVISION_NOTICE));
                 }
             }
         });

@@ -54,6 +54,25 @@ class AgentLoopRunnerTest {
     }
 
     @Test
+    void rejectedCandidate_emitsRevisionProgress() {
+        AtomicInteger turn = new AtomicInteger();
+        StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
+                "整理回覆", new Candidate("答案" + turn.getAndIncrement()));
+        VerifyGate verifyGate = (candidate, state) -> state.iteration() == 0
+                ? Verdict.revise("證據不足")
+                : Verdict.accept();
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE, verifyGate, "test");
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        assertThat(events).containsSequence(
+                new LoopEvent.Progress("整理回覆"),
+                new LoopEvent.Progress(AgentLoopRunner.REVISION_NOTICE),
+                new LoopEvent.Progress("整理回覆"),
+                new LoopEvent.Token("答案1"));
+    }
+
+    @Test
     void acceptedCandidate_emitsTokenAndAcceptedTrace() {
         AgentLoop loop = new AgentLoopRunner(
                 state -> StepOutcome.finalCandidate("完成回答", new Candidate("可以申請")),
