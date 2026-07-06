@@ -96,9 +96,38 @@ class ChatModelStepTest {
         assertThat(answer.answer()).isEqualTo("盡力答案");
     }
 
+    @Test
+    void step_sendsOnlyOneSystemMessage_whenCritiqueIsInjected() {
+        ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("修正版"))));
+        FakeChatModel chatModel = new FakeChatModel(response);
+        ChatModelStep step = new ChatModelStep(chatModel, new FakeToolCallingManager(List.of()), options, seed);
+
+        step.step(LoopState.init(new LoopRequest("t", "q"))
+                .injectCritique("證據不足"));
+
+        assertThat(chatModel.lastPrompt.getInstructions())
+                .filteredOn(SystemMessage.class::isInstance)
+                .hasSize(1);
+    }
+
+    @Test
+    void forceAnswer_sendsOnlyOneSystemMessage_whenCritiqueIsInjected() {
+        ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("盡力答案"))));
+        FakeChatModel chatModel = new FakeChatModel(response);
+        ChatModelStep step = new ChatModelStep(chatModel, new FakeToolCallingManager(List.of()), options, seed);
+
+        step.forceAnswer(LoopState.init(new LoopRequest("t", "q"))
+                .injectCritique("證據不足"));
+
+        assertThat(chatModel.lastPrompt.getInstructions())
+                .filteredOn(SystemMessage.class::isInstance)
+                .hasSize(1);
+    }
+
     private static final class FakeChatModel implements ChatModel {
 
         private final ChatResponse response;
+        private Prompt lastPrompt;
 
         private FakeChatModel(ChatResponse response) {
             this.response = response;
@@ -106,6 +135,7 @@ class ChatModelStepTest {
 
         @Override
         public ChatResponse call(Prompt prompt) {
+            this.lastPrompt = prompt;
             return response;
         }
     }

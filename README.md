@@ -18,11 +18,12 @@ mvn spring-boot:run
 ### Docker
 
 ```bash
-docker compose up -d --build        # First time: build image and start
-docker compose restart app          # Code changed: restart without rebuild
-docker compose logs -f app          # View real-time console logs
-docker compose exec app bash        # Enter running container
-docker compose down                 # Stop and remove container
+docker compose up -d --build                         # First time, or after Dockerfile/image changes
+docker compose restart app                           # Code changed: restart without rebuild
+docker compose up -d --no-build --force-recreate app # .env changed: recreate container without rebuild
+docker compose logs -f app                           # View real-time console logs
+docker compose exec app bash                         # Enter running container
+docker compose down                                  # Stop and remove container
 ```
 
 #### Log Files

@@ -10,10 +10,12 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
+import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /** 一次 outer-controlled model turn:tool 由本類別透過 ToolCallingManager 執行 */
 public final class ChatModelStep implements StepExecutor {
@@ -44,7 +46,7 @@ public final class ChatModelStep implements StepExecutor {
     public StepOutcome step(LoopState state) {
         appendNewCritiques(state);
 
-        Prompt prompt = new Prompt(working, options);
+        Prompt prompt = promptFor(working, options);
         ChatResponse response = chatModel.call(prompt);
         AssistantMessage output = response.getResult().getOutput();
 
@@ -74,8 +76,33 @@ public final class ChatModelStep implements StepExecutor {
         ChatOptions noTools = ToolCallingChatOptions.builder()
                 .internalToolExecutionEnabled(false)
                 .build();
-        AssistantMessage output = chatModel.call(new Prompt(forced, noTools)).getResult().getOutput();
+        AssistantMessage output = chatModel.call(promptFor(forced, noTools)).getResult().getOutput();
         return new Candidate(Objects.toString(output.getText(), ""));
+    }
+
+    private Prompt promptFor(List<Message> messages, ChatOptions promptOptions) {
+        return new Prompt(messagesWithSingleSystemMessage(messages), promptOptions);
+    }
+
+    private List<Message> messagesWithSingleSystemMessage(List<Message> messages) {
+        List<SystemMessage> systemMessages = messages.stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(SystemMessage.class::cast)
+                .toList();
+        if (systemMessages.size() <= 1) {
+            return messages;
+        }
+
+        String systemText = systemMessages.stream()
+                .map(Message::getText)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining("\n\n"));
+        List<Message> normalized = new ArrayList<>();
+        normalized.add(new SystemMessage(systemText));
+        messages.stream()
+                .filter(message -> !(message instanceof SystemMessage))
+                .forEach(normalized::add);
+        return normalized;
     }
 
     private void appendNewCritiques(LoopState state) {
