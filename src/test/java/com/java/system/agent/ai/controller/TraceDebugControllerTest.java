@@ -4,6 +4,7 @@ import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Profile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -53,6 +54,13 @@ class TraceDebugControllerTest {
     void byTraceId_404WhenMissing() throws Exception {
         mockMvc.perform(get("/debug/trace/id/nope"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void controller_isExposedInDevAndUat() {
+        Profile profile = TraceDebugController.class.getAnnotation(Profile.class);
+
+        org.assertj.core.api.Assertions.assertThat(profile.value()).containsExactly("dev|uat");
     }
 
     private static LoopTrace trace(String traceId) {
