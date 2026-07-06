@@ -160,8 +160,9 @@ public class AgentAiService {
                     case LoopEvent.Token token -> chunks(redactLeakedToken(token.text(), preGate, redactionState));
                     case LoopEvent.Done done -> {
                         LoopTrace trace = done.result();
-                        log.info("Analyst loop finished: turns={}, rejections={}, accepted={}",
-                                trace.iterationCount(), trace.rejectionCount(), trace.accepted());
+                        log.info("Analyst loop finished: turns={}, rejections={}, accepted={}, totalTokens={}",
+                                trace.iterationCount(), trace.rejectionCount(), trace.accepted(),
+                                trace.totalTokens());
                         log.debug("Analyst loop trace: {}", trace.toJson(objectMapper));
                         String finalAnswer = trace.finalAnswer();
                         if (trace.accepted() && StringUtils.hasText(finalAnswer)) {

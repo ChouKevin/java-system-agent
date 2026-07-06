@@ -1,6 +1,8 @@
 package com.java.system.agent.ai.loop;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -38,6 +40,38 @@ class ChatModelStepTest {
 
         assertThat(outcome.isFinalCandidate()).isTrue();
         assertThat(outcome.candidate().answer()).isEqualTo("業務回覆");
+    }
+
+    @Test
+    void step_recordsDurationAndTokenUsage() {
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder()
+                .usage(new DefaultUsage(100, 20))
+                .build();
+        ChatResponse response = new ChatResponse(
+                List.of(new Generation(new AssistantMessage("答"))), metadata);
+        ChatModel chatModel = new FakeChatModel(response);
+
+        ChatModelStep step = new ChatModelStep(chatModel, new FakeToolCallingManager(List.of()), options, seed);
+        StepOutcome outcome = step.step(LoopState.init(new LoopRequest("t", "q")));
+
+        assertThat(outcome.metrics().promptTokens()).isEqualTo(100);
+        assertThat(outcome.metrics().completionTokens()).isEqualTo(20);
+        assertThat(outcome.metrics().durationMillis()).isGreaterThanOrEqualTo(0L);
+    }
+
+    @Test
+    void step_withoutMetadataRecordsNoTokenUsage() {
+        ChatResponse response = new ChatResponse(
+                List.of(new Generation(new AssistantMessage("答"))), null);
+        ChatModel chatModel = new FakeChatModel(response);
+
+        ChatModelStep step = new ChatModelStep(chatModel, new FakeToolCallingManager(List.of()), options, seed);
+        StepOutcome outcome = step.step(LoopState.init(new LoopRequest("t", "q")));
+
+        assertThat(outcome.candidate().answer()).isEqualTo("答");
+        assertThat(outcome.metrics().promptTokens()).isZero();
+        assertThat(outcome.metrics().completionTokens()).isZero();
+        assertThat(outcome.metrics().durationMillis()).isGreaterThanOrEqualTo(0L);
     }
 
     @Test

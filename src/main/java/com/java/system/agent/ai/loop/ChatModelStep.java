@@ -3,6 +3,7 @@ package com.java.system.agent.ai.loop;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
@@ -45,7 +46,9 @@ public final class ChatModelStep implements StepExecutor {
         appendNewCritiques(state);
 
         Prompt prompt = new Prompt(working, options);
+        long startMillis = System.currentTimeMillis();
         ChatResponse response = chatModel.call(prompt);
+        StepMetrics metrics = metricsSince(startMillis, response);
         AssistantMessage output = response.getResult().getOutput();
 
         if (response.hasToolCalls()) {
@@ -58,12 +61,13 @@ public final class ChatModelStep implements StepExecutor {
             List<String> names = toolCalls.stream()
                     .map(ToolCallRecord::name)
                     .toList();
-            return StepOutcome.acted("⚙️ 已查詢: " + String.join(", ", names), toolCalls, collector.drain());
+            return StepOutcome.acted("⚙️ 已查詢: " + String.join(", ", names),
+                    toolCalls, collector.drain(), metrics);
         }
 
         working.add(output);
         return StepOutcome.finalCandidate("⚙️ 整理回覆…",
-                new Candidate(Objects.toString(output.getText(), "")));
+                new Candidate(Objects.toString(output.getText(), "")), metrics);
     }
 
     @Override
@@ -84,5 +88,14 @@ public final class ChatModelStep implements StepExecutor {
             working.add(new SystemMessage("[自我檢查] " + critiques.get(index)));
         }
         appendedCritiques = critiques.size();
+    }
+
+    private StepMetrics metricsSince(long startMillis, ChatResponse response) {
+        long durationMillis = System.currentTimeMillis() - startMillis;
+        ChatResponseMetadata metadata = response.getMetadata();
+        if (Objects.isNull(metadata)) {
+            return StepMetrics.of(durationMillis, null);
+        }
+        return StepMetrics.of(durationMillis, metadata.getUsage());
     }
 }

@@ -5,24 +5,40 @@ import java.util.Objects;
 
 /** 一次 model turn 的產出:act 或 final */
 public record StepOutcome(String progressLine, Candidate candidate,
-                          List<ToolCallRecord> toolCalls, List<LoopTrace> childTraces) {
+                          List<ToolCallRecord> toolCalls, List<LoopTrace> childTraces,
+                          StepMetrics metrics) {
 
     public StepOutcome {
         toolCalls = List.copyOf(toolCalls);
         childTraces = List.copyOf(childTraces);
+        metrics = Objects.requireNonNullElse(metrics, StepMetrics.none());
+    }
+
+    public StepOutcome(String progressLine, Candidate candidate,
+                       List<ToolCallRecord> toolCalls, List<LoopTrace> childTraces) {
+        this(progressLine, candidate, toolCalls, childTraces, StepMetrics.none());
     }
 
     public static StepOutcome acted(String progressLine, List<ToolCallRecord> toolCalls) {
-        return acted(progressLine, toolCalls, List.of());
+        return acted(progressLine, toolCalls, List.of(), StepMetrics.none());
     }
 
     public static StepOutcome acted(String progressLine, List<ToolCallRecord> toolCalls,
                                     List<LoopTrace> childTraces) {
-        return new StepOutcome(progressLine, null, toolCalls, childTraces);
+        return acted(progressLine, toolCalls, childTraces, StepMetrics.none());
+    }
+
+    public static StepOutcome acted(String progressLine, List<ToolCallRecord> toolCalls,
+                                    List<LoopTrace> childTraces, StepMetrics metrics) {
+        return new StepOutcome(progressLine, null, toolCalls, childTraces, metrics);
     }
 
     public static StepOutcome finalCandidate(String progressLine, Candidate candidate) {
-        return new StepOutcome(progressLine, candidate, List.of(), List.of());
+        return finalCandidate(progressLine, candidate, StepMetrics.none());
+    }
+
+    public static StepOutcome finalCandidate(String progressLine, Candidate candidate, StepMetrics metrics) {
+        return new StepOutcome(progressLine, candidate, List.of(), List.of(), metrics);
     }
 
     public boolean isFinalCandidate() {

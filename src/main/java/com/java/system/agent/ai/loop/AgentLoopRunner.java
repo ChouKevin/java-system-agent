@@ -98,7 +98,7 @@ public class AgentLoopRunner implements AgentLoop {
 
                 state = state.recordStep(new LoopStep(
                         state.iteration(), outcome.progressLine(), outcome.toolNames(),
-                        verdict, outcome.childTraces()));
+                        verdict, outcome.childTraces(), outcome.metrics()));
 
                 if (outcome.isFinalCandidate() && verdict.accepted()) {
                     String answer = safeAnswer(lastAnswer);
