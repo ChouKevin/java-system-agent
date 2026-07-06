@@ -151,7 +151,8 @@ public class AgentAiService {
                 step,
                 new AnalystTerminationPolicy(analystMaxTurns, analystMaxWallMillis, analystNoProgressLimit),
                 gate,
-                "analyst");
+                "analyst",
+                trace -> saveTrace(conversationId, trace));
 
         return loop.run(new LoopRequest(conversationId, userQuery))
                 .concatMap(event -> switch (event) {
@@ -162,9 +163,6 @@ public class AgentAiService {
                         log.info("Analyst loop finished: turns={}, rejections={}, accepted={}",
                                 trace.iterationCount(), trace.rejectionCount(), trace.accepted());
                         log.debug("Analyst loop trace: {}", trace.toJson(objectMapper));
-                        if (traceStoreEnabled) {
-                            traceStore.save(conversationId, trace);
-                        }
                         String finalAnswer = trace.finalAnswer();
                         if (StringUtils.hasText(finalAnswer)) {
                             chatMemory.add(conversationId, List.of(
@@ -179,6 +177,12 @@ public class AgentAiService {
                     log.error("Analyst loop error for query: {}", userQuery, error);
                     return Flux.just("\n\n❌ 分析發生錯誤: " + error.getMessage());
                 });
+    }
+
+    private void saveTrace(String conversationId, LoopTrace trace) {
+        if (traceStoreEnabled) {
+            traceStore.save(conversationId, trace);
+        }
     }
 
     private String redactLeakedToken(String text, RuleBasedPreGate preGate, LoopState state) {

@@ -2,6 +2,7 @@ package com.java.system.agent.ai.loop;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -169,5 +170,53 @@ class AgentLoopRunnerTest {
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
         LoopStep actStep = done.result().steps().getFirst();
         assertThat(actStep.childTraces()).containsExactly(child);
+    }
+
+    @Test
+    void stepThrows_emitsBestEffortDoneWithFailedStepTrace() {
+        StepExecutor stepExecutor = state -> {
+            throw new IllegalStateException("model unavailable");
+        };
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(), "test", saved::add);
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().accepted()).isFalse();
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.FALLBACK);
+        assertThat(done.result().steps()).hasSize(1);
+        assertThat(done.result().steps().getFirst().summary()).contains("model unavailable");
+        assertThat(saved).hasSize(1);
+    }
+
+    @Test
+    void normalCompletion_notifiesTraceListener() {
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(
+                state -> StepOutcome.finalCandidate("完成回答", new Candidate("答案")),
+                state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(),
+                "test", saved::add);
+
+        loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        assertThat(saved).hasSize(1);
+        assertThat(saved.getFirst().finalAnswer()).isEqualTo("答案");
+    }
+
+    @Test
+    void cancelledRun_stillNotifiesTraceListener() {
+        StepExecutor stepExecutor = state -> StepOutcome.acted(
+                "查詢", List.of(ToolCallRecord.of("read_service_map")));
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(), "test", saved::add);
+
+        loop.run(new LoopRequest("t", "q")).take(1).blockLast();
+
+        assertThat(saved).hasSize(1);
+        assertThat(saved.getFirst().accepted()).isFalse();
     }
 }
