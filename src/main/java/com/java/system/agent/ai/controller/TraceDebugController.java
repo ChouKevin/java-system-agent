@@ -14,7 +14,7 @@ import java.util.List;
 /** 開發用 trace 查詢端點 */
 @RestController
 @RequestMapping("/debug/trace")
-@Profile("dev")
+@Profile("dev|uat")
 class TraceDebugController {
 
     private final LoopTraceStore traceStore;

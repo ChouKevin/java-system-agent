@@ -13,6 +13,7 @@ import org.springframework.ai.model.google.genai.autoconfigure.chat.GoogleGenAiC
 import org.springframework.ai.model.tool.DefaultToolExecutionEligibilityPredicate;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionEligibilityPredicate;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -29,6 +30,7 @@ import com.google.genai.Client;
 import io.micrometer.observation.ObservationRegistry;
 
 @Configuration
+@EnableConfigurationProperties(AgentLoopProperties.class)
 public class AiConfig {
 
     @Bean

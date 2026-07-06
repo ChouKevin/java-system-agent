@@ -2,6 +2,7 @@ package com.java.system.agent.ai.loop;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -53,6 +54,25 @@ class AgentLoopRunnerTest {
     }
 
     @Test
+    void rejectedCandidate_emitsRevisionProgress() {
+        AtomicInteger turn = new AtomicInteger();
+        StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
+                "整理回覆", new Candidate("答案" + turn.getAndIncrement()));
+        VerifyGate verifyGate = (candidate, state) -> state.iteration() == 0
+                ? Verdict.revise("證據不足")
+                : Verdict.accept();
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE, verifyGate, "test");
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        assertThat(events).containsSequence(
+                new LoopEvent.Progress("整理回覆"),
+                new LoopEvent.Progress(AgentLoopRunner.REVISION_NOTICE),
+                new LoopEvent.Progress("整理回覆"),
+                new LoopEvent.Token("答案1"));
+    }
+
+    @Test
     void acceptedCandidate_emitsTokenAndAcceptedTrace() {
         AgentLoop loop = new AgentLoopRunner(
                 state -> StepOutcome.finalCandidate("完成回答", new Candidate("可以申請")),
@@ -84,9 +104,9 @@ class AgentLoopRunnerTest {
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
         assertThat(stepCalls).hasValue(1);
-        assertThat(events).contains(new LoopEvent.Token("先用這版回答"));
+        assertThat(events).contains(new LoopEvent.Token(AgentLoopRunner.UNVERIFIED_NOTE + "先用這版回答"));
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
-        assertThat(done.result().finalAnswer()).isEqualTo("先用這版回答");
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "先用這版回答");
         assertThat(done.result().accepted()).isFalse();
     }
 
@@ -127,9 +147,26 @@ class AgentLoopRunnerTest {
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
-        assertThat(events).contains(new LoopEvent.Token("直接回答"));
+        assertThat(events).contains(new LoopEvent.Token(AgentLoopRunner.UNVERIFIED_NOTE + "直接回答"));
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
-        assertThat(done.result().finalAnswer()).isEqualTo("直接回答");
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "直接回答");
+        assertThat(done.result().accepted()).isFalse();
+    }
+
+    @Test
+    void stopWithRejectedDraft_marksAnswerUnverified() {
+        StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
+                "整理回覆", new Candidate("被拒的草稿"));
+        TerminationPolicy terminationPolicy = state -> state.iteration() < 1
+                ? LoopDecision.CONTINUE
+                : LoopDecision.STOP;
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, terminationPolicy,
+                (candidate, state) -> Verdict.revise("臆測"), "test");
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).startsWith(AgentLoopRunner.UNVERIFIED_NOTE);
         assertThat(done.result().accepted()).isFalse();
     }
 
@@ -169,5 +206,71 @@ class AgentLoopRunnerTest {
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
         LoopStep actStep = done.result().steps().getFirst();
         assertThat(actStep.childTraces()).containsExactly(child);
+    }
+
+    @Test
+    void stepThrows_emitsBestEffortDoneWithFailedStepTrace() {
+        StepExecutor stepExecutor = state -> {
+            throw new IllegalStateException("model unavailable");
+        };
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(), "test", saved::add);
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().accepted()).isFalse();
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.FALLBACK);
+        assertThat(done.result().steps()).hasSize(1);
+        assertThat(done.result().steps().getFirst().summary()).contains("model unavailable");
+        assertThat(saved).hasSize(1);
+    }
+
+    @Test
+    void normalCompletion_notifiesTraceListener() {
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(
+                state -> StepOutcome.finalCandidate("完成回答", new Candidate("答案")),
+                state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(),
+                "test", saved::add);
+
+        loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        assertThat(saved).hasSize(1);
+        assertThat(saved.getFirst().finalAnswer()).isEqualTo("答案");
+    }
+
+    @Test
+    void traceListenerThrows_stillEmitsDone() {
+        AgentLoop loop = new AgentLoopRunner(
+                state -> StepOutcome.finalCandidate("完成回答", new Candidate("答案")),
+                state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                trace -> {
+                    throw new IllegalStateException("store unavailable");
+                });
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).isEqualTo("答案");
+        assertThat(done.result().accepted()).isTrue();
+    }
+
+    @Test
+    void cancelledRun_stillNotifiesTraceListener() {
+        StepExecutor stepExecutor = state -> StepOutcome.acted(
+                "查詢", List.of(ToolCallRecord.of("read_service_map")));
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(), "test", saved::add);
+
+        loop.run(new LoopRequest("t", "q")).take(1).blockLast();
+
+        assertThat(saved).hasSize(1);
+        assertThat(saved.getFirst().accepted()).isFalse();
     }
 }

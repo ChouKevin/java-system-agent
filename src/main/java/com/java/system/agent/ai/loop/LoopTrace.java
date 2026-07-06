@@ -35,6 +35,17 @@ public record LoopTrace(String traceId, String role, String finalAnswer,
                 .sum();
     }
 
+    public long totalTokens() {
+        long ownTokens = steps.stream()
+                .mapToLong(step -> step.metrics().promptTokens() + step.metrics().completionTokens())
+                .sum();
+        long childTokens = steps.stream()
+                .flatMap(step -> step.childTraces().stream())
+                .mapToLong(LoopTrace::totalTokens)
+                .sum();
+        return ownTokens + childTokens;
+    }
+
     public String toJson(ObjectMapper objectMapper) {
         try {
             return objectMapper.writeValueAsString(this);

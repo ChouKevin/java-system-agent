@@ -37,4 +37,22 @@ class RuleBasedPreGateTest {
 
         assertThat(gate.verify(new Candidate("系統依會員等級與消費金額給予對應回饋"), state).accepted()).isTrue();
     }
+
+    @Test
+    void plainEnglishAndUrl_isAccepted() {
+        LoopState state = LoopState.init(new LoopRequest("t", "q"));
+
+        assertThat(gate.verify(new Candidate("詳見 www.example.com 的說明"), state).accepted()).isTrue();
+        assertThat(gate.verify(new Candidate("系統會在資料 update 之後通知會員"), state).accepted()).isTrue();
+        assertThat(gate.verify(new Candidate("這是一個 microservice 架構的行為"), state).accepted()).isTrue();
+    }
+
+    @Test
+    void codeAndSqlTokens_areStillRejected() {
+        LoopState state = LoopState.init(new LoopRequest("t", "q"));
+
+        assertThat(gate.verify(new Candidate("由 BonusService 處理"), state).accepted()).isFalse();
+        assertThat(gate.verify(new Candidate("邏輯在 com.java.bonus.service 裡"), state).accepted()).isFalse();
+        assertThat(gate.verify(new Candidate("執行 SELECT * FROM bonus"), state).accepted()).isFalse();
+    }
 }

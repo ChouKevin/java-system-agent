@@ -1,11 +1,12 @@
 package com.java.system.agent.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import com.java.system.agent.ai.service.AgentAiService;
+import com.java.system.agent.ai.tools.AgentAnalysisTools;
 import com.java.system.agent.ai.tools.DocumentTools;
-import com.java.system.agent.analysis.AnalysisService;
 import com.java.system.agent.analysis.port.RepoDocPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -39,9 +40,11 @@ class AgentAiServiceTest {
                 new FakeToolCallingManager(),
                 chatMemory,
                 new DocumentTools(new FakeRepoDocPort()),
-                null,
+                new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
+                        null, new ObjectMapper(), defaultLoopProperties()),
                 new ObjectMapper(),
-                traceStore);
+                traceStore,
+                defaultLoopProperties());
 
         String joined = String.join("", service.analyzeWithTools("thread-1", "如何計算獎金?")
                 .collectList()
@@ -50,6 +53,32 @@ class AgentAiServiceTest {
         assertThat(joined).contains("業務回覆");
         assertThat(chatModel.verifierCalls()).isEqualTo(2);
         assertThat(chatMemory.addedMessages()).hasSize(2);
+        assertThat(traceStore.recent("thread-1")).hasSize(1);
+    }
+
+    @Test
+    void analyzeWithTools_skipsMemoryWriteBack_whenAnswerNotAccepted() {
+        ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("草稿"))));
+        FakeChatModel chatModel = new FakeChatModel(response, "VERDICT: REVISE — 證據不足");
+        FakeChatMemory chatMemory = new FakeChatMemory();
+        FakeLoopTraceStore traceStore = new FakeLoopTraceStore();
+
+        AgentAiService service = new AgentAiService(
+                chatModel,
+                new FakeToolCallingManager(),
+                chatMemory,
+                new DocumentTools(new FakeRepoDocPort()),
+                new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
+                        null, new ObjectMapper(), defaultLoopProperties()),
+                new ObjectMapper(),
+                traceStore,
+                defaultLoopProperties());
+
+        service.analyzeWithTools("thread-1", "如何計算獎金?")
+                .collectList()
+                .block();
+
+        assertThat(chatMemory.addedMessages()).isEmpty();
         assertThat(traceStore.recent("thread-1")).hasSize(1);
     }
 
@@ -78,6 +107,13 @@ class AgentAiServiceTest {
         private int verifierCalls() {
             return verifierCalls;
         }
+    }
+
+    private static AgentLoopProperties defaultLoopProperties() {
+        return new AgentLoopProperties(
+                new AgentLoopProperties.Analyst(12, 120_000L, 2),
+                new AgentLoopProperties.Translator(6, 60_000L),
+                new AgentLoopProperties.Trace(true, 20, 200));
     }
 
     private static final class FakeChatMemory implements ChatMemory {

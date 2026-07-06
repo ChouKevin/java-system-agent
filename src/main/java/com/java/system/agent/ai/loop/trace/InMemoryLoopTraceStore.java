@@ -1,7 +1,8 @@
 package com.java.system.agent.ai.loop.trace;
 
+import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.loop.LoopTrace;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayDeque;
@@ -24,8 +25,12 @@ public class InMemoryLoopTraceStore implements LoopTraceStore {
     private final Map<String, LoopTrace> byTraceId = new ConcurrentHashMap<>();
     private final LinkedHashMap<String, Boolean> conversationLru = new LinkedHashMap<>(16, 0.75f, true);
 
-    public InMemoryLoopTraceStore(@Value("${agent.loop.trace.retain:20}") int retain,
-                                  @Value("${agent.loop.trace.max-conversations:200}") int maxConversations) {
+    @Autowired
+    public InMemoryLoopTraceStore(AgentLoopProperties properties) {
+        this(properties.trace().retain(), properties.trace().maxConversations());
+    }
+
+    InMemoryLoopTraceStore(int retain, int maxConversations) {
         this.retain = retain;
         this.maxConversations = maxConversations;
     }

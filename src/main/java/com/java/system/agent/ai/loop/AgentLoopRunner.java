@@ -1,20 +1,26 @@
 package com.java.system.agent.ai.loop;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 
+@Slf4j
 public class AgentLoopRunner implements AgentLoop {
 
     public static final String FALLBACK = "目前資訊不足，無法完成分析";
+    public static final String REVISION_NOTICE = "↻ 自我審查未過，修正中";
+    public static final String UNVERIFIED_NOTE = "⚠️ 以下回答未通過完整自我審查，僅供參考\n\n";
 
     private final StepExecutor stepExecutor;
     private final TerminationPolicy terminationPolicy;
     private final VerifyGate verifyGate;
     private final String role;
+    private final Consumer<LoopTrace> traceListener;
 
     public AgentLoopRunner(StepExecutor stepExecutor, TerminationPolicy terminationPolicy, VerifyGate verifyGate) {
         this(stepExecutor, terminationPolicy, verifyGate, "loop");
@@ -22,10 +28,17 @@ public class AgentLoopRunner implements AgentLoop {
 
     public AgentLoopRunner(StepExecutor stepExecutor, TerminationPolicy terminationPolicy,
                            VerifyGate verifyGate, String role) {
+        this(stepExecutor, terminationPolicy, verifyGate, role, trace -> {
+        });
+    }
+
+    public AgentLoopRunner(StepExecutor stepExecutor, TerminationPolicy terminationPolicy,
+                           VerifyGate verifyGate, String role, Consumer<LoopTrace> traceListener) {
         this.stepExecutor = stepExecutor;
         this.terminationPolicy = terminationPolicy;
         this.verifyGate = verifyGate;
         this.role = role;
+        this.traceListener = traceListener;
     }
 
     @Override
@@ -46,7 +59,7 @@ public class AgentLoopRunner implements AgentLoop {
 
                 LoopDecision decision = terminationPolicy.decide(state);
                 if (decision.isStop()) {
-                    String answer = safeAnswer(lastAnswer);
+                    String answer = markUnverified(safeAnswer(lastAnswer));
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
@@ -56,14 +69,26 @@ public class AgentLoopRunner implements AgentLoop {
                     Candidate candidate = StringUtils.hasText(lastAnswer)
                             ? new Candidate(lastAnswer)
                             : stepExecutor.forceAnswer(state);
-                    String answer = safeAnswer(candidate);
+                    String answer = markUnverified(safeAnswer(candidate));
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
                     return;
                 }
 
-                StepOutcome outcome = stepExecutor.step(state);
+                StepOutcome outcome;
+                try {
+                    outcome = stepExecutor.step(state);
+                } catch (RuntimeException e) {
+                    log.warn("[{}] step failed, finalizing with best-effort answer", role, e);
+                    state = state.recordStep(new LoopStep(state.iteration(),
+                            "模型呼叫失敗: " + e.getMessage(), List.of(), null));
+                    String answer = markUnverified(safeAnswer(lastAnswer));
+                    sink.next(new LoopEvent.Token(answer));
+                    sink.next(done(traceId, answer, false, state, allToolCalls));
+                    sink.complete();
+                    return;
+                }
                 sink.next(new LoopEvent.Progress(outcome.progressLine()));
                 allToolCalls.addAll(outcome.toolCalls());
 
@@ -75,7 +100,7 @@ public class AgentLoopRunner implements AgentLoop {
 
                 state = state.recordStep(new LoopStep(
                         state.iteration(), outcome.progressLine(), outcome.toolNames(),
-                        verdict, outcome.childTraces()));
+                        verdict, outcome.childTraces(), outcome.metrics()));
 
                 if (outcome.isFinalCandidate() && verdict.accepted()) {
                     String answer = safeAnswer(lastAnswer);
@@ -86,6 +111,7 @@ public class AgentLoopRunner implements AgentLoop {
                 }
                 if (outcome.isFinalCandidate()) {
                     state = state.injectCritique(verdict.critique());
+                    sink.next(new LoopEvent.Progress(REVISION_NOTICE));
                 }
             }
         });
@@ -93,8 +119,14 @@ public class AgentLoopRunner implements AgentLoop {
 
     private LoopEvent.Done done(String traceId, String answer, boolean accepted, LoopState state,
                                 List<ToolCallRecord> toolCalls) {
-        return new LoopEvent.Done(new LoopTrace(traceId, role, answer, accepted,
-                state.history(), List.copyOf(toolCalls)));
+        LoopTrace trace = new LoopTrace(traceId, role, answer, accepted,
+                state.history(), List.copyOf(toolCalls));
+        try {
+            traceListener.accept(trace);
+        } catch (RuntimeException e) {
+            log.warn("[{}] trace listener failed", role, e);
+        }
+        return new LoopEvent.Done(trace);
     }
 
     private String safeAnswer(Candidate candidate) {
@@ -106,5 +138,12 @@ public class AgentLoopRunner implements AgentLoop {
             return answer;
         }
         return FALLBACK;
+    }
+
+    private String markUnverified(String answer) {
+        if (FALLBACK.equals(answer)) {
+            return answer;
+        }
+        return UNVERIFIED_NOTE + answer;
     }
 }

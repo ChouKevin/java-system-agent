@@ -14,6 +14,20 @@ slack:
 entry-point:
   call-graph-depth: 3
 
+agent:
+  loop:
+    analyst:
+      max-turns: 12
+      max-wall-ms: 120000
+      no-progress-limit: 2
+    translator:
+      max-turns: 6
+      max-wall-ms: 60000
+    trace:
+      enabled: true
+      retain: 20
+      max-conversations: 200
+
 springdoc:
   api-docs:
     path: /v3/api-docs
