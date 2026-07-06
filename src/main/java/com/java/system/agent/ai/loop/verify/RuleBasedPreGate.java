@@ -12,10 +12,9 @@ import java.util.regex.Pattern;
 public final class RuleBasedPreGate implements VerifyGate {
 
     private static final Pattern CODE_TOKEN = Pattern.compile(
-            "\\b\\w+(Service|Controller|Repository|DAO|Mapper|Entity)\\b"
-                    + "|\\b[a-z]+(\\.[a-z][a-zA-Z0-9]+){2,}\\b"
-                    + "|\\b(SELECT|WHERE|INSERT|UPDATE|DELETE)\\s",
-            Pattern.CASE_INSENSITIVE);
+            "\\b[A-Z]\\w*(Service|Controller|Repository|DAO|Mapper|Entity)\\b"
+                    + "|\\b(com|org|net|io|java)(\\.[a-z][a-zA-Z0-9]*){2,}\\b"
+                    + "|\\b(SELECT|INSERT|UPDATE|DELETE|WHERE)\\s");
 
     @Override
     public Verdict verify(Candidate candidate, LoopState state) {
