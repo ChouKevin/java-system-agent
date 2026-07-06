@@ -207,6 +207,24 @@ class AgentLoopRunnerTest {
     }
 
     @Test
+    void traceListenerThrows_stillEmitsDone() {
+        AgentLoop loop = new AgentLoopRunner(
+                state -> StepOutcome.finalCandidate("完成回答", new Candidate("答案")),
+                state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                trace -> {
+                    throw new IllegalStateException("store unavailable");
+                });
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).isEqualTo("答案");
+        assertThat(done.result().accepted()).isTrue();
+    }
+
+    @Test
     void cancelledRun_stillNotifiesTraceListener() {
         StepExecutor stepExecutor = state -> StepOutcome.acted(
                 "查詢", List.of(ToolCallRecord.of("read_service_map")));

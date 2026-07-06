@@ -164,7 +164,7 @@ public class AgentAiService {
                                 trace.iterationCount(), trace.rejectionCount(), trace.accepted());
                         log.debug("Analyst loop trace: {}", trace.toJson(objectMapper));
                         String finalAnswer = trace.finalAnswer();
-                        if (StringUtils.hasText(finalAnswer)) {
+                        if (trace.accepted() && StringUtils.hasText(finalAnswer)) {
                             chatMemory.add(conversationId, List.of(
                                     new UserMessage(userQuery),
                                     new AssistantMessage(finalAnswer)));

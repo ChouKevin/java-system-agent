@@ -53,6 +53,30 @@ class AgentAiServiceTest {
         assertThat(traceStore.recent("thread-1")).hasSize(1);
     }
 
+    @Test
+    void analyzeWithTools_skipsMemoryWriteBack_whenAnswerNotAccepted() {
+        ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("草稿"))));
+        FakeChatModel chatModel = new FakeChatModel(response, "VERDICT: REVISE — 證據不足");
+        FakeChatMemory chatMemory = new FakeChatMemory();
+        FakeLoopTraceStore traceStore = new FakeLoopTraceStore();
+
+        AgentAiService service = new AgentAiService(
+                chatModel,
+                new FakeToolCallingManager(),
+                chatMemory,
+                new DocumentTools(new FakeRepoDocPort()),
+                null,
+                new ObjectMapper(),
+                traceStore);
+
+        service.analyzeWithTools("thread-1", "如何計算獎金?")
+                .collectList()
+                .block();
+
+        assertThat(chatMemory.addedMessages()).isEmpty();
+        assertThat(traceStore.recent("thread-1")).hasSize(1);
+    }
+
     private static final class FakeChatModel implements ChatModel {
 
         private final ChatResponse promptResponse;
