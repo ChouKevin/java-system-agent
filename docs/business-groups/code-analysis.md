@@ -1,4 +1,4 @@
-# code-analysis — 業務 Skill
+# code-analysis — 業務群組文件
 
 > 所屬專案：java-system-agent
 > 最後更新：2026-04-06 21:00

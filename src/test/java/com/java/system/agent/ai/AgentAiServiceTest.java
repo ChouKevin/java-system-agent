@@ -1,97 +1,166 @@
 package com.java.system.agent.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.loop.LoopTrace;
+import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import com.java.system.agent.ai.service.AgentAiService;
 import com.java.system.agent.ai.tools.DocumentTools;
 import com.java.system.agent.analysis.AnalysisService;
+import com.java.system.agent.analysis.port.RepoDocPort;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.memory.ChatMemory;
-import reactor.core.publisher.Flux;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.model.tool.ToolExecutionResult;
+import org.springframework.ai.tool.definition.ToolDefinition;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
 class AgentAiServiceTest {
 
-    @Mock
-    private ChatMemory chatMemory;
-
-    @Mock
-    private DocumentTools documentTools;
-
-    @Mock
-    private AnalysisService analysisService;
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     @Test
-    void analyzeWithTools_emitsOuterLlmChunks() {
-        ChatClient.Builder builder = mockBuilder(List.of("業務回覆"));
-        AgentAiService service = new AgentAiService(builder, chatMemory, documentTools, analysisService, objectMapper);
+    void analyzeWithTools_emitsVerifiedAnswerAndRunsVerifyStages() {
+        ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("業務回覆"))));
+        FakeChatModel chatModel = new FakeChatModel(response, "VERDICT: PASS");
+        FakeChatMemory chatMemory = new FakeChatMemory();
+        FakeLoopTraceStore traceStore = new FakeLoopTraceStore();
 
-        Flux<String> result = service.analyzeWithTools("thread-1", "如何計算獎金?");
+        AgentAiService service = new AgentAiService(
+                chatModel,
+                new FakeToolCallingManager(),
+                chatMemory,
+                new DocumentTools(new FakeRepoDocPort()),
+                null,
+                new ObjectMapper(),
+                traceStore);
 
-        List<String> items = result.collectList().block();
-        assertThat(items).containsExactly("業務回覆");
+        String joined = String.join("", service.analyzeWithTools("thread-1", "如何計算獎金?")
+                .collectList()
+                .block());
+
+        assertThat(joined).contains("業務回覆");
+        assertThat(chatModel.verifierCalls()).isEqualTo(2);
+        assertThat(chatMemory.addedMessages()).hasSize(2);
+        assertThat(traceStore.recent("thread-1")).hasSize(1);
     }
 
-    @Test
-    void analyzeWithTools_completesAfterOuterStreamEnds() {
-        ChatClient.Builder builder = mockBuilder(List.of("part1", "part2"));
-        AgentAiService service = new AgentAiService(builder, chatMemory, documentTools, analysisService, objectMapper);
+    private static final class FakeChatModel implements ChatModel {
 
-        Flux<String> result = service.analyzeWithTools("thread-1", "test query");
+        private final ChatResponse promptResponse;
+        private final String verifierResponse;
+        private int verifierCalls;
 
-        List<String> items = result.collectList().block();
-        assertThat(items).containsExactly("part1", "part2");
+        private FakeChatModel(ChatResponse promptResponse, String verifierResponse) {
+            this.promptResponse = promptResponse;
+            this.verifierResponse = verifierResponse;
+        }
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            return promptResponse;
+        }
+
+        @Override
+        public String call(String message) {
+            verifierCalls++;
+            return verifierResponse;
+        }
+
+        private int verifierCalls() {
+            return verifierCalls;
+        }
     }
 
-    @Test
-    void analyzeWithTools_mergesInnerSinkIntoOutput() {
-        ChatClient.Builder builder = mockBuilder(List.of("outer"));
-        AgentAiService service = new AgentAiService(builder, chatMemory, documentTools, analysisService, objectMapper);
+    private static final class FakeChatMemory implements ChatMemory {
 
-        Flux<String> result = service.analyzeWithTools("thread-1", "test");
+        private final List<Message> addedMessages = new ArrayList<>();
 
-        List<String> items = result.collectList().block();
-        assertThat(items).contains("outer");
+        @Override
+        public void add(String conversationId, List<Message> messages) {
+            addedMessages.addAll(messages);
+        }
+
+        @Override
+        public List<Message> get(String conversationId) {
+            return List.of();
+        }
+
+        @Override
+        public void clear(String conversationId) {
+            addedMessages.clear();
+        }
+
+        private List<Message> addedMessages() {
+            return List.copyOf(addedMessages);
+        }
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
+    private static final class FakeToolCallingManager implements ToolCallingManager {
 
-    @SuppressWarnings("unchecked")
-    private ChatClient.Builder mockBuilder(List<String> outerChunks) {
-        ChatClient.Builder builder = mock(ChatClient.Builder.class);
-        ChatClient client = mock(ChatClient.class);
-        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
-        ChatClient.StreamResponseSpec streamSpec = mock(ChatClient.StreamResponseSpec.class);
+        @Override
+        public List<ToolDefinition> resolveToolDefinitions(ToolCallingChatOptions chatOptions) {
+            return List.of();
+        }
 
-        when(builder.defaultAdvisors(any(Advisor[].class))).thenReturn(builder);
-        when(builder.build()).thenReturn(client);
-        when(client.prompt()).thenReturn(requestSpec);
-        when(requestSpec.system(anyString())).thenReturn(requestSpec);
-        when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        lenient().when(requestSpec.toolContext(any(Map.class))).thenReturn(requestSpec);
-        lenient().when(requestSpec.advisors(any(Advisor[].class))).thenReturn(requestSpec);
-        lenient().when(requestSpec.advisors(any(Consumer.class))).thenReturn(requestSpec);
-        lenient().when(requestSpec.tools(any(Object[].class))).thenReturn(requestSpec);
-        when(requestSpec.stream()).thenReturn(streamSpec);
-        when(streamSpec.content()).thenReturn(Flux.fromIterable(outerChunks));
+        @Override
+        public ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
+            return ToolExecutionResult.builder()
+                    .conversationHistory(List.of())
+                    .build();
+        }
+    }
 
-        return builder;
+    private static final class FakeRepoDocPort implements RepoDocPort {
+
+        @Override
+        public String readServiceMap() {
+            return "";
+        }
+
+        @Override
+        public String readBusinessMap(String repoId) {
+            return "";
+        }
+
+        @Override
+        public String readBusinessGroupDoc(String repoId, String groupName) {
+            return "";
+        }
+
+        @Override
+        public String readSummary(String repoId) {
+            return "";
+        }
+    }
+
+    private static final class FakeLoopTraceStore implements LoopTraceStore {
+
+        private final List<LoopTrace> traces = new ArrayList<>();
+
+        @Override
+        public void save(String conversationId, LoopTrace trace) {
+            traces.add(trace);
+        }
+
+        @Override
+        public List<LoopTrace> recent(String conversationId) {
+            return List.copyOf(traces);
+        }
+
+        @Override
+        public java.util.Optional<LoopTrace> byTraceId(String traceId) {
+            return traces.stream()
+                    .filter(trace -> trace.traceId().equals(traceId))
+                    .findFirst();
+        }
     }
 }

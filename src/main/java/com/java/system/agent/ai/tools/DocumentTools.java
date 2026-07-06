@@ -2,7 +2,6 @@ package com.java.system.agent.ai.tools;
 
 import com.java.system.agent.analysis.port.RepoDocPort;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -21,18 +20,14 @@ public class DocumentTools {
 
     @Tool(name = ToolNames.READ_SERVICE_MAP,
           description = "讀取 service-map.md，取得系統所有 repo 的業務概覽，用於初步判斷目標 repo")
-    public String readServiceMap(ToolContext toolContext) {
-        recordCall(toolContext, ToolNames.READ_SERVICE_MAP, "{}");
+    public String readServiceMap() {
         return repoDocPort.readServiceMap();
     }
 
     @Tool(name = ToolNames.READ_BUSINESS_MAP,
           description = "讀取指定 repo 的 business-map.md，取得該 repo 的業務群組清單")
     public String readBusinessMap(
-            @ToolParam(description = "目標 repo 的名稱，例如 bonus-service") String repoId,
-            ToolContext toolContext) {
-        recordCall(toolContext, ToolNames.READ_BUSINESS_MAP,
-                String.format("{\"repoId\":\"%s\"}", repoId));
+            @ToolParam(description = "目標 repo 的名稱，例如 bonus-service") String repoId) {
         String content = repoDocPort.readBusinessMap(repoId);
         if (!StringUtils.hasText(content)) {
             return "";
@@ -46,10 +41,7 @@ public class DocumentTools {
           description = "讀取指定業務群組文件，取得詳細業務說明與進入點資訊")
     public String readBusinessGroupDoc(
             @ToolParam(description = "目標 repo 的名稱") String repoId,
-            @ToolParam(description = "業務群組名稱，例如 order-checkout、payment-settlement") String groupName,
-            ToolContext toolContext) {
-        recordCall(toolContext, ToolNames.READ_BUSINESS_GROUP_DOC,
-                String.format("{\"repoId\":\"%s\",\"groupName\":\"%s\"}", repoId, groupName));
+            @ToolParam(description = "業務群組名稱，例如 order-checkout、payment-settlement") String groupName) {
         String content = repoDocPort.readBusinessGroupDoc(repoId, groupName);
         if (!StringUtils.hasText(content)) {
             return "";
@@ -57,12 +49,5 @@ public class DocumentTools {
         return "========================================\n"
                 + "## 業務群組: " + groupName + " (" + repoId + ")\n"
                 + content + "\n";
-    }
-
-    private void recordCall(ToolContext toolContext, String toolName, String argsJson) {
-        Object recorderObj = toolContext.getContext().get("recorder");
-        if (recorderObj instanceof ToolCallRecorder recorder) {
-            recorder.record(toolName, argsJson);
-        }
     }
 }

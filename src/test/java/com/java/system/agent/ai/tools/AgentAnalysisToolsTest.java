@@ -1,6 +1,8 @@
 package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.loop.LoopTrace;
+import com.java.system.agent.ai.loop.LoopTraceCollector;
 import com.java.system.agent.analysis.AnalysisService;
 import com.java.system.agent.analysis.model.AnalysisErrorCode;
 import com.java.system.agent.analysis.model.AnalysisResult;
@@ -8,143 +10,86 @@ import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import com.java.system.agent.analysis.model.FlattenedCallGraph;
 import com.java.system.agent.analysis.model.MethodId;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.model.ToolContext;
-import reactor.core.publisher.Flux;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.model.tool.ToolExecutionResult;
+import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
 class AgentAnalysisToolsTest {
-
-    @Mock
-    private AnalysisService analysisService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
     void findCallGraph_callsAnalysisService_withCorrectArgs() {
         ExplainableCallGraph callGraph = explainableGraph("calculate");
-        when(analysisService.analyzeMethodExplainableStructured(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(AnalysisResult.success(callGraph, null));
+        FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.success(callGraph, null));
         AgentAnalysisTools tools = new AgentAnalysisTools(
-                analysisService, mockStreamingClient(List.of("說明")), objectMapper);
+                new FakeChatModel("翻譯完成"), new FakeToolCallingManager(), analysisService, objectMapper, 2, 60_000);
 
         tools.findCallGraph("test-repo",
                 "com.example.service", "MainService", "calculate", emptyToolContext());
 
-        verify(analysisService).analyzeMethodExplainableStructured(
-                "test-repo", "com.example.service", "MainService", "calculate");
+        assertThat(analysisService.lastRepoId()).isEqualTo("test-repo");
+        assertThat(analysisService.lastPackageName()).isEqualTo("com.example.service");
+        assertThat(analysisService.lastClassName()).isEqualTo("MainService");
+        assertThat(analysisService.lastMethodSignature()).isEqualTo("calculate");
     }
 
     @Test
-    void findCallGraph_returnsConcatenatedInnerLlmChunks() {
+    void findCallGraph_returnsTranslatorLoopAnswer() {
         ExplainableCallGraph callGraph = explainableGraph("calculate");
-        when(analysisService.analyzeMethodExplainableStructured(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(AnalysisResult.success(callGraph, null));
+        FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.success(callGraph, null));
         AgentAnalysisTools tools = new AgentAnalysisTools(
-                analysisService, mockStreamingClient(List.of("業務", "說明", "內容")), objectMapper);
+                new FakeChatModel("翻譯完成"), new FakeToolCallingManager(), analysisService, objectMapper, 2, 60_000);
 
         String result = tools.findCallGraph(
                 "test-repo", "pkg", "Cls", "method", emptyToolContext());
 
-        assertThat(result).isEqualTo("業務說明內容");
+        assertThat(result).isEqualTo("翻譯完成");
     }
 
     @Test
-    void findCallGraph_wiresCallGraphExpandTools_toInnerLlm() {
+    void findCallGraph_publishesTranslatorTraceToCollector() {
         ExplainableCallGraph callGraph = explainableGraph("calculate");
-        when(analysisService.analyzeMethodExplainableStructured(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(AnalysisResult.success(callGraph, null));
-        ChatClient innerClient = mock(ChatClient.class);
-        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
-        ChatClient.StreamResponseSpec streamSpec = mock(ChatClient.StreamResponseSpec.class);
-        when(innerClient.prompt()).thenReturn(requestSpec);
-        when(requestSpec.system(anyString())).thenReturn(requestSpec);
-        when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.tools(any(Object[].class))).thenReturn(requestSpec);
-        when(requestSpec.stream()).thenReturn(streamSpec);
-        when(streamSpec.content()).thenReturn(Flux.just("ok"));
+        FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.success(callGraph, null));
+        LoopTraceCollector collector = new LoopTraceCollector();
         AgentAnalysisTools tools = new AgentAnalysisTools(
-                analysisService, innerClient, objectMapper);
+                new FakeChatModel("翻譯完成"), new FakeToolCallingManager(), analysisService, objectMapper, 2, 60_000);
 
-        tools.findCallGraph("test-repo", "pkg", "Cls", "method", emptyToolContext());
+        tools.findCallGraph(
+                "test-repo",
+                "pkg",
+                "Cls",
+                "method",
+                new ToolContext(Map.of("userQuery", "如何計算獎金?", "traceCollector", collector)));
 
-        verify(requestSpec).tools(any(Object[].class));
-    }
-
-    @Test
-    void findCallGraph_instructsInnerLlmToUseResolutionEvidence() {
-        ExplainableCallGraph callGraph = explainableGraph("calculate");
-        when(analysisService.analyzeMethodExplainableStructured(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(AnalysisResult.success(callGraph, null));
-        ChatClient innerClient = mock(ChatClient.class);
-        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
-        ChatClient.StreamResponseSpec streamSpec = mock(ChatClient.StreamResponseSpec.class);
-        when(innerClient.prompt()).thenReturn(requestSpec);
-        when(requestSpec.system(anyString())).thenReturn(requestSpec);
-        when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.tools(any(Object[].class))).thenReturn(requestSpec);
-        when(requestSpec.stream()).thenReturn(streamSpec);
-        when(streamSpec.content()).thenReturn(Flux.just("ok"));
-        AgentAnalysisTools tools = new AgentAnalysisTools(
-                analysisService, innerClient, objectMapper);
-
-        tools.findCallGraph("test-repo", "pkg", "Cls", "method", emptyToolContext());
-
-        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(requestSpec).user(promptCaptor.capture());
-        assertThat(promptCaptor.getValue()).contains("edge.evidence");
-        assertThat(promptCaptor.getValue()).contains("edge.resolutionStrategy");
-        assertThat(promptCaptor.getValue()).contains("analyzer facts");
-        assertThat(promptCaptor.getValue()).contains("MULTIPLE_INTERFACE_IMPLEMENTATIONS");
-        assertThat(promptCaptor.getValue()).contains("candidate ambiguity");
-        assertThat(promptCaptor.getValue()).contains("sourceFile");
-        assertThat(promptCaptor.getValue()).contains("startLine");
-        assertThat(promptCaptor.getValue()).contains("lineNumber");
-        assertThat(promptCaptor.getValue()).contains("snapshot evidence, not stable identifiers after codebase updates");
-        assertThat(promptCaptor.getValue()).contains("before citing exact code locations");
-        assertThat(promptCaptor.getValue()).contains("semantic keys such as repoId, packageName, className, methodName, signature, and callExpression");
-    }
-
-    @Test
-    void findCallGraph_recordsCallToRecorder_whenPresent() {
-        ExplainableCallGraph callGraph = explainableGraph("calculate");
-        when(analysisService.analyzeMethodExplainableStructured(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(AnalysisResult.success(callGraph, null));
-        ToolCallRecorder recorder = mock(ToolCallRecorder.class);
-        AgentAnalysisTools tools = new AgentAnalysisTools(
-                analysisService, mockStreamingClient(List.of("ok")), objectMapper);
-
-        tools.findCallGraph("test-repo", "pkg", "Cls", "method",
-                toolContextWith(Map.of("recorder", recorder)));
-
-        verify(recorder).record(anyString(), anyString());
+        assertThat(collector.drain())
+                .extracting(LoopTrace::role)
+                .containsExactly("translator");
+        assertThat(collector.drain()).isEmpty();
     }
 
     @Test
     void findCallGraph_returnsStructuredFailureJson_whenAnalysisFails() {
-        when(analysisService.analyzeMethodExplainableStructured(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(AnalysisResult.failed(
-                        AnalysisErrorCode.ENTRYPOINT_NOT_FOUND,
-                        "Entrypoint method was not found",
-                        "missing",
-                        null));
+        FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.failed(
+                AnalysisErrorCode.ENTRYPOINT_NOT_FOUND,
+                "Entrypoint method was not found",
+                "missing",
+                null));
         AgentAnalysisTools tools = new AgentAnalysisTools(
-                analysisService, mock(ChatClient.class), objectMapper);
+                new FakeChatModel("翻譯完成"), new FakeToolCallingManager(), analysisService, objectMapper, 2, 60_000);
 
         String result = tools.findCallGraph(
                 "test-repo", "pkg", "Cls", "missing", emptyToolContext());
@@ -153,30 +98,8 @@ class AgentAnalysisToolsTest {
         assertThat(result).contains("ENTRYPOINT_NOT_FOUND");
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
-
-    @SuppressWarnings("unchecked")
-    private ChatClient mockStreamingClient(List<String> chunks) {
-        ChatClient client = mock(ChatClient.class);
-        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
-        ChatClient.StreamResponseSpec streamSpec = mock(ChatClient.StreamResponseSpec.class);
-
-        when(client.prompt()).thenReturn(requestSpec);
-        when(requestSpec.system(anyString())).thenReturn(requestSpec);
-        when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        lenient().when(requestSpec.tools(any(Object[].class))).thenReturn(requestSpec);
-        when(requestSpec.stream()).thenReturn(streamSpec);
-        when(streamSpec.content()).thenReturn(Flux.fromIterable(chunks));
-
-        return client;
-    }
-
     private ToolContext emptyToolContext() {
-        return toolContextWith(Map.of());
-    }
-
-    private ToolContext toolContextWith(Map<String, Object> context) {
-        return new ToolContext(context);
+        return new ToolContext(Map.of("userQuery", "如何計算獎金?"));
     }
 
     private ExplainableCallGraph explainableGraph(String methodName) {
@@ -190,5 +113,74 @@ class AgentAnalysisToolsTest {
                         .rootSignature(methodName)
                         .methods(List.of())
                         .build());
+    }
+
+    private static final class FakeAnalysisService extends AnalysisService {
+
+        private final AnalysisResult<ExplainableCallGraph> result;
+        private String lastRepoId;
+        private String lastPackageName;
+        private String lastClassName;
+        private String lastMethodSignature;
+
+        private FakeAnalysisService(AnalysisResult<ExplainableCallGraph> result) {
+            super(null, null, null, null, null, null, null, null);
+            this.result = result;
+        }
+
+        @Override
+        public AnalysisResult<ExplainableCallGraph> analyzeMethodExplainableStructured(
+                String repoId, String packageName, String className, String methodName) {
+            this.lastRepoId = repoId;
+            this.lastPackageName = packageName;
+            this.lastClassName = className;
+            this.lastMethodSignature = methodName;
+            return result;
+        }
+
+        private String lastRepoId() {
+            return lastRepoId;
+        }
+
+        private String lastPackageName() {
+            return lastPackageName;
+        }
+
+        private String lastClassName() {
+            return lastClassName;
+        }
+
+        private String lastMethodSignature() {
+            return lastMethodSignature;
+        }
+    }
+
+    private static final class FakeChatModel implements ChatModel {
+
+        private final String responseText;
+
+        private FakeChatModel(String responseText) {
+            this.responseText = responseText;
+        }
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            return new ChatResponse(List.of(new Generation(new AssistantMessage(responseText))));
+        }
+    }
+
+    private static final class FakeToolCallingManager implements ToolCallingManager {
+
+        @Override
+        public List<ToolDefinition> resolveToolDefinitions(ToolCallingChatOptions chatOptions) {
+            return List.of();
+        }
+
+        @Override
+        public ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
+            return ToolExecutionResult.builder()
+                    .conversationHistory(List.<Message>of())
+                    .build();
+        }
     }
 }

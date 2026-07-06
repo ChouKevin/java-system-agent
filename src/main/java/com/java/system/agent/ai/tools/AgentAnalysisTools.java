@@ -1,33 +1,61 @@
 package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.loop.AgentLoop;
+import com.java.system.agent.ai.loop.AgentLoopRunner;
+import com.java.system.agent.ai.loop.ChatModelStep;
+import com.java.system.agent.ai.loop.LoopEvent;
+import com.java.system.agent.ai.loop.LoopRequest;
+import com.java.system.agent.ai.loop.LoopTrace;
+import com.java.system.agent.ai.loop.LoopTraceCollector;
+import com.java.system.agent.ai.loop.policy.TranslatorTerminationPolicy;
+import com.java.system.agent.ai.loop.verify.TranslatorVerifyGate;
 import com.java.system.agent.analysis.AnalysisService;
 import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.AnalysisStatus;
 import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
+import java.util.List;
+import java.util.Objects;
+
 /**
  * Per-request tool — NOT a @Component.
- * Runs call graph analysis then uses an inner LLM to translate the result into business language.
+ * Runs call graph analysis; translator loop is wired in a later task.
  */
 @Slf4j
 public class AgentAnalysisTools {
 
+    private final ChatModel chatModel;
+    private final ToolCallingManager toolCallingManager;
     private final AnalysisService analysisService;
-    private final ChatClient innerChatClient;
     private final ObjectMapper objectMapper;
+    private final int translatorMaxTurns;
+    private final long translatorMaxWallMillis;
 
-    public AgentAnalysisTools(AnalysisService analysisService,
-                               ChatClient innerChatClient,
-                               ObjectMapper objectMapper) {
+    public AgentAnalysisTools(ChatModel chatModel,
+                              ToolCallingManager toolCallingManager,
+                              AnalysisService analysisService,
+                              ObjectMapper objectMapper,
+                              int translatorMaxTurns,
+                              long translatorMaxWallMillis) {
+        this.chatModel = chatModel;
+        this.toolCallingManager = toolCallingManager;
         this.analysisService = analysisService;
-        this.innerChatClient = innerChatClient;
         this.objectMapper = objectMapper;
+        this.translatorMaxTurns = translatorMaxTurns;
+        this.translatorMaxWallMillis = translatorMaxWallMillis;
     }
 
     @Tool(name = ToolNames.FIND_CALL_GRAPH,
@@ -41,51 +69,53 @@ public class AgentAnalysisTools {
 
         log.info("AgentAnalysisTools.findCallGraph: {}.{}.{}", repoId, className, methodSignature);
 
-        recordCall(toolContext, repoId, className, methodSignature);
-
-        String userQuery = (String) toolContext.getContext().getOrDefault("userQuery", "");
         AnalysisResult<ExplainableCallGraph> analysisResult = analysisService.analyzeMethodExplainableStructured(
                 repoId, packageName, className, methodSignature);
-        StringBuilder result = new StringBuilder();
-
         try {
             String callGraphJson = objectMapper.writeValueAsString(analysisResult);
             if (analysisResult.status() == AnalysisStatus.FAILED) {
                 return callGraphJson;
             }
-            CallGraphExpandTools expandTools = new CallGraphExpandTools(analysisService);
-
-            log.debug("findCallGraph: starting inner LLM for {}.{}", className, methodSignature);
-            innerChatClient.prompt()
-                    .system(innerSystemPrompt(userQuery))
-                    .user(innerUserPrompt(callGraphJson))
-                    .tools(expandTools)
-                    .stream()
-                    .content()
-                    .doOnNext(chunk -> {
-                        log.debug("findCallGraph: inner chunk len={}", chunk.length());
-                        result.append(chunk);
-                    })
-                    .doOnComplete(() -> log.debug("findCallGraph: inner LLM complete, totalLen={}", result.length()))
-                    .blockLast();
-
+            return translateCallGraph(callGraphJson, toolContext);
         } catch (Exception e) {
-            log.error("Inner LLM analysis failed for {}.{}", className, methodSignature, e);
+            log.error("Call graph analysis serialization failed for {}.{}", className, methodSignature, e);
             return "（程式碼業務分析暫時無法取得）";
         }
-
-        return result.toString();
     }
 
-    private void recordCall(ToolContext toolContext, String repoId, String className, String methodSignature) {
-        Object recorderObj = toolContext.getContext().get("recorder");
-        if (recorderObj instanceof ToolCallRecorder recorder) {
-            String argsJson = String.format(
-                    "{\"repoId\":\"%s\",\"className\":\"%s\",\"methodSignature\":\"%s\"}",
-                    repoId != null ? repoId : "unknown",
-                    className,
-                    methodSignature);
-            recorder.record(ToolNames.FIND_CALL_GRAPH, argsJson);
+    private String translateCallGraph(String callGraphJson, ToolContext toolContext) {
+        String userQuery = Objects.toString(toolContext.getContext().get("userQuery"), "");
+        CallGraphExpandTools expandTools = new CallGraphExpandTools(analysisService);
+        ChatOptions options = ToolCallingChatOptions.builder()
+                .toolCallbacks(ToolCallbacks.from(expandTools))
+                .internalToolExecutionEnabled(false)
+                .build();
+        List<Message> seed = List.of(
+                new SystemMessage(innerSystemPrompt(userQuery)),
+                new UserMessage(innerUserPrompt(callGraphJson)));
+
+        ChatModelStep step = new ChatModelStep(chatModel, toolCallingManager, options, seed);
+        AgentLoop loop = new AgentLoopRunner(
+                step,
+                new TranslatorTerminationPolicy(translatorMaxTurns, translatorMaxWallMillis),
+                new TranslatorVerifyGate(callGraphJson),
+                "translator");
+
+        LoopTrace result = loop.run(new LoopRequest("translator", userQuery))
+                .ofType(LoopEvent.Done.class)
+                .map(LoopEvent.Done::result)
+                .blockLast();
+        if (Objects.isNull(result)) {
+            return "（程式碼業務分析暫時無法取得）";
+        }
+        publishTrace(toolContext, result);
+        return result.finalAnswer();
+    }
+
+    private void publishTrace(ToolContext toolContext, LoopTrace trace) {
+        Object collector = toolContext.getContext().get("traceCollector");
+        if (collector instanceof LoopTraceCollector traceCollector) {
+            traceCollector.add(trace);
         }
     }
 
