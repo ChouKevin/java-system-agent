@@ -22,7 +22,6 @@ import com.java.system.agent.ai.tools.AgentAnalysisTools;
 import com.java.system.agent.ai.tools.DocumentTools;
 import com.java.system.agent.ai.tools.ToolCallSummary;
 import com.java.system.agent.ai.tools.ToolNames;
-import com.java.system.agent.analysis.AnalysisService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -34,6 +33,7 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -77,28 +77,26 @@ public class AgentAiService {
     private final ChatModel chatModel;
     private final ToolCallingManager toolCallingManager;
     private final ChatMemory chatMemory;
-    private final DocumentTools documentTools;
-    private final AnalysisService analysisService;
     private final ObjectMapper objectMapper;
     private final LoopTraceStore traceStore;
     private final AgentLoopProperties loopProperties;
+    private final ToolCallback[] toolCallbacks;
 
     public AgentAiService(ChatModel chatModel,
                           ToolCallingManager toolCallingManager,
                           ChatMemory chatMemory,
                           DocumentTools documentTools,
-                          AnalysisService analysisService,
+                          AgentAnalysisTools agentAnalysisTools,
                           ObjectMapper objectMapper,
                           LoopTraceStore traceStore,
                           AgentLoopProperties loopProperties) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.chatMemory = chatMemory;
-        this.documentTools = documentTools;
-        this.analysisService = analysisService;
         this.objectMapper = objectMapper;
         this.traceStore = traceStore;
         this.loopProperties = loopProperties;
+        this.toolCallbacks = ToolCallbacks.from(documentTools, agentAnalysisTools);
     }
 
     /**
@@ -107,15 +105,8 @@ public class AgentAiService {
      */
     public Flux<String> analyzeWithTools(String conversationId, String userQuery) {
         LoopTraceCollector traceCollector = new LoopTraceCollector();
-        AgentAnalysisTools agentAnalysisTools = new AgentAnalysisTools(
-                chatModel,
-                toolCallingManager,
-                analysisService,
-                objectMapper,
-                loopProperties.translator().maxTurns(),
-                loopProperties.translator().maxWallMs());
         ChatOptions options = ToolCallingChatOptions.builder()
-                .toolCallbacks(ToolCallbacks.from(documentTools, agentAnalysisTools))
+                .toolCallbacks(toolCallbacks)
                 .toolContext(Map.of("userQuery", userQuery, "traceCollector", traceCollector))
                 .internalToolExecutionEnabled(false)
                 .build();

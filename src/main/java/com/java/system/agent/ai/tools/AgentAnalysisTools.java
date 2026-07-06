@@ -1,6 +1,7 @@
 package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.loop.AgentLoop;
 import com.java.system.agent.ai.loop.AgentLoopRunner;
 import com.java.system.agent.ai.loop.ChatModelStep;
@@ -26,14 +27,16 @@ import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Objects;
 
 /**
- * Per-request tool — NOT a @Component.
- * Runs call graph analysis; translator loop is wired in a later task.
+ * Singleton tool. Runs call graph analysis and translates the result with an
+ * inner translator loop; per-request data arrives via ToolContext.
  */
+@Component
 @Slf4j
 public class AgentAnalysisTools {
 
@@ -48,14 +51,13 @@ public class AgentAnalysisTools {
                               ToolCallingManager toolCallingManager,
                               AnalysisService analysisService,
                               ObjectMapper objectMapper,
-                              int translatorMaxTurns,
-                              long translatorMaxWallMillis) {
+                              AgentLoopProperties loopProperties) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.analysisService = analysisService;
         this.objectMapper = objectMapper;
-        this.translatorMaxTurns = translatorMaxTurns;
-        this.translatorMaxWallMillis = translatorMaxWallMillis;
+        this.translatorMaxTurns = loopProperties.translator().maxTurns();
+        this.translatorMaxWallMillis = loopProperties.translator().maxWallMs();
     }
 
     @Tool(name = ToolNames.FIND_CALL_GRAPH,

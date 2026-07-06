@@ -1,6 +1,7 @@
 package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.LoopTraceCollector;
 import com.java.system.agent.analysis.AnalysisService;
@@ -21,6 +22,7 @@ import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
@@ -35,8 +37,7 @@ class AgentAnalysisToolsTest {
     void findCallGraph_callsAnalysisService_withCorrectArgs() {
         ExplainableCallGraph callGraph = explainableGraph("calculate");
         FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.success(callGraph, null));
-        AgentAnalysisTools tools = new AgentAnalysisTools(
-                new FakeChatModel("翻譯完成"), new FakeToolCallingManager(), analysisService, objectMapper, 2, 60_000);
+        AgentAnalysisTools tools = newTools(analysisService);
 
         tools.findCallGraph("test-repo",
                 "com.example.service", "MainService", "calculate", emptyToolContext());
@@ -51,8 +52,7 @@ class AgentAnalysisToolsTest {
     void findCallGraph_returnsTranslatorLoopAnswer() {
         ExplainableCallGraph callGraph = explainableGraph("calculate");
         FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.success(callGraph, null));
-        AgentAnalysisTools tools = new AgentAnalysisTools(
-                new FakeChatModel("翻譯完成"), new FakeToolCallingManager(), analysisService, objectMapper, 2, 60_000);
+        AgentAnalysisTools tools = newTools(analysisService);
 
         String result = tools.findCallGraph(
                 "test-repo", "pkg", "Cls", "method", emptyToolContext());
@@ -65,8 +65,7 @@ class AgentAnalysisToolsTest {
         ExplainableCallGraph callGraph = explainableGraph("calculate");
         FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.success(callGraph, null));
         LoopTraceCollector collector = new LoopTraceCollector();
-        AgentAnalysisTools tools = new AgentAnalysisTools(
-                new FakeChatModel("翻譯完成"), new FakeToolCallingManager(), analysisService, objectMapper, 2, 60_000);
+        AgentAnalysisTools tools = newTools(analysisService);
 
         tools.findCallGraph(
                 "test-repo",
@@ -88,14 +87,34 @@ class AgentAnalysisToolsTest {
                 "Entrypoint method was not found",
                 "missing",
                 null));
-        AgentAnalysisTools tools = new AgentAnalysisTools(
-                new FakeChatModel("翻譯完成"), new FakeToolCallingManager(), analysisService, objectMapper, 2, 60_000);
+        AgentAnalysisTools tools = newTools(analysisService);
 
         String result = tools.findCallGraph(
                 "test-repo", "pkg", "Cls", "missing", emptyToolContext());
 
         assertThat(result).contains("\"status\":\"FAILED\"");
         assertThat(result).contains("ENTRYPOINT_NOT_FOUND");
+    }
+
+    @Test
+    void class_isSingletonComponent() {
+        assertThat(AgentAnalysisTools.class.getAnnotation(Component.class)).isNotNull();
+    }
+
+    private AgentAnalysisTools newTools(FakeAnalysisService analysisService) {
+        return new AgentAnalysisTools(
+                new FakeChatModel("翻譯完成"),
+                new FakeToolCallingManager(),
+                analysisService,
+                objectMapper,
+                defaultLoopProperties());
+    }
+
+    private AgentLoopProperties defaultLoopProperties() {
+        return new AgentLoopProperties(
+                new AgentLoopProperties.Analyst(12, 120_000L, 2),
+                new AgentLoopProperties.Translator(2, 60_000L),
+                new AgentLoopProperties.Trace(true, 20, 200));
     }
 
     private ToolContext emptyToolContext() {

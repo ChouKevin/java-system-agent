@@ -5,8 +5,8 @@ import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import com.java.system.agent.ai.service.AgentAiService;
+import com.java.system.agent.ai.tools.AgentAnalysisTools;
 import com.java.system.agent.ai.tools.DocumentTools;
-import com.java.system.agent.analysis.AnalysisService;
 import com.java.system.agent.analysis.port.RepoDocPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -40,7 +40,8 @@ class AgentAiServiceTest {
                 new FakeToolCallingManager(),
                 chatMemory,
                 new DocumentTools(new FakeRepoDocPort()),
-                null,
+                new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
+                        null, new ObjectMapper(), defaultLoopProperties()),
                 new ObjectMapper(),
                 traceStore,
                 defaultLoopProperties());
@@ -67,7 +68,8 @@ class AgentAiServiceTest {
                 new FakeToolCallingManager(),
                 chatMemory,
                 new DocumentTools(new FakeRepoDocPort()),
-                null,
+                new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
+                        null, new ObjectMapper(), defaultLoopProperties()),
                 new ObjectMapper(),
                 traceStore,
                 defaultLoopProperties());
