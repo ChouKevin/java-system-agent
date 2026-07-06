@@ -1,6 +1,7 @@
 package com.java.system.agent.ai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.loop.AgentLoop;
 import com.java.system.agent.ai.loop.AgentLoopRunner;
 import com.java.system.agent.ai.loop.Candidate;
@@ -33,7 +34,6 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.support.ToolCallbacks;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -81,24 +81,7 @@ public class AgentAiService {
     private final AnalysisService analysisService;
     private final ObjectMapper objectMapper;
     private final LoopTraceStore traceStore;
-
-    @Value("${agent.loop.analyst.max-turns:12}")
-    private int analystMaxTurns = 12;
-
-    @Value("${agent.loop.analyst.max-wall-ms:120000}")
-    private long analystMaxWallMillis = 120_000;
-
-    @Value("${agent.loop.analyst.no-progress-limit:2}")
-    private int analystNoProgressLimit = 2;
-
-    @Value("${agent.loop.translator.max-turns:6}")
-    private int translatorMaxTurns = 6;
-
-    @Value("${agent.loop.translator.max-wall-ms:60000}")
-    private long translatorMaxWallMillis = 60_000;
-
-    @Value("${agent.loop.trace.enabled:true}")
-    private boolean traceStoreEnabled = true;
+    private final AgentLoopProperties loopProperties;
 
     public AgentAiService(ChatModel chatModel,
                           ToolCallingManager toolCallingManager,
@@ -106,7 +89,8 @@ public class AgentAiService {
                           DocumentTools documentTools,
                           AnalysisService analysisService,
                           ObjectMapper objectMapper,
-                          LoopTraceStore traceStore) {
+                          LoopTraceStore traceStore,
+                          AgentLoopProperties loopProperties) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.chatMemory = chatMemory;
@@ -114,6 +98,7 @@ public class AgentAiService {
         this.analysisService = analysisService;
         this.objectMapper = objectMapper;
         this.traceStore = traceStore;
+        this.loopProperties = loopProperties;
     }
 
     /**
@@ -127,8 +112,8 @@ public class AgentAiService {
                 toolCallingManager,
                 analysisService,
                 objectMapper,
-                translatorMaxTurns,
-                translatorMaxWallMillis);
+                loopProperties.translator().maxTurns(),
+                loopProperties.translator().maxWallMs());
         ChatOptions options = ToolCallingChatOptions.builder()
                 .toolCallbacks(ToolCallbacks.from(documentTools, agentAnalysisTools))
                 .toolContext(Map.of("userQuery", userQuery, "traceCollector", traceCollector))
@@ -149,7 +134,10 @@ public class AgentAiService {
         LoopState redactionState = LoopState.init(new LoopRequest(conversationId, userQuery));
         AgentLoop loop = new AgentLoopRunner(
                 step,
-                new AnalystTerminationPolicy(analystMaxTurns, analystMaxWallMillis, analystNoProgressLimit),
+                new AnalystTerminationPolicy(
+                        loopProperties.analyst().maxTurns(),
+                        loopProperties.analyst().maxWallMs(),
+                        loopProperties.analyst().noProgressLimit()),
                 gate,
                 "analyst",
                 trace -> saveTrace(conversationId, trace));
@@ -181,7 +169,7 @@ public class AgentAiService {
     }
 
     private void saveTrace(String conversationId, LoopTrace trace) {
-        if (traceStoreEnabled) {
+        if (loopProperties.trace().enabled()) {
             traceStore.save(conversationId, trace);
         }
     }

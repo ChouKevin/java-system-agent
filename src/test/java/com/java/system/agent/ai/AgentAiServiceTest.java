@@ -1,6 +1,7 @@
 package com.java.system.agent.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import com.java.system.agent.ai.service.AgentAiService;
@@ -41,7 +42,8 @@ class AgentAiServiceTest {
                 new DocumentTools(new FakeRepoDocPort()),
                 null,
                 new ObjectMapper(),
-                traceStore);
+                traceStore,
+                defaultLoopProperties());
 
         String joined = String.join("", service.analyzeWithTools("thread-1", "如何計算獎金?")
                 .collectList()
@@ -67,7 +69,8 @@ class AgentAiServiceTest {
                 new DocumentTools(new FakeRepoDocPort()),
                 null,
                 new ObjectMapper(),
-                traceStore);
+                traceStore,
+                defaultLoopProperties());
 
         service.analyzeWithTools("thread-1", "如何計算獎金?")
                 .collectList()
@@ -102,6 +105,13 @@ class AgentAiServiceTest {
         private int verifierCalls() {
             return verifierCalls;
         }
+    }
+
+    private static AgentLoopProperties defaultLoopProperties() {
+        return new AgentLoopProperties(
+                new AgentLoopProperties.Analyst(12, 120_000L, 2),
+                new AgentLoopProperties.Translator(6, 60_000L),
+                new AgentLoopProperties.Trace(true, 20, 200));
     }
 
     private static final class FakeChatMemory implements ChatMemory {
