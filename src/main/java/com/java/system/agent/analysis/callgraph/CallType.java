@@ -35,8 +35,8 @@ public enum CallType {
     CACHE_OP(null),
 
     // 遍歷控制
-    @JsonPropertyDescription("遞迴循環偵測 — 已在上層遍歷過")
-    CIRCULAR_REF("Circular reference — already visited"),
+    @JsonPropertyDescription("循環回邊 — 目標方法已存在於目前 DFS path")
+    CYCLE_BACK_EDGE("Cycle back edge — target already exists in current DFS path"),
 
     @JsonPropertyDescription("遍歷深度截斷 — 超過設定上限，callees 列出被截斷的下層方法 signature")
     TRAVERSAL_CUTOFF("Traversal cutoff — expand via callees to see deeper logic"),

@@ -52,7 +52,7 @@ public class CallGraphBuilder {
         String currentMethodName = methodCtx.methodName();
 
         if (ctx.visited().contains(signature)) {
-            CallGraph node = CallGraph.leaf(signature, className, currentMethodName, CallType.CIRCULAR_REF, null);
+            CallGraph node = CallGraph.leaf(signature, className, currentMethodName, CallType.CYCLE_BACK_EDGE, null);
             node.setPackagePath(methodCtx.packagePath());
             return withMethodLocation(node, method, ctx.repoRoot());
         }
@@ -78,49 +78,53 @@ public class CallGraphBuilder {
 
         ctx.visited().add(signature);
 
-        // 取得 caller metadata（cache lookup，不 parse file）
-        ClassMetadata callerMetadata = classMetadataService.findClassMetadata(
-                ctx.repoRoot(), className, methodCtx.packagePath())
-                .orElse(null);
-
-        List<CallGraph> children = new ArrayList<>();
-        for (MethodCallExpr call : methodCtx.calls()) {
-            try {
-                processMethodCall(call, ctx.deeper(), children, method, methodCtx.currentClass(), callerMetadata);
-            } catch (Exception e) {
-                log.warn("Could not resolve call {}: {}", call.getNameAsString(), e.getMessage(), e);
-            }
-        }
-
-        // method-level 優先（@Scheduled, @RabbitListener 等），沒有才 fallback class-level
-        CallType type = classifier.detectMethodType(method);
-        if (type == null) {
-            type = callerMetadata != null
-                    ? classifier.detectType(callerMetadata)
-                    : detectTypeFromAST(method);
-        }
-
-        String sql = null;
-        if (type == CallType.DATA_ACCESS && callerMetadata != null) {
-            sql = classMetadataService.findMapperXmlSql(callerMetadata, currentMethodName, ctx.repoRoot())
+        try {
+            // 取得 caller metadata（cache lookup，不 parse file）
+            ClassMetadata callerMetadata = classMetadataService.findClassMetadata(
+                    ctx.repoRoot(), className, methodCtx.packagePath())
                     .orElse(null);
+
+            List<CallGraph> children = new ArrayList<>();
+            for (MethodCallExpr call : methodCtx.calls()) {
+                try {
+                    processMethodCall(call, ctx.deeper(), children, method, methodCtx.currentClass(), callerMetadata);
+                } catch (Exception e) {
+                    log.warn("Could not resolve call {}: {}", call.getNameAsString(), e.getMessage(), e);
+                }
+            }
+
+            // method-level 優先（@Scheduled, @RabbitListener 等），沒有才 fallback class-level
+            CallType type = classifier.detectMethodType(method);
+            if (type == null) {
+                type = callerMetadata != null
+                        ? classifier.detectType(callerMetadata)
+                        : detectTypeFromAST(method);
+            }
+
+            String sql = null;
+            if (type == CallType.DATA_ACCESS && callerMetadata != null) {
+                sql = classMetadataService.findMapperXmlSql(callerMetadata, currentMethodName, ctx.repoRoot())
+                        .orElse(null);
+            }
+
+            CallGraph.CallGraphBuilder builder = CallGraph.builder()
+                    .signature(signature)
+                    .className(className)
+                    .packagePath(methodCtx.packagePath())
+                    .methodName(currentMethodName)
+                    .sourceFile(sourceFile(method, ctx.repoRoot()))
+                    .startLine(startLine(method))
+                    .endLine(endLine(method))
+                    .callType(type)
+                    .code(sql != null ? sql : method.toString())
+                    .desc(method.getJavadoc().map(d -> d.getDescription().toText()).orElse(null))
+                    .annotations(methodCtx.annotations())
+                    .calledMethods(children);
+
+            return builder.build();
+        } finally {
+            ctx.visited().remove(signature);
         }
-
-        CallGraph.CallGraphBuilder builder = CallGraph.builder()
-                .signature(signature)
-                .className(className)
-                .packagePath(methodCtx.packagePath())
-                .methodName(currentMethodName)
-                .sourceFile(sourceFile(method, ctx.repoRoot()))
-                .startLine(startLine(method))
-                .endLine(endLine(method))
-                .callType(type)
-                .code(sql != null ? sql : method.toString())
-                .desc(method.getJavadoc().map(d -> d.getDescription().toText()).orElse(null))
-                .annotations(methodCtx.annotations())
-                .calledMethods(children);
-
-        return builder.build();
     }
 
     /**

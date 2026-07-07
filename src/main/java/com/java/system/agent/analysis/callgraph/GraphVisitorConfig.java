@@ -35,6 +35,7 @@ public class GraphVisitorConfig {
                 .keepType(CallType.INTERNAL_CLASS)
                 .keepType(CallType.INTERNAL_SCHEDULE)
                 .keepType(CallType.INTERNAL_INTERFACE_DEFAULT)
+                .keepType(CallType.CYCLE_BACK_EDGE)
                 .keepType(CallType.TRAVERSAL_CUTOFF)
                 .keepType(CallType.RPC_CLIENT)
                 .keepType(CallType.DATA_ACCESS)
