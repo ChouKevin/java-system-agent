@@ -2,6 +2,7 @@ package com.java.system.agent.ai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
+import com.java.system.agent.ai.config.ChatMemoryLocks;
 import com.java.system.agent.ai.loop.AgentLoop;
 import com.java.system.agent.ai.loop.AgentLoopRunner;
 import com.java.system.agent.ai.loop.Candidate;
@@ -87,6 +88,7 @@ public class AgentAiService {
     private final LoopTraceStore traceStore;
     private final AgentLoopProperties loopProperties;
     private final LlmRateLimiter rateLimiter;
+    private final ChatMemoryLocks memoryLocks;
     private final ToolCallback[] toolCallbacks;
 
     public AgentAiService(ChatModel chatModel,
@@ -97,7 +99,8 @@ public class AgentAiService {
                           ObjectMapper objectMapper,
                           LoopTraceStore traceStore,
                           AgentLoopProperties loopProperties,
-                          LlmRateLimiter rateLimiter) {
+                          LlmRateLimiter rateLimiter,
+                          ChatMemoryLocks memoryLocks) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.chatMemory = chatMemory;
@@ -105,6 +108,7 @@ public class AgentAiService {
         this.traceStore = traceStore;
         this.loopProperties = loopProperties;
         this.rateLimiter = rateLimiter;
+        this.memoryLocks = memoryLocks;
         this.toolCallbacks = ToolCallbacks.from(documentTools, agentAnalysisTools);
     }
 
@@ -155,9 +159,9 @@ public class AgentAiService {
                         log.debug("Analyst loop trace: {}", trace.toJson(objectMapper));
                         String finalAnswer = trace.finalAnswer();
                         if (trace.accepted() && StringUtils.hasText(finalAnswer)) {
-                            chatMemory.add(conversationId, List.of(
+                            memoryLocks.withConversationLock(conversationId, () -> chatMemory.add(conversationId, List.of(
                                     new UserMessage(userQuery),
-                                    new AssistantMessage(finalAnswer)));
+                                    new AssistantMessage(finalAnswer))));
                         }
                         yield summaryFlux(trace.toolCalls());
                     }

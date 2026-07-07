@@ -15,6 +15,8 @@ entry-point:
   call-graph-depth: 3
 
 agent:
+  memory:
+    max-conversations: 500
   loop:
     analyst:
       max-turns: 12

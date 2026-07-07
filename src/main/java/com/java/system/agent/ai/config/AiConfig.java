@@ -4,7 +4,6 @@ import java.io.IOException;
 
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
-import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.observation.ChatModelObservationConvention;
 import org.springframework.ai.google.genai.GoogleGenAiChatModel;
@@ -30,12 +29,12 @@ import com.google.genai.Client;
 import io.micrometer.observation.ObservationRegistry;
 
 @Configuration
-@EnableConfigurationProperties(AgentLoopProperties.class)
+@EnableConfigurationProperties({AgentLoopProperties.class, AgentMemoryProperties.class})
 public class AiConfig {
 
     @Bean
-    public ChatMemoryRepository chatMemoryRepository() {
-        return new InMemoryChatMemoryRepository();
+    public ChatMemoryRepository chatMemoryRepository(AgentMemoryProperties memoryProperties) {
+        return new LruChatMemoryRepository(memoryProperties.maxConversations());
     }
 
     @Bean

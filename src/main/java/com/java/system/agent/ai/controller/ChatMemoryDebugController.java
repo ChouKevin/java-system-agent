@@ -1,5 +1,6 @@
 package com.java.system.agent.ai.controller;
 
+import com.java.system.agent.ai.config.ChatMemoryLocks;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ class ChatMemoryDebugController {
 
     private final ChatMemory chatMemory;
     private final ChatMemoryRepository chatMemoryRepository;
+    private final ChatMemoryLocks memoryLocks;
 
     @GetMapping
     @Operation(summary = "List all conversation IDs (Slack threadTs)")
@@ -45,7 +47,7 @@ class ChatMemoryDebugController {
     @DeleteMapping("/{conversationId}")
     @Operation(summary = "Clear chat history for a conversation")
     public ResponseEntity<Void> clearMemory(@PathVariable String conversationId) {
-        chatMemory.clear(conversationId);
+        memoryLocks.withConversationLock(conversationId, () -> chatMemory.clear(conversationId));
         return ResponseEntity.noContent().build();
     }
 
