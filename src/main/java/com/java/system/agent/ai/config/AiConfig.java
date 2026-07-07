@@ -62,7 +62,9 @@ public class AiConfig {
                 .vertexAI(true);
 
             if (connectionProperties.getCredentialsUri() != null) {
-                GoogleCredentials.fromStream(connectionProperties.getCredentialsUri().getInputStream());
+                GoogleCredentials credentials = GoogleCredentials.fromStream(
+                        connectionProperties.getCredentialsUri().getInputStream());
+                clientBuilder.credentials(credentials);
             }
         }
 
