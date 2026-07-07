@@ -9,6 +9,7 @@ import com.java.system.agent.ai.loop.LoopEvent;
 import com.java.system.agent.ai.loop.LoopRequest;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.LoopTraceCollector;
+import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.policy.TranslatorTerminationPolicy;
 import com.java.system.agent.ai.loop.verify.TranslatorVerifyGate;
 import com.java.system.agent.analysis.AnalysisService;
@@ -46,18 +47,21 @@ public class AgentAnalysisTools {
     private final ObjectMapper objectMapper;
     private final int translatorMaxTurns;
     private final long translatorMaxWallMillis;
+    private final LlmRateLimiter rateLimiter;
 
     public AgentAnalysisTools(ChatModel chatModel,
                               ToolCallingManager toolCallingManager,
                               AnalysisService analysisService,
                               ObjectMapper objectMapper,
-                              AgentLoopProperties loopProperties) {
+                              AgentLoopProperties loopProperties,
+                              LlmRateLimiter rateLimiter) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.analysisService = analysisService;
         this.objectMapper = objectMapper;
         this.translatorMaxTurns = loopProperties.translator().maxTurns();
         this.translatorMaxWallMillis = loopProperties.translator().maxWallMs();
+        this.rateLimiter = rateLimiter;
     }
 
     @Tool(name = ToolNames.FIND_CALL_GRAPH,
@@ -96,7 +100,8 @@ public class AgentAnalysisTools {
                 new SystemMessage(innerSystemPrompt(userQuery)),
                 new UserMessage(innerUserPrompt(callGraphJson)));
 
-        ChatModelStep step = new ChatModelStep(chatModel, toolCallingManager, options, seed);
+        ChatModelStep step = new ChatModelStep(
+                chatModel, toolCallingManager, options, seed, new LoopTraceCollector(), rateLimiter);
         AgentLoop loop = new AgentLoopRunner(
                 step,
                 new TranslatorTerminationPolicy(translatorMaxTurns, translatorMaxWallMillis),

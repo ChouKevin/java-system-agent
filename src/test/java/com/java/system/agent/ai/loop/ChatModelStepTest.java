@@ -60,6 +60,29 @@ class ChatModelStepTest {
     }
 
     @Test
+    void step_acquiresAndRecordsLlmRateLimit() {
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder()
+                .usage(new DefaultUsage(10, 5))
+                .build();
+        ChatResponse response = new ChatResponse(
+                List.of(new Generation(new AssistantMessage("答"))), metadata);
+        FakeLlmRateLimiter rateLimiter = new FakeLlmRateLimiter();
+
+        ChatModelStep step = new ChatModelStep(
+                new FakeChatModel(response),
+                new FakeToolCallingManager(List.of()),
+                options,
+                seed,
+                new LoopTraceCollector(),
+                rateLimiter);
+
+        step.step(LoopState.init(new LoopRequest("t", "q")));
+
+        assertThat(rateLimiter.acquired).isEqualTo(1);
+        assertThat(rateLimiter.recorded).isEqualTo(1);
+    }
+
+    @Test
     void step_withoutMetadataRecordsNoTokenUsage() {
         ChatResponse response = new ChatResponse(
                 List.of(new Generation(new AssistantMessage("答"))), null);
@@ -121,13 +144,22 @@ class ChatModelStepTest {
     void forceAnswer_callsModelWithToolsOmitted() {
         ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("盡力答案"))));
         ChatModel chatModel = new FakeChatModel(response);
+        FakeLlmRateLimiter rateLimiter = new FakeLlmRateLimiter();
 
-        ChatModelStep step = new ChatModelStep(chatModel, new FakeToolCallingManager(List.of()), options, seed);
+        ChatModelStep step = new ChatModelStep(
+                chatModel,
+                new FakeToolCallingManager(List.of()),
+                options,
+                seed,
+                new LoopTraceCollector(),
+                rateLimiter);
 
         Candidate answer = step.forceAnswer(LoopState.init(new LoopRequest("t", "q"))
                 .injectCritique("證據不足"));
 
         assertThat(answer.answer()).isEqualTo("盡力答案");
+        assertThat(rateLimiter.acquired).isEqualTo(1);
+        assertThat(rateLimiter.recorded).isEqualTo(1);
     }
 
     @Test
@@ -192,6 +224,34 @@ class ChatModelStepTest {
             return ToolExecutionResult.builder()
                     .conversationHistory(conversationHistory)
                     .build();
+        }
+    }
+
+    private static final class FakeLlmRateLimiter implements LlmRateLimiter {
+
+        private int acquired;
+        private int recorded;
+
+        @Override
+        public RateLimitReservation acquire(Prompt prompt) {
+            acquired++;
+            return new RateLimitReservation(1);
+        }
+
+        @Override
+        public RateLimitReservation acquire(String promptText) {
+            acquired++;
+            return new RateLimitReservation(1);
+        }
+
+        @Override
+        public void record(RateLimitReservation reservation, ChatResponse response) {
+            recorded++;
+        }
+
+        @Override
+        public void record(RateLimitReservation reservation, String responseText) {
+            recorded++;
         }
     }
 }

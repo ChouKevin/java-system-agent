@@ -2,6 +2,7 @@ package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
+import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.LoopTraceCollector;
 import com.java.system.agent.analysis.AnalysisService;
@@ -107,14 +108,16 @@ class AgentAnalysisToolsTest {
                 new FakeToolCallingManager(),
                 analysisService,
                 objectMapper,
-                defaultLoopProperties());
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP);
     }
 
     private AgentLoopProperties defaultLoopProperties() {
         return new AgentLoopProperties(
                 new AgentLoopProperties.Analyst(12, 120_000L, 2),
                 new AgentLoopProperties.Translator(2, 60_000L),
-                new AgentLoopProperties.Trace(true, 20, 200));
+                new AgentLoopProperties.Trace(true, 20, 200),
+                new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500));
     }
 
     private ToolContext emptyToolContext() {

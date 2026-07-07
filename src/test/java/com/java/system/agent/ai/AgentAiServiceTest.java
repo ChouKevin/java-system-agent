@@ -2,6 +2,7 @@ package com.java.system.agent.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
+import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import com.java.system.agent.ai.service.AgentAiService;
@@ -41,10 +42,11 @@ class AgentAiServiceTest {
                 chatMemory,
                 new DocumentTools(new FakeRepoDocPort()),
                 new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
-                        null, new ObjectMapper(), defaultLoopProperties()),
+                        null, new ObjectMapper(), defaultLoopProperties(), LlmRateLimiter.NOOP),
                 new ObjectMapper(),
                 traceStore,
-                defaultLoopProperties());
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP);
 
         String joined = String.join("", service.analyzeWithTools("thread-1", "如何計算獎金?")
                 .collectList()
@@ -69,10 +71,11 @@ class AgentAiServiceTest {
                 chatMemory,
                 new DocumentTools(new FakeRepoDocPort()),
                 new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
-                        null, new ObjectMapper(), defaultLoopProperties()),
+                        null, new ObjectMapper(), defaultLoopProperties(), LlmRateLimiter.NOOP),
                 new ObjectMapper(),
                 traceStore,
-                defaultLoopProperties());
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP);
 
         service.analyzeWithTools("thread-1", "如何計算獎金?")
                 .collectList()
@@ -113,7 +116,8 @@ class AgentAiServiceTest {
         return new AgentLoopProperties(
                 new AgentLoopProperties.Analyst(12, 120_000L, 2),
                 new AgentLoopProperties.Translator(6, 60_000L),
-                new AgentLoopProperties.Trace(true, 20, 200));
+                new AgentLoopProperties.Trace(true, 20, 200),
+                new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500));
     }
 
     private static final class FakeChatMemory implements ChatMemory {

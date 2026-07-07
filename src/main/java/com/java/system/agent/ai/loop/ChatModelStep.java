@@ -26,6 +26,7 @@ public final class ChatModelStep implements StepExecutor {
     private final ChatOptions options;
     private final List<Message> working;
     private final LoopTraceCollector collector;
+    private final LlmRateLimiter rateLimiter;
     private int appendedCritiques = 0;
 
     public ChatModelStep(ChatModel chatModel, ToolCallingManager toolCallingManager,
@@ -36,11 +37,18 @@ public final class ChatModelStep implements StepExecutor {
     public ChatModelStep(ChatModel chatModel, ToolCallingManager toolCallingManager,
                          ChatOptions options, List<Message> seedMessages,
                          LoopTraceCollector collector) {
+        this(chatModel, toolCallingManager, options, seedMessages, collector, LlmRateLimiter.NOOP);
+    }
+
+    public ChatModelStep(ChatModel chatModel, ToolCallingManager toolCallingManager,
+                         ChatOptions options, List<Message> seedMessages,
+                         LoopTraceCollector collector, LlmRateLimiter rateLimiter) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.options = options;
         this.working = new ArrayList<>(seedMessages);
         this.collector = collector;
+        this.rateLimiter = rateLimiter;
     }
 
     @Override
@@ -48,8 +56,10 @@ public final class ChatModelStep implements StepExecutor {
         appendNewCritiques(state);
 
         Prompt prompt = promptFor(working, options);
+        RateLimitReservation reservation = rateLimiter.acquire(prompt);
         long startMillis = System.currentTimeMillis();
         ChatResponse response = chatModel.call(prompt);
+        rateLimiter.record(reservation, response);
         StepMetrics metrics = metricsSince(startMillis, response);
         AssistantMessage output = response.getResult().getOutput();
 
@@ -80,7 +90,11 @@ public final class ChatModelStep implements StepExecutor {
         ChatOptions noTools = ToolCallingChatOptions.builder()
                 .internalToolExecutionEnabled(false)
                 .build();
-        AssistantMessage output = chatModel.call(promptFor(forced, noTools)).getResult().getOutput();
+        Prompt prompt = promptFor(forced, noTools);
+        RateLimitReservation reservation = rateLimiter.acquire(prompt);
+        ChatResponse response = chatModel.call(prompt);
+        rateLimiter.record(reservation, response);
+        AssistantMessage output = response.getResult().getOutput();
         return new Candidate(Objects.toString(output.getText(), ""));
     }
 

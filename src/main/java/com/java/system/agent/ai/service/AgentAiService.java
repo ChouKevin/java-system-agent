@@ -11,6 +11,7 @@ import com.java.system.agent.ai.loop.LoopRequest;
 import com.java.system.agent.ai.loop.LoopState;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.LoopTraceCollector;
+import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.ToolCallRecord;
 import com.java.system.agent.ai.loop.VerifyGate;
 import com.java.system.agent.ai.loop.policy.AnalystTerminationPolicy;
@@ -80,6 +81,7 @@ public class AgentAiService {
     private final ObjectMapper objectMapper;
     private final LoopTraceStore traceStore;
     private final AgentLoopProperties loopProperties;
+    private final LlmRateLimiter rateLimiter;
     private final ToolCallback[] toolCallbacks;
 
     public AgentAiService(ChatModel chatModel,
@@ -89,13 +91,15 @@ public class AgentAiService {
                           AgentAnalysisTools agentAnalysisTools,
                           ObjectMapper objectMapper,
                           LoopTraceStore traceStore,
-                          AgentLoopProperties loopProperties) {
+                          AgentLoopProperties loopProperties,
+                          LlmRateLimiter rateLimiter) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.chatMemory = chatMemory;
         this.objectMapper = objectMapper;
         this.traceStore = traceStore;
         this.loopProperties = loopProperties;
+        this.rateLimiter = rateLimiter;
         this.toolCallbacks = ToolCallbacks.from(documentTools, agentAnalysisTools);
     }
 
@@ -116,12 +120,13 @@ public class AgentAiService {
         seed.addAll(chatMemory.get(conversationId));
         seed.add(new UserMessage(userQuery));
 
-        ChatModelStep step = new ChatModelStep(chatModel, toolCallingManager, options, seed, traceCollector);
+        ChatModelStep step = new ChatModelStep(
+                chatModel, toolCallingManager, options, seed, traceCollector, rateLimiter);
         RuleBasedPreGate preGate = new RuleBasedPreGate();
         VerifyGate gate = new CompositeVerifyGate(List.of(
                 preGate,
-                new LlmVerifier(chatModel, SELF_EVAL_PROMPT, "self-eval"),
-                new LlmVerifier(chatModel, CRITIC_PROMPT, "critic")));
+                new LlmVerifier(chatModel, SELF_EVAL_PROMPT, "self-eval", rateLimiter),
+                new LlmVerifier(chatModel, CRITIC_PROMPT, "critic", rateLimiter)));
         LoopState redactionState = LoopState.init(new LoopRequest(conversationId, userQuery));
         AgentLoop loop = new AgentLoopRunner(
                 step,

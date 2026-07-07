@@ -7,5 +7,5 @@ spring:
         api-key: ${GOOGLE_GENAI_API_KEY:}
         chat:
           options:
-            model: ${GOOGLE_GENAI_MODEL:gemini-3.1-flash-lite-preview}
+            model: ${GOOGLE_GENAI_MODEL:gemini-3.1-flash-lite}
             # thinking-level: HIGH

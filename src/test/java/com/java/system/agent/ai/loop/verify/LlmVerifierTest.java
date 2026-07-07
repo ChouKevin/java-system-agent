@@ -1,8 +1,10 @@
 package com.java.system.agent.ai.loop.verify;
 
 import com.java.system.agent.ai.loop.Candidate;
+import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.LoopRequest;
 import com.java.system.agent.ai.loop.LoopState;
+import com.java.system.agent.ai.loop.RateLimitReservation;
 import com.java.system.agent.ai.loop.Verdict;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -52,6 +54,19 @@ class LlmVerifierTest {
         assertThat(verdict.accepted()).isTrue();
     }
 
+    @Test
+    void verify_acquiresLlmRateLimitBeforeModelCall() {
+        FakeLlmRateLimiter rateLimiter = new FakeLlmRateLimiter();
+
+        Verdict verdict = new LlmVerifier(
+                new FakeChatModel("VERDICT: PASS"), "%1$s %2$s", "critic", rateLimiter)
+                .verify(new Candidate("答案"), state());
+
+        assertThat(verdict.accepted()).isTrue();
+        assertThat(rateLimiter.acquired).isEqualTo(1);
+        assertThat(rateLimiter.recorded).isEqualTo(1);
+    }
+
     private static final class FakeChatModel implements ChatModel {
 
         private final String responseText;
@@ -63,6 +78,34 @@ class LlmVerifierTest {
         @Override
         public ChatResponse call(Prompt prompt) {
             return new ChatResponse(List.of(new Generation(new AssistantMessage(responseText))));
+        }
+    }
+
+    private static final class FakeLlmRateLimiter implements LlmRateLimiter {
+
+        private int acquired;
+        private int recorded;
+
+        @Override
+        public RateLimitReservation acquire(Prompt prompt) {
+            acquired++;
+            return new RateLimitReservation(1);
+        }
+
+        @Override
+        public RateLimitReservation acquire(String promptText) {
+            acquired++;
+            return new RateLimitReservation(1);
+        }
+
+        @Override
+        public void record(RateLimitReservation reservation, ChatResponse response) {
+            recorded++;
+        }
+
+        @Override
+        public void record(RateLimitReservation reservation, String responseText) {
+            recorded++;
         }
     }
 }

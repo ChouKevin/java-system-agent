@@ -1,7 +1,9 @@
 package com.java.system.agent.ai.loop.verify;
 
 import com.java.system.agent.ai.loop.Candidate;
+import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.LoopState;
+import com.java.system.agent.ai.loop.RateLimitReservation;
 import com.java.system.agent.ai.loop.Verdict;
 import com.java.system.agent.ai.loop.VerifyGate;
 import lombok.extern.slf4j.Slf4j;
@@ -22,18 +24,27 @@ public final class LlmVerifier implements VerifyGate {
     private final ChatModel chatModel;
     private final String promptTemplate;
     private final String label;
+    private final LlmRateLimiter rateLimiter;
 
     public LlmVerifier(ChatModel chatModel, String promptTemplate, String label) {
+        this(chatModel, promptTemplate, label, LlmRateLimiter.NOOP);
+    }
+
+    public LlmVerifier(ChatModel chatModel, String promptTemplate, String label, LlmRateLimiter rateLimiter) {
         this.chatModel = chatModel;
         this.promptTemplate = promptTemplate;
         this.label = label;
+        this.rateLimiter = rateLimiter;
     }
 
     @Override
     public Verdict verify(Candidate candidate, LoopState state) {
         String reply;
         try {
-            reply = chatModel.call(promptTemplate.formatted(candidate.answer(), state.query()));
+            String prompt = promptTemplate.formatted(candidate.answer(), state.query());
+            RateLimitReservation reservation = rateLimiter.acquire(prompt);
+            reply = chatModel.call(prompt);
+            rateLimiter.record(reservation, reply);
         } catch (Exception e) {
             log.warn("[{}] verifier failed, accepting to avoid blocking", label, e);
             return Verdict.accept();
