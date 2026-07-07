@@ -47,6 +47,11 @@ public class SlackEventListener {
 
     @PostConstruct
     public void start() throws Exception {
+        if (!StringUtils.hasText(appToken)) {
+            log.warn("Slack app token is not configured. Socket Mode listener is disabled.");
+            return;
+        }
+
         // app_mentions:read、chat:write
         app.event(AppMentionEvent.class, (req, ctx) -> {
             String eventId = req.getEventId();
