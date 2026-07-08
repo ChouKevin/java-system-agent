@@ -16,23 +16,22 @@ public class SlackEventDeduplicator {
     private final Map<String, Instant> processedEvents = new ConcurrentHashMap<>();
     private static final long EXPIRATION_HOURS = 1;
 
-    /** 檢查是否重複，若為新事件則追蹤 */
-    public boolean isDuplicate(String eventId) {
+    /** 嘗試取得事件處理權:新事件回 true 並開始追蹤;重複事件回 false */
+    public boolean tryBegin(String eventId) {
         if (eventId == null) {
-            return false;
+            return true;
         }
-        
-        // putIfAbsent returns null if the key was not present
-        Instant existing = processedEvents.putIfAbsent(eventId, Instant.now());
-        boolean isDuplicate = existing != null;
-        
-        if (isDuplicate) {
-            log.debug("Event ID {} is a duplicate.", eventId);
-        } else {
-            log.debug("Tracking new event ID {}.", eventId);
+
+        boolean claimed = processedEvents.putIfAbsent(eventId, Instant.now()) == null;
+        log.debug("Event ID {} {}", eventId, claimed ? "claimed" : "is a duplicate");
+        return claimed;
+    }
+
+    /** 處理失敗時釋放事件，讓 Slack 重送可以重試 */
+    public void abandon(String eventId) {
+        if (eventId != null) {
+            processedEvents.remove(eventId);
         }
-        
-        return isDuplicate;
     }
 
     /** 定期清理過期事件 */

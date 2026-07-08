@@ -56,7 +56,7 @@ public class SlackEventListener {
         app.event(AppMentionEvent.class, (req, ctx) -> {
             String eventId = req.getEventId();
 
-            if (slackEventDeduplicator.isDuplicate(eventId)) {
+            if (!slackEventDeduplicator.tryBegin(eventId)) {
                 log.info("Skipping duplicate eventId: {}", eventId);
                 return ctx.ack();
             }
@@ -101,6 +101,7 @@ public class SlackEventListener {
             routeToPipeline(ctx);
         } catch (Exception e) {
             log.error("Failed to process Slack message (eventId: {})", ctx.getEventId(), e);
+            slackEventDeduplicator.abandon(ctx.getEventId());
         }
     }
 
