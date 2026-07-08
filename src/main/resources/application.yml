@@ -5,6 +5,10 @@ spring:
     active: dev
   application:
     name: java-system-agent
+  http:
+    client:
+      connect-timeout: 10s
+      read-timeout: 180s
 
 slack:
   app-token: ${SLACK_APP_TOKEN:}
@@ -15,6 +19,8 @@ entry-point:
   call-graph-depth: 3
 
 agent:
+  memory:
+    max-conversations: 500
   loop:
     analyst:
       max-turns: 12
@@ -23,6 +29,11 @@ agent:
     translator:
       max-turns: 6
       max-wall-ms: 60000
+    rate-limit:
+      enabled: ${GOOGLE_GENAI_RATE_LIMIT_ENABLED:true}
+      requests-per-minute: ${GOOGLE_GENAI_RPM:30}
+      tokens-per-minute: ${GOOGLE_GENAI_TPM:1000000}
+      requests-per-day: ${GOOGLE_GENAI_RPD:1500}
     trace:
       enabled: true
       retain: 20

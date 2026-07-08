@@ -47,11 +47,16 @@ public class SlackEventListener {
 
     @PostConstruct
     public void start() throws Exception {
+        if (!StringUtils.hasText(appToken)) {
+            log.warn("Slack app token is not configured. Socket Mode listener is disabled.");
+            return;
+        }
+
         // app_mentions:read、chat:write
         app.event(AppMentionEvent.class, (req, ctx) -> {
             String eventId = req.getEventId();
 
-            if (slackEventDeduplicator.isDuplicate(eventId)) {
+            if (!slackEventDeduplicator.tryBegin(eventId)) {
                 log.info("Skipping duplicate eventId: {}", eventId);
                 return ctx.ack();
             }
@@ -96,6 +101,7 @@ public class SlackEventListener {
             routeToPipeline(ctx);
         } catch (Exception e) {
             log.error("Failed to process Slack message (eventId: {})", ctx.getEventId(), e);
+            slackEventDeduplicator.abandon(ctx.getEventId());
         }
     }
 

@@ -55,7 +55,7 @@ Place these in a `.env` file at project root (used by `docker-compose.yml`). See
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SLACK_APP_TOKEN` | Yes | Socket Mode token (`xapp-...`) |
+| `SLACK_APP_TOKEN` | No | Socket Mode token (`xapp-...`); when blank, the Socket Mode listener is disabled |
 | `SLACK_BOT_TOKEN` | Yes | Bot token (`xoxb-...`) |
 | `SLACK_SIGNING_SECRET` | Yes | Request signing secret |
 

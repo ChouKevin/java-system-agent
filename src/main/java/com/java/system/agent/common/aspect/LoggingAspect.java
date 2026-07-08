@@ -13,7 +13,9 @@ import org.springframework.util.StopWatch;
 @Slf4j
 public class LoggingAspect {
 
-    @Pointcut("within(com.java.system.agent..*) && !within(com.java.system.agent.common.aspect..*)")
+    @Pointcut("within(com.java.system.agent..*)"
+            + " && !within(com.java.system.agent.common.aspect..*)"
+            + " && !@within(org.springframework.boot.context.properties.ConfigurationProperties)")
     public void applicationPackagePointcut() {
     }
 

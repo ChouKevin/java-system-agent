@@ -7,7 +7,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record AgentLoopProperties(
         @DefaultValue Analyst analyst,
         @DefaultValue Translator translator,
-        @DefaultValue Trace trace) {
+        @DefaultValue Trace trace,
+        @DefaultValue RateLimit rateLimit) {
 
     public record Analyst(
             @DefaultValue("12") int maxTurns,
@@ -24,5 +25,12 @@ public record AgentLoopProperties(
             @DefaultValue("true") boolean enabled,
             @DefaultValue("20") int retain,
             @DefaultValue("200") int maxConversations) {
+    }
+
+    public record RateLimit(
+            @DefaultValue("true") boolean enabled,
+            @DefaultValue("30") int requestsPerMinute,
+            @DefaultValue("1000000") int tokensPerMinute,
+            @DefaultValue("1500") int requestsPerDay) {
     }
 }

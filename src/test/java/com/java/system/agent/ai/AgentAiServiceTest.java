@@ -2,6 +2,8 @@ package com.java.system.agent.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
+import com.java.system.agent.ai.config.ChatMemoryLocks;
+import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import com.java.system.agent.ai.service.AgentAiService;
@@ -22,7 +24,10 @@ import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,10 +46,12 @@ class AgentAiServiceTest {
                 chatMemory,
                 new DocumentTools(new FakeRepoDocPort()),
                 new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
-                        null, new ObjectMapper(), defaultLoopProperties()),
+                        null, new ObjectMapper(), defaultLoopProperties(), LlmRateLimiter.NOOP),
                 new ObjectMapper(),
                 traceStore,
-                defaultLoopProperties());
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP,
+                new ChatMemoryLocks());
 
         String joined = String.join("", service.analyzeWithTools("thread-1", "如何計算獎金?")
                 .collectList()
@@ -69,10 +76,12 @@ class AgentAiServiceTest {
                 chatMemory,
                 new DocumentTools(new FakeRepoDocPort()),
                 new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
-                        null, new ObjectMapper(), defaultLoopProperties()),
+                        null, new ObjectMapper(), defaultLoopProperties(), LlmRateLimiter.NOOP),
                 new ObjectMapper(),
                 traceStore,
-                defaultLoopProperties());
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP,
+                new ChatMemoryLocks());
 
         service.analyzeWithTools("thread-1", "如何計算獎金?")
                 .collectList()
@@ -80,6 +89,36 @@ class AgentAiServiceTest {
 
         assertThat(chatMemory.addedMessages()).isEmpty();
         assertThat(traceStore.recent("thread-1")).hasSize(1);
+    }
+
+    @Test
+    void analyzeWithTools_serializesMemoryWriteBackForSameConversation() {
+        ChatResponse response = new ChatResponse(List.of(new Generation(new AssistantMessage("業務回覆"))));
+        FakeChatModel chatModel = new FakeChatModel(response, "VERDICT: PASS");
+        SlowChatMemory chatMemory = new SlowChatMemory();
+        FakeLoopTraceStore traceStore = new FakeLoopTraceStore();
+        AgentAiService service = new AgentAiService(
+                chatModel,
+                new FakeToolCallingManager(),
+                chatMemory,
+                new DocumentTools(new FakeRepoDocPort()),
+                new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
+                        null, new ObjectMapper(), defaultLoopProperties(), LlmRateLimiter.NOOP),
+                new ObjectMapper(),
+                traceStore,
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP,
+                new ChatMemoryLocks());
+
+        reactor.core.publisher.Flux.merge(IntStream.range(0, 4)
+                        .mapToObj(index -> service.analyzeWithTools("thread-1", "問題" + index)
+                                .collectList())
+                        .toList())
+                .collectList()
+                .block();
+
+        assertThat(chatMemory.maxActiveAdds()).isEqualTo(1);
+        assertThat(chatMemory.addedMessages()).hasSize(8);
     }
 
     private static final class FakeChatModel implements ChatModel {
@@ -113,7 +152,8 @@ class AgentAiServiceTest {
         return new AgentLoopProperties(
                 new AgentLoopProperties.Analyst(12, 120_000L, 2),
                 new AgentLoopProperties.Translator(6, 60_000L),
-                new AgentLoopProperties.Trace(true, 20, 200));
+                new AgentLoopProperties.Trace(true, 20, 200),
+                new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500));
     }
 
     private static final class FakeChatMemory implements ChatMemory {
@@ -133,6 +173,46 @@ class AgentAiServiceTest {
         @Override
         public void clear(String conversationId) {
             addedMessages.clear();
+        }
+
+        private List<Message> addedMessages() {
+            return List.copyOf(addedMessages);
+        }
+    }
+
+    private static final class SlowChatMemory implements ChatMemory {
+
+        private final List<Message> addedMessages = Collections.synchronizedList(new ArrayList<>());
+        private final AtomicInteger activeAdds = new AtomicInteger();
+        private final AtomicInteger maxActiveAdds = new AtomicInteger();
+
+        @Override
+        public void add(String conversationId, List<Message> messages) {
+            int active = activeAdds.incrementAndGet();
+            maxActiveAdds.accumulateAndGet(active, Math::max);
+            try {
+                Thread.sleep(50);
+                addedMessages.addAll(messages);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted", e);
+            } finally {
+                activeAdds.decrementAndGet();
+            }
+        }
+
+        @Override
+        public List<Message> get(String conversationId) {
+            return List.of();
+        }
+
+        @Override
+        public void clear(String conversationId) {
+            addedMessages.clear();
+        }
+
+        private int maxActiveAdds() {
+            return maxActiveAdds.get();
         }
 
         private List<Message> addedMessages() {

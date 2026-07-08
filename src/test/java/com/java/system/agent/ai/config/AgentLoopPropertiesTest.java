@@ -24,14 +24,25 @@ class AgentLoopPropertiesTest {
         assertThat(properties.trace().enabled()).isTrue();
         assertThat(properties.trace().retain()).isEqualTo(20);
         assertThat(properties.trace().maxConversations()).isEqualTo(200);
+        assertThat(properties.rateLimit().enabled()).isTrue();
+        assertThat(properties.rateLimit().requestsPerMinute()).isEqualTo(30);
+        assertThat(properties.rateLimit().tokensPerMinute()).isEqualTo(1_000_000);
+        assertThat(properties.rateLimit().requestsPerDay()).isEqualTo(1_500);
     }
 
     @Test
     void bindsOverrides_fromPropertySource() {
         AgentLoopProperties properties = new Binder(new MapConfigurationPropertySource(
-                Map.of("agent.loop.analyst.max-turns", "5")))
+                Map.of(
+                        "agent.loop.analyst.max-turns", "5",
+                        "agent.loop.rate-limit.requests-per-minute", "12",
+                        "agent.loop.rate-limit.tokens-per-minute", "9000",
+                        "agent.loop.rate-limit.requests-per-day", "300")))
                 .bindOrCreate("agent.loop", Bindable.of(AgentLoopProperties.class));
 
         assertThat(properties.analyst().maxTurns()).isEqualTo(5);
+        assertThat(properties.rateLimit().requestsPerMinute()).isEqualTo(12);
+        assertThat(properties.rateLimit().tokensPerMinute()).isEqualTo(9_000);
+        assertThat(properties.rateLimit().requestsPerDay()).isEqualTo(300);
     }
 }

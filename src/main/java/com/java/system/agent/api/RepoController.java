@@ -39,7 +39,9 @@ class RepoController {
     @Operation(summary = "Clone a repository", description = "Clones a remote Git repository to the local 'repos' directory. URL is resolved from application.yml by repo id.")
     public ResponseEntity<String> cloneRepo(@PathVariable String repo,
                                             @RequestParam(required = false) String branch) {
-        return ResponseEntity.ok(gitService.cloneRepository(repo, branch));
+        String result = gitService.cloneRepository(repo, branch);
+        analysisService.reloadRepo(repo);
+        return ResponseEntity.ok(result + " - Cache reloaded");
     }
 
     @PostMapping("/git/pull-repo/{repo}")
@@ -55,7 +57,9 @@ class RepoController {
     @Operation(summary = "Checkout a branch", description = "Checkouts a specific branch or commit in a repository.")
     public ResponseEntity<String> checkoutRepo(@PathVariable String repo,
                                                @RequestParam @NotBlank(message = "branch must not be blank") String branch) {
-        return ResponseEntity.ok(gitService.checkoutBranch(repo, branch));
+        String result = gitService.checkoutBranch(repo, branch);
+        analysisService.reloadRepo(repo);
+        return ResponseEntity.ok(result + " - Cache reloaded");
     }
 
     @GetMapping("/git/current-branch/{repo}")

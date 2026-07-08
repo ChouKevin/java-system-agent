@@ -15,23 +15,24 @@ class SlackEventDeduplicatorTest {
     }
 
     @Test
-    void testIsDuplicate() {
-        String eventId = "event-123";
-        
-        // First time should be new
-        assertFalse(deduplicator.isDuplicate(eventId), "First call should not be a duplicate");
-        
-        // Second time should be duplicate
-        assertTrue(deduplicator.isDuplicate(eventId), "Second call with same ID should be a duplicate");
-        
-        // Different ID should be new
-        assertFalse(deduplicator.isDuplicate("event-456"), "Different ID should not be a duplicate");
+    void tryBegin_should_claim_new_event_and_reject_duplicate() {
+        assertTrue(deduplicator.tryBegin("event-123"));
+        assertFalse(deduplicator.tryBegin("event-123"));
+        assertTrue(deduplicator.tryBegin("event-456"));
+    }
+
+    @Test
+    void abandon_should_allow_retry_after_failure() {
+        assertTrue(deduplicator.tryBegin("event-123"));
+        deduplicator.abandon("event-123");
+
+        assertTrue(deduplicator.tryBegin("event-123"));
     }
 
     @Test
     void testCleanup() {
-        deduplicator.isDuplicate("event-1");
-        deduplicator.isDuplicate("event-2");
+        deduplicator.tryBegin("event-1");
+        deduplicator.tryBegin("event-2");
         
         assertEquals(2, deduplicator.size());
         
@@ -45,8 +46,9 @@ class SlackEventDeduplicatorTest {
     }
     
     @Test
-    void testNullEventId() {
-        assertFalse(deduplicator.isDuplicate(null), "Null event ID should not be considered duplicate or tracked");
+    void null_event_id_should_always_process_and_never_track() {
+        assertTrue(deduplicator.tryBegin(null));
+        assertTrue(deduplicator.tryBegin(null));
         assertEquals(0, deduplicator.size());
     }
 }

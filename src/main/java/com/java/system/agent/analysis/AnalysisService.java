@@ -30,6 +30,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Public facade for the analysis module.
@@ -48,6 +50,7 @@ public class AnalysisService {
     private final SourceCodePort sourceCodePort;
     private final RepoRegistryPort repoRegistryPort;
     private final SourceRootResolver sourceRootResolver;
+    private final ConcurrentHashMap<String, ReentrantReadWriteLock> repoLocks = new ConcurrentHashMap<>();
 
     /**
      * Builds and flattens a call graph starting from the given method.
@@ -75,6 +78,8 @@ public class AnalysisService {
                                                                       String className,
                                                                       String methodName) {
         AnalysisMetadata metadata = AnalysisMetadata.now(repoId, packageName, className, methodName);
+        ReentrantReadWriteLock.ReadLock readLock = lockFor(repoId).readLock();
+        readLock.lock();
         try {
             Path repoRoot = sourceCodePort.sourceRoot(repoId);
             if (repoRoot == null) {
@@ -99,6 +104,8 @@ public class AnalysisService {
                     "Unexpected analysis failure",
                     e.getMessage(),
                     metadata);
+        } finally {
+            readLock.unlock();
         }
     }
 
@@ -124,6 +131,8 @@ public class AnalysisService {
                                                                                    String className,
                                                                                    String methodName) {
         AnalysisMetadata metadata = AnalysisMetadata.now(repoId, packageName, className, methodName);
+        ReentrantReadWriteLock.ReadLock readLock = lockFor(repoId).readLock();
+        readLock.lock();
         try {
             Path repoRoot = sourceCodePort.sourceRoot(repoId);
             if (repoRoot == null) {
@@ -149,6 +158,8 @@ public class AnalysisService {
                     "Unexpected analysis failure",
                     e.getMessage(),
                     metadata);
+        } finally {
+            readLock.unlock();
         }
     }
 
@@ -160,11 +171,17 @@ public class AnalysisService {
      * @return list of entry point classes
      */
     public List<EntryPointClass> scanEntryPoints(String repoId, EntryPointType... types) {
-        Path repoRoot = sourceCodePort.sourceRoot(repoId);
-        List<EntryPointType> filters = (types == null || types.length == 0)
-                ? EntryPointType.ALL
-                : Arrays.asList(types);
-        return entryPointCacheService.getEntryPoints(repoRoot, filters);
+        ReentrantReadWriteLock.ReadLock readLock = lockFor(repoId).readLock();
+        readLock.lock();
+        try {
+            Path repoRoot = sourceCodePort.sourceRoot(repoId);
+            List<EntryPointType> filters = (types == null || types.length == 0)
+                    ? EntryPointType.ALL
+                    : Arrays.asList(types);
+            return entryPointCacheService.getEntryPoints(repoRoot, filters);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     /**
@@ -194,14 +211,20 @@ public class AnalysisService {
      */
     public void reloadRepo(String repoId) {
         log.info("Reloading analysis caches for repo: {}", repoId);
-        Path repoRoot = sourceCodePort.sourceRoot(repoId);
-        // 先清除 source root cache，確保模組結構變更被偵測到
-        sourceRootResolver.invalidate(repoRoot);
-        // parser 共享資源，先清除 parser cache 再重建 metadata cache，確保 call graph builder 讀到最新的 AST + metadata
-        projectParserService.invalidate(repoRoot);
-        entryPointCacheService.reload(repoRoot);
-        classMetadataService.reload(repoRoot);
-        apiTrieService.reload(repoId);
+        ReentrantReadWriteLock.WriteLock writeLock = lockFor(repoId).writeLock();
+        writeLock.lock();
+        try {
+            Path repoRoot = sourceCodePort.sourceRoot(repoId);
+            // 先清除 source root cache，確保模組結構變更被偵測到
+            sourceRootResolver.invalidate(repoRoot);
+            // parser 共享資源，先清除 parser cache 再重建 metadata cache，確保 call graph builder 讀到最新的 AST + metadata
+            projectParserService.invalidate(repoRoot);
+            entryPointCacheService.reload(repoRoot);
+            classMetadataService.reload(repoRoot);
+            apiTrieService.reload(repoId);
+        } finally {
+            writeLock.unlock();
+        }
         log.info("Reload complete for repo: {}", repoId);
     }
 
@@ -229,5 +252,9 @@ public class AnalysisService {
         // Fallback: assume single-module layout
         log.warn("Could not find {}.{} in any source root, falling back to default path", packageName, className);
         return "src/main/java/" + fileSuffix;
+    }
+
+    private ReentrantReadWriteLock lockFor(String repoId) {
+        return repoLocks.computeIfAbsent(repoId, key -> new ReentrantReadWriteLock(true));
     }
 }
