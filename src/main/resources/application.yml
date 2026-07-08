@@ -5,6 +5,10 @@ spring:
     active: dev
   application:
     name: java-system-agent
+  http:
+    client:
+      connect-timeout: 10s
+      read-timeout: 180s
 
 slack:
   app-token: ${SLACK_APP_TOKEN:}

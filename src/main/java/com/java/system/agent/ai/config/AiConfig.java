@@ -25,6 +25,7 @@ import org.springframework.util.StringUtils;
 
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.genai.Client;
+import com.google.genai.types.HttpOptions;
 
 import io.micrometer.observation.ObservationRegistry;
 
@@ -48,7 +49,8 @@ public class AiConfig {
     @Bean
     @Profile({"uat", "pro"})
     public Client googleGenAiClient(GoogleGenAiConnectionProperties connectionProperties) throws IOException {
-        Client.Builder clientBuilder = Client.builder();
+        Client.Builder clientBuilder = Client.builder()
+                .httpOptions(HttpOptions.builder().timeout(180_000).build());
 
         if (StringUtils.hasText(connectionProperties.getApiKey())) {
             clientBuilder.apiKey(connectionProperties.getApiKey());
