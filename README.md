@@ -67,7 +67,7 @@ Place these in a `.env` file at project root (used by `docker-compose.yml`). See
 | `OPENAI_BASE_URL` | dev | No | Custom OpenAI-compatible endpoint |
 | `OPENAI_MODEL` | dev | No | Model name (default: `gpt-3.5-turbo`) |
 | `GOOGLE_GENAI_API_KEY` | uat/pro | Yes | Google Gemini API key |
-| `GOOGLE_GENAI_MODEL` | uat/pro | No | Model name (default: `gemini-3.1-flash-lite-preview` for uat, `gemini-2.5-flash` for pro) |
+| `GOOGLE_GENAI_MODEL` | uat/pro | No | Model name (default: `gemini-3.1-flash-lite`) |
 
 ### Git Credentials
 
@@ -202,10 +202,10 @@ When depth is exceeded, nodes are marked as `TRAVERSAL_CUTOFF` and the inner LLM
 
 Multi-turn conversation memory is enabled per Slack thread using Spring AI's `PromptChatMemoryAdvisor`.
 
-- **Storage:** In-memory (`InMemoryChatMemoryRepository`) -- data is lost on application restart
+- **Storage:** In-memory LRU (`LruChatMemoryRepository`, max 500 conversations via `agent.memory.max-conversations`) -- data is lost on application restart
 - **Window size:** 20 messages per thread (oldest evicted when exceeded)
 - **Conversation ID:** Slack `threadTs` (each thread has isolated memory)
-- **Future consideration:** For production workloads, consider switching to `JdbcChatMemoryRepository` or another persistent implementation to avoid memory pressure with high thread volume
+- **Future consideration:** Switch to `JdbcChatMemoryRepository` or another persistent implementation if conversation history must survive restarts
 - **Debug endpoints (dev/uat profile only):**
   - `GET /debug/chat-memory` -- list all active conversation IDs
   - `GET /debug/chat-memory/{threadTs}` -- view conversation history
