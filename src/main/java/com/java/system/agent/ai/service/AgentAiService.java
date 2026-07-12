@@ -224,6 +224,8 @@ public class AgentAiService {
                   - 方法名稱必須來自 read_business_group_doc 文件中明確列出的進入點，禁止傳入編造的名稱（如 "all methods"、"*"）
                   - 查詢整個 Controller 或類別時，先用 read_business_group_doc 找出所有進入點，再逐一呼叫
                   - 當使用者詢問業務邏輯、流程、規則、判斷、計算、條件時，必須呼叫此 tool 取得依據
+                  - 成功時回傳內容第一行是中繼資料行 `verified: true` 或 `verified: false`；true 代表翻譯結果已通過內部審查
+                  - verified: false 時仍可引用其內容，但必須以業務語言註明該部分結論僅供參考；禁止把 verified 標記或任何警示文字原樣放進回答
 
                 自主決策原則：
                 - 對話歷史中已取得的資訊直接引用，不必重複呼叫相同 tool

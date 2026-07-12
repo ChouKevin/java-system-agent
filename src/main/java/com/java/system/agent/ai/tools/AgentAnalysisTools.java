@@ -116,7 +116,7 @@ public class AgentAnalysisTools {
             return "（程式碼業務分析暫時無法取得）";
         }
         publishTrace(toolContext, result);
-        return result.finalAnswer();
+        return TranslatorToolResult.from(result).render();
     }
 
     private void publishTrace(ToolContext toolContext, LoopTrace trace) {

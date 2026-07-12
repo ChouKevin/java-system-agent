@@ -58,7 +58,7 @@ class AgentAnalysisToolsTest {
         String result = tools.findCallGraph(
                 "test-repo", "pkg", "Cls", "method", emptyToolContext());
 
-        assertThat(result).isEqualTo("翻譯完成");
+        assertThat(result).isEqualTo("verified: true\n翻譯完成");
     }
 
     @Test

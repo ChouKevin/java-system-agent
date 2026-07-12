@@ -3,6 +3,7 @@ package com.java.system.agent.ai.loop;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /** loop run 完成後產生的單一追蹤樹 */
@@ -44,6 +45,15 @@ public record LoopTrace(String traceId, String role, String finalAnswer,
                 .mapToLong(LoopTrace::totalTokens)
                 .sum();
         return ownTokens + childTokens;
+    }
+
+    /** 去除未驗證警示前綴後的原始答案，供工具輸出等機器情境使用。 */
+    public String plainFinalAnswer() {
+        String answer = Objects.toString(finalAnswer, "");
+        if (answer.startsWith(AgentLoopRunner.UNVERIFIED_NOTE)) {
+            return answer.substring(AgentLoopRunner.UNVERIFIED_NOTE.length());
+        }
+        return answer;
     }
 
     public String toJson(ObjectMapper objectMapper) {

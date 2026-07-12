@@ -57,4 +57,26 @@ class LoopTraceTest {
 
         assertThat(outcome.metrics()).isEqualTo(StepMetrics.none());
     }
+
+    @Test
+    void plainFinalAnswer_stripsUnverifiedNote() {
+        LoopTrace trace = new LoopTrace("trace-1", "translator",
+                AgentLoopRunner.UNVERIFIED_NOTE + "原始答案", false, List.of(), List.of());
+
+        assertThat(trace.plainFinalAnswer()).isEqualTo("原始答案");
+    }
+
+    @Test
+    void plainFinalAnswer_keepsAnswerWithoutNote() {
+        LoopTrace trace = new LoopTrace("trace-1", "translator", "原始答案", true, List.of(), List.of());
+
+        assertThat(trace.plainFinalAnswer()).isEqualTo("原始答案");
+    }
+
+    @Test
+    void plainFinalAnswer_returnsEmpty_whenAnswerIsNull() {
+        LoopTrace trace = new LoopTrace("trace-1", "translator", null, false, List.of(), List.of());
+
+        assertThat(trace.plainFinalAnswer()).isEmpty();
+    }
 }
