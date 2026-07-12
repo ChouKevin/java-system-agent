@@ -7,6 +7,7 @@ import com.java.system.agent.slack.model.SlackMessageContext;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.FormBody;
 import org.springframework.stereotype.Component;
+import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -31,19 +32,21 @@ public class SlackStreamClient {
         this.app = app;
     }
 
-    /** 開始串流並消費 contentSupplier 的 Flux 逐批 append */
+    /** 開始串流並消費 contentSupplier 的 Flux 逐批 append，失敗時通知呼叫端善後 */
     public void consumeStream(SlackMessageContext ctx, String initialMarkdownText,
-            Supplier<Flux<String>> contentSupplier) {
+            Supplier<Flux<String>> contentSupplier, SlackStreamFailureHandler failureHandler) {
+        Assert.notNull(failureHandler, "failureHandler must not be null");
         SlackStreamResponse startResponse = startStream(ctx, initialMarkdownText);
         if (ObjectUtils.isEmpty(startResponse) || !startResponse.isOk()) {
-            log.error("Failed to start Slack stream: {}", ObjectUtils.isEmpty(startResponse)
-                    ? "null response"
-                    : startResponse.getError());
+            String reason = ObjectUtils.isEmpty(startResponse) ? "null response" : startResponse.getError();
+            log.error("Failed to start Slack stream: {}", reason);
+            failureHandler.handle(SlackStreamFailure.startFailure(reason));
             return;
         }
         String streamTs = startResponse.getTs();
         if (!StringUtils.hasText(streamTs)) {
             log.error("chat.startStream returned empty ts (eventId: {})", ctx.getEventId());
+            failureHandler.handle(SlackStreamFailure.startFailure("chat.startStream returned empty ts"));
             return;
         }
         consumeStreamInternal(ctx, streamTs, contentSupplier.get());

@@ -1,6 +1,7 @@
 package com.java.system.agent.slack.listener;
 
 import com.java.system.agent.ratelimit.RateLimitingService;
+import com.java.system.agent.slack.client.SlackStreamFailure;
 import com.java.system.agent.slack.model.SlackMessageContext;
 import com.java.system.agent.slack.pipeline.SlackAgentPipeline;
 import com.slack.api.bolt.App;
@@ -114,7 +115,20 @@ public class SlackEventListener {
     }
 
     void routeToPipeline(SlackMessageContext ctx) {
-        agentPipeline.execute(ctx);
+        agentPipeline.execute(ctx, failure -> handleStreamFailure(ctx, failure));
+    }
+
+    /** 串流失敗時釋放 dedup claim，並以一般訊息通知使用者 */
+    void handleStreamFailure(SlackMessageContext ctx, SlackStreamFailure failure) {
+        log.error("Slack stream failed (eventId: {}): {}", ctx.getEventId(), failure.reason(), failure.cause());
+        slackEventDeduplicator.abandon(ctx.getEventId());
+        try {
+            app.client().chatPostMessage(r -> r.channel(ctx.getChannelId())
+                    .threadTs(ctx.getThreadTs())
+                    .text(ctx.getStreamFailureMessage()));
+        } catch (Exception e) {
+            log.error("Failed to send stream-failure fallback message (eventId: {})", ctx.getEventId(), e);
+        }
     }
 
     @PreDestroy

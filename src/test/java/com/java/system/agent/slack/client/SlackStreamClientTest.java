@@ -15,7 +15,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 
+import java.io.IOException;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -23,6 +26,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
 class SlackStreamClientTest {
@@ -38,6 +42,9 @@ class SlackStreamClientTest {
 
     @Mock
     private MethodsClient methodsClient;
+
+    @Mock
+    private SlackStreamFailureHandler failureHandler;
 
     @Captor
     private ArgumentCaptor<RequestConfigurator<FormBody.Builder>> formCaptor;
@@ -74,7 +81,7 @@ class SlackStreamClientTest {
                 .build();
 
         slackStreamClient.consumeStream(ctx, "",
-                () -> Flux.error(new IllegalStateException(INTERNAL_DETAIL)));
+                () -> Flux.error(new IllegalStateException(INTERNAL_DETAIL)), failureHandler);
 
         verify(methodsClient, timeout(5000)).postFormWithTokenAndParseResponse(
                 formCaptor.capture(), eq("chat.stopStream"), eq(BOT_TOKEN), eq(SlackStreamResponse.class));
@@ -84,6 +91,84 @@ class SlackStreamClientTest {
         assertThat(markdownText).isPresent();
         assertThat(markdownText.get()).doesNotContain(INTERNAL_DETAIL);
         assertThat(markdownText.get()).contains("分析過程中發生錯誤");
+    }
+
+    @Test
+    void should_notify_failure_handler_and_skip_content_when_start_stream_returns_error() throws Exception {
+        stubStartStream(streamResponse(false, "invalid_auth", null));
+        AtomicBoolean supplierCalled = new AtomicBoolean(false);
+        Supplier<Flux<String>> contentSupplier = () -> {
+            supplierCalled.set(true);
+            return Flux.empty();
+        };
+
+        slackStreamClient.consumeStream(streamContext(), "", contentSupplier, failureHandler);
+
+        ArgumentCaptor<SlackStreamFailure> captor = ArgumentCaptor.forClass(SlackStreamFailure.class);
+        verify(failureHandler).handle(captor.capture());
+        assertThat(captor.getValue().reason()).contains("invalid_auth");
+        assertThat(supplierCalled.get()).isFalse();
+    }
+
+    @Test
+    void should_notify_failure_handler_when_start_stream_returns_empty_ts() throws Exception {
+        stubStartStream(streamResponse(true, null, ""));
+
+        slackStreamClient.consumeStream(streamContext(), "", () -> Flux.empty(), failureHandler);
+
+        ArgumentCaptor<SlackStreamFailure> captor = ArgumentCaptor.forClass(SlackStreamFailure.class);
+        verify(failureHandler).handle(captor.capture());
+        assertThat(captor.getValue().reason()).contains("empty ts");
+    }
+
+    @Test
+    void should_notify_failure_handler_when_start_stream_call_throws() throws Exception {
+        when(methodsClient.postFormWithTokenAndParseResponse(
+                any(), eq("chat.startStream"), eq(BOT_TOKEN), eq(SlackStreamResponse.class)))
+                .thenThrow(new IOException("connection reset"));
+
+        slackStreamClient.consumeStream(streamContext(), "", () -> Flux.empty(), failureHandler);
+
+        ArgumentCaptor<SlackStreamFailure> captor = ArgumentCaptor.forClass(SlackStreamFailure.class);
+        verify(failureHandler).handle(captor.capture());
+        assertThat(captor.getValue().reason()).startsWith("stream start failed");
+    }
+
+    @Test
+    void should_append_and_stop_without_failure_when_stream_completes_normally() throws Exception {
+        stubStartStream(streamResponse(true, null, "123.456"));
+
+        slackStreamClient.consumeStream(streamContext(), "", () -> Flux.just("hello"), failureHandler);
+
+        verify(methodsClient, timeout(5000)).postFormWithTokenAndParseResponse(
+                any(), eq("chat.appendStream"), eq(BOT_TOKEN), eq(SlackStreamResponse.class));
+        verify(methodsClient, timeout(5000)).postFormWithTokenAndParseResponse(
+                any(), eq("chat.stopStream"), eq(BOT_TOKEN), eq(SlackStreamResponse.class));
+        verify(failureHandler, never()).handle(any());
+    }
+
+    private void stubStartStream(SlackStreamResponse response) throws Exception {
+        when(methodsClient.postFormWithTokenAndParseResponse(
+                any(), eq("chat.startStream"), eq(BOT_TOKEN), eq(SlackStreamResponse.class)))
+                .thenReturn(response);
+    }
+
+    private SlackStreamResponse streamResponse(boolean ok, String error, String ts) {
+        SlackStreamResponse response = new SlackStreamResponse();
+        response.setOk(ok);
+        response.setError(error);
+        response.setTs(ts);
+        return response;
+    }
+
+    private SlackMessageContext streamContext() {
+        return SlackMessageContext.builder()
+                .userId("U123")
+                .teamId("T123")
+                .channelId("C123")
+                .eventId("Ev123")
+                .threadTs("111.222")
+                .build();
     }
 
     private static Optional<String> formValue(FormBody formBody, String name) {

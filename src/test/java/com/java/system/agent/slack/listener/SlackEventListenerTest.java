@@ -1,16 +1,24 @@
 package com.java.system.agent.slack.listener;
 
 import com.java.system.agent.ratelimit.RateLimitingService;
+import com.java.system.agent.slack.client.SlackStreamFailure;
+import com.java.system.agent.slack.client.SlackStreamFailureHandler;
 import com.java.system.agent.slack.model.SlackMessageContext;
 import com.java.system.agent.slack.pipeline.SlackAgentPipeline;
 import com.slack.api.RequestConfigurator;
 import com.slack.api.bolt.App;
 import com.slack.api.methods.MethodsClient;
+import com.slack.api.methods.request.chat.ChatPostMessageRequest;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.InOrder;
+
+import java.io.IOException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -27,7 +35,8 @@ class SlackEventListenerTest {
         SlackMessageContext ctx = SlackMessageContext.builder()
                 .eventId("event-123")
                 .build();
-        doThrow(new IllegalStateException("boom")).when(pipeline).execute(ctx);
+        doThrow(new IllegalStateException("boom"))
+                .when(pipeline).execute(eq(ctx), any(SlackStreamFailureHandler.class));
         SlackEventListener listener = new SlackEventListener(null, pipeline, deduplicator, null, null);
 
         listener.processAppMention(ctx);
@@ -115,5 +124,56 @@ class SlackEventListenerTest {
         listener.handleAppMention(ctx);
 
         verify(asyncSelf, never()).processAppMention(any());
+    }
+
+    @Test
+    void should_abandon_claim_and_post_fallback_when_stream_failure_handler_fires() throws Exception {
+        App app = mock(App.class);
+        MethodsClient methodsClient = mock(MethodsClient.class);
+        when(app.client()).thenReturn(methodsClient);
+        SlackAgentPipeline pipeline = mock(SlackAgentPipeline.class);
+        SlackEventDeduplicator deduplicator = mock(SlackEventDeduplicator.class);
+        SlackMessageContext ctx = SlackMessageContext.builder()
+                .eventId("event-123")
+                .channelId("C123")
+                .threadTs("111.222")
+                .userId("U123")
+                .build();
+        SlackEventListener listener = new SlackEventListener(app, pipeline, deduplicator, null, null);
+
+        listener.routeToPipeline(ctx);
+
+        ArgumentCaptor<SlackStreamFailureHandler> handlerCaptor =
+                ArgumentCaptor.forClass(SlackStreamFailureHandler.class);
+        verify(pipeline).execute(eq(ctx), handlerCaptor.capture());
+
+        handlerCaptor.getValue().handle(SlackStreamFailure.startFailure("invalid_auth"));
+
+        verify(deduplicator).abandon("event-123");
+        verify(methodsClient).chatPostMessage(
+                ArgumentMatchers.<RequestConfigurator<ChatPostMessageRequest.ChatPostMessageRequestBuilder>>any());
+    }
+
+    @Test
+    void should_still_abandon_claim_when_fallback_post_fails() throws Exception {
+        App app = mock(App.class);
+        MethodsClient methodsClient = mock(MethodsClient.class);
+        when(app.client()).thenReturn(methodsClient);
+        when(methodsClient.chatPostMessage(
+                ArgumentMatchers.<RequestConfigurator<ChatPostMessageRequest.ChatPostMessageRequestBuilder>>any()))
+                .thenThrow(new IOException("slack down"));
+        SlackAgentPipeline pipeline = mock(SlackAgentPipeline.class);
+        SlackEventDeduplicator deduplicator = mock(SlackEventDeduplicator.class);
+        SlackMessageContext ctx = SlackMessageContext.builder()
+                .eventId("event-123")
+                .channelId("C123")
+                .threadTs("111.222")
+                .userId("U123")
+                .build();
+        SlackEventListener listener = new SlackEventListener(app, pipeline, deduplicator, null, null);
+
+        listener.handleStreamFailure(ctx, SlackStreamFailure.startFailure("boom"));
+
+        verify(deduplicator).abandon("event-123");
     }
 }
