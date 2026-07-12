@@ -3,6 +3,7 @@ package com.java.system.agent.ai.loop;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -11,6 +12,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
@@ -20,6 +22,8 @@ import java.util.stream.Collectors;
 
 /** 一次 outer-controlled model turn:tool 由本類別透過 ToolCallingManager 執行 */
 public final class ChatModelStep implements StepExecutor {
+
+    private static final String UNKNOWN_TOOL_MESSAGE_PREFIX = "No ToolCallback found for tool name";
 
     private final ChatModel chatModel;
     private final ToolCallingManager toolCallingManager;
@@ -67,7 +71,17 @@ public final class ChatModelStep implements StepExecutor {
             List<ToolCallRecord> toolCalls = output.getToolCalls().stream()
                     .map(toolCall -> new ToolCallRecord(toolCall.name(), toolCall.arguments()))
                     .toList();
-            ToolExecutionResult result = toolCallingManager.executeToolCalls(prompt, response);
+            ToolExecutionResult result;
+            try {
+                result = toolCallingManager.executeToolCalls(prompt, response);
+            } catch (IllegalStateException exception) {
+                if (!isUnknownToolFailure(exception)) {
+                    throw exception;
+                }
+                working.add(new UserMessage(unknownToolFeedback(toolCalls)));
+                return StepOutcome.acted("⚙️ 工具名稱無效，已提示模型改用正確名稱",
+                        toolCalls, collector.drain(), metrics);
+            }
             working.clear();
             working.addAll(result.conversationHistory());
             List<String> names = toolCalls.stream()
@@ -129,6 +143,33 @@ public final class ChatModelStep implements StepExecutor {
             working.add(new SystemMessage("[自我檢查] " + critiques.get(index)));
         }
         appendedCritiques = critiques.size();
+    }
+
+    private boolean isUnknownToolFailure(IllegalStateException exception) {
+        return StringUtils.hasText(exception.getMessage())
+                && exception.getMessage().startsWith(UNKNOWN_TOOL_MESSAGE_PREFIX);
+    }
+
+    private String unknownToolFeedback(List<ToolCallRecord> toolCalls) {
+        String attempted = toolCalls.stream()
+                .map(ToolCallRecord::name)
+                .collect(Collectors.joining(", "));
+        List<String> validNames = validToolNames();
+        String available = CollectionUtils.isEmpty(validNames)
+                ? "（本回合沒有可用工具）"
+                : String.join(", ", validNames);
+        return "⚠️ 工具呼叫失敗:找不到名為 [" + attempted + "] 的工具\n"
+                + "可用的工具名稱:" + available + "\n"
+                + "請改用正確的工具名稱重新呼叫;若不需要工具，請直接以業務語言作答";
+    }
+
+    private List<String> validToolNames() {
+        if (options instanceof ToolCallingChatOptions toolOptions) {
+            return toolOptions.getToolCallbacks().stream()
+                    .map(callback -> callback.getToolDefinition().name())
+                    .toList();
+        }
+        return List.of();
     }
 
     private StepMetrics metricsSince(long startMillis, ChatResponse response) {

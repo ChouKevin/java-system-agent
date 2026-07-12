@@ -15,11 +15,13 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ChatModelStepTest {
 
@@ -190,6 +192,91 @@ class ChatModelStepTest {
                 .hasSize(1);
     }
 
+    @Test
+    void should_return_acted_outcome_when_tool_name_is_unknown() {
+        AssistantMessage.ToolCall toolCall = new AssistantMessage.ToolCall(
+                "id1", "function", "bogus_tool", "{}");
+        AssistantMessage toolMessage = AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(toolCall))
+                .build();
+        ChatResponse response = new ChatResponse(List.of(new Generation(toolMessage)));
+
+        ChatModelStep step = new ChatModelStep(
+                new FakeChatModel(response), new UnknownToolThrowingManager(), optionsWithCallbacks(), seed);
+        StepOutcome outcome = step.step(LoopState.init(new LoopRequest("t", "q")));
+
+        assertThat(outcome.isFinalCandidate()).isFalse();
+        assertThat(outcome.toolNames()).containsExactly("bogus_tool");
+        assertThat(outcome.progressLine()).contains("工具名稱無效");
+    }
+
+    @Test
+    void should_append_feedback_with_valid_names_when_tool_name_is_unknown() {
+        AssistantMessage.ToolCall toolCall = new AssistantMessage.ToolCall(
+                "id1", "function", "bogus_tool", "{}");
+        AssistantMessage toolMessage = AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(toolCall))
+                .build();
+        ChatResponse response = new ChatResponse(List.of(new Generation(toolMessage)));
+        FakeChatModel chatModel = new FakeChatModel(response);
+
+        ChatModelStep step = new ChatModelStep(
+                chatModel, new UnknownToolThrowingManager(), optionsWithCallbacks(), seed);
+        step.step(LoopState.init(new LoopRequest("t", "q")));
+        step.step(LoopState.init(new LoopRequest("t", "q")));
+
+        List<String> userTexts = chatModel.lastPrompt.getInstructions().stream()
+                .filter(UserMessage.class::isInstance)
+                .map(Message::getText)
+                .toList();
+        assertThat(userTexts).anySatisfy(text -> {
+            assertThat(text).contains("bogus_tool");
+            assertThat(text).contains("read_service_map");
+            assertThat(text).contains("find_call_graph");
+        });
+    }
+
+    @Test
+    void should_propagate_when_illegal_state_is_not_unknown_tool_failure() {
+        AssistantMessage.ToolCall toolCall = new AssistantMessage.ToolCall(
+                "id1", "function", "read_service_map", "{}");
+        AssistantMessage toolMessage = AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(toolCall))
+                .build();
+        ChatResponse response = new ChatResponse(List.of(new Generation(toolMessage)));
+        ToolCallingManager failingManager = new ToolCallingManager() {
+
+            @Override
+            public List<ToolDefinition> resolveToolDefinitions(ToolCallingChatOptions chatOptions) {
+                return List.of();
+            }
+
+            @Override
+            public ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
+                throw new IllegalStateException("boom");
+            }
+        };
+
+        ChatModelStep step = new ChatModelStep(
+                new FakeChatModel(response), failingManager, optionsWithCallbacks(), seed);
+
+        assertThatThrownBy(() -> step.step(LoopState.init(new LoopRequest("t", "q"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("boom");
+    }
+
+    private ChatOptions optionsWithCallbacks() {
+        return ToolCallingChatOptions.builder()
+                .toolCallbacks(List.of(
+                        new StubToolCallback("read_service_map"),
+                        new StubToolCallback("find_call_graph")))
+                .internalToolExecutionEnabled(false)
+                .build();
+    }
+
     private static final class FakeChatModel implements ChatModel {
 
         private final ChatResponse response;
@@ -224,6 +311,42 @@ class ChatModelStepTest {
             return ToolExecutionResult.builder()
                     .conversationHistory(conversationHistory)
                     .build();
+        }
+    }
+
+    private static final class UnknownToolThrowingManager implements ToolCallingManager {
+
+        @Override
+        public List<ToolDefinition> resolveToolDefinitions(ToolCallingChatOptions chatOptions) {
+            return List.of();
+        }
+
+        @Override
+        public ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
+            throw new IllegalStateException("No ToolCallback found for tool name: bogus_tool");
+        }
+    }
+
+    private static final class StubToolCallback implements ToolCallback {
+
+        private final String name;
+
+        private StubToolCallback(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return ToolDefinition.builder()
+                    .name(name)
+                    .description(name)
+                    .inputSchema("{}")
+                    .build();
+        }
+
+        @Override
+        public String call(String toolInput) {
+            return "{}";
         }
     }
 
