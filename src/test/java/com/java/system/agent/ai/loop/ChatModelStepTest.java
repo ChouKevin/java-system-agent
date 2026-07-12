@@ -268,6 +268,26 @@ class ChatModelStepTest {
                 .hasMessage("boom");
     }
 
+    @Test
+    void step_throwsEmptyModelResponse_whenNoGenerations() {
+        ChatResponse response = new ChatResponse(List.of());
+        ChatModelStep step = new ChatModelStep(
+                new FakeChatModel(response), new FakeToolCallingManager(List.of()), options, seed);
+
+        assertThatThrownBy(() -> step.step(LoopState.init(new LoopRequest("t", "q"))))
+                .isInstanceOf(EmptyModelResponseException.class);
+    }
+
+    @Test
+    void forceAnswer_throwsEmptyModelResponse_whenNoGenerations() {
+        ChatResponse response = new ChatResponse(List.of());
+        ChatModelStep step = new ChatModelStep(
+                new FakeChatModel(response), new FakeToolCallingManager(List.of()), options, seed);
+
+        assertThatThrownBy(() -> step.forceAnswer(LoopState.init(new LoopRequest("t", "q"))))
+                .isInstanceOf(EmptyModelResponseException.class);
+    }
+
     private ChatOptions optionsWithCallbacks() {
         return ToolCallingChatOptions.builder()
                 .toolCallbacks(List.of(

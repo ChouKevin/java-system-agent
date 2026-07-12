@@ -154,6 +154,33 @@ class AgentLoopRunnerTest {
     }
 
     @Test
+    void forceAnswerThrows_emitsFallbackInsteadOfError() {
+        StepExecutor stepExecutor = new StepExecutor() {
+            @Override
+            public StepOutcome step(LoopState state) {
+                return StepOutcome.acted("查詢", List.of(ToolCallRecord.of("find_call_graph")));
+            }
+
+            @Override
+            public Candidate forceAnswer(LoopState state) {
+                throw new IllegalStateException(
+                        "Estimated LLM request tokens exceed configured tokens-per-minute limit");
+            }
+        };
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(stepExecutor,
+                state -> LoopDecision.FORCE_FINALIZE,
+                (candidate, state) -> Verdict.accept(), "test", saved::add);
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.FALLBACK);
+        assertThat(done.result().accepted()).isFalse();
+        assertThat(saved).hasSize(1);
+    }
+
+    @Test
     void stopWithRejectedDraft_marksAnswerUnverified() {
         StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
                 "整理回覆", new Candidate("被拒的草稿"));

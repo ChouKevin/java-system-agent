@@ -64,8 +64,8 @@ public final class ChatModelStep implements StepExecutor {
         long startMillis = System.currentTimeMillis();
         ChatResponse response = chatModel.call(prompt);
         rateLimiter.record(reservation, response);
+        AssistantMessage output = outputOf(response);
         StepMetrics metrics = metricsSince(startMillis, response);
-        AssistantMessage output = response.getResult().getOutput();
 
         if (response.hasToolCalls()) {
             List<ToolCallRecord> toolCalls = output.getToolCalls().stream()
@@ -108,7 +108,7 @@ public final class ChatModelStep implements StepExecutor {
         RateLimitReservation reservation = rateLimiter.acquire(prompt);
         ChatResponse response = chatModel.call(prompt);
         rateLimiter.record(reservation, response);
-        AssistantMessage output = response.getResult().getOutput();
+        AssistantMessage output = outputOf(response);
         return new Candidate(Objects.toString(output.getText(), ""));
     }
 
@@ -170,6 +170,14 @@ public final class ChatModelStep implements StepExecutor {
                     .toList();
         }
         return List.of();
+    }
+
+    private AssistantMessage outputOf(ChatResponse response) {
+        if (Objects.isNull(response) || Objects.isNull(response.getResult())
+                || Objects.isNull(response.getResult().getOutput())) {
+            throw new EmptyModelResponseException("模型未回傳任何內容，可能被安全過濾攔截");
+        }
+        return response.getResult().getOutput();
     }
 
     private StepMetrics metricsSince(long startMillis, ChatResponse response) {

@@ -66,9 +66,15 @@ public class AgentLoopRunner implements AgentLoop {
                     return;
                 }
                 if (decision.isForceFinalize()) {
-                    Candidate candidate = StringUtils.hasText(lastAnswer)
-                            ? new Candidate(lastAnswer)
-                            : stepExecutor.forceAnswer(state);
+                    Candidate candidate;
+                    try {
+                        candidate = StringUtils.hasText(lastAnswer)
+                                ? new Candidate(lastAnswer)
+                                : stepExecutor.forceAnswer(state);
+                    } catch (RuntimeException exception) {
+                        log.warn("[{}] forceAnswer failed, falling back to last known answer", role, exception);
+                        candidate = new Candidate(lastAnswer);
+                    }
                     String answer = markUnverified(safeAnswer(candidate));
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
