@@ -49,11 +49,12 @@ public class SlackStreamClient {
             failureHandler.handle(SlackStreamFailure.startFailure("chat.startStream returned empty ts"));
             return;
         }
-        consumeStreamInternal(ctx, streamTs, contentSupplier.get());
+        consumeStreamInternal(ctx, streamTs, contentSupplier.get(), failureHandler);
     }
 
-    /** 1 秒緩衝視窗，每批累積後 append 一次 */
-    private void consumeStreamInternal(SlackMessageContext ctx, String streamTs, Flux<String> content) {
+    /** 1 秒緩衝視窗，每批累積後 append 一次，終止錯誤交回呼叫端善後 */
+    private void consumeStreamInternal(SlackMessageContext ctx, String streamTs, Flux<String> content,
+            SlackStreamFailureHandler failureHandler) {
         content.doOnNext(item -> log.debug("consumeStream: raw item len={}", item.length()))
                 .bufferTimeout(Integer.MAX_VALUE, Duration.ofMillis(1000))
                 .publishOn(Schedulers.boundedElastic())
@@ -73,7 +74,9 @@ public class SlackStreamClient {
                             ctx.getChannelId(), ctx.getThreadTs(), ctx.getEventId(), e);
                     stopStream(ctx.getChannelId(), streamTs, STREAM_ERROR_MESSAGE);
                 })
-                .subscribe();
+                .subscribe(
+                        ignored -> { },
+                        error -> failureHandler.handle(SlackStreamFailure.streamingFailure(error)));
     }
 
     private SlackStreamResponse startStream(SlackMessageContext ctx, String initialMarkdownText) {

@@ -147,6 +147,20 @@ class SlackStreamClientTest {
         verify(failureHandler, never()).handle(any());
     }
 
+    @Test
+    void should_notify_failure_handler_and_stop_stream_when_stream_errors_mid_flight() throws Exception {
+        stubStartStream(streamResponse(true, null, "123.456"));
+        IllegalStateException boom = new IllegalStateException("LLM connection lost");
+
+        slackStreamClient.consumeStream(streamContext(), "", () -> Flux.error(boom), failureHandler);
+
+        ArgumentCaptor<SlackStreamFailure> captor = ArgumentCaptor.forClass(SlackStreamFailure.class);
+        verify(failureHandler, timeout(5000)).handle(captor.capture());
+        assertThat(captor.getValue().cause()).isSameAs(boom);
+        verify(methodsClient, timeout(5000)).postFormWithTokenAndParseResponse(
+                any(), eq("chat.stopStream"), eq(BOT_TOKEN), eq(SlackStreamResponse.class));
+    }
+
     private void stubStartStream(SlackStreamResponse response) throws Exception {
         when(methodsClient.postFormWithTokenAndParseResponse(
                 any(), eq("chat.startStream"), eq(BOT_TOKEN), eq(SlackStreamResponse.class)))
