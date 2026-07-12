@@ -8,6 +8,7 @@ import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayDeque;
@@ -94,20 +95,32 @@ public class ConfiguredLlmRateLimiter implements LlmRateLimiter {
         }
     }
 
-    private synchronized void acquire(int reservedTokens) {
+    private void acquire(int reservedTokens) {
         while (true) {
-            long now = clock.getAsLong();
-            purgeExpired(now);
-            assertWithinSingleRequestTokenLimit(reservedTokens);
-            long waitMillis = requiredWaitMillis(now, reservedTokens);
-            if (waitMillis <= 0) {
-                minuteRequests.addLast(new UsageRecord(now, 1));
-                dailyRequests.addLast(new UsageRecord(now, 1));
-                addTokenUsage(now, reservedTokens);
-                return;
+            long waitMillis;
+            synchronized (this) {
+                long now = clock.getAsLong();
+                purgeExpired(now);
+                assertWithinSingleRequestTokenLimit(reservedTokens);
+                waitMillis = requiredWaitMillis(now, reservedTokens);
+                if (waitMillis <= 0) {
+                    minuteRequests.addLast(new UsageRecord(now, 1));
+                    dailyRequests.addLast(new UsageRecord(now, 1));
+                    addTokenUsage(now, reservedTokens);
+                    return;
+                }
             }
+            failFastWhenWaitExceedsMax(waitMillis);
             log.debug("LLM rate limit reached, waiting {} ms", waitMillis);
             sleeper.accept(waitMillis);
+        }
+    }
+
+    /** 所需等待時間超過設定上限時直接快速失敗，非正值代表不設上限 */
+    private void failFastWhenWaitExceedsMax(long waitMillis) {
+        long maxWaitMillis = properties.maxWaitMillis();
+        if (maxWaitMillis > 0 && waitMillis > maxWaitMillis) {
+            throw new LlmRateLimitExhaustedException(waitMillis, maxWaitMillis);
         }
     }
 
@@ -148,7 +161,7 @@ public class ConfiguredLlmRateLimiter implements LlmRateLimiter {
     }
 
     private void purgeExpired(Deque<UsageRecord> records, long thresholdMillis) {
-        while (!records.isEmpty() && records.peekFirst().timeMillis() <= thresholdMillis) {
+        while (!CollectionUtils.isEmpty(records) && records.peekFirst().timeMillis() <= thresholdMillis) {
             records.removeFirst();
         }
     }

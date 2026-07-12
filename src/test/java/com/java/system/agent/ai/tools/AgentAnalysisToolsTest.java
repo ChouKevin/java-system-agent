@@ -117,7 +117,7 @@ class AgentAnalysisToolsTest {
                 new AgentLoopProperties.Analyst(12, 120_000L, 2),
                 new AgentLoopProperties.Translator(2, 60_000L),
                 new AgentLoopProperties.Trace(true, 20, 200),
-                new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500));
+                new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500, 300_000L));
     }
 
     private ToolContext emptyToolContext() {

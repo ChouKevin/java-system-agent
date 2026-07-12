@@ -31,6 +31,7 @@ public record AgentLoopProperties(
             @DefaultValue("true") boolean enabled,
             @DefaultValue("30") int requestsPerMinute,
             @DefaultValue("1000000") int tokensPerMinute,
-            @DefaultValue("1500") int requestsPerDay) {
+            @DefaultValue("1500") int requestsPerDay,
+            @DefaultValue("300000") long maxWaitMillis) {
     }
 }

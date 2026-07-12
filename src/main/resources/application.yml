@@ -34,6 +34,7 @@ agent:
       requests-per-minute: ${GOOGLE_GENAI_RPM:30}
       tokens-per-minute: ${GOOGLE_GENAI_TPM:1000000}
       requests-per-day: ${GOOGLE_GENAI_RPD:1500}
+      max-wait-millis: ${GOOGLE_GENAI_MAX_WAIT_MILLIS:300000}
     trace:
       enabled: true
       retain: 20
