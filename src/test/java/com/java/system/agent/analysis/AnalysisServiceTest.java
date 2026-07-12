@@ -31,6 +31,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -305,6 +306,50 @@ class AnalysisServiceTest {
         inOrder.verify(entryPointCacheService).reload(repoRoot);
         inOrder.verify(classMetadataService).reload(repoRoot);
         inOrder.verify(apiTrieService).reload("test-repo");
+    }
+
+    @Test
+    void should_run_git_operation_before_cache_eviction_when_reload_repo_after() {
+        Path repoRoot = Path.of("/repos/test-repo");
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        @SuppressWarnings("unchecked")
+        Supplier<String> gitOperation = mock(Supplier.class);
+        when(gitOperation.get()).thenReturn("pulled");
+
+        String result = analysisService.reloadRepoAfter("test-repo", gitOperation);
+
+        assertEquals("pulled", result);
+        InOrder inOrder = inOrder(
+                gitOperation,
+                sourceRootResolver,
+                projectParserService,
+                entryPointCacheService,
+                classMetadataService,
+                apiTrieService);
+        inOrder.verify(gitOperation).get();
+        inOrder.verify(sourceRootResolver).invalidate(repoRoot);
+        inOrder.verify(projectParserService).invalidate(repoRoot);
+        inOrder.verify(entryPointCacheService).reload(repoRoot);
+        inOrder.verify(classMetadataService).reload(repoRoot);
+        inOrder.verify(apiTrieService).reload("test-repo");
+    }
+
+    @Test
+    void should_propagate_git_failure_without_cache_eviction_when_reload_repo_after_fails() {
+        Supplier<String> gitOperation = () -> {
+            throw new IllegalStateException("git pull failed");
+        };
+
+        assertThrows(IllegalStateException.class,
+                () -> analysisService.reloadRepoAfter("test-repo", gitOperation));
+
+        verify(entryPointCacheService, never()).reload(any());
+        verify(classMetadataService, never()).reload(any());
+        verify(apiTrieService, never()).reload(anyString());
+
+        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(Path.of("/repos/test-repo"));
+        when(entryPointCacheService.getEntryPoints(any(), any())).thenReturn(List.of());
+        assertTrue(analysisService.scanEntryPoints("test-repo").isEmpty());
     }
 
     @Test
