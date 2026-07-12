@@ -38,7 +38,7 @@ class ToolCallSummaryTest {
     }
 
     @Test
-    void render_formatsFindCallGraph_withDetails() {
+    void render_showsRepoOnly_forFindCallGraph() {
         String summary = ToolCallSummary.render(
                 List.of(new ToolCallRecord(ToolNames.FIND_CALL_GRAPH,
                         "{\"repoId\":\"BONUS_SERVICE\",\"className\":\"BonusService\",\"methodSignature\":\"calculate\"}")),
@@ -47,9 +47,9 @@ class ToolCallSummaryTest {
                 "title");
 
         assertThat(summary).contains("[find_call_graph]");
-        assertThat(summary).contains("BONUS_SERVICE");
-        assertThat(summary).contains("BonusService");
-        assertThat(summary).contains("calculate");
+        assertThat(summary).contains("repo: `BONUS_SERVICE`");
+        assertThat(summary).doesNotContain("BonusService");
+        assertThat(summary).doesNotContain("calculate");
     }
 
     @Test

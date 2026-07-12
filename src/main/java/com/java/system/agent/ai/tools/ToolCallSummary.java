@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.loop.LoopStep;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.ToolCallRecord;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /** 純渲染器:把集中記錄的 tool 呼叫整理成 Markdown 摘要 */
+@Slf4j
 public final class ToolCallSummary {
 
     private ToolCallSummary() {
@@ -57,11 +59,8 @@ public final class ToolCallSummary {
                             .formatted(arguments.get("repoId"), arguments.get("groupName")))
                     .orElse("[read_business_group_doc]");
             case ToolNames.FIND_CALL_GRAPH -> parse(argsJson, objectMapper)
-                    .map(arguments -> "[find_call_graph] repo: `%s` | class: `%s` | method: `%s`"
-                            .formatted(
-                                    stringOr("unknown-repo", arguments.get("repoId")),
-                                    stringOr("unknown-class", arguments.get("className")),
-                                    stringOr("unknown-method", arguments.get("methodSignature"))))
+                    .map(arguments -> "[find_call_graph] repo: `%s`"
+                            .formatted(stringOr("unknown-repo", arguments.get("repoId"))))
                     .orElse("[find_call_graph]");
             default -> "[%s]".formatted(toolName);
         };
@@ -72,7 +71,9 @@ public final class ToolCallSummary {
         try {
             String safeArgs = StringUtils.hasText(argsJson) ? argsJson : "{}";
             return Optional.of(objectMapper.readValue(safeArgs, Map.class));
-        } catch (Exception e) {
+        } catch (Exception exception) {
+            log.debug("Tool call arguments are not valid JSON, rendering without details: {}",
+                    argsJson, exception);
             return Optional.empty();
         }
     }
