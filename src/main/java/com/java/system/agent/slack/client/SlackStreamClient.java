@@ -22,6 +22,9 @@ import reactor.core.scheduler.Schedulers;
 @Slf4j
 public class SlackStreamClient {
 
+    /** 串流失敗時回覆給使用者的固定訊息，避免把內部例外細節洩漏到 Slack 頻道 */
+    private static final String STREAM_ERROR_MESSAGE = "\n\n❌ **分析過程中發生錯誤**，請稍後再試";
+
     private final App app;
 
     public SlackStreamClient(App app) {
@@ -63,8 +66,9 @@ public class SlackStreamClient {
                     log.info("Stream completed for event {}", ctx.getEventId());
                 })
                 .doOnError(e -> {
-                    log.error("Error during streaming", e);
-                    stopStream(ctx.getChannelId(), streamTs, "\n\n❌ **分析過程中發生錯誤**: " + e.getMessage());
+                    log.error("Error during streaming (channel: {}, threadTs: {}, eventId: {})",
+                            ctx.getChannelId(), ctx.getThreadTs(), ctx.getEventId(), e);
+                    stopStream(ctx.getChannelId(), streamTs, STREAM_ERROR_MESSAGE);
                 })
                 .subscribe();
     }
