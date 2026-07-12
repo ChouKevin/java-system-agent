@@ -50,8 +50,8 @@ springdoc:
 
 logging:
   level:
-    '[com.java.system.agent]': DEBUG
-    '[org.springframework.ai]': DEBUG
+    '[com.java.system.agent]': INFO
+    '[org.springframework.ai]': INFO
 
 git:
   username: ${GIT_USERNAME:}
