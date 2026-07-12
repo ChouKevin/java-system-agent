@@ -92,11 +92,12 @@ class LlmVerifierTest {
     }
 
     @Test
-    void malformedPassWithReasonRevises() {
-        Verdict verdict = new LlmVerifier(new FakeChatModel("VERDICT: PASS — 但證據不足"), "%1$s %2$s", "critic")
+    void passWithTrailingReasonStillAccepts() {
+        Verdict verdict = new LlmVerifier(
+                new FakeChatModel("VERDICT: PASS — 論述完整且有依據"), "%1$s %2$s", "critic")
                 .verify(new Candidate("答案"), state());
 
-        assertThat(verdict.accepted()).isFalse();
+        assertThat(verdict.accepted()).isTrue();
     }
 
     @Test

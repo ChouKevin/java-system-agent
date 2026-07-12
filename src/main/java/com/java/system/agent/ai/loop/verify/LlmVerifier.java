@@ -65,11 +65,8 @@ public final class LlmVerifier implements VerifyGate {
             log.debug("[{}] verifier reply missing final-line marker, revising: {}", label, reply);
             return unavailable();
         }
-        if ("PASS".equalsIgnoreCase(matcher.group(1)) && !StringUtils.hasText(matcher.group(2))) {
-            return Verdict.accept();
-        }
         if ("PASS".equalsIgnoreCase(matcher.group(1))) {
-            return unavailable();
+            return Verdict.accept();
         }
         String reason = StringUtils.hasText(matcher.group(2)) ? matcher.group(2).strip() : "需要修正";
         return Verdict.revise("[" + label + "] " + reason);
