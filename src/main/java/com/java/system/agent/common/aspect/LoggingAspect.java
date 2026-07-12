@@ -33,15 +33,11 @@ public class LoggingAspect {
             Object result = joinPoint.proceed();
             stopWatch.stop();
             log.debug("Exit: {}.{}() . Execution time: {} ms",
-                className, methodName, stopWatch.getTotalTimeMillis());
+                    className, methodName, stopWatch.getTotalTimeMillis());
             return result;
-        } catch (IllegalArgumentException e) {
-            log.error("Illegal argument: {} in {}.{}()", joinPoint.getArgs(), className, methodName);
-            throw e;
         } catch (Throwable e) {
             stopWatch.stop();
-            log.error("Exception in {}.{}() with cause = {}", className, methodName,
-                e.getCause() != null ? e.getCause() : "NULL");
+            log.error("Exception in {}.{}()", className, methodName, e);
             throw e;
         }
     }
