@@ -1,17 +1,14 @@
 package com.java.system.agent.slack.listener;
 
-import com.slack.api.bolt.App;
-import com.slack.api.bolt.socket_mode.SocketModeApp;
-import com.slack.api.model.event.AppMentionEvent;
-import com.java.system.agent.ratelimit.RateLimit;
-import com.java.system.agent.ratelimit.RateLimitExceededException;
 import com.java.system.agent.ratelimit.RateLimitingService;
 import com.java.system.agent.slack.model.SlackMessageContext;
 import com.java.system.agent.slack.pipeline.SlackAgentPipeline;
+import com.slack.api.bolt.App;
+import com.slack.api.bolt.socket_mode.SocketModeApp;
+import com.slack.api.model.event.AppMentionEvent;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
@@ -52,16 +49,7 @@ public class SlackEventListener {
             return;
         }
 
-        // app_mentions:read、chat:write
         app.event(AppMentionEvent.class, (req, ctx) -> {
-            String eventId = req.getEventId();
-
-            if (!slackEventDeduplicator.tryBegin(eventId)) {
-                log.info("Skipping duplicate eventId: {}", eventId);
-                return ctx.ack();
-            }
-
-            log.info("Received new eventId: {}", eventId);
             AppMentionEvent event = req.getEvent();
             String threadTs = StringUtils.hasText(event.getThreadTs()) ? event.getThreadTs() : event.getTs();
             SlackMessageContext slackCtx = SlackMessageContext.builder()
@@ -69,20 +57,10 @@ public class SlackEventListener {
                     .teamId(event.getTeam())
                     .channelId(event.getChannel())
                     .text(event.getText())
-                    .eventId(eventId)
+                    .eventId(req.getEventId())
                     .threadTs(threadTs)
                     .build();
-            try {
-                self.processAppMention(slackCtx);
-            } catch (RateLimitExceededException e) {
-                log.warn("Rate limit exceeded for user {} (eventId: {})", slackCtx.getUserId(), eventId);
-                try {
-                    app.client().chatPostMessage(r -> r.channel(slackCtx.getChannelId())
-                            .text(slackCtx.getRateLimitMessage(rateLimitingService.getCooldownSeconds())));
-                } catch (Exception ex) {
-                    log.error("Failed to send rate limit message to Slack", ex);
-                }
-            }
+            handleAppMention(slackCtx);
             return ctx.ack();
         });
 
@@ -91,8 +69,38 @@ public class SlackEventListener {
         log.info("Slack Socket Mode App started.");
     }
 
+    /**
+     * 同步事件處理入口，先檢查頻率限制，再取得去重處理權，最後轉交非同步管線
+     * 被限流的事件不會佔住 eventId，冷卻訊息也能在同步路徑立即回覆
+     */
+    void handleAppMention(SlackMessageContext slackCtx) {
+        if (!rateLimitingService.tryAcquire(slackCtx.getUserId())) {
+            log.warn("Rate limit exceeded for user {} (eventId: {})",
+                    slackCtx.getUserId(), slackCtx.getEventId());
+            postRateLimitMessage(slackCtx);
+            return;
+        }
+
+        if (!slackEventDeduplicator.tryBegin(slackCtx.getEventId())) {
+            log.info("Skipping duplicate eventId: {}", slackCtx.getEventId());
+            return;
+        }
+
+        log.info("Received new eventId: {}", slackCtx.getEventId());
+        self.processAppMention(slackCtx);
+    }
+
+    /** 同步回覆冷卻訊息，發送失敗僅記錄 log 不往外拋 */
+    private void postRateLimitMessage(SlackMessageContext slackCtx) {
+        try {
+            app.client().chatPostMessage(r -> r.channel(slackCtx.getChannelId())
+                    .text(slackCtx.getRateLimitMessage(rateLimitingService.getCooldownSeconds())));
+        } catch (Exception ex) {
+            log.error("Failed to send rate limit message to Slack", ex);
+        }
+    }
+
     @Async
-    @RateLimit(message = "Rate limit exceeded")
     public void processAppMention(SlackMessageContext ctx) {
         try {
             log.info("Processing async AI request for user {} in channel {} (eventId: {})",
