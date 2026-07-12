@@ -1,17 +1,33 @@
 package com.java.system.agent.analysis.parser;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
+import com.github.javaparser.ast.CompilationUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 測試 ProjectParserService
+ * JavaParser 非執行緒安全，服務只快取 ParserConfiguration，每次呼叫建立新 parser
  */
 class ProjectParserServiceTest {
 
@@ -23,87 +39,88 @@ class ProjectParserServiceTest {
     }
 
     @Test
-    void testGetOrCreateParser_SameRepoReturnsSameInstance(@TempDir Path tempDir) throws Exception {
-        // Arrange: 創建一個臨時 repo 目錄結構
-        Path repoRoot = tempDir.resolve("test-repo");
-        Path srcMainJava = repoRoot.resolve("src/main/java");
-        Files.createDirectories(srcMainJava);
-
-        // Act: 兩次獲取同一個 repo 的 Parser
-        JavaParser parser1 = service.getOrCreateParser(repoRoot);
-        JavaParser parser2 = service.getOrCreateParser(repoRoot);
-
-        // Assert: 應該返回同一個實例（快取）
-        assertSame(parser1, parser2, "Same repo should return cached parser instance");
-    }
-
-    @Test
-    void testGetOrCreateParser_DifferentReposReturnDifferentInstances(@TempDir Path tempDir) throws Exception {
-        // Arrange: 創建兩個不同的 repo
-        Path repo1 = tempDir.resolve("repo1");
-        Path repo2 = tempDir.resolve("repo2");
-        Files.createDirectories(repo1.resolve("src/main/java"));
-        Files.createDirectories(repo2.resolve("src/main/java"));
-
-        // Act: 獲取兩個不同 repo 的 Parser
-        JavaParser parser1 = service.getOrCreateParser(repo1);
-        JavaParser parser2 = service.getOrCreateParser(repo2);
-
-        // Assert: 應該返回不同的實例
-        assertNotSame(parser1, parser2, "Different repos should have different parser instances");
-    }
-
-    @Test
-    void testInvalidate_RemovesParserFromCache(@TempDir Path tempDir) throws Exception {
-        // Arrange
+    void should_return_distinct_parser_instances_when_same_repo_creates_twice(@TempDir Path tempDir)
+            throws Exception {
         Path repoRoot = tempDir.resolve("test-repo");
         Files.createDirectories(repoRoot.resolve("src/main/java"));
 
-        JavaParser parser1 = service.getOrCreateParser(repoRoot);
+        JavaParser parser1 = service.createParser(repoRoot);
+        JavaParser parser2 = service.createParser(repoRoot);
 
-        // Act: 清除快取
-        service.invalidate(repoRoot);
-        JavaParser parser2 = service.getOrCreateParser(repoRoot);
-
-        // Assert: 清除後應該創建新實例
-        assertNotSame(parser1, parser2, "After invalidation, should create new parser instance");
+        assertNotSame(parser1, parser2, "Each call must create a fresh JavaParser instance");
     }
 
     @Test
-    void testInvalidateAll_ClearsAllParsers(@TempDir Path tempDir) throws Exception {
-        // Arrange: 創建並快取多個 Parser
+    void should_share_cached_configuration_when_same_repo_creates_twice(@TempDir Path tempDir)
+            throws Exception {
+        Path repoRoot = tempDir.resolve("test-repo");
+        Files.createDirectories(repoRoot.resolve("src/main/java"));
+
+        JavaParser parser1 = service.createParser(repoRoot);
+        JavaParser parser2 = service.createParser(repoRoot);
+
+        assertSame(parser1.getParserConfiguration(), parser2.getParserConfiguration(),
+                "Same repo should share the cached ParserConfiguration");
+    }
+
+    @Test
+    void should_use_different_configurations_when_repos_differ(@TempDir Path tempDir) throws Exception {
         Path repo1 = tempDir.resolve("repo1");
         Path repo2 = tempDir.resolve("repo2");
         Files.createDirectories(repo1.resolve("src/main/java"));
         Files.createDirectories(repo2.resolve("src/main/java"));
 
-        service.getOrCreateParser(repo1);
-        service.getOrCreateParser(repo2);
+        JavaParser parser1 = service.createParser(repo1);
+        JavaParser parser2 = service.createParser(repo2);
 
-        assertEquals(2, service.getCacheSize(), "Should have 2 parsers cached");
+        assertNotSame(parser1.getParserConfiguration(), parser2.getParserConfiguration(),
+                "Different repos should have different configurations");
+    }
 
-        // Act: 清除所有快取
+    @Test
+    void should_rebuild_configuration_when_invalidated(@TempDir Path tempDir) throws Exception {
+        Path repoRoot = tempDir.resolve("test-repo");
+        Files.createDirectories(repoRoot.resolve("src/main/java"));
+
+        JavaParser parser1 = service.createParser(repoRoot);
+
+        service.invalidate(repoRoot);
+        JavaParser parser2 = service.createParser(repoRoot);
+
+        assertNotSame(parser1.getParserConfiguration(), parser2.getParserConfiguration(),
+                "After invalidation, a new configuration should be built");
+    }
+
+    @Test
+    void should_clear_all_configurations_when_invalidate_all(@TempDir Path tempDir) throws Exception {
+        Path repo1 = tempDir.resolve("repo1");
+        Path repo2 = tempDir.resolve("repo2");
+        Files.createDirectories(repo1.resolve("src/main/java"));
+        Files.createDirectories(repo2.resolve("src/main/java"));
+
+        service.createParser(repo1);
+        service.createParser(repo2);
+
+        assertEquals(2, service.getCacheSize(), "Should have 2 configurations cached");
+
         service.invalidateAll();
 
-        // Assert
         assertEquals(0, service.getCacheSize(), "Cache should be empty after invalidateAll");
     }
 
     @Test
-    void testGetOrCreateParser_HandlesNonExistentSourceRoot(@TempDir Path tempDir) {
-        // Arrange: 創建 repo 但不創建 src/main/java 目錄
+    void should_still_create_parser_when_source_root_missing(@TempDir Path tempDir) {
         Path repoRoot = tempDir.resolve("incomplete-repo");
 
-        // Act & Assert: 應該仍然能創建 Parser（只是會警告）
         assertDoesNotThrow(() -> {
-            JavaParser parser = service.getOrCreateParser(repoRoot);
+            JavaParser parser = service.createParser(repoRoot);
             assertNotNull(parser, "Should still create a parser even without source root");
         });
     }
 
     @Test
-    void should_create_parser_with_multiple_type_solvers_for_multi_module(@TempDir Path tempDir) throws Exception {
-        // Arrange: multi-module repo
+    void should_create_parser_with_multiple_type_solvers_when_repo_is_multi_module(@TempDir Path tempDir)
+            throws Exception {
         String pomContent = """
                 <project>
                     <packaging>pom</packaging>
@@ -117,18 +134,59 @@ class ProjectParserServiceTest {
         Files.createDirectories(tempDir.resolve("mod-a/src/main/java/com/example/a"));
         Files.createDirectories(tempDir.resolve("mod-b/src/main/java/com/example/b"));
 
-        // Create a Java file in mod-a
         Files.writeString(tempDir.resolve("mod-a/src/main/java/com/example/a/Foo.java"),
                 "package com.example.a; public class Foo {}");
-        // Create a Java file in mod-b that references mod-a's class
         Files.writeString(tempDir.resolve("mod-b/src/main/java/com/example/b/Bar.java"),
                 "package com.example.b; import com.example.a.Foo; public class Bar { private Foo foo; }");
 
-        // Act: create parser
-        JavaParser parser = service.getOrCreateParser(tempDir);
+        JavaParser parser = service.createParser(tempDir);
 
-        // Assert: parser should be able to parse mod-b's file (symbol resolution across modules)
         Path barFile = tempDir.resolve("mod-b/src/main/java/com/example/b/Bar.java");
         assertTrue(parser.parse(barFile).isSuccessful(), "Should parse file from multi-module repo");
+    }
+
+    @Test
+    void should_parse_concurrently_without_errors_when_multiple_threads_analyze_same_repo() throws Exception {
+        Path repoRoot = Paths.get("src", "test", "resources", "fixtures", "spring-basic")
+                .toAbsolutePath()
+                .normalize();
+        List<Path> javaFiles = List.of(
+                repoRoot.resolve("src/main/java/com/example/basic/BasicController.java"),
+                repoRoot.resolve("src/main/java/com/example/basic/BasicService.java"),
+                repoRoot.resolve("src/main/java/com/example/basic/BasicServiceImpl.java"),
+                repoRoot.resolve("src/main/java/com/example/basic/BasicRepository.java"));
+        int threadCount = 8;
+        int iterationsPerThread = 25;
+        ExecutorService pool = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startGate = new CountDownLatch(1);
+        List<Future<Integer>> futures = new ArrayList<>();
+        try {
+            for (int threadIndex = 0; threadIndex < threadCount; threadIndex++) {
+                futures.add(pool.submit(() -> {
+                    startGate.await();
+                    int parsedCount = 0;
+                    for (int iteration = 0; iteration < iterationsPerThread; iteration++) {
+                        JavaParser parser = service.createParser(repoRoot);
+                        for (Path javaFile : javaFiles) {
+                            ParseResult<CompilationUnit> result = parser.parse(javaFile);
+                            assertTrue(result.isSuccessful(),
+                                    () -> "Concurrent parse failed: " + result.getProblems());
+                            assertTrue(result.getResult().isPresent(),
+                                    "Parse result should contain a CompilationUnit");
+                            parsedCount++;
+                        }
+                    }
+                    return parsedCount;
+                }));
+            }
+            startGate.countDown();
+            for (Future<Integer> future : futures) {
+                assertEquals(iterationsPerThread * javaFiles.size(),
+                        future.get(60, TimeUnit.SECONDS).intValue(),
+                        "Every thread should parse all files without corruption");
+            }
+        } finally {
+            pool.shutdownNow();
+        }
     }
 }

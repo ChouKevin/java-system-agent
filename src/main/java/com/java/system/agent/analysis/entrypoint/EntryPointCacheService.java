@@ -89,7 +89,7 @@ public class EntryPointCacheService {
 
     /** 執行完整掃描（所有類型） */
     private List<EntryPointClass> performFullScan(Path repoRootPath) {
-        JavaParser parser = projectParserService.getOrCreateParser(repoRootPath);
+        JavaParser parser = projectParserService.createParser(repoRootPath);
 
         List<Path> sourceRoots = sourceRootResolver.resolveSourceRoots(repoRootPath);
         if (CollectionUtils.isEmpty(sourceRoots)) {

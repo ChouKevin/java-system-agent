@@ -161,7 +161,7 @@ public class JavaCallGraphAnalyzer {
     private CallGraph analyzeOrThrow(Path repoRoot, String relativeFilePath, String methodName) throws IOException {
         log.info("Analyzing call graph for '{}' in '{}'", methodName, relativeFilePath);
 
-        JavaParser javaParser = projectParserService.getOrCreateParser(repoRoot);
+        JavaParser javaParser = projectParserService.createParser(repoRoot);
         classMetadataService.ensureInitialized(repoRoot);
 
         Path absoluteFilePath = repoRoot.resolve(relativeFilePath);

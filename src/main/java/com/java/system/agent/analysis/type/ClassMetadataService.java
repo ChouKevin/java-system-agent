@@ -59,7 +59,7 @@ public class ClassMetadataService {
     }
 
     private JavaParser getParser(Path repoRoot) {
-        return projectParserService.getOrCreateParser(repoRoot);
+        return projectParserService.createParser(repoRoot);
     }
 
     public void reload(Path repoRoot) {
