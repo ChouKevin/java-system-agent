@@ -94,6 +94,12 @@ REPO_TEST_API_HOST=http://localhost:8080
 REPO_TEST_DEFAULT_BRANCH=main
 ```
 
+### API Protection
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `API_WRITE_TOKEN` | No | Shared secret for mutating `/git/**` endpoints, sent as the `X-Api-Token` request header. When unset, all mutating `/git/**` requests are rejected with 403 (fail-closed); read-only `GET /git/**` endpoints stay open |
+
 ### Runtime
 
 | Variable | Required | Description |
