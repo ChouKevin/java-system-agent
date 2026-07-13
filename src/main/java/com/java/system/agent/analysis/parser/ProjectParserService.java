@@ -59,6 +59,7 @@ public class ProjectParserService {
 
             JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
             ParserConfiguration config = new ParserConfiguration();
+            config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21);
             config.setSymbolResolver(symbolSolver);
 
             log.info("Successfully created ParserConfiguration with {} source roots for: {}",
