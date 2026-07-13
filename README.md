@@ -69,6 +69,16 @@ Place these in a `.env` file at project root (used by `docker-compose.yml`). See
 | `GOOGLE_GENAI_API_KEY` | uat/pro | Yes | Google Gemini API key |
 | `GOOGLE_GENAI_MODEL` | uat/pro | No | Model name (default: `gemini-3.1-flash-lite`) |
 
+### AI Rate Limiting
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GOOGLE_GENAI_RATE_LIMIT_ENABLED` | No | `true` | Enables synchronous Gemini request and token rate limiting |
+| `GOOGLE_GENAI_RPM` | No | `30` | Maximum requests per minute |
+| `GOOGLE_GENAI_TPM` | No | `1000000` | Maximum tokens per minute |
+| `GOOGLE_GENAI_RPD` | No | `1500` | Maximum requests per day |
+| `GOOGLE_GENAI_MAX_WAIT_MILLIS` | No | `300000` | Maximum time in milliseconds a request may wait for rate-limit capacity before failing fast |
+
 ### Git Credentials
 
 | Variable | Required | Description |
@@ -98,7 +108,21 @@ REPO_TEST_DEFAULT_BRANCH=main
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `API_WRITE_TOKEN` | No | Shared secret for mutating `/git/**` endpoints, sent as the `X-Api-Token` request header. When unset, all mutating `/git/**` requests are rejected with 403 (fail-closed); read-only `GET /git/**` endpoints stay open |
+| `API_WRITE_TOKEN` | For writes | Shared secret for mutating `/git/**` endpoints, sent as the `X-Api-Token` request header |
+
+The following endpoints require a matching `X-Api-Token` header:
+
+- `POST /git/clone-repo/{repo}`
+- `POST /git/pull-repo/{repo}`
+- `POST /git/checkout-repo/{repo}`
+
+Read-only `GET /git/**` endpoints and non-Git APIs remain open. A missing or invalid header returns `401`; when `API_WRITE_TOKEN` is not configured, all Git write requests return `403` (fail-closed).
+
+```bash
+curl -X POST \
+  -H "X-Api-Token: ${API_WRITE_TOKEN}" \
+  http://localhost:8080/git/pull-repo/test-repo
+```
 
 ### Runtime
 
@@ -106,13 +130,23 @@ REPO_TEST_DEFAULT_BRANCH=main
 |----------|----------|-------------|
 | `SPRING_PROFILES_ACTIVE` | No | Active profile: `dev` (default), `uat`, `pro` |
 
+### Agent Loop Limits
+
+Agent loop time limits are configured in `application.yml`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `agent.loop.analyst.max-wall-ms` | `120000` | Maximum wall-clock time for one analyst loop |
+| `agent.loop.translator.max-wall-ms` | `60000` | Maximum wall-clock time for one translator loop |
+| `agent.loop.overall.max-wall-ms` | `300000` | End-to-end deadline shared across nested analyst and translator loops |
+
 ## Profiles
 
-| Profile | AI Model | Key Env Vars |
-|---------|----------|--------------|
-| `dev` (default) | OpenAI-compatible | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` |
-| `uat` | Google Gemini | `GOOGLE_GENAI_API_KEY`, `GOOGLE_GENAI_MODEL` |
-| `pro` | Google Gemini | `GOOGLE_GENAI_API_KEY`, `GOOGLE_GENAI_MODEL` |
+| Profile | AI Model | Logging | Key Env Vars |
+|---------|----------|---------|--------------|
+| `dev` (default) | OpenAI-compatible | Application and Spring AI `DEBUG` | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` |
+| `uat` | Google Gemini | `INFO` | `GOOGLE_GENAI_API_KEY`, `GOOGLE_GENAI_MODEL` |
+| `pro` | Google Gemini | `INFO` | `GOOGLE_GENAI_API_KEY`, `GOOGLE_GENAI_MODEL` |
 
 ## LLM Tool Chain
 
