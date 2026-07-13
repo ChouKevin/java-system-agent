@@ -10,11 +10,14 @@ import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParse
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserEnumDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserInterfaceDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserRecordDeclaration;
+import com.java.system.agent.analysis.type.ScopeTypeResolver;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /** DTO 類型提取與定義收集 */
 @Slf4j
@@ -26,33 +29,35 @@ public class DtoAnalyzer {
 
     /** 分析方法的參數與回傳值，遞迴找出所有相關 DTO 定義 */
     public Map<String, String> analyze(MethodDeclaration method) {
-        Map<String, String> result = new LinkedHashMap<>();
+        Map<String, String> byQualifiedName = new LinkedHashMap<>();
 
         Queue<ResolvedReferenceTypeDeclaration> queue = new LinkedList<>();
         Set<String> processedTypes = new HashSet<>();
 
-        // 收集種子類型（參數 + 回傳值）
+        // 回傳型別與參數型別各自獨立 try：回傳型別解析失敗不得中斷參數收集
         try {
             collectTypes(method.getType().resolve(), queue, processedTypes);
-            method.getParameters().forEach(param -> {
-                try {
-                    collectTypes(param.getType().resolve(), queue, processedTypes);
-                } catch (Exception e) {
-                    log.warn("Failed to resolve parameter type: {}", param.getNameAsString());
-                }
-            });
         } catch (Exception e) {
-            log.warn("Failed to resolve method types for {}", method.getNameAsString());
+            log.warn("Failed to resolve return type for {}", method.getNameAsString());
         }
+        method.getParameters().forEach(param -> {
+            try {
+                collectTypes(param.getType().resolve(), queue, processedTypes);
+            } catch (Exception e) {
+                log.warn("Failed to resolve parameter type: {}", param.getNameAsString());
+            }
+        });
 
-        // BFS 遞迴分析 DTO 結構
-        while (!queue.isEmpty()) {
+        // BFS 遞迴分析 DTO 結構（以 qualified name 去重，避免同簡名互相覆蓋）
+        while (!CollectionUtils.isEmpty(queue)) {
             ResolvedReferenceTypeDeclaration typeDecl = queue.poll();
+            String qualifiedName = typeDecl.getQualifiedName();
 
-            getAstNode(typeDecl).ifPresent(classOrInterface -> {
-                String simpleName = classOrInterface.getNameAsString();
-                if (result.containsKey(simpleName)) return;
-                result.put(simpleName, classOrInterface.toString());
+            getAstNode(typeDecl).ifPresent(typeNode -> {
+                if (byQualifiedName.containsKey(qualifiedName)) {
+                    return;
+                }
+                byQualifiedName.put(qualifiedName, typeNode.toString());
 
                 // 深入分析欄位型別
                 typeDecl.getAllFields().forEach(field -> {
@@ -65,7 +70,26 @@ public class DtoAnalyzer {
             });
         }
 
-        return result;
+        return renderKeys(byQualifiedName);
+    }
+
+    /**
+     * 輸出時以簡名為 key（維持既有輸出形狀）
+     * 同簡名的多個類別（如 a.Order / b.Order）改用 qualified name，兩者皆保留
+     */
+    private Map<String, String> renderKeys(Map<String, String> byQualifiedName) {
+        Map<String, Long> simpleNameCounts = byQualifiedName.keySet().stream()
+                .collect(Collectors.groupingBy(
+                        ScopeTypeResolver::simpleTypeName,
+                        Collectors.counting()));
+
+        Map<String, String> rendered = new LinkedHashMap<>();
+        byQualifiedName.forEach((qualifiedName, code) -> {
+            String simpleName = ScopeTypeResolver.simpleTypeName(qualifiedName);
+            String key = simpleNameCounts.get(simpleName) > 1 ? qualifiedName : simpleName;
+            rendered.put(key, code);
+        });
+        return rendered;
     }
 
     /** 遞迴解析 ResolvedType，處理泛型、陣列、萬用字元。 */
