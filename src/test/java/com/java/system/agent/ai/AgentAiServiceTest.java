@@ -121,6 +121,31 @@ class AgentAiServiceTest {
         assertThat(chatMemory.addedMessages()).hasSize(8);
     }
 
+    @Test
+    void analyzeWithTools_emitsTimeoutMessage_whenLoopStalls() {
+        SlowChatModel chatModel = new SlowChatModel(500L);
+        FakeChatMemory chatMemory = new FakeChatMemory();
+        FakeLoopTraceStore traceStore = new FakeLoopTraceStore();
+        AgentAiService service = new AgentAiService(
+                chatModel,
+                new FakeToolCallingManager(),
+                chatMemory,
+                new DocumentTools(new FakeRepoDocPort()),
+                new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
+                        null, new ObjectMapper(), defaultLoopProperties(), LlmRateLimiter.NOOP),
+                new ObjectMapper(),
+                traceStore,
+                loopPropertiesWithOverall(100L),
+                LlmRateLimiter.NOOP,
+                new ChatMemoryLocks());
+
+        String joined = String.join("", service.analyzeWithTools("thread-1", "如何計算獎金?")
+                .collectList()
+                .block());
+
+        assertThat(joined).contains("分析逾時");
+    }
+
     private static final class FakeChatModel implements ChatModel {
 
         private final ChatResponse promptResponse;
@@ -148,10 +173,40 @@ class AgentAiServiceTest {
         }
     }
 
+    private static final class SlowChatModel implements ChatModel {
+
+        private final long sleepMillis;
+
+        private SlowChatModel(long sleepMillis) {
+            this.sleepMillis = sleepMillis;
+        }
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            try {
+                Thread.sleep(sleepMillis);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted", exception);
+            }
+            return new ChatResponse(List.of(new Generation(new AssistantMessage("慢速回覆"))));
+        }
+
+        @Override
+        public String call(String message) {
+            return "VERDICT: PASS";
+        }
+    }
+
     private static AgentLoopProperties defaultLoopProperties() {
+        return loopPropertiesWithOverall(300_000L);
+    }
+
+    private static AgentLoopProperties loopPropertiesWithOverall(long overallMaxWallMs) {
         return new AgentLoopProperties(
                 new AgentLoopProperties.Analyst(12, 120_000L, 2),
                 new AgentLoopProperties.Translator(6, 60_000L),
+                new AgentLoopProperties.Overall(overallMaxWallMs),
                 new AgentLoopProperties.Trace(true, 20, 200),
                 new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500, 300_000L));
     }

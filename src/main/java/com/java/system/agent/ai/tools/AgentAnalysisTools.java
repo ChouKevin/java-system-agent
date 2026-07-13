@@ -30,7 +30,9 @@ import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 
@@ -41,6 +43,9 @@ import java.util.Objects;
 @Component
 @Slf4j
 public class AgentAnalysisTools {
+
+    private static final String UNAVAILABLE_RESULT = "（程式碼業務分析暫時無法取得）";
+    private static final long TRANSLATOR_GRACE_MILLIS = 10_000L;
 
     private final ChatModel chatModel;
     private final ToolCallingManager toolCallingManager;
@@ -86,12 +91,17 @@ public class AgentAnalysisTools {
             return translateCallGraph(callGraphJson, toolContext);
         } catch (Exception e) {
             log.error("Call graph analysis serialization failed for {}.{}", className, methodSignature, e);
-            return "（程式碼業務分析暫時無法取得）";
+            return UNAVAILABLE_RESULT;
         }
     }
 
     private String translateCallGraph(String callGraphJson, ToolContext toolContext) {
         String userQuery = Objects.toString(toolContext.getContext().get("userQuery"), "");
+        long blockMillis = translatorBlockMillis(toolContext);
+        if (blockMillis <= 0) {
+            log.warn("Translator skipped: overall deadline already exhausted");
+            return UNAVAILABLE_RESULT;
+        }
         CallGraphExpandTools expandTools = new CallGraphExpandTools(analysisService);
         ChatOptions options = ToolCallingChatOptions.builder()
                 .toolCallbacks(ToolCallbacks.from(expandTools))
@@ -109,15 +119,31 @@ public class AgentAnalysisTools {
                 new TranslatorVerifyGate(callGraphJson),
                 "translator");
 
-        LoopTrace result = loop.run(new LoopRequest("translator", userQuery))
-                .ofType(LoopEvent.Done.class)
-                .map(LoopEvent.Done::result)
-                .blockLast();
+        LoopTrace result;
+        try {
+            result = loop.run(new LoopRequest("translator", userQuery))
+                    .ofType(LoopEvent.Done.class)
+                    .map(LoopEvent.Done::result)
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .blockLast(Duration.ofMillis(blockMillis));
+        } catch (IllegalStateException exception) {
+            log.warn("Translator loop timed out after {} ms", blockMillis, exception);
+            return UNAVAILABLE_RESULT;
+        }
         if (Objects.isNull(result)) {
-            return "（程式碼業務分析暫時無法取得）";
+            return UNAVAILABLE_RESULT;
         }
         publishTrace(toolContext, result);
         return TranslatorToolResult.from(result).render();
+    }
+
+    private long translatorBlockMillis(ToolContext toolContext) {
+        long ownBudget = translatorMaxWallMillis + TRANSLATOR_GRACE_MILLIS;
+        Object deadline = toolContext.getContext().get("deadlineAtMillis");
+        if (deadline instanceof Long deadlineAtMillis) {
+            return Math.min(ownBudget, deadlineAtMillis - System.currentTimeMillis());
+        }
+        return ownBudget;
     }
 
     private void publishTrace(ToolContext toolContext, LoopTrace trace) {

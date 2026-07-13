@@ -41,11 +41,13 @@ import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Agent-style AI service. Runs an explicit engineered analyst loop with
@@ -118,9 +120,14 @@ public class AgentAiService {
      */
     public Flux<String> analyzeWithTools(String conversationId, String userQuery) {
         LoopTraceCollector traceCollector = new LoopTraceCollector();
+        long overallMaxWallMs = loopProperties.overall().maxWallMs();
+        long deadlineAtMillis = System.currentTimeMillis() + overallMaxWallMs;
         ChatOptions options = ToolCallingChatOptions.builder()
                 .toolCallbacks(toolCallbacks)
-                .toolContext(Map.of("userQuery", userQuery, "traceCollector", traceCollector))
+                .toolContext(Map.of(
+                        "userQuery", userQuery,
+                        "traceCollector", traceCollector,
+                        "deadlineAtMillis", deadlineAtMillis))
                 .internalToolExecutionEnabled(false)
                 .build();
 
@@ -167,7 +174,13 @@ public class AgentAiService {
                     }
                 })
                 .subscribeOn(Schedulers.boundedElastic())
+                .timeout(Duration.ofMillis(overallMaxWallMs))
                 .onErrorResume(error -> {
+                    if (error instanceof TimeoutException) {
+                        log.error("Analyst loop timed out after {} ms for query: {}",
+                                overallMaxWallMs, userQuery);
+                        return Flux.just("\n\n❌ 分析逾時，請稍後再試或縮小問題範圍");
+                    }
                     log.error("Analyst loop error for query: {}", userQuery, error);
                     return Flux.just("\n\n❌ 分析發生錯誤: " + error.getMessage());
                 });

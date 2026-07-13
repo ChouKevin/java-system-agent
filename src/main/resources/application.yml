@@ -29,6 +29,8 @@ agent:
     translator:
       max-turns: 6
       max-wall-ms: 60000
+    overall:
+      max-wall-ms: 300000
     rate-limit:
       enabled: ${GOOGLE_GENAI_RATE_LIMIT_ENABLED:true}
       requests-per-minute: ${GOOGLE_GENAI_RPM:30}

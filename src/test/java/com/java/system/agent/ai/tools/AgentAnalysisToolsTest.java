@@ -142,6 +142,36 @@ class AgentAnalysisToolsTest {
         assertThat(userText).contains("＜/user_question＞");
     }
 
+    @Test
+    void findCallGraph_returnsUnavailable_whenOverallDeadlineExhausted() {
+        ExplainableCallGraph callGraph = explainableGraph("calculate");
+        FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.success(callGraph, null));
+        AgentAnalysisTools tools = newTools(analysisService);
+        ToolContext expiredContext = new ToolContext(Map.of(
+                "userQuery", "如何計算獎金?",
+                "deadlineAtMillis", System.currentTimeMillis() - 1_000L));
+
+        String result = tools.findCallGraph("test-repo", "pkg", "Cls", "method", expiredContext);
+
+        assertThat(result).isEqualTo("（程式碼業務分析暫時無法取得）");
+    }
+
+    @Test
+    void findCallGraph_returnsUnavailable_whenTranslatorExceedsRemainingDeadline() {
+        ExplainableCallGraph callGraph = explainableGraph("calculate");
+        FakeAnalysisService analysisService = new FakeAnalysisService(AnalysisResult.success(callGraph, null));
+        AgentAnalysisTools tools = new AgentAnalysisTools(
+                new SlowChatModel(500L), new FakeToolCallingManager(),
+                analysisService, objectMapper, defaultLoopProperties(), LlmRateLimiter.NOOP);
+        ToolContext nearDeadline = new ToolContext(Map.of(
+                "userQuery", "如何計算獎金?",
+                "deadlineAtMillis", System.currentTimeMillis() + 100L));
+
+        String result = tools.findCallGraph("test-repo", "pkg", "Cls", "method", nearDeadline);
+
+        assertThat(result).isEqualTo("（程式碼業務分析暫時無法取得）");
+    }
+
     private AgentAnalysisTools newTools(FakeAnalysisService analysisService) {
         return new AgentAnalysisTools(
                 new FakeChatModel("翻譯完成"),
@@ -156,6 +186,7 @@ class AgentAnalysisToolsTest {
         return new AgentLoopProperties(
                 new AgentLoopProperties.Analyst(12, 120_000L, 2),
                 new AgentLoopProperties.Translator(2, 60_000L),
+                new AgentLoopProperties.Overall(300_000L),
                 new AgentLoopProperties.Trace(true, 20, 200),
                 new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500, 300_000L));
     }
@@ -234,6 +265,26 @@ class AgentAnalysisToolsTest {
 
         private List<Prompt> prompts() {
             return List.copyOf(prompts);
+        }
+    }
+
+    private static final class SlowChatModel implements ChatModel {
+
+        private final long sleepMillis;
+
+        private SlowChatModel(long sleepMillis) {
+            this.sleepMillis = sleepMillis;
+        }
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            try {
+                Thread.sleep(sleepMillis);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted", exception);
+            }
+            return new ChatResponse(List.of(new Generation(new AssistantMessage("慢速翻譯"))));
         }
     }
 
