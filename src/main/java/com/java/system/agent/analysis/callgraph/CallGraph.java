@@ -17,7 +17,7 @@ import lombok.Data;
 @JsonClassDescription("方法呼叫鏈結圖")
 public class CallGraph {
 
-    @JsonPropertyDescription("唯一簽章 (e.g. com.service.VipService.upgrade(String))")
+    @JsonPropertyDescription("唯一簽章，canonical 格式 pkg.Class#method(paramType1,paramType2) (e.g. com.service.VipService#upgrade(String))")
     private String signature;
 
     @JsonPropertyDescription("類別名稱")

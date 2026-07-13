@@ -176,9 +176,7 @@ public class CallGraphBuilder {
                 }
 
                 ClassMetadata metadata = metadataOpt.get();
-                String sig = StringUtils.hasText(metadata.packageName())
-                        ? metadata.packageName() + "." + metadata.className() + "#" + methodName
-                        : metadata.className() + "#" + methodName;
+                String sig = CallSignature.of(metadata, methodName, call.getArguments().size()).render();
                 CallType type = classifier.detectType(metadata);
                 CallGraph leaf = CallGraph.leaf(sig, metadata.className(), methodName, type, null);
                 applyMetadataLocationIfAvailable(
@@ -378,9 +376,7 @@ public class CallGraphBuilder {
 
         ClassMetadata metadata = metadataOpt.get();
 
-        String signature = StringUtils.hasText(metadata.packageName())
-                ? metadata.packageName() + "." + metadata.className() + "#" + methodName
-                : metadata.className() + "#" + methodName;
+        String signature = CallSignature.of(metadata, methodName, argCount).render();
 
         if (classifier.isDatabaseLayer(metadata)) {
             DataAccessResolution dataAccess = buildDataAccessNode(

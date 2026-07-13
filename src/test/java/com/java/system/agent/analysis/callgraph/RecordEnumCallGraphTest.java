@@ -77,7 +77,7 @@ class RecordEnumCallGraphTest {
                 "quote");
 
         ExpectedGraphSpec spec = new ExpectedGraphSpec(
-                "com.example.recordenum.PricingController#public long quote(@PathVariable long amount)",
+                "com.example.recordenum.PricingController#quote(long)",
                 3,
                 2,
                 List.of(
@@ -103,7 +103,7 @@ class RecordEnumCallGraphTest {
                 "applyRule");
 
         ExpectedGraphSpec spec = new ExpectedGraphSpec(
-                "com.example.recordenum.OrderPricing#public long applyRule(PricingRule rule)",
+                "com.example.recordenum.OrderPricing#applyRule(PricingRule)",
                 3,
                 2,
                 List.of(

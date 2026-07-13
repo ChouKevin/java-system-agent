@@ -37,9 +37,8 @@ public record MethodCtx(
                 .flatMap(cu -> cu.getPackageDeclaration().map(p -> p.getNameAsString()))
                 .orElse("");
 
-        String methodSig = method.getDeclarationAsString();
         String owner = StringUtils.hasText(packageName) ? packageName + "." + className : className;
-        String signature = owner + "#" + methodSig;
+        String signature = CallSignature.of(owner, method).render();
 
         Map<String, String> annotations = new HashMap<>();
         method.getAnnotations().forEach(a -> annotations.put(a.getNameAsString(), a.toString()));
