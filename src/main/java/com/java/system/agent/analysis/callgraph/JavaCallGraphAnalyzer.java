@@ -1,8 +1,11 @@
 package com.java.system.agent.analysis.callgraph;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.java.system.agent.analysis.exception.EntryPointNotFoundException;
+import com.java.system.agent.analysis.exception.SourceParseException;
 import com.java.system.agent.analysis.model.AnalysisErrorCode;
 import com.java.system.agent.analysis.model.AnalysisMetadata;
 import com.java.system.agent.analysis.model.AnalysisResult;
@@ -229,11 +232,10 @@ public class JavaCallGraphAnalyzer {
     }
 
     private AnalysisErrorCode classifyRuntimeFailure(RuntimeException e) {
-        String message = e.getMessage() != null ? e.getMessage() : "";
-        if (message.contains("not found")) {
+        if (e instanceof EntryPointNotFoundException) {
             return AnalysisErrorCode.ENTRYPOINT_NOT_FOUND;
         }
-        if (message.contains("Failed to parse")) {
+        if (e instanceof SourceParseException) {
             return AnalysisErrorCode.PARSE_FAILED;
         }
         return AnalysisErrorCode.INTERNAL_ERROR;
@@ -248,9 +250,13 @@ public class JavaCallGraphAnalyzer {
     }
 
     private CompilationUnit parseCompilationUnit(JavaParser parser, Path absoluteFilePath)
-            throws RuntimeException, IOException {
-        return parser.parse(absoluteFilePath).getResult()
-                .orElseThrow(() -> new RuntimeException("Failed to parse " + absoluteFilePath));
+            throws IOException {
+        ParseResult<CompilationUnit> parseResult = parser.parse(absoluteFilePath);
+        if (!parseResult.isSuccessful()) {
+            throw new SourceParseException(absoluteFilePath);
+        }
+        return parseResult.getResult()
+                .orElseThrow(() -> new SourceParseException(absoluteFilePath));
     }
 
     private MethodDeclaration findTargetMethod(CompilationUnit cu, String methodSignature, String relativeFilePath) {
@@ -261,7 +267,7 @@ public class JavaCallGraphAnalyzer {
                 .toList();
 
         if (candidates.isEmpty()) {
-            throw new RuntimeException("Method '" + methodName + "' not found in '" + relativeFilePath + "'");
+            throw new EntryPointNotFoundException(methodName, relativeFilePath);
         }
 
         if (candidates.size() == 1 || !methodSignature.contains("(")) {

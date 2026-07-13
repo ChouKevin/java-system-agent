@@ -1,5 +1,6 @@
 package com.java.system.agent.git.service;
 
+import com.java.system.agent.analysis.exception.UnknownRepoException;
 import com.java.system.agent.git.config.GitProperties;
 import org.eclipse.jgit.api.CheckoutCommand;
 import org.eclipse.jgit.api.CloneCommand;
@@ -26,6 +27,7 @@ public class GitService {
 
     /** Clones a repo; returns the local directory path. */
     public String cloneRepository(String repo, String branch) {
+        ensureKnownRepo(repo);
         String url = resolveUrl(repo);
         File targetDir = repoDir(repo);
         try {
@@ -61,6 +63,7 @@ public class GitService {
 
     /** Pulls latest changes from remote. */
     public String pullRepository(String repo) {
+        ensureKnownRepo(repo);
         File localDir = repoDir(repo);
         try (Git git = Git.open(localDir)) {
             return git.pull()
@@ -74,6 +77,7 @@ public class GitService {
 
     /** Checks out a branch, creating a local tracking branch if needed. */
     public String checkoutBranch(String repo, String branch) {
+        ensureKnownRepo(repo);
         File localDir = repoDir(repo);
         try (Git git = Git.open(localDir)) {
             boolean localBranchExists = git.getRepository().findRef("refs/heads/" + branch) != null;
@@ -94,6 +98,7 @@ public class GitService {
 
     /** Returns the current branch name. */
     public String getCurrentBranch(String repo) {
+        ensureKnownRepo(repo);
         File localDir = repoDir(repo);
         try (Git git = Git.open(localDir)) {
             return git.getRepository().getBranch();
@@ -127,5 +132,12 @@ public class GitService {
             return new UsernamePasswordCredentialsProvider(u, p);
         }
         return null;
+    }
+
+    /** 驗證 repo id 已於 GitProperties 註冊，未知 id 直接拋出 UnknownRepoException */
+    private void ensureKnownRepo(String repo) {
+        if (!gitProperties.getRepos().containsKey(repo)) {
+            throw new UnknownRepoException(repo);
+        }
     }
 }
