@@ -33,4 +33,11 @@ public record ApiSecurityProperties(@DefaultValue("") String writeToken) {
                 writeToken.getBytes(StandardCharsets.UTF_8),
                 provided.getBytes(StandardCharsets.UTF_8));
     }
+
+    /** 避免設定物件被記錄時洩漏共享密鑰 */
+    @Override
+    public String toString() {
+        String renderedToken = hasWriteToken() ? "<redacted>" : "<not-configured>";
+        return "ApiSecurityProperties[writeToken=" + renderedToken + "]";
+    }
 }

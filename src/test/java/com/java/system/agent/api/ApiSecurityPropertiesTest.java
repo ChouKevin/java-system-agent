@@ -58,4 +58,13 @@ class ApiSecurityPropertiesTest {
 
         assertThat(properties.matchesWriteToken("anything")).isFalse();
     }
+
+    @Test
+    void should_not_expose_token_when_rendering_properties() {
+        ApiSecurityProperties properties = new ApiSecurityProperties("s3cret");
+
+        assertThat(properties.toString())
+                .doesNotContain("s3cret")
+                .contains("<redacted>");
+    }
 }
