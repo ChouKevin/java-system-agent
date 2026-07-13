@@ -3,19 +3,21 @@ package com.java.system.agent.analysis.callgraph;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 
 import lombok.Builder;
+import org.springframework.util.StringUtils;
 
 @Builder
 public record MethodCtx(
     MethodDeclaration method,
-    ClassOrInterfaceDeclaration currentClass,
+    TypeDeclaration<?> currentClass,
     String signature,
     String className,
     String packagePath,
@@ -25,8 +27,10 @@ public record MethodCtx(
 ) {
     @SuppressWarnings("unchecked")
     public static MethodCtx of(MethodDeclaration method) {
-        ClassOrInterfaceDeclaration currentClass = method.findAncestor(ClassOrInterfaceDeclaration.class).orElse(null);
-        String className = currentClass != null ? currentClass.getNameAsString() : "Unknown";
+        TypeDeclaration<?> currentClass = method.findAncestor(TypeDeclaration.class)
+                .map(type -> (TypeDeclaration<?>) type)
+                .orElse(null);
+        String className = Objects.nonNull(currentClass) ? currentClass.getNameAsString() : "Unknown";
 
         Optional<CompilationUnit> cuOpt = method.findCompilationUnit();
         String packageName = cuOpt
@@ -34,7 +38,7 @@ public record MethodCtx(
                 .orElse("");
 
         String methodSig = method.getDeclarationAsString();
-        String owner = packageName.isEmpty() ? className : packageName + "." + className;
+        String owner = StringUtils.hasText(packageName) ? packageName + "." + className : className;
         String signature = owner + "#" + methodSig;
 
         Map<String, String> annotations = new HashMap<>();

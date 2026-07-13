@@ -3,7 +3,7 @@ package com.java.system.agent.analysis.type;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.java.system.agent.analysis.model.ClassMetadata;
 import com.java.system.agent.analysis.parser.ProjectParserService;
@@ -91,7 +91,7 @@ class ClassMetadataServiceTest {
                 .filePath(helperFile)
                 .build();
 
-        Optional<ClassOrInterfaceDeclaration> ast = classMetadataService.resolveToAST(metadata, REPO_ROOT);
+        Optional<TypeDeclaration<?>> ast = classMetadataService.resolveToAST(metadata, REPO_ROOT);
 
         assertTrue(ast.isPresent());
         assertEquals("OrderServiceHelper", ast.get().getNameAsString());

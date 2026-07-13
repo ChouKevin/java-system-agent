@@ -1,8 +1,8 @@
 package com.java.system.agent.analysis.callgraph;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.java.system.agent.analysis.model.ClassMetadata;
 import com.java.system.agent.analysis.model.ResolutionStrategy;
@@ -203,8 +203,8 @@ public class CallGraphBuilder {
     /** AST fallback — 僅用於 root method 沒有 metadata 的場景 */
     private CallType detectTypeFromAST(MethodDeclaration method) {
         if (method.getParentNode().isPresent()
-                && method.getParentNode().get() instanceof ClassOrInterfaceDeclaration cls) {
-            return classifier.detectType(cls);
+                && method.getParentNode().get() instanceof TypeDeclaration<?> typeDeclaration) {
+            return classifier.detectType(typeDeclaration);
         }
         return CallType.INTERNAL_CLASS;
     }
@@ -335,7 +335,7 @@ public class CallGraphBuilder {
     }
 
     private void processMethodCall(MethodCallExpr call, TraversalCtx ctx, List<CallGraph> children,
-            MethodDeclaration currentMethod, ClassOrInterfaceDeclaration currentClass,
+            MethodDeclaration currentMethod, TypeDeclaration<?> currentClass,
             ClassMetadata callerMetadata) {
 
         Optional<ResolvedReceiver> receiverOpt = scopeTypeResolver.resolveReceiver(call, currentMethod, currentClass);
@@ -468,7 +468,7 @@ public class CallGraphBuilder {
             return;
         }
 
-        Optional<ClassOrInterfaceDeclaration> typeAstOpt = classMetadataService.resolveToAST(metadata, ctx.repoRoot());
+        Optional<TypeDeclaration<?>> typeAstOpt = classMetadataService.resolveToAST(metadata, ctx.repoRoot());
 
         if (typeAstOpt.isEmpty()) {
             CallGraph parseFailed = CallGraph.leaf(signature, metadata.className(), methodName,
@@ -590,7 +590,7 @@ public class CallGraphBuilder {
                 repoRoot));
     }
 
-    private void processResolvedType(ClassOrInterfaceDeclaration typeAst, ClassMetadata metadata,
+    private void processResolvedType(TypeDeclaration<?> typeAst, ClassMetadata metadata,
             String methodName, int paramCount, String qualifiedSignature, ResolvedReceiver receiver, MethodCallExpr call,
             TraversalCtx ctx, List<CallGraph> children) {
 
@@ -673,7 +673,7 @@ public class CallGraphBuilder {
         }
     }
 
-    private Optional<MethodDeclaration> findMethodInClass(ClassOrInterfaceDeclaration typeAst,
+    private Optional<MethodDeclaration> findMethodInClass(TypeDeclaration<?> typeAst,
             String methodName, int paramCount) {
         return typeAst.getMethods().stream()
                 .filter(m -> m.getNameAsString().equals(methodName))

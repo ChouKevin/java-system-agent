@@ -2,6 +2,7 @@ package com.java.system.agent.analysis.callgraph;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.java.system.agent.analysis.model.ClassMetadata;
 
@@ -91,16 +92,15 @@ public class CallGraphClassifier {
     }
 
     /** 基於 AST 判斷 class-level CallType（僅用於無 metadata 的場景，如 root method） */
-    public CallType detectType(ClassOrInterfaceDeclaration typeDecl) {
+    public CallType detectType(TypeDeclaration<?> typeDecl) {
         if (hasAnnotation(typeDecl, CONTROLLER_ANNOTATIONS)) return CallType.INTERNAL_CONTROLLER;
         if (hasAnnotation(typeDecl, SERVICE_ANNOTATIONS)) return CallType.INTERNAL_SERVICE;
         if (hasAnnotation(typeDecl, RPC_ANNOTATIONS)) return CallType.RPC_CLIENT;
 
         boolean isMapper = hasAnnotation(typeDecl, REPO_ANNOTATIONS);
-        boolean isDbExt = typeDecl.getExtendedTypes().stream().anyMatch(t -> {
-            String n = t.getNameAsString();
-            return isDataAccessBaseType(n);
-        });
+        boolean isDbExt = typeDecl instanceof ClassOrInterfaceDeclaration classDeclaration
+                && classDeclaration.getExtendedTypes().stream()
+                        .anyMatch(type -> isDataAccessBaseType(type.getNameAsString()));
         if (isMapper || isDbExt) return CallType.DATA_ACCESS;
 
         if (hasAnnotation(typeDecl, COMPONENT_ANNOTATIONS)) return CallType.INTERNAL_COMPONENT;

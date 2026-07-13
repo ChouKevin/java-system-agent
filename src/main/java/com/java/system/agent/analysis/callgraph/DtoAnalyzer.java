@@ -1,13 +1,15 @@
 package com.java.system.agent.analysis.callgraph;
 
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.resolution.types.ResolvedType;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserClassDeclaration;
+import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserEnumDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserInterfaceDeclaration;
+import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserRecordDeclaration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -115,12 +117,18 @@ public class DtoAnalyzer {
     }
 
     /** 將 SymbolSolver 宣告轉回 AST 節點 */
-    private Optional<ClassOrInterfaceDeclaration> getAstNode(ResolvedReferenceTypeDeclaration decl) {
+    private Optional<TypeDeclaration<?>> getAstNode(ResolvedReferenceTypeDeclaration decl) {
         if (decl instanceof JavaParserClassDeclaration jpClass) {
             return Optional.of(jpClass.getWrappedNode());
         }
         if (decl instanceof JavaParserInterfaceDeclaration jpInterface) {
             return Optional.of(jpInterface.getWrappedNode());
+        }
+        if (decl instanceof JavaParserRecordDeclaration jpRecord) {
+            return Optional.of(jpRecord.getWrappedNode());
+        }
+        if (decl instanceof JavaParserEnumDeclaration jpEnum) {
+            return Optional.of(jpEnum.getWrappedNode());
         }
         log.debug("Skipping non-source-resolved type (e.g. reflection/classpath): {}", decl.getQualifiedName());
         return Optional.empty();

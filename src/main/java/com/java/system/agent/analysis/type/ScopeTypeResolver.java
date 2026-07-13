@@ -5,13 +5,17 @@ import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.RecordDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -68,15 +72,15 @@ public class ScopeTypeResolver {
      */
     public Optional<String> inferTypeName(MethodCallExpr call,
             MethodDeclaration currentMethod,
-            ClassOrInterfaceDeclaration currentClass) {
+            TypeDeclaration<?> currentClass) {
         return resolveReceiver(call, currentMethod, currentClass)
                 .map(ResolvedReceiver::typeName);
     }
 
     public Optional<ResolvedReceiver> resolveReceiver(MethodCallExpr call,
             MethodDeclaration currentMethod,
-            ClassOrInterfaceDeclaration currentClass) {
-        if (currentClass == null) {
+            TypeDeclaration<?> currentClass) {
+        if (Objects.isNull(currentClass)) {
             return Optional.empty();
         }
 
@@ -123,7 +127,7 @@ public class ScopeTypeResolver {
      * 搜尋順序：方法參數 → 區域變數 → 類別欄位 → baseMapper 啟發式
      */
     public Optional<String> inferTypeName(String varName, MethodDeclaration method,
-            ClassOrInterfaceDeclaration cls) {
+            TypeDeclaration<?> cls) {
         Optional<String> fromParameter = resolveFromParameters(varName, method);
         if (fromParameter.isPresent()) return fromParameter;
 
@@ -140,12 +144,12 @@ public class ScopeTypeResolver {
         }
 
         // MyBatis-Plus：baseMapper 由 ServiceImpl<M, E> 的第一個型別參數決定
-        if ("baseMapper".equals(varName)) {
-            return cls.getExtendedTypes().stream()
+        if ("baseMapper".equals(varName) && cls instanceof ClassOrInterfaceDeclaration classDeclaration) {
+            return classDeclaration.getExtendedTypes().stream()
                     .filter(t -> t.getNameAsString().equals("ServiceImpl"))
                     .findFirst()
                     .flatMap(t -> t.getTypeArguments()
-                            .filter(args -> !args.isEmpty())
+                            .filter(args -> !CollectionUtils.isEmpty(args))
                             .map(args -> stripGenerics(args.get(0).asString())));
         }
 
@@ -154,7 +158,7 @@ public class ScopeTypeResolver {
 
     /** 方法參數 → 區域變數 */
     private Optional<ResolvedReceiver> resolveReceiverName(String varName, MethodDeclaration method,
-            ClassOrInterfaceDeclaration cls) {
+            TypeDeclaration<?> cls) {
         Optional<String> fromParameter = resolveFromParameters(varName, method);
         if (fromParameter.isPresent()) {
             return Optional.of(new ResolvedReceiver(
@@ -187,12 +191,25 @@ public class ScopeTypeResolver {
             }
         }
 
-        if ("baseMapper".equals(varName)) {
-            return cls.getExtendedTypes().stream()
+        if (cls instanceof RecordDeclaration recordDeclaration) {
+            Optional<ResolvedReceiver> fromComponent = recordDeclaration.getParameters().stream()
+                    .filter(parameter -> parameter.getNameAsString().equals(varName))
+                    .findFirst()
+                    .map(parameter -> new ResolvedReceiver(
+                            parameter.getType().asString(),
+                            ReceiverOrigin.FIELD,
+                            "RECEIVER_RECORD_COMPONENT_TYPE"));
+            if (fromComponent.isPresent()) {
+                return fromComponent;
+            }
+        }
+
+        if ("baseMapper".equals(varName) && cls instanceof ClassOrInterfaceDeclaration classDeclaration) {
+            return classDeclaration.getExtendedTypes().stream()
                     .filter(t -> t.getNameAsString().equals("ServiceImpl"))
                     .findFirst()
                     .flatMap(t -> t.getTypeArguments()
-                            .filter(args -> !args.isEmpty())
+                            .filter(args -> !CollectionUtils.isEmpty(args))
                             .map(args -> new ResolvedReceiver(
                                     stripGenerics(args.get(0).asString()),
                                     ReceiverOrigin.FIELD,
@@ -203,7 +220,7 @@ public class ScopeTypeResolver {
     }
 
     private Optional<ResolvedReceiver> resolveFromConstructorAssignedField(
-            String fieldName, ClassOrInterfaceDeclaration cls) {
+            String fieldName, TypeDeclaration<?> cls) {
         return cls.getConstructors().stream()
                 .flatMap(constructor -> constructor.getBody()
                         .findAll(AssignExpr.class).stream()
