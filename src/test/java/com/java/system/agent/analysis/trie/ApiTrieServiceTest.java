@@ -187,4 +187,91 @@ public class ApiTrieServiceTest {
         // repo-b path still present
         assertTrue(apiTrieService.lookup("/api/bonus/info", "GET").isPresent());
     }
+
+    @Test
+    void should_backtrack_to_wildcard_when_exact_branch_dead_ends() {
+        EntryPointClass exactList = buildClass(
+                "com/java/user/controller/UserController.java", "UserController", "/api/user",
+                "listUsers", List.of("GET"), "/api/user/list");
+        EntryPointClass wildcardDetail = buildClass(
+                "com/java/generic/controller/GenericController.java", "GenericController", "/api",
+                "getDetail", List.of("GET"), "/api/{type}/detail");
+        loadRepo("test-repo", List.of(exactList, wildcardDetail));
+
+        Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/user/detail", "GET");
+
+        assertTrue(result.isPresent(), "wildcard route should match after exact branch dead-end");
+        assertEquals("getDetail", result.get().methodName());
+    }
+
+    @Test
+    void should_keep_repo_a_route_when_repo_b_registers_same_route_and_is_removed() {
+        EntryPointClass fromA = buildClass(
+                "com/java/a/AController.java", "AController", "/api",
+                "fromA", List.of("GET"), "/api/shared/info");
+        EntryPointClass fromB = buildClass(
+                "com/java/b/BController.java", "BController", "/api",
+                "fromB", List.of("GET"), "/api/shared/info");
+        loadRepo("repo-a", List.of(fromA));
+        loadRepo("repo-b", List.of(fromB));
+        loadRepo("repo-b", List.of());
+
+        Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/shared/info", "GET");
+
+        assertTrue(result.isPresent(), "repo-a route should survive repo-b removal");
+        assertEquals("repo-a", result.get().repoId());
+        assertEquals("fromA", result.get().methodName());
+    }
+
+    @Test
+    void should_return_lexicographically_smallest_repo_when_routes_collide() {
+        EntryPointClass fromA = buildClass(
+                "com/java/a/AController.java", "AController", "/api",
+                "fromA", List.of("GET"), "/api/shared/info");
+        EntryPointClass fromB = buildClass(
+                "com/java/b/BController.java", "BController", "/api",
+                "fromB", List.of("GET"), "/api/shared/info");
+        loadRepo("repo-a", List.of(fromA));
+        loadRepo("repo-b", List.of(fromB));
+
+        Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/shared/info", "GET");
+
+        assertTrue(result.isPresent());
+        assertEquals("repo-a", result.get().repoId(), "collision must resolve deterministically");
+    }
+
+    @Test
+    void should_fallback_to_all_method_when_request_mapping_declares_no_verb() {
+        EntryPointClass cls = buildClass(
+                "com/java/vip/controller/LegacyController.java", "LegacyController", "/api/legacy",
+                "handleLegacy", List.of("ALL"), "/api/legacy/echo");
+        loadRepo("test-repo", List.of(cls));
+
+        Optional<ApiEntryPointRef> getResult = apiTrieService.lookup("/api/legacy/echo", "GET");
+        Optional<ApiEntryPointRef> postResult = apiTrieService.lookup("/api/legacy/echo", "post");
+
+        assertTrue(getResult.isPresent());
+        assertEquals("handleLegacy", getResult.get().methodName());
+        assertTrue(postResult.isPresent());
+        assertEquals("handleLegacy", postResult.get().methodName());
+    }
+
+    @Test
+    void should_prefer_exact_verb_over_all_fallback() {
+        EntryPointClass getOnly = buildClass(
+                "com/java/vip/controller/MixedController.java", "MixedController", "/api/mixed",
+                "getSpecific", List.of("GET"), "/api/mixed/data");
+        EntryPointClass allVerbs = buildClass(
+                "com/java/vip/controller/MixedController.java", "MixedController", "/api/mixed",
+                "handleAny", List.of("ALL"), "/api/mixed/data");
+        loadRepo("test-repo", List.of(getOnly, allVerbs));
+
+        Optional<ApiEntryPointRef> getResult = apiTrieService.lookup("/api/mixed/data", "GET");
+        Optional<ApiEntryPointRef> deleteResult = apiTrieService.lookup("/api/mixed/data", "DELETE");
+
+        assertTrue(getResult.isPresent());
+        assertEquals("getSpecific", getResult.get().methodName());
+        assertTrue(deleteResult.isPresent());
+        assertEquals("handleAny", deleteResult.get().methodName());
+    }
 }

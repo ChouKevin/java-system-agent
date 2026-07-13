@@ -10,6 +10,7 @@ import com.java.system.agent.analysis.port.SourceCodePort;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -19,6 +20,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -57,24 +59,7 @@ public class ApiTrieService {
     public Optional<ApiEntryPointRef> lookup(String apiPath, String httpMethod) {
         lock.readLock().lock();
         try {
-            String[] segments = splitPath(apiPath);
-            ApiTrieNode node = root;
-
-            for (String segment : segments) {
-                ApiTrieNode exact = node.children.get(segment);
-                if (exact != null) {
-                    node = exact;
-                } else {
-                    ApiTrieNode wildcard = node.children.get(ApiTrieNode.WILDCARD);
-                    if (wildcard != null) {
-                        node = wildcard;
-                    } else {
-                        return Optional.empty();
-                    }
-                }
-            }
-
-            return Optional.ofNullable(node.methodMap.get(httpMethod.toUpperCase()));
+            return search(root, splitPath(apiPath), 0, httpMethod.toUpperCase());
         } finally {
             lock.readLock().unlock();
         }
@@ -101,10 +86,10 @@ public class ApiTrieService {
 
     private void removeRepo(String repoId) {
         List<String> paths = repoPaths.remove(repoId);
-        if (paths == null) return;
+        if (Objects.isNull(paths)) return;
         for (String pathAndMethod : paths) {
             String[] parts = pathAndMethod.split("\\|", 2);
-            removePath(parts[0], parts[1]);
+            removePath(parts[0], parts[1], repoId);
         }
     }
 
@@ -127,10 +112,13 @@ public class ApiTrieService {
             String key = segment.startsWith("{") ? ApiTrieNode.WILDCARD : segment;
             node = node.children.computeIfAbsent(key, k -> new ApiTrieNode());
         }
-        node.methodMap.put(httpMethod, ref);
+        Map<String, ApiEntryPointRef> refsByRepo = node.methodMap.computeIfAbsent(
+                httpMethod, key -> new HashMap<>());
+        refsByRepo.put(ref.repoId(), ref);
+        warnOnCollision(apiPath, httpMethod, refsByRepo);
     }
 
-    private void removePath(String apiPath, String httpMethod) {
+    private void removePath(String apiPath, String httpMethod, String repoId) {
         String[] segments = splitPath(apiPath);
         Deque<Map.Entry<String, ApiTrieNode>> stack = new ArrayDeque<>();
         ApiTrieNode node = root;
@@ -138,19 +126,76 @@ public class ApiTrieService {
         for (String segment : segments) {
             String key = segment.startsWith("{") ? ApiTrieNode.WILDCARD : segment;
             ApiTrieNode child = node.children.get(key);
-            if (child == null) return;
+            if (Objects.isNull(child)) return;
             stack.push(Map.entry(key, node));
             node = child;
         }
 
-        node.methodMap.remove(httpMethod);
+        Map<String, ApiEntryPointRef> refsByRepo = node.methodMap.get(httpMethod);
+        if (!CollectionUtils.isEmpty(refsByRepo)) {
+            refsByRepo.remove(repoId);
+            if (CollectionUtils.isEmpty(refsByRepo)) {
+                node.methodMap.remove(httpMethod);
+            }
+        }
 
         // 回溯清理空節點
-        while (!stack.isEmpty()) {
-            if (!node.methodMap.isEmpty() || !node.children.isEmpty()) break;
+        while (!CollectionUtils.isEmpty(stack)) {
+            if (!CollectionUtils.isEmpty(node.methodMap)
+                    || !CollectionUtils.isEmpty(node.children)) break;
             Map.Entry<String, ApiTrieNode> parent = stack.pop();
             parent.getValue().children.remove(parent.getKey());
             node = parent.getValue();
+        }
+    }
+
+    private Optional<ApiEntryPointRef> search(ApiTrieNode node,
+                                               String[] segments,
+                                               int index,
+                                               String httpMethod) {
+        if (index == segments.length) {
+            return resolveRef(node, httpMethod);
+        }
+
+        ApiTrieNode exact = node.children.get(segments[index]);
+        if (Objects.nonNull(exact)) {
+            Optional<ApiEntryPointRef> exactResult = search(
+                    exact, segments, index + 1, httpMethod);
+            if (exactResult.isPresent()) {
+                return exactResult;
+            }
+        }
+
+        ApiTrieNode wildcard = node.children.get(ApiTrieNode.WILDCARD);
+        if (Objects.nonNull(wildcard)) {
+            return search(wildcard, segments, index + 1, httpMethod);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<ApiEntryPointRef> resolveRef(ApiTrieNode node, String httpMethod) {
+        Optional<ApiEntryPointRef> exact = resolveByRepo(node.methodMap.get(httpMethod));
+        if (exact.isPresent()) {
+            return exact;
+        }
+        return resolveByRepo(node.methodMap.get(ApiTrieNode.METHOD_ALL));
+    }
+
+    private Optional<ApiEntryPointRef> resolveByRepo(Map<String, ApiEntryPointRef> refsByRepo) {
+        if (CollectionUtils.isEmpty(refsByRepo)) {
+            return Optional.empty();
+        }
+        return refsByRepo.entrySet().stream()
+                .min(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue);
+    }
+
+    private void warnOnCollision(String apiPath,
+                                 String httpMethod,
+                                 Map<String, ApiEntryPointRef> refsByRepo) {
+        if (refsByRepo.size() > 1) {
+            log.warn("API route collision for {} {} across repos: {}",
+                    httpMethod, apiPath, refsByRepo.keySet());
         }
     }
 
