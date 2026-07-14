@@ -3,6 +3,8 @@ package com.java.system.agent.analysis.trie;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
@@ -19,7 +21,9 @@ final class ApiPathNormalizer {
             "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "ALL");
     private static final Pattern METHOD_PREFIX = Pattern.compile(
             "(?i)^\\[?(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\\]?\\s*:?\\s*"
-                    + "(/\\S*|https?://\\S+)$");
+                    + "(/\\S*|[a-z][a-z0-9+.-]*:\\S*)$");
+    private static final Pattern ABSOLUTE_URI = Pattern.compile(
+            "^[a-zA-Z][a-zA-Z0-9+.-]*:.*$");
     private static final Pattern PERCENT_ESCAPE = Pattern.compile("%([0-9a-fA-F]{2})");
 
     private ApiPathNormalizer() {
@@ -38,9 +42,8 @@ final class ApiPathNormalizer {
         String method = StringUtils.hasText(normalizedExplicitMethod)
                 ? normalizedExplicitMethod
                 : extracted.httpMethod();
-        String withoutOrigin = removeOrigin(extracted.path());
-        String withoutSuffix = removeQueryAndFragment(withoutOrigin);
-        String decoded = decodeSafeCharacters(withoutSuffix);
+        String path = extractRawPath(extracted.path());
+        String decoded = decodeSafeCharacters(path);
         String slashNormalized = decoded.replaceAll("/{2,}", "/");
         String withLeadingSlash = slashNormalized.startsWith("/")
                 ? slashNormalized
@@ -80,13 +83,61 @@ final class ApiPathNormalizer {
         return normalized;
     }
 
-    private static String removeOrigin(String value) {
-        int scheme = value.indexOf("://");
-        if (scheme < 0) {
-            return value;
+    private static String extractRawPath(String value) {
+        if (!ABSOLUTE_URI.matcher(value).matches()) {
+            return removeQueryAndFragment(value);
         }
-        int pathStart = value.indexOf('/', scheme + 3);
-        return pathStart < 0 ? "/" : value.substring(pathStart);
+        return extractAbsoluteUrlRawPath(value);
+    }
+
+    private static String extractAbsoluteUrlRawPath(String value) {
+        validatePercentEscapes(value);
+        try {
+            URI uri = new URI(escapeTemplateCharacters(value));
+            String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            if (!("http".equals(scheme) || "https".equals(scheme))) {
+                throw new IllegalArgumentException("Unsupported absolute URL scheme: " + scheme);
+            }
+            if (!StringUtils.hasText(uri.getRawAuthority()) || !StringUtils.hasText(uri.getHost())) {
+                throw new IllegalArgumentException("Absolute HTTP URL must contain a valid authority");
+            }
+            String rawPath = uri.getRawPath();
+            return StringUtils.hasLength(rawPath) ? restoreTemplateCharacters(rawPath) : "/";
+        } catch (URISyntaxException exception) {
+            throw new IllegalArgumentException("Malformed absolute URL", exception);
+        }
+    }
+
+    private static void validatePercentEscapes(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            if (value.charAt(index) != '%') {
+                continue;
+            }
+            if (index + 2 >= value.length()
+                    || Character.digit(value.charAt(index + 1), 16) < 0
+                    || Character.digit(value.charAt(index + 2), 16) < 0) {
+                throw new IllegalArgumentException("Malformed percent escape in absolute URL");
+            }
+            index += 2;
+        }
+    }
+
+    private static String escapeTemplateCharacters(String value) {
+        return value.replace("%", "%25")
+                .replace("{", "%7B")
+                .replace("}", "%7D")
+                .replace("<", "%3C")
+                .replace(">", "%3E")
+                .replace("\\", "%5C");
+    }
+
+    private static String restoreTemplateCharacters(String value) {
+        return value.replace("%7B", "{")
+                .replace("%7D", "}")
+                .replace("%3C", "<")
+                .replace("%3E", ">")
+                .replace("%5C", "\\")
+                .replace("%25", "%");
     }
 
     private static String removeQueryAndFragment(String value) {
@@ -120,8 +171,7 @@ final class ApiPathNormalizer {
         return value >= 'A' && value <= 'Z'
                 || value >= 'a' && value <= 'z'
                 || value >= '0' && value <= '9'
-                || value == '-' || value == '.' || value == '_' || value == '~'
-                || value == '{' || value == '}' || value == '<' || value == '>';
+                || value == '-' || value == '.' || value == '_' || value == '~';
     }
 
     private static String canonicalizeSegments(String path) {

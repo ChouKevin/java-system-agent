@@ -17,6 +17,35 @@ class ApiPathNormalizerTest {
     }
 
     @Test
+    void should_use_root_path_when_full_url_query_contains_route_like_slashes() {
+        NormalizedApiPath result = ApiPathNormalizer.normalize(
+                "https://example.internal?redirect=/orders/42", "GET");
+
+        assertThat(result.path()).isEqualTo("/");
+    }
+
+    @Test
+    void should_use_root_path_when_full_url_fragment_contains_route_like_slashes() {
+        NormalizedApiPath result = ApiPathNormalizer.normalize(
+                "https://example.internal#section/orders/42", "GET");
+
+        assertThat(result.path()).isEqualTo("/");
+    }
+
+    @Test
+    void should_reject_input_when_http_url_has_no_authority() {
+        assertThatThrownBy(() -> ApiPathNormalizer.normalize("https:///orders/42", "GET"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void should_reject_input_when_absolute_url_uses_unsupported_scheme() {
+        assertThatThrownBy(() -> ApiPathNormalizer.normalize(
+                "ftp://example.internal/orders/42", "GET"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void should_normalize_supported_parameter_notations_when_template_names_differ() {
         assertThat(ApiPathNormalizer.normalize("/orders/{orderId}", "GET").path())
                 .isEqualTo("/orders/{*}");
@@ -67,9 +96,17 @@ class ApiPathNormalizerTest {
     }
 
     @Test
-    void should_decode_ascii_unreserved_and_template_characters_when_path_contains_safe_escapes() {
-        NormalizedApiPath result = ApiPathNormalizer.normalize("/users/%7Eowner/%7Bid%7D", "GET");
+    void should_decode_ascii_unreserved_when_path_contains_safe_escape() {
+        NormalizedApiPath result = ApiPathNormalizer.normalize("/users/%7Eowner", "GET");
 
-        assertThat(result.path()).isEqualTo("/users/~owner/{*}");
+        assertThat(result.path()).isEqualTo("/users/~owner");
+    }
+
+    @Test
+    void should_preserve_encoded_template_delimiters_when_path_contains_literal_data() {
+        NormalizedApiPath result = ApiPathNormalizer.normalize(
+                "/users/%7Bid%7D/%3Cid%3E", "GET");
+
+        assertThat(result.path()).isEqualTo("/users/%7Bid%7D/%3Cid%3E");
     }
 }
