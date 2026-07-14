@@ -66,6 +66,8 @@ public class AgentAiService {
 
     private static final String TIMEOUT_RESPONSE = "\n\n❌ 分析逾時，請稍後再試或縮小問題範圍";
     private static final String GENERIC_ERROR_RESPONSE = "\n\n❌ 分析暫時無法完成，請稍後再試";
+    private static final String VERIFIED_DELIVERY_ERROR_RESPONSE =
+            "\n\n❌ 分析已完成，但回覆傳遞暫時失敗，請稍後再試";
 
     private static final String SELF_EVAL_PROMPT = """
             你要嚴格自評下面這份「業務流程回答」是否可以交付給 PM / QA。
@@ -205,11 +207,18 @@ public class AgentAiService {
                     }
                     log.error("Analyst loop error for query: {}", userQuery, error);
                     CodeEvidenceSnapshot snapshot = evidenceTracker.snapshot();
-                    String response = snapshot.requiresCode()
-                            ? evidenceFallbackRenderer.render(snapshot)
-                            : GENERIC_ERROR_RESPONSE;
-                    return Flux.just(response);
+                    return Flux.just(renderOuterErrorResponse(snapshot));
                 });
+    }
+
+    private String renderOuterErrorResponse(CodeEvidenceSnapshot snapshot) {
+        if (!snapshot.requiresCode()) {
+            return GENERIC_ERROR_RESPONSE;
+        }
+        if (snapshot.hasValidEvidence()) {
+            return VERIFIED_DELIVERY_ERROR_RESPONSE;
+        }
+        return evidenceFallbackRenderer.render(snapshot);
     }
 
     private void saveTrace(String conversationId, LoopTrace trace) {

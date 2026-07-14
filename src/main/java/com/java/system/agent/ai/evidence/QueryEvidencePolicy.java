@@ -10,8 +10,8 @@ public final class QueryEvidencePolicy {
 
     private static final int INTENT_PATTERN_FLAGS =
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
-    private static final Pattern GREETING_PREFIX = Pattern.compile(
-            "^(?:你好|您好|嗨)[\\s，,。！!]*");
+    private static final Pattern POLITE_PREFIX = Pattern.compile(
+            "^(?:(?:你好|您好|嗨|請問)[\\s，,。！!]*)+");
     private static final Pattern TRAILING_SENTENCE_PUNCTUATION = Pattern.compile(
             "[\\s，,。！？!；;]+$");
     private static final Pattern EXPLICIT_API_INTENT = Pattern.compile(
@@ -28,6 +28,8 @@ public final class QueryEvidencePolicy {
             intent("(?:請)?(?:列出)?repo\\s*清單"),
             intent(".+(?:屬於|在哪個)(?:業務群組|repo)"),
             intent(".+(?:由)?哪個(?:業務群組|repo)(?:負責|處理)"),
+            intent("哪個服務負責會員"),
+            intent("[A-Za-z0-9][A-Za-z0-9._-]*-service\\s*負責什麼"),
             intent("(?:怎麼|如何)使用(?:這個|本)?\\s*(?:bot|機器人|系統)?"),
             intent("(?:(?:這個|本)?\\s*(?:bot|機器人|系統)\\s*)?(?:怎麼|如何)使用"));
     private static final List<String> BUSINESS_BEHAVIOR_MARKERS = List.of(
@@ -81,8 +83,8 @@ public final class QueryEvidencePolicy {
     }
 
     private String normalizeDocsOnlyCandidate(String query) {
-        String withoutGreeting = GREETING_PREFIX.matcher(query.strip()).replaceFirst("");
-        return TRAILING_SENTENCE_PUNCTUATION.matcher(withoutGreeting.strip())
+        String withoutPolitePrefix = POLITE_PREFIX.matcher(query.strip()).replaceFirst("");
+        return TRAILING_SENTENCE_PUNCTUATION.matcher(withoutPolitePrefix.strip())
                 .replaceFirst("");
     }
 

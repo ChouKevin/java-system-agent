@@ -42,6 +42,18 @@ class ApiQueryParserTest {
     }
 
     @Test
+    void should_extract_root_path_when_root_is_method_qualified() {
+        ApiQueryParser parser = new ApiQueryParser();
+
+        assertThat(parser.parse("GET /"))
+                .contains(new ApiQueryHint("GET", "/"));
+        assertThat(parser.parse("GET: /"))
+                .contains(new ApiQueryHint("GET", "/"));
+        assertThat(parser.parse("[GET] /"))
+                .contains(new ApiQueryHint("GET", "/"));
+    }
+
+    @Test
     void should_return_empty_when_slash_is_not_a_delimited_nonblank_path() {
         ApiQueryParser parser = new ApiQueryParser();
 

@@ -138,6 +138,56 @@ class ToolCallSummaryTest {
     }
 
     @Test
+    void should_render_only_safe_path_when_absolute_url_has_method_prefix_in_api_path() {
+        List<String> prefixedApiPaths = List.of(
+                "GET https://user:password@internal/orders?token=x#private",
+                "GET: https://user:password@internal/orders?token=x#private",
+                "[GET] https://user:password@internal/orders?token=x#private",
+                "[GET]: https://user:password@internal/orders?token=x#private");
+
+        for (String apiPath : prefixedApiPaths) {
+            String arguments = """
+                    {
+                      "apiPath":"%s",
+                      "httpMethod":"GET",
+                      "repoId":"order-service"
+                    }
+                    """.formatted(apiPath);
+
+            String summary = ToolCallSummary.render(
+                    List.of(new ToolCallRecord(ToolNames.FIND_API_CALL_GRAPH, arguments)),
+                    objectMapper,
+                    Set.of(ToolNames.FIND_API_CALL_GRAPH),
+                    "title");
+
+            assertThat(summary).contains("GET /orders | repo: `order-service`");
+            assertThat(summary).doesNotContain(
+                    "internal", "user", "password", "token", "private");
+        }
+    }
+
+    @Test
+    void should_fail_closed_when_absolute_url_has_unsupported_method_prefix() {
+        String arguments = """
+                {
+                  "apiPath":"CONNECT https://user:password@internal/orders?token=x#private",
+                  "httpMethod":"GET",
+                  "repoId":"order-service"
+                }
+                """;
+
+        String summary = ToolCallSummary.render(
+                List.of(new ToolCallRecord(ToolNames.FIND_API_CALL_GRAPH, arguments)),
+                objectMapper,
+                Set.of(ToolNames.FIND_API_CALL_GRAPH),
+                "title");
+
+        assertThat(summary).contains("GET / | repo: `order-service`");
+        assertThat(summary).doesNotContain(
+                "CONNECT", "internal", "user", "password", "token", "private");
+    }
+
+    @Test
     void should_apply_slack_safe_allowlist_when_api_summary_fields_are_adversarial() {
         String arguments = """
                 {

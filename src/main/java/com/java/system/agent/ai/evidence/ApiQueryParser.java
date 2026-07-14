@@ -10,8 +10,8 @@ import java.util.regex.Pattern;
 public final class ApiQueryParser {
 
     private static final Pattern METHOD_AND_PATH = Pattern.compile(
-            "(?i)\\b(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\\b\\s*:?\\s*"
-                    + "(https?://[^\\s`]+|/[^\\s`]+)");
+            "(?i)(?<![\\p{L}\\p{N}_])\\[?(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\\]?\\s*:?\\s*"
+                    + "(https?://[^\\s`]+|/[^\\s`]*)");
     private static final Pattern URL_ONLY = Pattern.compile("(?i)(https?://[^\\s`]+)");
     private static final Pattern DELIMITED_RELATIVE_PATH = Pattern.compile(
             "(?<![\\p{L}\\p{N}_/])"

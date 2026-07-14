@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.config.ChatMemoryLocks;
 import com.java.system.agent.ai.evidence.CodeEvidenceTracker;
-import com.java.system.agent.ai.evidence.EvidenceFallbackRenderer;
 import com.java.system.agent.ai.evidence.EvidenceRequirement;
 import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.LoopTrace;
@@ -155,18 +154,16 @@ class AgentAiServiceTest {
     }
 
     @Test
-    void should_render_current_evidence_fallback_when_outer_business_error_contains_internal_details() {
-        assertCurrentEvidenceFallbackOnOuterError(
+    void should_render_delivery_failure_when_outer_business_error_follows_valid_evidence() {
+        assertDeliveryFailureOnOuterErrorAfterValidEvidence(
                 "獎金在什麼條件下核發？",
-                EvidenceRequirement.BUSINESS_CODE_REQUIRED,
                 ToolNames.FIND_CALL_GRAPH);
     }
 
     @Test
-    void should_render_current_evidence_fallback_when_outer_api_error_contains_internal_details() {
-        assertCurrentEvidenceFallbackOnOuterError(
+    void should_render_delivery_failure_when_outer_api_error_follows_valid_evidence() {
+        assertDeliveryFailureOnOuterErrorAfterValidEvidence(
                 "GET /orders/{id} 的流程是什麼？",
-                EvidenceRequirement.API_CODE_REQUIRED,
                 ToolNames.FIND_API_CALL_GRAPH);
     }
 
@@ -225,8 +222,8 @@ class AgentAiServiceTest {
         assertThat(joined).doesNotContain("一定會直接核發獎金");
     }
 
-    private void assertCurrentEvidenceFallbackOnOuterError(
-            String userQuery, EvidenceRequirement requirement, String toolName) {
+    private void assertDeliveryFailureOnOuterErrorAfterValidEvidence(
+            String userQuery, String toolName) {
         String internalError = "com.secret.billing.Repository.findById(/var/lib/db) token=outer-secret";
         ToolThenAnswerChatModel chatModel = new ToolThenAnswerChatModel(toolName, "安全的業務回答");
         EvidenceRecordingToolCallingManager toolCallingManager =
@@ -248,13 +245,12 @@ class AgentAiServiceTest {
                 .collectList()
                 .block();
 
-        CodeEvidenceTracker expectedTracker = new CodeEvidenceTracker(requirement);
-        expectedTracker.recordVerified(toolName, "order-service", "/orders/{id}", List.of());
-        String expectedFallback = new EvidenceFallbackRenderer().render(expectedTracker.snapshot());
         assertThat(chunks).isNotNull();
-        assertThat(chunks.getLast()).isEqualTo(expectedFallback);
+        assertThat(chunks.getLast()).isEqualTo(
+                "\n\n❌ 分析已完成，但回覆傳遞暫時失敗，請稍後再試");
         assertThat(String.join("", chunks)).doesNotContain(
-                "com.secret", "Repository", "/var/lib/db", "outer-secret");
+                "com.secret", "Repository", "/var/lib/db", "outer-secret",
+                "未完成 API route 驗證", "無法從 codebase");
     }
 
     private static final class FakeChatModel implements ChatModel {

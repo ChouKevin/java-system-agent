@@ -12,14 +12,22 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** 純渲染器:把集中記錄的 tool 呼叫整理成 Markdown 摘要 */
 @Slf4j
 public final class ToolCallSummary {
+
+    private static final Set<String> SUPPORTED_HTTP_METHODS = Set.of(
+            "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD");
+    private static final Pattern METHOD_PREFIXED_PATH = Pattern.compile(
+            "(?i)^\\[?([A-Z]+)\\]?\\s*:?\\s*(https?://\\S+|/\\S*)$");
 
     private ToolCallSummary() {
     }
@@ -94,11 +102,23 @@ public final class ToolCallSummary {
     }
 
     private static String safeApiPath(Object value) {
-        String apiPath = Objects.toString(value, "").strip();
+        String rawApiPath = Objects.toString(value, "").strip();
+        String apiPath = isAbsoluteHttpUrl(rawApiPath)
+                ? rawApiPath
+                : stripSupportedMethodPrefix(rawApiPath);
         String path = isAbsoluteHttpUrl(apiPath)
                 ? extractAbsoluteHttpPath(apiPath)
                 : removeQueryAndFragment(apiPath);
         return safeSummaryField(path);
+    }
+
+    private static String stripSupportedMethodPrefix(String value) {
+        Matcher matcher = METHOD_PREFIXED_PATH.matcher(value);
+        if (!matcher.matches()) {
+            return value;
+        }
+        String method = matcher.group(1).toUpperCase(Locale.ROOT);
+        return SUPPORTED_HTTP_METHODS.contains(method) ? matcher.group(2) : "/";
     }
 
     private static boolean isAbsoluteHttpUrl(String value) {

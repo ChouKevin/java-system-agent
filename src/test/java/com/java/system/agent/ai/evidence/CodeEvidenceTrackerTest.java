@@ -25,7 +25,10 @@ class CodeEvidenceTrackerTest {
         QueryEvidencePolicy policy = new QueryEvidencePolicy();
         List<String> apiQueries = List.of(
                 "請說明 `/orders/42`",
-                "orders endpoint 做什麼");
+                "orders endpoint 做什麼",
+                "GET /",
+                "GET: /",
+                "[GET] /");
 
         for (String apiQuery : apiQueries) {
             EvidenceRequirement requirement = policy.classify(apiQuery);

@@ -27,6 +27,22 @@ class QueryEvidencePolicyTest {
     }
 
     @Test
+    void should_require_api_evidence_when_root_path_is_method_qualified() {
+        assertThat(policy.classify("GET /"))
+                .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+        assertThat(policy.classify("GET: /"))
+                .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+        assertThat(policy.classify("[GET] /"))
+                .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+    }
+
+    @Test
+    void should_not_require_api_evidence_when_root_path_has_no_method() {
+        assertThat(policy.classify("請說明 `/`"))
+                .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
+    }
+
+    @Test
     void should_require_api_evidence_when_query_has_explicit_api_intent_without_path() {
         assertThat(policy.classify("orders endpoint 做什麼"))
                 .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
@@ -47,6 +63,18 @@ class QueryEvidencePolicyTest {
     }
 
     @Test
+    void should_allow_docs_only_when_query_is_a_service_ownership_intent() {
+        assertThat(policy.classify("哪個服務負責會員？"))
+                .isEqualTo(EvidenceRequirement.DOCS_ONLY);
+        assertThat(policy.classify("請問哪個服務負責會員？"))
+                .isEqualTo(EvidenceRequirement.DOCS_ONLY);
+        assertThat(policy.classify("payment-service 負責什麼？"))
+                .isEqualTo(EvidenceRequirement.DOCS_ONLY);
+        assertThat(policy.classify("請問 payment-service 負責什麼？"))
+                .isEqualTo(EvidenceRequirement.DOCS_ONLY);
+    }
+
+    @Test
     void should_require_business_evidence_when_query_asks_actual_rule() {
         assertThat(policy.classify("獎金在什麼條件下會被取消？"))
                 .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
@@ -57,6 +85,16 @@ class QueryEvidencePolicyTest {
     @Test
     void should_prioritize_business_behavior_when_query_also_contains_docs_marker() {
         assertThat(policy.classify("哪個服務負責訂單計算流程？"))
+                .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
+        assertThat(policy.classify("哪個服務負責獎金取消規則？"))
+                .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
+    }
+
+    @Test
+    void should_require_business_evidence_when_service_ownership_intent_has_mixed_content() {
+        assertThat(policy.classify("哪個服務負責會員，並說明獎金取消細節？"))
+                .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
+        assertThat(policy.classify("payment-service 負責什麼，也說明獎金取消細節？"))
                 .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
     }
 
