@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -340,5 +341,64 @@ public class ApiTrieServiceTest {
                 .hasSize(1);
         assertThat(apiTrieService.lookupCandidates("/files/a/b/c", "GET", ""))
                 .hasSize(1);
+    }
+
+    @Test
+    void should_return_only_static_segment_matches_when_suggesting_stored_routes() {
+        EntryPointClass orderRoute = buildClass(
+                "com/java/order/OrderController.java", "OrderController", "/orders",
+                "getOrder", List.of("GET"), "/orders/{id}");
+        EntryPointClass memberRoute = buildClass(
+                "com/java/member/MemberController.java", "MemberController", "/members",
+                "getMember", List.of("GET"), "/members/{id}");
+        loadRepo("catalog-service", List.of(memberRoute, orderRoute));
+
+        List<ApiEntryPointRef> result = apiTrieService.suggestCandidates(
+                "/gateway/v1/orders/42", "GET", "", 5);
+
+        assertThat(result).extracting(ApiEntryPointRef::methodName)
+                .containsExactly("getOrder");
+    }
+
+    @Test
+    void should_filter_suggestions_when_repository_and_method_scopes_are_provided() {
+        EntryPointClass repoAGet = buildClass(
+                "com/java/a/OrderController.java", "OrderController", "/orders",
+                "getFromA", List.of("GET"), "/orders/{id}");
+        EntryPointClass repoBGet = buildClass(
+                "com/java/b/OrderController.java", "OrderController", "/orders",
+                "getFromB", List.of("GET"), "/orders/{id}");
+        EntryPointClass repoBPost = buildClass(
+                "com/java/b/OrderController.java", "OrderController", "/orders",
+                "postFromB", List.of("POST"), "/orders/{id}");
+        loadRepo("repo-a", List.of(repoAGet));
+        loadRepo("repo-b", List.of(repoBGet, repoBPost));
+
+        List<ApiEntryPointRef> result = apiTrieService.suggestCandidates(
+                "/gateway/orders/42", "POST", "repo-b", 5);
+
+        assertThat(result).extracting(
+                        ApiEntryPointRef::repoId,
+                        ApiEntryPointRef::httpMethod,
+                        ApiEntryPointRef::methodName)
+                .containsExactly(tuple("repo-b", "POST", "postFromB"));
+    }
+
+    @Test
+    void should_apply_limit_after_deterministic_ordering_when_suggestion_scores_tie() {
+        EntryPointClass fromB = buildClass(
+                "com/java/b/OrderController.java", "OrderController", "/orders",
+                "fromB", List.of("GET"), "/orders/{id}");
+        EntryPointClass fromA = buildClass(
+                "com/java/a/OrderController.java", "OrderController", "/orders",
+                "fromA", List.of("GET"), "/orders/{id}");
+        loadRepo("repo-b", List.of(fromB));
+        loadRepo("repo-a", List.of(fromA));
+
+        List<ApiEntryPointRef> result = apiTrieService.suggestCandidates(
+                "/gateway/orders/42", "GET", "", 1);
+
+        assertThat(result).extracting(ApiEntryPointRef::repoId)
+                .containsExactly("repo-a");
     }
 }

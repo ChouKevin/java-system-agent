@@ -10,6 +10,7 @@ import com.java.system.agent.analysis.port.SourceCodePort;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
+import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
@@ -73,6 +74,36 @@ public class ApiTrieService {
     /** 查詢 API 路徑，並回傳排序後的第一個候選項目。 */
     public Optional<ApiEntryPointRef> lookup(String apiPath, String httpMethod) {
         return lookupCandidates(apiPath, httpMethod, "").stream().findFirst();
+    }
+
+    public List<ApiEntryPointRef> suggestCandidates(
+            String apiPath, String httpMethod, String repoScope, int limit) {
+        Assert.isTrue(limit > 0, "Suggestion limit must be positive");
+        lock.readLock().lock();
+        try {
+            NormalizedApiPath normalized = ApiPathNormalizer.normalize(apiPath, httpMethod);
+            return repoEntries.values().stream()
+                    .flatMap(List::stream)
+                    .filter(ref -> !StringUtils.hasText(repoScope) || repoScope.equals(ref.repoId()))
+                    .filter(ref -> !StringUtils.hasText(normalized.httpMethod())
+                            || normalized.httpMethod().equals(ref.httpMethod())
+                            || ApiTrieNode.METHOD_ALL.equals(ref.httpMethod()))
+                    .map(ref -> new ScoredRoute(ref,
+                            ApiRouteCandidateMatcher.score(normalized.path(), ref.routeTemplate())))
+                    .filter(scored -> scored.score() >= 0)
+                    .sorted(Comparator.comparingInt(ScoredRoute::score).reversed()
+                            .thenComparing(scored -> scored.ref().repoId())
+                            .thenComparing(scored -> scored.ref().httpMethod())
+                            .thenComparing(scored -> scored.ref().routeTemplate())
+                            .thenComparing(scored -> scored.ref().packageName())
+                            .thenComparing(scored -> scored.ref().className())
+                            .thenComparing(scored -> scored.ref().methodName()))
+                    .limit(limit)
+                    .map(ScoredRoute::ref)
+                    .toList();
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     // ── private helpers ──────────────────────────────────────────────────────
@@ -233,6 +264,9 @@ public class ApiTrieService {
         return Comparator.comparing(ApiEntryPointRef::repoId)
                 .thenComparing(ApiEntryPointRef::httpMethod)
                 .thenComparing(ApiEntryPointRef::routeTemplate);
+    }
+
+    private record ScoredRoute(ApiEntryPointRef ref, int score) {
     }
 
     private void warnOnCollision(String apiPath,

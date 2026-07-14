@@ -8,6 +8,7 @@ import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.AnalysisStatus;
 import com.java.system.agent.analysis.model.AnalysisWarning;
 import com.java.system.agent.analysis.model.ApiRef;
+import com.java.system.agent.analysis.model.ApiRouteCandidate;
 import com.java.system.agent.analysis.model.EntryPointClass;
 import com.java.system.agent.analysis.model.EntryPointType;
 import com.java.system.agent.analysis.model.ExplainableCallGraph;
@@ -34,6 +35,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class AnalysisServiceTest {
@@ -286,6 +288,39 @@ class AnalysisServiceTest {
         List<ApiRef> result = analysisService.lookupApi("/no/such/path", "GET");
 
         assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void should_map_internal_refs_when_api_candidates_are_found() {
+        ApiEntryPointRef ref = new ApiEntryPointRef(
+                "order-service", "com.example.order", "OrderController", "getOrder",
+                "GET", "/orders/{*}");
+        when(apiTrieService.lookupCandidates("/orders/42", "GET", "order-service"))
+                .thenReturn(List.of(ref));
+
+        List<ApiRouteCandidate> result = analysisService.lookupApiCandidates(
+                "/orders/42", "GET", "order-service");
+
+        assertThat(result).containsExactly(new ApiRouteCandidate(
+                "order-service", "GET", "/orders/{*}",
+                "com.example.order", "OrderController", "getOrder"));
+    }
+
+    @Test
+    void should_delegate_limit_when_api_candidate_suggestions_are_requested() {
+        ApiEntryPointRef ref = new ApiEntryPointRef(
+                "order-service", "com.example.order", "OrderController", "getOrder",
+                "GET", "/orders/{*}");
+        when(apiTrieService.suggestCandidates("/gateway/orders/42", "GET", "", 3))
+                .thenReturn(List.of(ref));
+
+        List<ApiRouteCandidate> result = analysisService.suggestApiCandidates(
+                "/gateway/orders/42", "GET", "", 3);
+
+        assertThat(result).extracting(ApiRouteCandidate::repoId)
+                .containsExactly("order-service");
+        verify(apiTrieService).suggestCandidates("/gateway/orders/42", "GET", "", 3);
+        verifyNoInteractions(javaCallGraphAnalyzer);
     }
 
     @Test

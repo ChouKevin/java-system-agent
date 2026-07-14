@@ -1,6 +1,7 @@
 package com.java.system.agent.analysis;
 
 import com.java.system.agent.analysis.model.ApiRef;
+import com.java.system.agent.analysis.model.ApiRouteCandidate;
 import com.java.system.agent.analysis.model.AnalysisErrorCode;
 import com.java.system.agent.analysis.model.AnalysisMetadata;
 import com.java.system.agent.analysis.model.AnalysisResult;
@@ -205,6 +206,20 @@ public class AnalysisService {
                 .orElse(List.of());
     }
 
+    public List<ApiRouteCandidate> lookupApiCandidates(
+            String apiPath, String httpMethod, String repoScope) {
+        return apiTrieService.lookupCandidates(apiPath, httpMethod, repoScope).stream()
+                .map(this::toRouteCandidate)
+                .toList();
+    }
+
+    public List<ApiRouteCandidate> suggestApiCandidates(
+            String apiPath, String httpMethod, String repoScope, int limit) {
+        return apiTrieService.suggestCandidates(apiPath, httpMethod, repoScope, limit).stream()
+                .map(this::toRouteCandidate)
+                .toList();
+    }
+
     /**
      * Evicts caches for the given repository and rebuilds the trie index.
      * Call this after a git pull to ensure stale data is discarded.
@@ -284,5 +299,15 @@ public class AnalysisService {
 
     private ReentrantReadWriteLock lockFor(String repoId) {
         return repoLocks.computeIfAbsent(repoId, key -> new ReentrantReadWriteLock(true));
+    }
+
+    private ApiRouteCandidate toRouteCandidate(ApiEntryPointRef ref) {
+        return new ApiRouteCandidate(
+                ref.repoId(),
+                ref.httpMethod(),
+                ref.routeTemplate(),
+                ref.packageName(),
+                ref.className(),
+                ref.methodName());
     }
 }
