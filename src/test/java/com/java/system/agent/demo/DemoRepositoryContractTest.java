@@ -125,6 +125,18 @@ class DemoRepositoryContractTest {
         assertThat(readme).contains("NOT_FOUND", "AMBIGUOUS");
     }
 
+    @Test
+    void should_document_terminal_rest_precedence_when_code_analysis_describes_trie_matching()
+            throws Exception {
+        String codeAnalysis = Files.readString(
+                Path.of("docs", "business-groups", "code-analysis.md"));
+
+        assertThat(codeAnalysis).contains("canonical token `{**}`");
+        assertThat(codeAnalysis).contains("零個或多個剩餘 segment");
+        assertThat(codeAnalysis).contains(
+                "exact → `{*}`（含 backtracking）→ terminal `{**}`");
+    }
+
     private List<BusinessGroupDoc> parseBusinessGroupDocs(String businessMap) {
         Matcher matcher = BUSINESS_GROUP_LINK.matcher(businessMap);
         return matcher.results()

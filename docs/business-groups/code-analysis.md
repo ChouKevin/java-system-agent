@@ -1,7 +1,7 @@
 # code-analysis — 業務群組文件
 
 > 所屬專案：java-system-agent
-> 最後更新：2026-07-14 21:28
+> 最後更新：2026-07-14 21:42
 > 來源文件：business-scope.md
 > 來源同步：2026-07-14 21:28
 
@@ -85,9 +85,9 @@ Side Effects：無（唯讀分析）、呼叫 AnalysisService.lookupApi → Anal
 
 ### canonical path 與 wildcard 匹配
 
-- 具體值與 `{id}`、`{id:\d+}`、`:id`、`<id>` 等 path parameter 表示法會在查詢時套用同一套 canonical 規則；parameter 名稱不需相同
-- one-segment wildcard 只匹配一個 segment，且 exact static segment 優先
-- terminal rest wildcard `{*path}` 或 `**` 可匹配零個或多個剩餘 segment
+- 普通 named/constrained parameter `{id}`、`{id:\d+}`、`:id`、`<id>` 會正規化為 one-segment canonical token `{*}`；parameter 名稱不需相同，具體值如 `/orders/42` 可匹配該 token
+- catch-all `{*path}` 或 `**` 會正規化為獨立的 terminal rest canonical token `{**}`，可匹配零個或多個剩餘 segment，包括查詢已在 rest 節點前結束的情況
+- 查詢優先順序固定為 exact → `{*}`（含 backtracking）→ terminal `{**}`；exact 或 one-segment 分支後續無法完成匹配時會回溯，再嘗試下一層級
 - full URL 會移除 origin，query string 與 fragment 會移除，重複斜線與尾端斜線會正規化
 
 ### method-less 與多 repo 候選
@@ -97,10 +97,6 @@ Side Effects：無（唯讀分析）、呼叫 AnalysisService.lookupApi → Anal
 ### 深度截斷行為
 
 當遞迴深度 == `maxDepth`（目前為 3）時，節點標記為 `TRAVERSAL_CUTOFF`，但仍展開一層 children 作為 callees（只有 signature，不建立獨立 entry）。深度 > `maxDepth` 的節點不進入 call graph。flattened 輸出中，TRAVERSAL_CUTOFF 節點帶有完整原始碼與 callees 列表，供 LLM 判斷是否需要透過 `find_call_graph` 工具進一步展開
-
-### trie 路徑變數匹配規則
-
-插入時所有 `{xxx}` 路徑段正規化為 `{*}`。查詢時 exact match 優先，找不到再 fallback 到 `{*}` wildcard 節點。不要求變數名稱一致
 
 ### 介面方法作為入口的限制
 
@@ -126,7 +122,7 @@ Side Effects：無（唯讀分析）、呼叫 AnalysisService.lookupApi → Anal
 | Q4 | 異常處理 | call graph 深度超過 3 層？ | ✅ | — |
 | Q5 | 異常處理 | EP-003 查詢不存在的 API path？ | ✅ | — |
 | Q6 | 跨群組 | pullRepo 後快取是否自動重建？ | ⚠️→已補強 | 與 repo-management 交叉引用 |
-| Q7 | 業務規則 | trie 路徑變數匹配規則？ | ✅ | — |
+| Q7 | 業務規則 | trie 路徑變數匹配規則？ | ✅；2026-07-14 已修正 | 原先僅記錄單一 wildcard 的說明已由 `{*}` / terminal `{**}` 與 backtracking precedence 取代 |
 | Q8 | 業務規則 | 入口為介面 abstract method？ | ⚠️→已補強 | 記錄已知限制 |
 
 ---
