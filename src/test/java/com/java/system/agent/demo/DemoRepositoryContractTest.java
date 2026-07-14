@@ -114,6 +114,17 @@ class DemoRepositoryContractTest {
         assertThat(readme).contains("read_service_map -> read_business_map -> read_business_group_doc -> find_call_graph");
     }
 
+    @Test
+    void should_document_api_tool_and_evidence_policy_when_readme_describes_tool_chain()
+            throws Exception {
+        String readme = Files.readString(Path.of("README.md"));
+
+        assertThat(readme).contains("find_api_call_graph");
+        assertThat(readme).contains("path param");
+        assertThat(readme).contains("code evidence");
+        assertThat(readme).contains("NOT_FOUND", "AMBIGUOUS");
+    }
+
     private List<BusinessGroupDoc> parseBusinessGroupDocs(String businessMap) {
         Matcher matcher = BUSINESS_GROUP_LINK.matcher(businessMap);
         return matcher.results()

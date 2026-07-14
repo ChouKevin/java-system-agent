@@ -1,15 +1,15 @@
 # slack-agent — 業務群組文件
 
 > 所屬專案：java-system-agent
-> 最後更新：2026-04-06 21:00
+> 最後更新：2026-07-14 21:28
 > 來源文件：business-scope.md
-> 來源同步：2026-04-06 20:30
+> 來源同步：2026-07-14 21:28
 
 ---
 
 ## 業務概述
 
-Slack AI 助理是本系統的核心互動入口。當使用者在 Slack 中 @mention bot 時，系統接收訊息並透過 LLM 工具鏈（DocumentTools + AgentAnalysisTools）進行靜態分析，將分析結果以自然語言串流回覆至 Slack。
+Slack AI 助理是本系統的核心互動入口。當使用者在 Slack 中 @mention bot 時，系統先判定問題需要 API 程式碼證據、一般業務程式碼證據或僅需文件，再透過 LLM 工具鏈（DocumentTools + AgentAnalysisTools）取得所需證據，並將受證據閘門約束的結果以自然語言串流回覆至 Slack。
 兩個排程任務分別維護去重快取與限流記錄的清理，確保系統穩定運作不會記憶體膨脹。
 
 ---
@@ -18,7 +18,7 @@ Slack AI 助理是本系統的核心互動入口。當使用者在 Slack 中 @me
 
 ### EP-001
 類型：Slack Socket Mode 事件監聽
-業務描述：接收 Slack @mention 訊息，經去重與限流後，透過 LLM 工具鏈分析並串流回覆
+業務描述：接收 Slack @mention 訊息，經去重與限流後，依問題類型取得文件或程式碼證據，通過確定性的證據閘門後串流回覆
 負責業務：Slack 問答、AI 分析、程式碼查詢、業務查詢、agent 對話
 findCallGraph：
   packageName: com.java.system.agent.slack.listener
@@ -26,7 +26,7 @@ findCallGraph：
   methodSignature: processAppMention
 觸發方式：Slack `app_mention` 事件 + @Async
 信心：✅
-Side Effects：呼叫 SlackEventDeduplicator.isDuplicate（去重）、呼叫 AgentAiService.analyzeWithTools（LLM 分析含 DocumentTools + AgentAnalysisTools）、透過 SlackStreamClient 串流回覆訊息至 Slack channel
+Side Effects：呼叫 SlackEventDeduplicator.isDuplicate（去重）、呼叫 AgentAiService.analyzeWithTools（LLM 分析含 DocumentTools、find_call_graph、find_api_call_graph 與確定性證據閘門）、透過 SlackStreamClient 串流回覆訊息至 Slack channel
 
 ### EP-002
 類型：Scheduled Job
@@ -56,7 +56,7 @@ Side Effects：移除 lastRequestMap 中的過期 entry
 
 ## 業務流程
 
-1. [EP-001] 使用者在 Slack @mention bot，事件經去重檢查（SlackEventDeduplicator）與限流檢查（@RateLimit，每使用者 5 秒冷卻）後，進入 SlackAgentPipeline → AgentAiService.analyzeWithTools，LLM 透過 DocumentTools 讀取 service-map/business-map 文件定位 repo 與進入點，再透過 AgentAnalysisTools 觸發 call graph 分析，最終串流回覆至 Slack
+1. [EP-001] 使用者在 Slack @mention bot，事件經去重檢查（SlackEventDeduplicator）與限流檢查（@RateLimit，每使用者 5 秒冷卻）後，進入 SlackAgentPipeline → AgentAiService.analyzeWithTools。明確 API 問題必須使用 find_api_call_graph；業務流程、規則、條件、計算、判斷與副作用問題可透過 DocumentTools 定位，但必須再使用 find_call_graph 取得程式碼證據；只有文件概覽或使用方式問題可單靠文件完成。確定性的證據閘門決定是否可輸出業務結論，再串流回覆至 Slack
 2. [EP-002] 定時清理去重快取，維護 EP-001 的去重狀態
 3. [EP-003] 定時清理限流記錄，維護 EP-001 的限流狀態
 
@@ -75,7 +75,7 @@ Side Effects：移除 lastRequestMap 中的過期 entry
 - 記憶體內限流記錄（lastRequestMap ConcurrentHashMap）
 
 **依賴的其他業務群組：**
-- code-analysis：[slack-agent/EP-001] 的 LLM 工具鏈內部呼叫 AgentAnalysisTools，最終觸發 AnalysisService.analyzeMethod
+- code-analysis：[slack-agent/EP-001] 的 LLM 工具鏈透過 find_api_call_graph 執行 API route 候選定位，或透過 find_call_graph 分析已定位的進入點；兩者的結果都由確定性證據閘門驗證後才可形成業務結論
 - repo-management：分析快取需由 repo-management 群組預先建立
 
 ---
@@ -98,6 +98,17 @@ Side Effects：移除 lastRequestMap 中的過期 entry
 
 使用者查詢尚未 clone 的 repo 時系統不會崩潰，但錯誤訊息籠統（「程式碼業務分析暫時無法取得」），無法區分「repo 未 clone」vs「分析失敗」
 
+### 程式碼證據政策與強制結束
+
+- 明確 API 問題若未呼叫 find_api_call_graph，證據閘門會要求重試；find_call_graph 不能替代 API route 證據
+- 業務行為問題不能只根據 service-map、business-map 或業務群組文件完成，文件僅用於定位，必須取得 call graph 證據
+- 找不到 route、多個候選或分析失敗時，回覆分別受限為 NOT_FOUND、AMBIGUOUS 或 ANALYSIS_FAILED 的安全訊息，不得夾帶未驗證的業務結論
+- analyst loop 因逾時、turn 上限、取消或錯誤而 forced-finalize 時，終端政策仍會取代缺乏證據的草稿，因此 forced-finalize 不能繞過程式碼證據要求
+
+### Slack 摘要資訊邊界
+
+Slack 的 tool 呼叫摘要會顯示 API method、canonical route、repo 與 evidence status/reason。摘要不顯示 package、class 或 method 名稱；AMBIGUOUS 與 NOT_FOUND 的候選也只包含經清理的 method、route 與 repo。
+
 ### 三層錯誤處理機制
 
 - inner LLM（AgentAnalysisTools）失敗 → 返回「（程式碼業務分析暫時無法取得）」，不中斷 outer LLM
@@ -108,7 +119,7 @@ Side Effects：移除 lastRequestMap 中的過期 entry
 
 ### tool 呼叫順序
 
-DocumentTools 和 AgentAnalysisTools 的呼叫順序由 LLM 自行決定。system prompt 建議了 1→2→3→4 的工作流程，但這只是引導，非程式碼強制
+DocumentTools 的導覽順序仍由 LLM 自行決定；但 API_CODE_REQUIRED 必須取得 find_api_call_graph 證據、BUSINESS_CODE_REQUIRED 必須取得 call graph 證據，以及缺乏證據時只能輸出安全回覆，皆由程式碼強制執行
 
 ---
 

@@ -2,10 +2,11 @@
 
 A Spring Boot AI agent that bridges **Slack** with **Java services**. When a user @-mentions the bot in Slack, the agent:
 
-1. **Outer LLM** (business analyst) uses `DocumentTools` to read service-map, business-map, and business group documents to locate the relevant repository and entry points.
-2. **Outer LLM** calls `find_call_graph`, which triggers static call graph analysis from the selected entry point.
+1. **Outer LLM** (business analyst) classifies the question and can use `DocumentTools` to locate relevant repositories and business groups.
+2. Explicit API questions call `find_api_call_graph`, which performs trie candidate lookup and analyzes only a unique route; business behavior questions use `find_call_graph` after document-based navigation.
 3. **Inner LLM** (code translator, sub-agent) translates the call graph into business-language description, with the ability to expand truncated nodes via `CallGraphExpandTools`.
-4. The result flows back to the outer LLM, which streams a consolidated answer to Slack.
+4. A deterministic evidence gate checks that the required code evidence was collected and restricts unsupported conclusions to safe responses.
+5. The result flows back to the outer LLM, which streams the answer and route/evidence status to Slack.
 
 ## Quick Start
 
@@ -150,7 +151,7 @@ Agent loop time limits are configured in `application.yml`:
 
 ## LLM Tool Chain
 
-The agent uses a two-layer LLM architecture (outer + inner) with four tools:
+The agent uses a two-layer LLM architecture (outer + inner) with five outer tools:
 
 ### Outer LLM Tools (DocumentTools + AgentAnalysisTools)
 
@@ -160,6 +161,7 @@ The agent uses a two-layer LLM architecture (outer + inner) with four tools:
 | `read_business_map` | `repoId` | `repos/{repoId}/docs/business-map.md` | Business group list for a repo |
 | `read_business_group_doc` | `repoId`, `groupName` | `repos/{repoId}/docs/business-groups/{groupName}.md` | Detailed entry points and business logic for a group |
 | `find_call_graph` | `repoId`, `packageName`, `className`, `methodSignature` | Java source code in `repos/{repoId}/` | Analyzes method call chain, delegates to inner LLM for translation |
+| `find_api_call_graph` | `apiPath`, `httpMethod?`, `repoId?` | Canonical API trie and Java source code | Finds API route candidates; a unique route is analyzed and translated, while zero or multiple matches return a safe status and candidates |
 
 ### Inner LLM Tool (CallGraphExpandTools)
 
@@ -171,17 +173,52 @@ The agent uses a two-layer LLM architecture (outer + inner) with four tools:
 
 ```
 User @mention in Slack
-  -> Outer LLM (business analyst role)
-       |-- read_service_map          -> repos/service-map.md
-       |-- read_business_map(repo)   -> repos/{repo}/docs/business-map.md
-       |-- read_business_group_doc(repo, grp) -> repos/{repo}/docs/business-groups/{grp}.md
-       |-- find_call_graph(repo, pkg, cls, method)
-       |     -> AnalysisService builds call graph from source code
-       |     -> Inner LLM (code translator role)
-       |          |-- find_call_graph (expand truncated nodes)
-       |          -> Returns business-language description
-       -> Streams consolidated answer to Slack thread
+  -> Outer LLM classifies evidence requirement
+       |-- Explicit API question
+       |     -> find_api_call_graph(path, method?, repo?)
+       |     -> trie candidate lookup
+       |          |-- unique route -> call graph -> Inner LLM translator
+       |          |-- no route -> NOT_FOUND safe response and suggestions
+       |          |-- multiple routes -> AMBIGUOUS candidate response
+       |
+       |-- Business behavior question
+       |     -> read_service_map / read_business_map / read_business_group_doc
+       |     -> find_call_graph(repo, pkg, cls, method)
+       |     -> call graph -> Inner LLM translator
+       |
+       |-- Documentation-only question -> document tools are sufficient
+       -> deterministic evidence gate -> streams answer and status to Slack thread
 ```
+
+### Path parameter matching
+
+Canonical path param matching applies to both stored route templates and lookup input:
+
+- Concrete values such as `/orders/42` match a one-segment parameter route.
+- `{id}`, `{id:\d+}`, `:id`, `<id>`, and `{{id}}` are normalized to the same one-segment wildcard, so parameter names do not need to match.
+- A terminal `{*path}` or `**` is a rest wildcard that matches zero or more remaining segments, such as both `/files` and `/files/a/b`.
+- Full URLs are accepted. The scheme and host are removed, query strings and fragments are discarded, repeated slashes are collapsed, and a trailing slash is removed before lookup.
+- An omitted `httpMethod` returns candidates for every method on the matched route. Supplying `repoId` narrows the candidate set to that repository.
+
+Exact static segments are preferred over wildcards. Cross-repo route collisions are preserved as separate candidates: Slack returns the candidate methods, canonical routes, and repo IDs instead of silently choosing a repository.
+
+### Evidence policy
+
+Every Slack question is assigned one evidence requirement before the analyst loop runs:
+
+- `API_CODE_REQUIRED` — an explicit API path or full URL must use `find_api_call_graph`. A direct `find_call_graph` result does not satisfy API route evidence.
+- `BUSINESS_CODE_REQUIRED` — questions about actual flows, rules, conditions, calculations, decisions, or side effects may use documents for navigation, but must collect code evidence with `find_call_graph` before making a business claim.
+- `DOCS_ONLY` — service overviews, business-group discovery, documentation summaries, and usage questions can finish from documents alone.
+
+The evidence outcome determines what Slack may return:
+
+- `RESOLVED`/`VERIFIED` allows the translated business answer. `TRANSLATION_UNVERIFIED` keeps the answer but adds an explicit verification caveat.
+- `NOT_FOUND` says the route could not be verified and asks the user to confirm HTTP method, API path, or repo; safe route suggestions may be included.
+- `AMBIGUOUS` lists sanitized route candidates and asks the user to narrow the repo or HTTP method.
+- `ANALYSIS_FAILED` says the scope was located but actual behavior could not be verified and asks the user to retry later.
+- If the loop is cancelled, times out, reaches its turn limit, or otherwise force-finalizes, the terminal policy still applies. Forced finalization cannot bypass code evidence or preserve an unsupported business claim.
+
+Slack tool-call summaries expose only route and evidence status information. They do not expose internal package, class, or method coordinates.
 
 ## Business Documentation Structure
 

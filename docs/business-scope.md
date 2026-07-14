@@ -1,7 +1,7 @@
 # Business Scope
 
 > 專案：java-system-agent
-> 文件版本：2026-04-06 21:00
+> 文件版本：2026-07-14 21:28
 > 技術棧：Spring Boot 3.5.12 + Spring AI 1.1.2 + Spring Modulith + Slack Bolt (Socket Mode) + JGit + JavaParser + springdoc-openapi
 > Active Profile：dev
 
@@ -18,7 +18,7 @@
 | ✅ | `com.java.system.agent.api.RepoController` | `currentBranch` | GET | `/git/current-branch/{repo}` | 查詢指定 repository 目前 checkout 的 branch 名稱 | 無 |
 | ✅ | `com.java.system.agent.api.CallGraphController` | `getCallGraph` | POST | `/analysis/call-graph/{repo}` | 根據指定的 package/class/method 產生 call graph | 無（唯讀分析）、呼叫 AnalysisService.analyzeMethod |
 | ✅ | `com.java.system.agent.api.CallGraphController` | `getCallGraphFlatten` | POST | `/analysis/call-graph/{repo}/flatten` | 根據指定的 package/class/method 產生扁平化 call graph（目前與 EP-001 實作相同） | 無（唯讀分析）、呼叫 AnalysisService.analyzeMethod |
-| ✅ | `com.java.system.agent.api.AnalysisController` | `getApiCallGraph` | POST | `/analysis/api-call-graph` | 透過 API path + HTTP method 跨所有 repo 查詢對應的 call graph（同 path+method 多 repo 時僅回傳最後建立快取的 repo） | 無（唯讀分析）、呼叫 AnalysisService.lookupApi → AnalysisService.analyzeMethod |
+| ✅ | `com.java.system.agent.api.AnalysisController` | `getApiCallGraph` | POST | `/analysis/api-call-graph` | 透過 API path + HTTP method 跨所有 repo 查詢對應的 call graph（public endpoint 維持單一結果；Slack 內部工具另以候選查詢避免跨 repo 碰撞時靜默選擇） | 無（唯讀分析）、呼叫 AnalysisService.lookupApi → AnalysisService.analyzeMethod |
 
 ---
 
@@ -37,7 +37,7 @@
 
 | 信心 | Class | Method | 觸發方式 | 業務描述 | Side Effects |
 |------|-------|--------|---------|----------|--------------|
-| ✅ | `com.java.system.agent.slack.listener.SlackEventListener` | `processAppMention` | Slack `app_mention` 事件 + `@Async` | 接收 Slack @mention 訊息，經去重與限流後，透過 SlackAgentPipeline 呼叫 AgentAiService.analyzeWithTools 進行 LLM 工具鏈分析，串流回覆至 Slack | 呼叫 SlackEventDeduplicator.isDuplicate（去重檢查）、呼叫 AgentAiService.analyzeWithTools（LLM 分析含 DocumentTools + AgentAnalysisTools）、透過 SlackStreamClient 串流回覆訊息至 Slack channel |
+| ✅ | `com.java.system.agent.slack.listener.SlackEventListener` | `processAppMention` | Slack `app_mention` 事件 + `@Async` | 接收 Slack @mention 訊息，經去重與限流後，依問題類型透過 find_api_call_graph 或 find_call_graph 取得程式碼證據，並由確定性證據閘門限制未驗證結論，再串流回覆至 Slack | 呼叫 SlackEventDeduplicator.isDuplicate（去重檢查）、呼叫 AgentAiService.analyzeWithTools（DocumentTools + AgentAnalysisTools 的兩種分析工具與 deterministic evidence gate）、透過 SlackStreamClient 串流回覆訊息至 Slack channel |
 
 ---
 
