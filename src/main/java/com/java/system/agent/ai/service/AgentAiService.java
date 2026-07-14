@@ -6,6 +6,7 @@ import com.java.system.agent.ai.config.ChatMemoryLocks;
 import com.java.system.agent.ai.evidence.CodeEvidenceSnapshot;
 import com.java.system.agent.ai.evidence.CodeEvidenceTerminalPolicy;
 import com.java.system.agent.ai.evidence.CodeEvidenceTracker;
+import com.java.system.agent.ai.evidence.EvidenceFallbackRenderer;
 import com.java.system.agent.ai.evidence.EvidenceRequirement;
 import com.java.system.agent.ai.evidence.QueryEvidencePolicy;
 import com.java.system.agent.ai.loop.AgentLoop;
@@ -63,6 +64,9 @@ import java.util.concurrent.TimeoutException;
 @Slf4j
 public class AgentAiService {
 
+    private static final String TIMEOUT_RESPONSE = "\n\n❌ 分析逾時，請稍後再試或縮小問題範圍";
+    private static final String GENERIC_ERROR_RESPONSE = "\n\n❌ 分析暫時無法完成，請稍後再試";
+
     private static final String SELF_EVAL_PROMPT = """
             你要嚴格自評下面這份「業務流程回答」是否可以交付給 PM / QA。
             檢查:是否回答了使用者問題、是否有足夠依據、有無臆測、有無提及程式碼或資料表細節。
@@ -99,6 +103,7 @@ public class AgentAiService {
     private final ChatMemoryLocks memoryLocks;
     private final ToolCallback[] toolCallbacks;
     private final QueryEvidencePolicy queryEvidencePolicy = new QueryEvidencePolicy();
+    private final EvidenceFallbackRenderer evidenceFallbackRenderer = new EvidenceFallbackRenderer();
 
     public AgentAiService(ChatModel chatModel,
                           ToolCallingManager toolCallingManager,
@@ -196,10 +201,14 @@ public class AgentAiService {
                     if (error instanceof TimeoutException) {
                         log.error("Analyst loop timed out after {} ms for query: {}",
                                 overallMaxWallMs, userQuery);
-                        return Flux.just("\n\n❌ 分析逾時，請稍後再試或縮小問題範圍");
+                        return Flux.just(TIMEOUT_RESPONSE);
                     }
                     log.error("Analyst loop error for query: {}", userQuery, error);
-                    return Flux.just("\n\n❌ 分析發生錯誤: " + error.getMessage());
+                    CodeEvidenceSnapshot snapshot = evidenceTracker.snapshot();
+                    String response = snapshot.requiresCode()
+                            ? evidenceFallbackRenderer.render(snapshot)
+                            : GENERIC_ERROR_RESPONSE;
+                    return Flux.just(response);
                 });
     }
 

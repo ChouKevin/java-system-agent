@@ -8,6 +8,8 @@ import com.java.system.agent.ai.loop.ToolCallRecord;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -60,37 +62,89 @@ public final class ToolCallSummary {
 
                 - status: `%s`
                 - reason: `%s`
-                """.formatted(snapshot.outcome(), safeInline(snapshot.reasonCode()));
+                """.formatted(snapshot.outcome(), safeSummaryField(snapshot.reasonCode()));
     }
 
     private static String formatEntry(String toolName, String argsJson, ObjectMapper objectMapper) {
         return switch (toolName) {
             case ToolNames.READ_SERVICE_MAP -> "[read_service_map]";
             case ToolNames.READ_BUSINESS_MAP -> parse(argsJson, objectMapper)
-                    .map(arguments -> "[read_business_map] repo: `%s`".formatted(arguments.get("repoId")))
+                    .map(arguments -> "[read_business_map] repo: `%s`"
+                            .formatted(safeSummaryField(arguments.get("repoId"))))
                     .orElse("[read_business_map]");
             case ToolNames.READ_BUSINESS_GROUP_DOC -> parse(argsJson, objectMapper)
                     .map(arguments -> "[read_business_group_doc] repo: `%s` | group: `%s`"
-                            .formatted(arguments.get("repoId"), arguments.get("groupName")))
+                            .formatted(
+                                    safeSummaryField(arguments.get("repoId")),
+                                    safeSummaryField(arguments.get("groupName"))))
                     .orElse("[read_business_group_doc]");
             case ToolNames.FIND_CALL_GRAPH -> parse(argsJson, objectMapper)
                     .map(arguments -> "[find_call_graph] repo: `%s`"
-                            .formatted(stringOr("unknown-repo", arguments.get("repoId"))))
+                            .formatted(safeSummaryField(
+                                    stringOr("unknown-repo", arguments.get("repoId")))))
                     .orElse("[find_call_graph]");
             case ToolNames.FIND_API_CALL_GRAPH -> parse(argsJson, objectMapper)
                     .map(arguments -> "[find_api_call_graph] %s %s | repo: `%s`".formatted(
-                            safeInline(arguments.get("httpMethod")),
-                            safeInline(arguments.get("apiPath")),
-                            safeInline(arguments.get("repoId"))))
+                            safeSummaryField(arguments.get("httpMethod")),
+                            safeApiPath(arguments.get("apiPath")),
+                            safeSummaryField(arguments.get("repoId"))))
                     .orElse("[find_api_call_graph]");
             default -> "[%s]".formatted(toolName);
         };
     }
 
-    private static String safeInline(Object value) {
+    private static String safeApiPath(Object value) {
+        String apiPath = Objects.toString(value, "").strip();
+        String path = isAbsoluteHttpUrl(apiPath)
+                ? extractAbsoluteHttpPath(apiPath)
+                : removeQueryAndFragment(apiPath);
+        return safeSummaryField(path);
+    }
+
+    private static boolean isAbsoluteHttpUrl(String value) {
+        return value.regionMatches(true, 0, "http://", 0, "http://".length())
+                || value.regionMatches(true, 0, "https://", 0, "https://".length());
+    }
+
+    private static String extractAbsoluteHttpPath(String value) {
+        String withoutSuffix = removeQueryAndFragment(value);
+        try {
+            URI uri = new URI(escapeTemplateBraces(withoutSuffix));
+            if (!StringUtils.hasText(uri.getRawAuthority())) {
+                return "/";
+            }
+            String rawPath = uri.getRawPath();
+            return StringUtils.hasLength(rawPath) ? restoreTemplateBraces(rawPath) : "/";
+        } catch (URISyntaxException exception) {
+            return "/";
+        }
+    }
+
+    private static String removeQueryAndFragment(String value) {
+        int queryIndex = value.indexOf('?');
+        int fragmentIndex = value.indexOf('#');
+        int suffixIndex;
+        if (queryIndex < 0) {
+            suffixIndex = fragmentIndex;
+        } else if (fragmentIndex < 0) {
+            suffixIndex = queryIndex;
+        } else {
+            suffixIndex = Math.min(queryIndex, fragmentIndex);
+        }
+        return suffixIndex < 0 ? value : value.substring(0, suffixIndex);
+    }
+
+    private static String escapeTemplateBraces(String value) {
+        return value.replace("{", "%7B").replace("}", "%7D");
+    }
+
+    private static String restoreTemplateBraces(String value) {
+        return value.replace("%7B", "{").replace("%7D", "}");
+    }
+
+    private static String safeSummaryField(Object value) {
         return Objects.toString(value, "")
-                .replace('`', '\'')
-                .replaceAll("\\R", " ");
+                .replaceAll("[^\\p{L}\\p{N}._/{}*:-]", "?");
     }
 
     @SuppressWarnings("unchecked")

@@ -107,12 +107,12 @@ Side Effects：移除 lastRequestMap 中的過期 entry
 
 ### Slack 摘要資訊邊界
 
-Slack 的 tool 呼叫摘要會顯示 API method、canonical route、repo 與 evidence status/reason。摘要不顯示 package、class 或 method 名稱；AMBIGUOUS 與 NOT_FOUND 的候選也只包含經清理的 method、route 與 repo。
+Slack 的 tool 呼叫摘要會顯示經 allowlist 清理的 API method、path、repo 與 evidence status/reason；完整 URL 只保留 path，不顯示 origin、query 或 fragment。摘要不顯示 package、class 或 method 名稱；AMBIGUOUS 與 NOT_FOUND 的候選也只包含經清理的 method、route 與 repo。
 
 ### 三層錯誤處理機制
 
 - inner LLM（AgentAnalysisTools）失敗 → 返回「（程式碼業務分析暫時無法取得）」，不中斷 outer LLM
-- outer LLM 串流錯誤 → `onErrorResume` 發送「❌ 分析發生錯誤: {message}」
+- outer LLM 串流錯誤 → 需要 code evidence 時依當前 evidence 狀態回覆安全 fallback；DOCS_ONLY 回覆固定通用訊息；逾時維持固定逾時訊息。例外與 stack trace 只寫入內部 log，不回傳給 Slack
 - SlackStreamClient 層錯誤 → `stopStream` 時附加「❌ **分析過程中發生錯誤**: {message}」
 
 使用者在 Slack 端都能看到錯誤回饋，不會出現無回應的情況

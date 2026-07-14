@@ -3,17 +3,22 @@ package com.java.system.agent.ai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.config.ChatMemoryLocks;
+import com.java.system.agent.ai.evidence.CodeEvidenceTracker;
+import com.java.system.agent.ai.evidence.EvidenceFallbackRenderer;
+import com.java.system.agent.ai.evidence.EvidenceRequirement;
 import com.java.system.agent.ai.loop.LlmRateLimiter;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import com.java.system.agent.ai.service.AgentAiService;
 import com.java.system.agent.ai.tools.AgentAnalysisTools;
 import com.java.system.agent.ai.tools.DocumentTools;
+import com.java.system.agent.ai.tools.ToolNames;
 import com.java.system.agent.analysis.port.RepoDocPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -26,6 +31,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
@@ -144,7 +150,53 @@ class AgentAiServiceTest {
                 .collectList()
                 .block());
 
-        assertThat(joined).contains("分析逾時");
+        assertThat(joined).isEqualTo("\n\n❌ 分析逾時，請稍後再試或縮小問題範圍");
+        assertThat(joined).doesNotContain("interrupted", "SlowChatModel");
+    }
+
+    @Test
+    void should_render_current_evidence_fallback_when_outer_business_error_contains_internal_details() {
+        assertCurrentEvidenceFallbackOnOuterError(
+                "獎金在什麼條件下核發？",
+                EvidenceRequirement.BUSINESS_CODE_REQUIRED,
+                ToolNames.FIND_CALL_GRAPH);
+    }
+
+    @Test
+    void should_render_current_evidence_fallback_when_outer_api_error_contains_internal_details() {
+        assertCurrentEvidenceFallbackOnOuterError(
+                "GET /orders/{id} 的流程是什麼？",
+                EvidenceRequirement.API_CODE_REQUIRED,
+                ToolNames.FIND_API_CALL_GRAPH);
+    }
+
+    @Test
+    void should_render_fixed_generic_response_when_outer_docs_error_contains_internal_details() {
+        String internalError = "com.secret.billing.Repository.findById(/var/lib/db) token=outer-secret";
+        ChatResponse response = new ChatResponse(List.of(
+                new Generation(new AssistantMessage("服務摘要"))));
+        FakeChatModel chatModel = new FakeChatModel(response, "VERDICT: PASS");
+        AgentAiService service = new AgentAiService(
+                chatModel,
+                new FakeToolCallingManager(),
+                new FailingChatMemory(internalError),
+                new DocumentTools(new FakeRepoDocPort()),
+                new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
+                        null, new ObjectMapper(), defaultLoopProperties(), LlmRateLimiter.NOOP),
+                new ObjectMapper(),
+                new FakeLoopTraceStore(),
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP,
+                new ChatMemoryLocks());
+
+        List<String> chunks = service.analyzeWithTools("thread-1", "這個系統有哪些服務？")
+                .collectList()
+                .block();
+
+        assertThat(chunks).isNotNull();
+        assertThat(chunks.getLast()).isEqualTo("\n\n❌ 分析暫時無法完成，請稍後再試");
+        assertThat(String.join("", chunks)).doesNotContain(
+                "com.secret", "Repository", "/var/lib/db", "outer-secret");
     }
 
     @Test
@@ -171,6 +223,38 @@ class AgentAiServiceTest {
 
         assertThat(joined).contains("無法從 codebase 驗證");
         assertThat(joined).doesNotContain("一定會直接核發獎金");
+    }
+
+    private void assertCurrentEvidenceFallbackOnOuterError(
+            String userQuery, EvidenceRequirement requirement, String toolName) {
+        String internalError = "com.secret.billing.Repository.findById(/var/lib/db) token=outer-secret";
+        ToolThenAnswerChatModel chatModel = new ToolThenAnswerChatModel(toolName, "安全的業務回答");
+        EvidenceRecordingToolCallingManager toolCallingManager =
+                new EvidenceRecordingToolCallingManager(toolName);
+        AgentAiService service = new AgentAiService(
+                chatModel,
+                toolCallingManager,
+                new FailingChatMemory(internalError),
+                new DocumentTools(new FakeRepoDocPort()),
+                new AgentAnalysisTools(chatModel, toolCallingManager,
+                        null, new ObjectMapper(), defaultLoopProperties(), LlmRateLimiter.NOOP),
+                new ObjectMapper(),
+                new FakeLoopTraceStore(),
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP,
+                new ChatMemoryLocks());
+
+        List<String> chunks = service.analyzeWithTools("thread-1", userQuery)
+                .collectList()
+                .block();
+
+        CodeEvidenceTracker expectedTracker = new CodeEvidenceTracker(requirement);
+        expectedTracker.recordVerified(toolName, "order-service", "/orders/{id}", List.of());
+        String expectedFallback = new EvidenceFallbackRenderer().render(expectedTracker.snapshot());
+        assertThat(chunks).isNotNull();
+        assertThat(chunks.getLast()).isEqualTo(expectedFallback);
+        assertThat(String.join("", chunks)).doesNotContain(
+                "com.secret", "Repository", "/var/lib/db", "outer-secret");
     }
 
     private static final class FakeChatModel implements ChatModel {
@@ -217,6 +301,37 @@ class AgentAiServiceTest {
                 throw new IllegalStateException("interrupted", exception);
             }
             return new ChatResponse(List.of(new Generation(new AssistantMessage("慢速回覆"))));
+        }
+
+        @Override
+        public String call(String message) {
+            return "VERDICT: PASS";
+        }
+    }
+
+    private static final class ToolThenAnswerChatModel implements ChatModel {
+
+        private final String toolName;
+        private final String answer;
+        private int promptCalls;
+
+        private ToolThenAnswerChatModel(String toolName, String answer) {
+            this.toolName = toolName;
+            this.answer = answer;
+        }
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            if (promptCalls++ == 0) {
+                AssistantMessage.ToolCall toolCall = new AssistantMessage.ToolCall(
+                        "id-1", "function", toolName, "{}");
+                AssistantMessage toolMessage = AssistantMessage.builder()
+                        .content("")
+                        .toolCalls(List.of(toolCall))
+                        .build();
+                return new ChatResponse(List.of(new Generation(toolMessage)));
+            }
+            return new ChatResponse(List.of(new Generation(new AssistantMessage(answer))));
         }
 
         @Override
@@ -311,6 +426,29 @@ class AgentAiServiceTest {
         }
     }
 
+    private static final class FailingChatMemory implements ChatMemory {
+
+        private final String errorMessage;
+
+        private FailingChatMemory(String errorMessage) {
+            this.errorMessage = errorMessage;
+        }
+
+        @Override
+        public void add(String conversationId, List<Message> messages) {
+            throw new IllegalStateException(errorMessage);
+        }
+
+        @Override
+        public List<Message> get(String conversationId) {
+            return List.of();
+        }
+
+        @Override
+        public void clear(String conversationId) {
+        }
+    }
+
     private static final class FakeToolCallingManager implements ToolCallingManager {
 
         @Override
@@ -322,6 +460,32 @@ class AgentAiServiceTest {
         public ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
             return ToolExecutionResult.builder()
                     .conversationHistory(List.of())
+                    .build();
+        }
+    }
+
+    private static final class EvidenceRecordingToolCallingManager implements ToolCallingManager {
+
+        private final String toolName;
+
+        private EvidenceRecordingToolCallingManager(String toolName) {
+            this.toolName = toolName;
+        }
+
+        @Override
+        public List<ToolDefinition> resolveToolDefinitions(ToolCallingChatOptions chatOptions) {
+            return List.of();
+        }
+
+        @Override
+        public ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
+            ToolCallingChatOptions chatOptions = (ToolCallingChatOptions) prompt.getOptions();
+            Map<String, Object> toolContext = chatOptions.getToolContext();
+            CodeEvidenceTracker tracker = (CodeEvidenceTracker) toolContext.get(
+                    CodeEvidenceTracker.CONTEXT_KEY);
+            tracker.recordVerified(toolName, "order-service", "/orders/{id}", List.of());
+            return ToolExecutionResult.builder()
+                    .conversationHistory(List.of(new UserMessage("tool observation")))
                     .build();
         }
     }

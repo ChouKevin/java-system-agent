@@ -117,6 +117,72 @@ class ToolCallSummaryTest {
     }
 
     @Test
+    void should_render_only_safe_path_when_api_argument_is_full_url() {
+        String arguments = """
+                {
+                  "apiPath":"https://api.internal/orders/{id}?token=secret#private-fragment",
+                  "httpMethod":"GET",
+                  "repoId":"order-service"
+                }
+                """;
+
+        String summary = ToolCallSummary.render(
+                List.of(new ToolCallRecord(ToolNames.FIND_API_CALL_GRAPH, arguments)),
+                objectMapper,
+                Set.of(ToolNames.FIND_API_CALL_GRAPH),
+                "title");
+
+        assertThat(summary).contains("GET /orders/{id} | repo: `order-service`");
+        assertThat(summary).doesNotContain(
+                "api.internal", "token", "secret", "private-fragment");
+    }
+
+    @Test
+    void should_apply_slack_safe_allowlist_when_api_summary_fields_are_adversarial() {
+        String arguments = """
+                {
+                  "apiPath":"/orders/{id}<https://evil.example/path>`breakout`\\nNEXT",
+                  "httpMethod":"GET<!channel>`method`\\nNEXT",
+                  "repoId":"order-service<https://repo.example>`repo`\\nNEXT"
+                }
+                """;
+
+        String summary = ToolCallSummary.render(
+                List.of(new ToolCallRecord(ToolNames.FIND_API_CALL_GRAPH, arguments)),
+                objectMapper,
+                Set.of(ToolNames.FIND_API_CALL_GRAPH),
+                "title");
+
+        assertThat(summary).contains("GET", "/orders/{id}", "order-service");
+        assertThat(summary).doesNotContain("<!channel>", "<https://", "`breakout`", "`method`");
+        assertThat(summary.chars().filter(character -> character == '`').count()).isEqualTo(2L);
+    }
+
+    @Test
+    void should_never_render_code_coordinates_when_api_arguments_are_adversarial() {
+        String arguments = """
+                {
+                  "apiPath":"/orders/{id}",
+                  "httpMethod":"GET",
+                  "repoId":"order-service",
+                  "packageName":"com.secret.billing.internal",
+                  "className":"AdminCredentialController",
+                  "methodSignature":"reset(java.lang.String token=super-secret)"
+                }
+                """;
+
+        String summary = ToolCallSummary.render(
+                List.of(new ToolCallRecord(ToolNames.FIND_API_CALL_GRAPH, arguments)),
+                objectMapper,
+                Set.of(ToolNames.FIND_API_CALL_GRAPH),
+                "title");
+
+        assertThat(summary).contains("GET /orders/{id} | repo: `order-service`");
+        assertThat(summary).doesNotContain(
+                "com.secret", "AdminCredentialController", "reset", "super-secret");
+    }
+
+    @Test
     void should_render_evidence_outcome_without_internal_coordinates() {
         CodeEvidenceTracker tracker = new CodeEvidenceTracker(
                 EvidenceRequirement.API_CODE_REQUIRED);
