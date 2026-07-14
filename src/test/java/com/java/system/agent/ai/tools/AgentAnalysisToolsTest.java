@@ -251,7 +251,7 @@ class AgentAnalysisToolsTest {
                 new FakeChatModel("翻譯完成"),
                 new FakeToolCallingManager(),
                 analysisService,
-                new RuntimeFailingObjectMapper(),
+                new ApiResultFailingObjectMapper(),
                 defaultLoopProperties(),
                 LlmRateLimiter.NOOP);
 
@@ -261,6 +261,32 @@ class AgentAnalysisToolsTest {
         assertThat(result).isEqualTo("""
                 {"status":"ANALYSIS_FAILED","verified":false,"answer":"","reasonCode":"SERIALIZATION_FAILED","candidates":[]}
                 """.strip());
+    }
+
+    @Test
+    void should_record_serialization_failure_when_unique_api_result_cannot_be_serialized() {
+        FakeAnalysisService analysisService = new FakeAnalysisService(
+                AnalysisResult.success(explainableGraph("getOrder"), null));
+        analysisService.setCandidates(List.of(routeCandidate("order-service", "GET")));
+        CodeEvidenceTracker tracker = new CodeEvidenceTracker(
+                EvidenceRequirement.API_CODE_REQUIRED);
+        AgentAnalysisTools tools = new AgentAnalysisTools(
+                new FakeChatModel("翻譯完成"),
+                new FakeToolCallingManager(),
+                analysisService,
+                new ApiResultFailingObjectMapper(),
+                defaultLoopProperties(),
+                LlmRateLimiter.NOOP);
+
+        String result = tools.findApiCallGraph(
+                "/orders/42", "GET", "", toolContext(tracker));
+
+        assertThat(result).isEqualTo("""
+                {"status":"ANALYSIS_FAILED","verified":false,"answer":"","reasonCode":"SERIALIZATION_FAILED","candidates":[]}
+                """.strip());
+        assertThat(tracker.snapshot().outcome()).isEqualTo(EvidenceOutcome.ANALYSIS_FAILED);
+        assertThat(tracker.snapshot().reasonCode()).isEqualTo("SERIALIZATION_FAILED");
+        assertThat(tracker.snapshot().hasValidEvidence()).isFalse();
     }
 
     private AgentAnalysisTools newTools(FakeAnalysisService analysisService) {
@@ -413,11 +439,14 @@ class AgentAnalysisToolsTest {
         }
     }
 
-    private static final class RuntimeFailingObjectMapper extends ObjectMapper {
+    private static final class ApiResultFailingObjectMapper extends ObjectMapper {
 
         @Override
         public String writeValueAsString(Object value) throws JsonProcessingException {
-            throw new IllegalStateException("serialization failed");
+            if (value instanceof ApiAnalysisToolResult) {
+                throw new IllegalStateException("serialization failed");
+            }
+            return super.writeValueAsString(value);
         }
     }
 

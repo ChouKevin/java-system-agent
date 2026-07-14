@@ -103,20 +103,16 @@ public class AgentAnalysisTools {
             return resolveApiCallGraph(apiPath, httpMethod, repoId, toolContext);
         } catch (IllegalArgumentException exception) {
             return renderApiFailure(ApiAnalysisStatus.NOT_FOUND,
-                    "INVALID_API_PATH", apiPath, List.of(), toolContext);
+                    "INVALID_API_PATH", apiPath, repoId, List.of(), toolContext);
         } catch (RuntimeException exception) {
             log.error("Unexpected API analysis tool failure", exception);
-            tracker(toolContext).ifPresent(value -> value.recordFailed(
-                    ToolNames.FIND_API_CALL_GRAPH,
-                    Objects.toString(repoId, ""),
-                    Objects.toString(apiPath, ""),
-                    "UNEXPECTED_TOOL_FAILURE"));
-            return renderApiResult(new ApiAnalysisToolResult(
+            ApiAnalysisToolResult result = new ApiAnalysisToolResult(
                     ApiAnalysisStatus.ANALYSIS_FAILED,
                     false,
                     "",
                     "UNEXPECTED_TOOL_FAILURE",
-                    List.of()));
+                    List.of());
+            return renderApiResult(result, repoId, apiPath, List.of(), toolContext);
         }
     }
 
@@ -131,17 +127,16 @@ public class AgentAnalysisTools {
             List<ApiRouteCandidate> suggestions = analysisService.suggestApiCandidates(
                     apiPath, safeMethod, safeRepoId, 5);
             return renderApiFailure(ApiAnalysisStatus.NOT_FOUND,
-                    "API_ROUTE_NOT_FOUND", apiPath, suggestions, toolContext);
+                    "API_ROUTE_NOT_FOUND", apiPath, safeRepoId, suggestions, toolContext);
         }
         if (candidates.size() > 1) {
-            tracker(toolContext).ifPresent(value -> value.recordAmbiguous(
-                    ToolNames.FIND_API_CALL_GRAPH, Objects.toString(apiPath, ""), candidates));
-            return renderApiResult(new ApiAnalysisToolResult(
+            ApiAnalysisToolResult result = new ApiAnalysisToolResult(
                     ApiAnalysisStatus.AMBIGUOUS,
                     false,
                     "",
                     "MULTIPLE_API_CANDIDATES",
-                    candidates.stream().map(ApiRouteSummary::from).toList()));
+                    candidates.stream().map(ApiRouteSummary::from).toList());
+            return renderApiResult(result, safeRepoId, apiPath, candidates, toolContext);
         }
 
         ApiRouteCandidate candidate = candidates.getFirst();
@@ -153,20 +148,20 @@ public class AgentAnalysisTools {
                 candidate.className(),
                 candidate.methodName(),
                 toolContext);
-        recordEvidence(outcome, ToolNames.FIND_API_CALL_GRAPH,
-                candidate.repoId(), candidate.routeTemplate(), candidates, toolContext);
 
         ApiAnalysisStatus status = !outcome.translationAvailable()
                 ? ApiAnalysisStatus.ANALYSIS_FAILED
                 : outcome.verified()
                         ? ApiAnalysisStatus.RESOLVED
                         : ApiAnalysisStatus.TRANSLATION_UNVERIFIED;
-        return renderApiResult(new ApiAnalysisToolResult(
+        ApiAnalysisToolResult result = new ApiAnalysisToolResult(
                 status,
                 outcome.verified(),
                 outcome.translationAvailable() ? outcome.output() : "",
                 outcome.failureCode(),
-                List.of(ApiRouteSummary.from(candidate))));
+                List.of(ApiRouteSummary.from(candidate)));
+        return renderApiResult(result,
+                candidate.repoId(), candidate.routeTemplate(), candidates, toolContext);
     }
 
     private CallGraphToolOutcome analyzeAndTranslate(
@@ -302,31 +297,67 @@ public class AgentAnalysisTools {
             ApiAnalysisStatus status,
             String reasonCode,
             String apiPath,
+            String repoId,
             List<ApiRouteCandidate> candidates,
             ToolContext toolContext) {
         List<ApiRouteCandidate> safeCandidates = CollectionUtils.isEmpty(candidates)
                 ? List.of()
                 : List.copyOf(candidates);
         String safeApiPath = Objects.toString(apiPath, "");
-        tracker(toolContext).ifPresent(value -> value.recordNotFound(
-                ToolNames.FIND_API_CALL_GRAPH, safeApiPath, reasonCode, safeCandidates));
-        return renderApiResult(new ApiAnalysisToolResult(
+        ApiAnalysisToolResult result = new ApiAnalysisToolResult(
                 status,
                 false,
                 "",
                 reasonCode,
-                safeCandidates.stream().map(ApiRouteSummary::from).toList()));
+                safeCandidates.stream().map(ApiRouteSummary::from).toList());
+        return renderApiResult(result, repoId, safeApiPath, safeCandidates, toolContext);
     }
 
-    private String renderApiResult(ApiAnalysisToolResult result) {
+    private String renderApiResult(
+            ApiAnalysisToolResult result,
+            String repoId,
+            String apiPath,
+            List<ApiRouteCandidate> candidates,
+            ToolContext toolContext) {
+        String safeRepoId = Objects.toString(repoId, "");
+        String safeApiPath = Objects.toString(apiPath, "");
         try {
-            return objectMapper.writeValueAsString(result);
+            String serializedResult = objectMapper.writeValueAsString(result);
+            recordApiEvidence(result, safeRepoId, safeApiPath, candidates, toolContext);
+            return serializedResult;
         } catch (JsonProcessingException | RuntimeException exception) {
             log.error("API analysis tool result serialization failed", exception);
+            tracker(toolContext).ifPresent(value -> value.recordFailed(
+                    ToolNames.FIND_API_CALL_GRAPH,
+                    safeRepoId,
+                    safeApiPath,
+                    "SERIALIZATION_FAILED"));
             return """
                     {"status":"ANALYSIS_FAILED","verified":false,"answer":"","reasonCode":"SERIALIZATION_FAILED","candidates":[]}
                     """.strip();
         }
+    }
+
+    private void recordApiEvidence(
+            ApiAnalysisToolResult result,
+            String repoId,
+            String apiPath,
+            List<ApiRouteCandidate> candidates,
+            ToolContext toolContext) {
+        tracker(toolContext).ifPresent(value -> {
+            switch (result.status()) {
+                case RESOLVED -> value.recordVerified(
+                        ToolNames.FIND_API_CALL_GRAPH, repoId, apiPath, candidates);
+                case TRANSLATION_UNVERIFIED -> value.recordTranslationUnverified(
+                        ToolNames.FIND_API_CALL_GRAPH, repoId, apiPath, candidates);
+                case ANALYSIS_FAILED -> value.recordFailed(
+                        ToolNames.FIND_API_CALL_GRAPH, repoId, apiPath, result.reasonCode());
+                case AMBIGUOUS -> value.recordAmbiguous(
+                        ToolNames.FIND_API_CALL_GRAPH, apiPath, candidates);
+                case NOT_FOUND -> value.recordNotFound(
+                        ToolNames.FIND_API_CALL_GRAPH, apiPath, result.reasonCode(), candidates);
+            }
+        });
     }
 
     private long translatorBlockMillis(ToolContext toolContext) {
