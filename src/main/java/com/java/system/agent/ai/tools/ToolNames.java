@@ -12,4 +12,5 @@ public final class ToolNames {
     public static final String READ_BUSINESS_MAP = "read_business_map";
     public static final String READ_BUSINESS_GROUP_DOC = "read_business_group_doc";
     public static final String FIND_CALL_GRAPH = "find_call_graph";
+    public static final String FIND_API_CALL_GRAPH = "find_api_call_graph";
 }
