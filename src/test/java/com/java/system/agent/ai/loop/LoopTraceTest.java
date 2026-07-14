@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,5 +79,22 @@ class LoopTraceTest {
         LoopTrace trace = new LoopTrace("trace-1", "translator", null, false, List.of(), List.of());
 
         assertThat(trace.plainFinalAnswer()).isEmpty();
+    }
+
+    @Test
+    void should_copy_trace_when_evidence_metadata_is_added() {
+        LoopTrace original = new LoopTrace(
+                "answer", true, List.of(), List.of());
+
+        LoopTrace enriched = original.withMetadata(Map.of(
+                "evidenceOutcome", "VERIFIED"));
+
+        assertThat(original.metadata()).isEmpty();
+        assertThat(enriched.metadata())
+                .containsEntry("evidenceOutcome", "VERIFIED");
+        assertThat(enriched.traceId()).isEqualTo(original.traceId());
+        assertThat(enriched.role()).isEqualTo(original.role());
+        assertThat(enriched.finalAnswer()).isEqualTo(original.finalAnswer());
+        assertThat(enriched.accepted()).isEqualTo(original.accepted());
     }
 }

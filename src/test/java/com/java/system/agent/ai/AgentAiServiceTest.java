@@ -53,7 +53,7 @@ class AgentAiServiceTest {
                 LlmRateLimiter.NOOP,
                 new ChatMemoryLocks());
 
-        String joined = String.join("", service.analyzeWithTools("thread-1", "如何計算獎金?")
+        String joined = String.join("", service.analyzeWithTools("thread-1", "這個系統有哪些服務？")
                 .collectList()
                 .block());
 
@@ -83,7 +83,7 @@ class AgentAiServiceTest {
                 LlmRateLimiter.NOOP,
                 new ChatMemoryLocks());
 
-        service.analyzeWithTools("thread-1", "如何計算獎金?")
+        service.analyzeWithTools("thread-1", "這個系統有哪些服務？")
                 .collectList()
                 .block();
 
@@ -111,7 +111,8 @@ class AgentAiServiceTest {
                 new ChatMemoryLocks());
 
         reactor.core.publisher.Flux.merge(IntStream.range(0, 4)
-                        .mapToObj(index -> service.analyzeWithTools("thread-1", "問題" + index)
+                        .mapToObj(index -> service.analyzeWithTools(
+                                        "thread-1", "這個系統有哪些服務？" + index)
                                 .collectList())
                         .toList())
                 .collectList()
@@ -139,11 +140,37 @@ class AgentAiServiceTest {
                 LlmRateLimiter.NOOP,
                 new ChatMemoryLocks());
 
-        String joined = String.join("", service.analyzeWithTools("thread-1", "如何計算獎金?")
+        String joined = String.join("", service.analyzeWithTools("thread-1", "這個系統有哪些服務？")
                 .collectList()
                 .block());
 
         assertThat(joined).contains("分析逾時");
+    }
+
+    @Test
+    void should_replace_business_answer_when_model_never_collects_code_evidence() {
+        ChatResponse response = new ChatResponse(List.of(
+                new Generation(new AssistantMessage("系統一定會直接核發獎金"))));
+        FakeChatModel chatModel = new FakeChatModel(response, "VERDICT: PASS");
+        AgentLoopProperties properties = loopPropertiesWithAnalystTurns(1);
+        AgentAiService service = new AgentAiService(
+                chatModel,
+                new FakeToolCallingManager(),
+                new FakeChatMemory(),
+                new DocumentTools(new FakeRepoDocPort()),
+                new AgentAnalysisTools(chatModel, new FakeToolCallingManager(),
+                        null, new ObjectMapper(), properties, LlmRateLimiter.NOOP),
+                new ObjectMapper(),
+                new FakeLoopTraceStore(),
+                properties,
+                LlmRateLimiter.NOOP,
+                new ChatMemoryLocks());
+
+        String joined = String.join("", service.analyzeWithTools(
+                "thread-1", "獎金在什麼條件下核發？").collectList().block());
+
+        assertThat(joined).contains("無法從 codebase 驗證");
+        assertThat(joined).doesNotContain("一定會直接核發獎金");
     }
 
     private static final class FakeChatModel implements ChatModel {
@@ -207,6 +234,15 @@ class AgentAiServiceTest {
                 new AgentLoopProperties.Analyst(12, 120_000L, 2),
                 new AgentLoopProperties.Translator(6, 60_000L),
                 new AgentLoopProperties.Overall(overallMaxWallMs),
+                new AgentLoopProperties.Trace(true, 20, 200),
+                new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500, 300_000L));
+    }
+
+    private static AgentLoopProperties loopPropertiesWithAnalystTurns(int maxTurns) {
+        return new AgentLoopProperties(
+                new AgentLoopProperties.Analyst(maxTurns, 120_000L, 2),
+                new AgentLoopProperties.Translator(6, 60_000L),
+                new AgentLoopProperties.Overall(300_000L),
                 new AgentLoopProperties.Trace(true, 20, 200),
                 new AgentLoopProperties.RateLimit(true, 30, 1_000_000, 1_500, 300_000L));
     }

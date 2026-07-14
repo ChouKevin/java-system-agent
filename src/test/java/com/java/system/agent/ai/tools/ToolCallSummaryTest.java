@@ -1,6 +1,8 @@
 package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.evidence.CodeEvidenceTracker;
+import com.java.system.agent.ai.evidence.EvidenceRequirement;
 import com.java.system.agent.ai.loop.LoopStep;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.ToolCallRecord;
@@ -95,5 +97,38 @@ class ToolCallSummaryTest {
                 List.of(rootCall));
 
         assertThat(ToolCallSummary.flatten(root)).containsExactly(rootCall, childCall);
+    }
+
+    @Test
+    void should_render_api_tool_without_code_coordinates_when_api_lookup_is_recorded() {
+        String arguments = """
+                {"apiPath":"/orders/{id}","httpMethod":"GET","repoId":"order-service"}
+                """;
+        String summary = ToolCallSummary.render(
+                List.of(new ToolCallRecord(
+                        ToolNames.FIND_API_CALL_GRAPH,
+                        arguments)),
+                objectMapper,
+                Set.of(ToolNames.FIND_API_CALL_GRAPH),
+                "title");
+
+        assertThat(summary).contains("GET", "/orders/{id}", "order-service");
+        assertThat(summary).doesNotContain("Controller", "packageName", "methodName");
+    }
+
+    @Test
+    void should_render_evidence_outcome_without_internal_coordinates() {
+        CodeEvidenceTracker tracker = new CodeEvidenceTracker(
+                EvidenceRequirement.API_CODE_REQUIRED);
+        tracker.recordNotFound(
+                ToolNames.FIND_API_CALL_GRAPH,
+                "/orders/{id}",
+                "API_ROUTE_NOT_FOUND",
+                List.of());
+
+        String summary = ToolCallSummary.renderEvidence(tracker.snapshot());
+
+        assertThat(summary).contains("NOT_FOUND", "API_ROUTE_NOT_FOUND");
+        assertThat(summary).doesNotContain("className", "methodName", "packageName");
     }
 }

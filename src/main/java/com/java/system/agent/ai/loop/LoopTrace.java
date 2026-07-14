@@ -3,20 +3,33 @@ package com.java.system.agent.ai.loop;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
 /** loop run 完成後產生的單一追蹤樹 */
 public record LoopTrace(String traceId, String role, String finalAnswer,
-                        boolean accepted, List<LoopStep> steps, List<ToolCallRecord> toolCalls) {
+                        boolean accepted, List<LoopStep> steps, List<ToolCallRecord> toolCalls,
+                        Map<String, String> metadata) {
 
     public LoopTrace {
         steps = List.copyOf(steps);
         toolCalls = List.copyOf(toolCalls);
+        metadata = Map.copyOf(metadata);
+    }
+
+    public LoopTrace(String traceId, String role, String finalAnswer,
+                     boolean accepted, List<LoopStep> steps, List<ToolCallRecord> toolCalls) {
+        this(traceId, role, finalAnswer, accepted, steps, toolCalls, Map.of());
     }
 
     public LoopTrace(String finalAnswer, boolean accepted, List<LoopStep> steps, List<ToolCallRecord> toolCalls) {
-        this(UUID.randomUUID().toString(), "loop", finalAnswer, accepted, steps, toolCalls);
+        this(UUID.randomUUID().toString(), "loop", finalAnswer, accepted, steps, toolCalls, Map.of());
+    }
+
+    public LoopTrace withMetadata(Map<String, String> metadata) {
+        return new LoopTrace(traceId, role, finalAnswer,
+                accepted, steps, toolCalls, metadata);
     }
 
     public int iterationCount() {
@@ -59,7 +72,7 @@ public record LoopTrace(String traceId, String role, String finalAnswer,
     public String toJson(ObjectMapper objectMapper) {
         try {
             return objectMapper.writeValueAsString(this);
-        } catch (Exception e) {
+        } catch (Exception exception) {
             return "{}";
         }
     }

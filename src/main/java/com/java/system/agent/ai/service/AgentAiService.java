@@ -3,6 +3,11 @@ package com.java.system.agent.ai.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
 import com.java.system.agent.ai.config.ChatMemoryLocks;
+import com.java.system.agent.ai.evidence.CodeEvidenceSnapshot;
+import com.java.system.agent.ai.evidence.CodeEvidenceTerminalPolicy;
+import com.java.system.agent.ai.evidence.CodeEvidenceTracker;
+import com.java.system.agent.ai.evidence.EvidenceRequirement;
+import com.java.system.agent.ai.evidence.QueryEvidencePolicy;
 import com.java.system.agent.ai.loop.AgentLoop;
 import com.java.system.agent.ai.loop.AgentLoopRunner;
 import com.java.system.agent.ai.loop.Candidate;
@@ -18,6 +23,7 @@ import com.java.system.agent.ai.loop.VerifyGate;
 import com.java.system.agent.ai.loop.policy.AnalystTerminationPolicy;
 import com.java.system.agent.ai.loop.trace.LoopTraceStore;
 import com.java.system.agent.ai.loop.verify.CompositeVerifyGate;
+import com.java.system.agent.ai.loop.verify.CodeEvidenceGate;
 import com.java.system.agent.ai.loop.verify.LlmVerifier;
 import com.java.system.agent.ai.loop.verify.RuleBasedPreGate;
 import com.java.system.agent.ai.tools.AgentAnalysisTools;
@@ -92,6 +98,7 @@ public class AgentAiService {
     private final LlmRateLimiter rateLimiter;
     private final ChatMemoryLocks memoryLocks;
     private final ToolCallback[] toolCallbacks;
+    private final QueryEvidencePolicy queryEvidencePolicy = new QueryEvidencePolicy();
 
     public AgentAiService(ChatModel chatModel,
                           ToolCallingManager toolCallingManager,
@@ -119,6 +126,8 @@ public class AgentAiService {
      * Returns progress events, then the verified answer, then tool-call summaries.
      */
     public Flux<String> analyzeWithTools(String conversationId, String userQuery) {
+        EvidenceRequirement evidenceRequirement = queryEvidencePolicy.classify(userQuery);
+        CodeEvidenceTracker evidenceTracker = new CodeEvidenceTracker(evidenceRequirement);
         LoopTraceCollector traceCollector = new LoopTraceCollector();
         long overallMaxWallMs = loopProperties.overall().maxWallMs();
         long deadlineAtMillis = System.currentTimeMillis() + overallMaxWallMs;
@@ -127,7 +136,8 @@ public class AgentAiService {
                 .toolContext(Map.of(
                         "userQuery", userQuery,
                         "traceCollector", traceCollector,
-                        "deadlineAtMillis", deadlineAtMillis))
+                        "deadlineAtMillis", deadlineAtMillis,
+                        CodeEvidenceTracker.CONTEXT_KEY, evidenceTracker))
                 .internalToolExecutionEnabled(false)
                 .build();
 
@@ -140,6 +150,7 @@ public class AgentAiService {
                 chatModel, toolCallingManager, options, seed, traceCollector, rateLimiter);
         RuleBasedPreGate preGate = new RuleBasedPreGate();
         VerifyGate gate = new CompositeVerifyGate(List.of(
+                new CodeEvidenceGate(evidenceTracker),
                 preGate,
                 new LlmVerifier(chatModel, SELF_EVAL_PROMPT, "self-eval", rateLimiter),
                 new LlmVerifier(chatModel, CRITIC_PROMPT, "critic", rateLimiter)));
@@ -152,7 +163,9 @@ public class AgentAiService {
                         loopProperties.analyst().noProgressLimit()),
                 gate,
                 "analyst",
-                trace -> saveTrace(conversationId, trace));
+                trace -> saveTrace(conversationId, trace.withMetadata(
+                        evidenceTracker.snapshot().traceMetadata())),
+                new CodeEvidenceTerminalPolicy(evidenceTracker));
 
         return loop.run(new LoopRequest(conversationId, userQuery))
                 .concatMap(event -> switch (event) {
@@ -164,13 +177,17 @@ public class AgentAiService {
                                 trace.iterationCount(), trace.rejectionCount(), trace.accepted(),
                                 trace.totalTokens());
                         log.debug("Analyst loop trace: {}", trace.toJson(objectMapper));
+                        CodeEvidenceSnapshot evidence = evidenceTracker.snapshot();
+                        log.info("Analyst evidence finished: requirement={}, outcome={}, tool={}, reason={}",
+                                evidence.requirement(), evidence.outcome(), evidence.toolName(),
+                                evidence.reasonCode());
                         String finalAnswer = trace.finalAnswer();
                         if (trace.accepted() && StringUtils.hasText(finalAnswer)) {
                             memoryLocks.withConversationLock(conversationId, () -> chatMemory.add(conversationId, List.of(
                                     new UserMessage(userQuery),
                                     new AssistantMessage(finalAnswer))));
                         }
-                        yield summaryFlux(trace.toolCalls());
+                        yield summaryFlux(trace.toolCalls(), evidenceTracker);
                     }
                 })
                 .subscribeOn(Schedulers.boundedElastic())
@@ -211,14 +228,17 @@ public class AgentAiService {
         return Flux.fromIterable(parts);
     }
 
-    private Flux<String> summaryFlux(List<ToolCallRecord> toolCalls) {
+    private Flux<String> summaryFlux(
+            List<ToolCallRecord> toolCalls, CodeEvidenceTracker evidenceTracker) {
         List<String> summaries = List.of(
                 ToolCallSummary.render(toolCalls, objectMapper, Set.of(
                         ToolNames.READ_SERVICE_MAP,
                         ToolNames.READ_BUSINESS_MAP,
                         ToolNames.READ_BUSINESS_GROUP_DOC), "📚 文件查閱紀錄"),
                 ToolCallSummary.render(toolCalls, objectMapper,
-                        Set.of(ToolNames.FIND_CALL_GRAPH), "📋 程式碼查詢紀錄"));
+                        Set.of(ToolNames.FIND_CALL_GRAPH, ToolNames.FIND_API_CALL_GRAPH),
+                        "📋 程式碼查詢紀錄"),
+                ToolCallSummary.renderEvidence(evidenceTracker.snapshot()));
         return Flux.fromIterable(summaries)
                 .filter(StringUtils::hasText);
     }
@@ -239,13 +259,20 @@ public class AgentAiService {
                   - 當使用者詢問業務邏輯、流程、規則、判斷、計算、條件時，必須呼叫此 tool 取得依據
                   - 成功時回傳內容第一行是中繼資料行 `verified: true` 或 `verified: false`；true 代表翻譯結果已通過內部審查
                   - verified: false 時仍可引用其內容，但必須以業務語言註明該部分結論僅供參考；禁止把 verified 標記或任何警示文字原樣放進回答
+                - find_api_call_graph(apiPath, httpMethod?, repoId?)：依 API path 直接定位進入點並分析實際程式流程
+                  - 問題包含 HTTP method、API path 或完整 URL 時優先使用此 tool
+                  - path 可以是實際值或 {id}、:id 等模板，不要自行把 path param 刪除
+                  - method 或 repo 不確定時可留空；工具回傳多候選時再請使用者補充
 
                 自主決策原則：
                 - 對話歷史中已取得的資訊直接引用，不必重複呼叫相同 tool
                 - 問題模糊或跨 repo 時，從 read_service_map 開始逐步縮小範圍
                 - 若無法判斷目標 repo，列出候選項請使用者確認
                 - 若涉及多個 repo，分別查詢後整合回答
-                - read_business_group_doc 不足以回答時，主動對相關進入點呼叫 find_call_graph
+                - 業務流程、規則、條件、計算、判斷與副作用問題，文件只用於定位，必須取得 call graph evidence 才能回答
+                - 明確 API 問題必須使用 find_api_call_graph；不得只依文件或直接猜測對應方法
+                - NOT_FOUND、AMBIGUOUS 或 ANALYSIS_FAILED 時不得輸出業務結論，只能說明無法驗證或請使用者補充範圍
+                - translation 尚未通過完整驗證時，回答必須明確註明該部分結論尚未通過完整驗證
                 - tool 回傳空結果時，告知使用者該文件尚未建立
                 - 禁止在資訊不足時臆測或編造業務邏輯；誠實告知不足之處
 

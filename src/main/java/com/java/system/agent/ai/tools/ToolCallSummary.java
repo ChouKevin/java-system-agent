@@ -1,6 +1,7 @@
 package com.java.system.agent.ai.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.ai.evidence.CodeEvidenceSnapshot;
 import com.java.system.agent.ai.loop.LoopStep;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.ToolCallRecord;
@@ -48,6 +49,20 @@ public final class ToolCallSummary {
         return calls;
     }
 
+    public static String renderEvidence(CodeEvidenceSnapshot snapshot) {
+        if (!snapshot.requiresCode()) {
+            return "";
+        }
+        return """
+
+                ---
+                **🔎 Code evidence**
+
+                - status: `%s`
+                - reason: `%s`
+                """.formatted(snapshot.outcome(), safeInline(snapshot.reasonCode()));
+    }
+
     private static String formatEntry(String toolName, String argsJson, ObjectMapper objectMapper) {
         return switch (toolName) {
             case ToolNames.READ_SERVICE_MAP -> "[read_service_map]";
@@ -62,8 +77,20 @@ public final class ToolCallSummary {
                     .map(arguments -> "[find_call_graph] repo: `%s`"
                             .formatted(stringOr("unknown-repo", arguments.get("repoId"))))
                     .orElse("[find_call_graph]");
+            case ToolNames.FIND_API_CALL_GRAPH -> parse(argsJson, objectMapper)
+                    .map(arguments -> "[find_api_call_graph] %s %s | repo: `%s`".formatted(
+                            safeInline(arguments.get("httpMethod")),
+                            safeInline(arguments.get("apiPath")),
+                            safeInline(arguments.get("repoId"))))
+                    .orElse("[find_api_call_graph]");
             default -> "[%s]".formatted(toolName);
         };
+    }
+
+    private static String safeInline(Object value) {
+        return Objects.toString(value, "")
+                .replace('`', '\'')
+                .replaceAll("\\R", " ");
     }
 
     @SuppressWarnings("unchecked")
