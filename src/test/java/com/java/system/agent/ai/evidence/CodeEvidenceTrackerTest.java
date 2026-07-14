@@ -140,7 +140,7 @@ class CodeEvidenceTrackerTest {
     }
 
     @Test
-    void should_initialize_request_scoped_tracker_without_attempted_evidence() {
+    void should_initialize_without_attempted_evidence_when_tracker_is_created() {
         CodeEvidenceTracker tracker = new CodeEvidenceTracker(EvidenceRequirement.DOCS_ONLY);
 
         assertThat(CodeEvidenceTracker.CONTEXT_KEY).isEqualTo("codeEvidenceTracker");
