@@ -111,6 +111,117 @@ class AgentLoopRunnerTest {
     }
 
     @Test
+    void should_apply_terminal_policy_when_force_finalize_uses_rejected_draft() {
+        StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
+                "產生草稿", new Candidate("未驗證業務結論"));
+        TerminationPolicy terminationPolicy = state -> state.iteration() == 0
+                ? LoopDecision.CONTINUE
+                : LoopDecision.FORCE_FINALIZE;
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor,
+                terminationPolicy,
+                (candidate, state) -> Verdict.revise("缺少證據"),
+                "test",
+                trace -> {
+                },
+                candidate -> new Candidate("safe"));
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q"))
+                .collectList()
+                .block();
+
+        assertThat(events).contains(new LoopEvent.Token(
+                AgentLoopRunner.UNVERIFIED_NOTE + "safe"));
+        assertThat(events).noneMatch(event -> event.equals(
+                new LoopEvent.Token("未驗證業務結論")));
+    }
+
+    @Test
+    void should_not_apply_terminal_policy_when_candidate_is_normally_accepted() {
+        AgentLoop loop = new AgentLoopRunner(
+                state -> StepOutcome.finalCandidate("完成回答", new Candidate("已接受結論")),
+                state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                trace -> {
+                },
+                candidate -> new Candidate("safe"));
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q"))
+                .collectList()
+                .block();
+
+        assertThat(events).contains(new LoopEvent.Token("已接受結論"));
+        assertThat(events).doesNotContain(new LoopEvent.Token("safe"));
+    }
+
+    @Test
+    void should_apply_terminal_policy_when_stop_uses_rejected_draft() {
+        StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
+                "產生草稿", new Candidate("未驗證業務結論"));
+        TerminationPolicy terminationPolicy = state -> state.iteration() == 0
+                ? LoopDecision.CONTINUE
+                : LoopDecision.STOP;
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor,
+                terminationPolicy,
+                (candidate, state) -> Verdict.revise("缺少證據"),
+                "test",
+                trace -> {
+                },
+                candidate -> new Candidate("safe"));
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q"))
+                .collectList()
+                .block();
+
+        assertThat(events).contains(new LoopEvent.Token(
+                AgentLoopRunner.UNVERIFIED_NOTE + "safe"));
+    }
+
+    @Test
+    void should_apply_terminal_policy_when_step_throws() {
+        StepExecutor stepExecutor = state -> {
+            throw new IllegalStateException("model unavailable");
+        };
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor,
+                state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                trace -> {
+                },
+                candidate -> new Candidate("safe"));
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q"))
+                .collectList()
+                .block();
+
+        assertThat(events).contains(new LoopEvent.Token(
+                AgentLoopRunner.UNVERIFIED_NOTE + "safe"));
+    }
+
+    @Test
+    void should_apply_terminal_policy_when_cancelled() {
+        StepExecutor stepExecutor = state -> StepOutcome.acted(
+                "查詢", List.of(ToolCallRecord.of("read_service_map")));
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor,
+                state -> LoopDecision.CONTINUE,
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                saved::add,
+                candidate -> new Candidate("safe"));
+
+        loop.run(new LoopRequest("t", "q")).take(1).blockLast();
+
+        assertThat(saved).singleElement()
+                .extracting(LoopTrace::finalAnswer)
+                .isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "safe");
+    }
+
+    @Test
     void stopBeforeAnyStep_emitsFallback() {
         AgentLoop loop = new AgentLoopRunner(
                 state -> StepOutcome.finalCandidate("不應執行", new Candidate("x")),

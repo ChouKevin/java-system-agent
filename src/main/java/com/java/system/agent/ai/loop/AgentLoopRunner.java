@@ -21,6 +21,7 @@ public class AgentLoopRunner implements AgentLoop {
     private final VerifyGate verifyGate;
     private final String role;
     private final Consumer<LoopTrace> traceListener;
+    private final TerminalAnswerPolicy terminalAnswerPolicy;
 
     public AgentLoopRunner(StepExecutor stepExecutor, TerminationPolicy terminationPolicy, VerifyGate verifyGate) {
         this(stepExecutor, terminationPolicy, verifyGate, "loop");
@@ -34,11 +35,23 @@ public class AgentLoopRunner implements AgentLoop {
 
     public AgentLoopRunner(StepExecutor stepExecutor, TerminationPolicy terminationPolicy,
                            VerifyGate verifyGate, String role, Consumer<LoopTrace> traceListener) {
+        this(stepExecutor, terminationPolicy, verifyGate, role, traceListener,
+                TerminalAnswerPolicy.identity());
+    }
+
+    public AgentLoopRunner(
+            StepExecutor stepExecutor,
+            TerminationPolicy terminationPolicy,
+            VerifyGate verifyGate,
+            String role,
+            Consumer<LoopTrace> traceListener,
+            TerminalAnswerPolicy terminalAnswerPolicy) {
         this.stepExecutor = stepExecutor;
         this.terminationPolicy = terminationPolicy;
         this.verifyGate = verifyGate;
         this.role = role;
         this.traceListener = traceListener;
+        this.terminalAnswerPolicy = terminalAnswerPolicy;
     }
 
     @Override
@@ -51,7 +64,7 @@ public class AgentLoopRunner implements AgentLoop {
 
             while (true) {
                 if (sink.isCancelled()) {
-                    String answer = safeAnswer(lastAnswer);
+                    String answer = governedTerminalAnswer(lastAnswer);
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
                     return;
@@ -59,7 +72,7 @@ public class AgentLoopRunner implements AgentLoop {
 
                 LoopDecision decision = terminationPolicy.decide(state);
                 if (decision.isStop()) {
-                    String answer = markUnverified(safeAnswer(lastAnswer));
+                    String answer = governedTerminalAnswer(lastAnswer);
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
@@ -75,7 +88,7 @@ public class AgentLoopRunner implements AgentLoop {
                         log.warn("[{}] forceAnswer failed, falling back to last known answer", role, exception);
                         candidate = new Candidate(lastAnswer);
                     }
-                    String answer = markUnverified(safeAnswer(candidate));
+                    String answer = governedTerminalAnswer(candidate.answer());
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
@@ -89,7 +102,7 @@ public class AgentLoopRunner implements AgentLoop {
                     log.warn("[{}] step failed, finalizing with best-effort answer", role, e);
                     state = state.recordStep(new LoopStep(state.iteration(),
                             "模型呼叫失敗: " + e.getMessage(), List.of(), null));
-                    String answer = markUnverified(safeAnswer(lastAnswer));
+                    String answer = governedTerminalAnswer(lastAnswer);
                     sink.next(new LoopEvent.Token(answer));
                     sink.next(done(traceId, answer, false, state, allToolCalls));
                     sink.complete();
@@ -144,6 +157,11 @@ public class AgentLoopRunner implements AgentLoop {
             return answer;
         }
         return FALLBACK;
+    }
+
+    private String governedTerminalAnswer(String answer) {
+        Candidate governed = terminalAnswerPolicy.apply(new Candidate(safeAnswer(answer)));
+        return markUnverified(safeAnswer(governed));
     }
 
     private String markUnverified(String answer) {
