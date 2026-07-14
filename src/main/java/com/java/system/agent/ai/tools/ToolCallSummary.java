@@ -105,14 +105,27 @@ public final class ToolCallSummary {
 
     private static String safeApiPath(Object value) {
         String rawApiPath = stripMatchingOuterWrapper(Objects.toString(value, "").strip());
-        if (HTTP_URL.matcher(rawApiPath).find()) {
-            return safeSummaryField(extractSafeHttpUrlPath(rawApiPath));
+        int urlMarkerCount = countHttpUrlMarkers(rawApiPath);
+        if (urlMarkerCount > 0) {
+            if (urlMarkerCount != 1) {
+                return "/";
+            }
+            return safeApiPathField(extractSafeHttpUrlPath(rawApiPath));
         }
         String apiPath = stripSupportedMethodPrefix(rawApiPath);
         String path = isAbsoluteHttpUrl(apiPath)
                 ? extractAbsoluteHttpPath(apiPath)
                 : removeQueryAndFragment(apiPath);
-        return safeSummaryField(path);
+        return safeApiPathField(path);
+    }
+
+    private static int countHttpUrlMarkers(String value) {
+        Matcher matcher = HTTP_URL.matcher(value);
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+        return count;
     }
 
     private static String extractSafeHttpUrlPath(String value) {
@@ -158,12 +171,15 @@ public final class ToolCallSummary {
 
     private static String extractAbsoluteHttpPath(String value) {
         try {
-            URI uri = new URI(escapeTemplateBraces(value));
+            URI uri = new URI(escapeUriTemplateSyntax(value));
             if (!StringUtils.hasText(uri.getRawAuthority())) {
                 return "/";
             }
             String rawPath = uri.getRawPath();
-            return StringUtils.hasLength(rawPath) ? restoreTemplateBraces(rawPath) : "/";
+            if (!StringUtils.hasLength(rawPath) || HTTP_URL.matcher(rawPath).find()) {
+                return "/";
+            }
+            return restoreProtectedPercentEscapes(restoreTemplateBraces(rawPath));
         } catch (URISyntaxException exception) {
             return "/";
         }
@@ -183,12 +199,21 @@ public final class ToolCallSummary {
         return suffixIndex < 0 ? value : value.substring(0, suffixIndex);
     }
 
-    private static String escapeTemplateBraces(String value) {
-        return value.replace("{", "%7B").replace("}", "%7D");
+    private static String escapeUriTemplateSyntax(String value) {
+        return value.replace("%", "%25").replace("{", "%7B").replace("}", "%7D");
     }
 
     private static String restoreTemplateBraces(String value) {
         return value.replace("%7B", "{").replace("%7D", "}");
+    }
+
+    private static String restoreProtectedPercentEscapes(String value) {
+        return value.replace("%25", "%");
+    }
+
+    private static String safeApiPathField(Object value) {
+        return Objects.toString(value, "")
+                .replaceAll("[^\\p{L}\\p{N}._/%{}*:-]", "?");
     }
 
     private static String safeSummaryField(Object value) {

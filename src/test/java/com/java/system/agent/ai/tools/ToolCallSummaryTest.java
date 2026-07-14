@@ -8,6 +8,7 @@ import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.ToolCallRecord;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
@@ -222,6 +223,42 @@ class ToolCallSummaryTest {
         assertThat(summary).contains("GET / | repo: `order-service`");
         assertThat(summary).doesNotContain(
                 "CONNECT-X", "internal", "user", "password", "token", "private", "https");
+    }
+
+    @Test
+    void should_fail_closed_when_direct_url_contains_nested_url_marker() throws Exception {
+        String summary = renderApiSummary(
+                "https://safe/pathhttps://user:password@internal/orders");
+
+        assertThat(summary).contains("GET / | repo: `order-service`");
+        assertThat(summary).doesNotContain(
+                "safe", "path", "internal", "user", "password", "orders", "https");
+    }
+
+    @Test
+    void should_fail_closed_when_method_prefixed_url_contains_nested_url_marker()
+            throws Exception {
+        String summary = renderApiSummary(
+                "GET: HtTpS://safe/pathHTTP://user:password@internal/orders");
+
+        assertThat(summary).contains("GET / | repo: `order-service`");
+        assertThat(summary).doesNotContain(
+                "safe", "path", "internal", "user", "password", "orders", "HtTpS", "HTTP");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "https://api.internal/orders/%7Bid%7D, /orders/%7Bid%7D",
+            "https://api.internal/orders/%3Cid%3E, /orders/%3Cid%3E",
+            "/orders/%7Bid%7D, /orders/%7Bid%7D",
+            "/orders/%3Cid%3E, /orders/%3Cid%3E"
+    })
+    void should_preserve_percent_encoded_template_delimiters_when_rendering_api_path(
+            String apiPath, String expectedPath) throws Exception {
+        String summary = renderApiSummary(apiPath);
+
+        assertThat(summary).contains("GET %s | repo: `order-service`".formatted(expectedPath));
+        assertThat(summary).doesNotContain("/orders/{id}", "/orders/<id>");
     }
 
     @Test
