@@ -116,7 +116,7 @@ class ToolCallSummaryTest {
                 Set.of(ToolNames.FIND_API_CALL_GRAPH),
                 "title");
 
-        assertThat(summary).contains("GET", "/orders/{id}", "order-service");
+        assertThat(summary).contains("GET", "/orders/{*}", "order-service");
         assertThat(summary).doesNotContain("Controller", "packageName", "methodName");
     }
 
@@ -136,7 +136,7 @@ class ToolCallSummaryTest {
                 Set.of(ToolNames.FIND_API_CALL_GRAPH),
                 "title");
 
-        assertThat(summary).contains("GET /orders/{id} | repo: `order-service`");
+        assertThat(summary).contains("GET /orders/{*} | repo: `order-service`");
         assertThat(summary).doesNotContain(
                 "api.internal", "token", "secret", "private-fragment");
     }
@@ -261,6 +261,56 @@ class ToolCallSummaryTest {
         assertThat(summary).doesNotContain("/orders/{id}", "/orders/<id>");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{id}",
+            "{id:\\d+}",
+            ":id",
+            "<id>",
+            "{{id}}",
+            "{*}"
+    })
+    void should_canonicalize_single_segment_template_when_path_is_relative_or_full_url(
+            String templateSegment) throws Exception {
+        String expectedPath = "/orders/{*}";
+
+        assertThat(renderApiSummary("/orders/" + templateSegment))
+                .contains("GET %s | repo: `order-service`".formatted(expectedPath));
+        assertThat(renderApiSummary("https://api.internal/orders/" + templateSegment
+                + "?token=secret#private"))
+                .contains("GET %s | repo: `order-service`".formatted(expectedPath));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{*path}", "**", "{**}"})
+    void should_canonicalize_terminal_catch_all_when_path_is_relative_or_full_url(
+            String templateSegment) throws Exception {
+        String expectedPath = "/files/{**}";
+
+        assertThat(renderApiSummary("/files/" + templateSegment))
+                .contains("GET %s | repo: `order-service`".formatted(expectedPath));
+        assertThat(renderApiSummary("https://api.internal/files/" + templateSegment
+                + "?token=secret#private"))
+                .contains("GET %s | repo: `order-service`".formatted(expectedPath));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "`GET https://api.internal/orders/<id>?token=secret#private`",
+            "'[GET]: https://api.internal/orders/{id:\\d+}?token=secret#private'",
+            "\"GET: https://api.internal/files/{*path}?token=secret#private\""
+    })
+    void should_canonicalize_template_when_supported_url_form_has_method_prefix_and_wrapper(
+            String apiPath) throws Exception {
+        String summary = renderApiSummary(apiPath);
+
+        assertThat(summary).containsAnyOf(
+                "GET /orders/{*} | repo: `order-service`",
+                "GET /files/{**} | repo: `order-service`");
+        assertThat(summary).doesNotContain(
+                "api.internal", "token", "secret", "private", "<id>", "\\d+");
+    }
+
     @Test
     void should_apply_slack_safe_allowlist_when_api_summary_fields_are_adversarial() {
         String arguments = """
@@ -302,7 +352,7 @@ class ToolCallSummaryTest {
                 Set.of(ToolNames.FIND_API_CALL_GRAPH),
                 "title");
 
-        assertThat(summary).contains("GET /orders/{id} | repo: `order-service`");
+        assertThat(summary).contains("GET /orders/{*} | repo: `order-service`");
         assertThat(summary).doesNotContain(
                 "com.secret", "AdminCredentialController", "reset", "super-secret");
     }

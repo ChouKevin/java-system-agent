@@ -24,6 +24,8 @@ import java.util.regex.Pattern;
 @Slf4j
 public final class ToolCallSummary {
 
+    private static final String ONE_SEGMENT_TEMPLATE = "{*}";
+    private static final String TERMINAL_CATCH_ALL_TEMPLATE = "{**}";
     private static final Set<String> SUPPORTED_HTTP_METHODS = Set.of(
             "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD");
     private static final Pattern METHOD_PREFIXED_PATH = Pattern.compile(
@@ -110,13 +112,14 @@ public final class ToolCallSummary {
             if (urlMarkerCount != 1) {
                 return "/";
             }
-            return safeApiPathField(extractSafeHttpUrlPath(rawApiPath));
+            return safeApiPathField(canonicalizeLiteralTemplateSegments(
+                    extractSafeHttpUrlPath(rawApiPath)));
         }
         String apiPath = stripSupportedMethodPrefix(rawApiPath);
         String path = isAbsoluteHttpUrl(apiPath)
                 ? extractAbsoluteHttpPath(apiPath)
                 : removeQueryAndFragment(apiPath);
-        return safeApiPathField(path);
+        return safeApiPathField(canonicalizeLiteralTemplateSegments(path));
     }
 
     private static int countHttpUrlMarkers(String value) {
@@ -179,7 +182,7 @@ public final class ToolCallSummary {
             if (!StringUtils.hasLength(rawPath) || HTTP_URL.matcher(rawPath).find()) {
                 return "/";
             }
-            return restoreProtectedPercentEscapes(restoreTemplateBraces(rawPath));
+            return restoreProtectedPercentEscapes(restoreTemplateSyntax(rawPath));
         } catch (URISyntaxException exception) {
             return "/";
         }
@@ -200,15 +203,53 @@ public final class ToolCallSummary {
     }
 
     private static String escapeUriTemplateSyntax(String value) {
-        return value.replace("%", "%25").replace("{", "%7B").replace("}", "%7D");
+        return value.replace("%", "%25")
+                .replace("{", "%7B")
+                .replace("}", "%7D")
+                .replace("<", "%3C")
+                .replace(">", "%3E")
+                .replace("\\", "%5C");
     }
 
-    private static String restoreTemplateBraces(String value) {
-        return value.replace("%7B", "{").replace("%7D", "}");
+    private static String restoreTemplateSyntax(String value) {
+        return value.replace("%7B", "{")
+                .replace("%7D", "}")
+                .replace("%3C", "<")
+                .replace("%3E", ">")
+                .replace("%5C", "\\");
     }
 
     private static String restoreProtectedPercentEscapes(String value) {
         return value.replace("%25", "%");
+    }
+
+    private static String canonicalizeLiteralTemplateSegments(String path) {
+        String[] segments = path.split("/", -1);
+        StringBuilder canonicalPath = new StringBuilder(path.length());
+        for (int index = 0; index < segments.length; index++) {
+            if (index > 0) {
+                canonicalPath.append('/');
+            }
+            canonicalPath.append(canonicalizeLiteralTemplateSegment(
+                    segments[index], index == segments.length - 1));
+        }
+        return canonicalPath.toString();
+    }
+
+    private static String canonicalizeLiteralTemplateSegment(String segment, boolean isTerminal) {
+        if (isTerminal && ("**".equals(segment)
+                || (segment.startsWith("{*")
+                && segment.endsWith("}")
+                && segment.length() > ONE_SEGMENT_TEMPLATE.length()))) {
+            return TERMINAL_CATCH_ALL_TEMPLATE;
+        }
+        if ((segment.startsWith("{{") && segment.endsWith("}}"))
+                || (segment.startsWith("{") && segment.endsWith("}"))
+                || (segment.startsWith(":") && segment.length() > 1)
+                || (segment.startsWith("<") && segment.endsWith(">"))) {
+            return ONE_SEGMENT_TEMPLATE;
+        }
+        return segment;
     }
 
     private static String safeApiPathField(Object value) {
