@@ -154,15 +154,15 @@ class AgentAiServiceTest {
     }
 
     @Test
-    void should_render_delivery_failure_when_outer_business_error_follows_valid_evidence() {
-        assertDeliveryFailureOnOuterErrorAfterValidEvidence(
+    void should_render_generic_processing_failure_when_outer_business_error_follows_valid_evidence() {
+        assertGenericProcessingFailureOnOuterErrorAfterValidEvidence(
                 "獎金在什麼條件下核發？",
                 ToolNames.FIND_CALL_GRAPH);
     }
 
     @Test
-    void should_render_delivery_failure_when_outer_api_error_follows_valid_evidence() {
-        assertDeliveryFailureOnOuterErrorAfterValidEvidence(
+    void should_render_generic_processing_failure_when_outer_api_error_follows_valid_evidence() {
+        assertGenericProcessingFailureOnOuterErrorAfterValidEvidence(
                 "GET /orders/{id} 的流程是什麼？",
                 ToolNames.FIND_API_CALL_GRAPH);
     }
@@ -222,7 +222,7 @@ class AgentAiServiceTest {
         assertThat(joined).doesNotContain("一定會直接核發獎金");
     }
 
-    private void assertDeliveryFailureOnOuterErrorAfterValidEvidence(
+    private void assertGenericProcessingFailureOnOuterErrorAfterValidEvidence(
             String userQuery, String toolName) {
         String internalError = "com.secret.billing.Repository.findById(/var/lib/db) token=outer-secret";
         ToolThenAnswerChatModel chatModel = new ToolThenAnswerChatModel(toolName, "安全的業務回答");
@@ -247,7 +247,7 @@ class AgentAiServiceTest {
 
         assertThat(chunks).isNotNull();
         assertThat(chunks.getLast()).isEqualTo(
-                "\n\n❌ 分析已完成，但回覆傳遞暫時失敗，請稍後再試");
+                "\n\n❌ 分析或回覆處理暫時失敗，請稍後再試。");
         assertThat(String.join("", chunks)).doesNotContain(
                 "com.secret", "Repository", "/var/lib/db", "outer-secret",
                 "未完成 API route 驗證", "無法從 codebase");

@@ -27,7 +27,9 @@ public final class ToolCallSummary {
     private static final Set<String> SUPPORTED_HTTP_METHODS = Set.of(
             "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD");
     private static final Pattern METHOD_PREFIXED_PATH = Pattern.compile(
-            "(?i)^\\[?([A-Z]+)\\]?\\s*:?\\s*(https?://\\S+|/\\S*)$");
+            "(?i)^\\[?([!#$%&'*+.^_`|~0-9A-Z-]+)\\]?\\s*:?\\s*"
+                    + "(https?://\\S+|/\\S*)$");
+    private static final Pattern HTTP_URL = Pattern.compile("(?i)https?://");
 
     private ToolCallSummary() {
     }
@@ -102,14 +104,42 @@ public final class ToolCallSummary {
     }
 
     private static String safeApiPath(Object value) {
-        String rawApiPath = Objects.toString(value, "").strip();
-        String apiPath = isAbsoluteHttpUrl(rawApiPath)
-                ? rawApiPath
-                : stripSupportedMethodPrefix(rawApiPath);
+        String rawApiPath = stripMatchingOuterWrapper(Objects.toString(value, "").strip());
+        if (HTTP_URL.matcher(rawApiPath).find()) {
+            return safeSummaryField(extractSafeHttpUrlPath(rawApiPath));
+        }
+        String apiPath = stripSupportedMethodPrefix(rawApiPath);
         String path = isAbsoluteHttpUrl(apiPath)
                 ? extractAbsoluteHttpPath(apiPath)
                 : removeQueryAndFragment(apiPath);
         return safeSummaryField(path);
+    }
+
+    private static String extractSafeHttpUrlPath(String value) {
+        if (isAbsoluteHttpUrl(value)) {
+            return extractAbsoluteHttpPath(value);
+        }
+        Matcher matcher = METHOD_PREFIXED_PATH.matcher(value);
+        if (!matcher.matches()) {
+            return "/";
+        }
+        String method = matcher.group(1).toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_HTTP_METHODS.contains(method)) {
+            return "/";
+        }
+        return extractAbsoluteHttpPath(matcher.group(2));
+    }
+
+    private static String stripMatchingOuterWrapper(String value) {
+        if (value.length() < 2) {
+            return value;
+        }
+        char first = value.charAt(0);
+        char last = value.charAt(value.length() - 1);
+        if (first == last && (first == '`' || first == '\'' || first == '"')) {
+            return value.substring(1, value.length() - 1).strip();
+        }
+        return value;
     }
 
     private static String stripSupportedMethodPrefix(String value) {
@@ -127,9 +157,8 @@ public final class ToolCallSummary {
     }
 
     private static String extractAbsoluteHttpPath(String value) {
-        String withoutSuffix = removeQueryAndFragment(value);
         try {
-            URI uri = new URI(escapeTemplateBraces(withoutSuffix));
+            URI uri = new URI(escapeTemplateBraces(value));
             if (!StringUtils.hasText(uri.getRawAuthority())) {
                 return "/";
             }

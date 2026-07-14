@@ -7,8 +7,11 @@ import com.java.system.agent.ai.loop.LoopStep;
 import com.java.system.agent.ai.loop.LoopTrace;
 import com.java.system.agent.ai.loop.ToolCallRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -187,6 +190,40 @@ class ToolCallSummaryTest {
                 "CONNECT", "internal", "user", "password", "token", "private");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "`https://user:password@internal/orders?token=x#private`",
+            "'GET https://user:password@internal/orders?token=x#private'",
+            "\"GET: https://user:password@internal/orders?token=x#private\"",
+            "`[GET] https://user:password@internal/orders?token=x#private`",
+            "'[GET]: https://user:password@internal/orders?token=x#private'"
+    })
+    void should_render_only_path_when_supported_url_form_has_matching_outer_wrapper(
+            String apiPath) throws Exception {
+        String summary = renderApiSummary(apiPath);
+
+        assertThat(summary).contains("GET /orders | repo: `order-service`");
+        assertThat(summary).doesNotContain(
+                "internal", "user", "password", "token", "private", "https");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "`CONNECT-X https://user:password@internal/orders?token=x#private`",
+            "junk https://user:password@internal/orders?token=x#private",
+            "prefix [GET] https://user:password@internal/orders?token=x#private",
+            "GET https://user:password@internal/orders?token=x#private trailing",
+            "https://user:password@internal/orders?token=x trailing"
+    })
+    void should_fail_closed_when_url_is_not_the_entire_supported_form(String apiPath)
+            throws Exception {
+        String summary = renderApiSummary(apiPath);
+
+        assertThat(summary).contains("GET / | repo: `order-service`");
+        assertThat(summary).doesNotContain(
+                "CONNECT-X", "internal", "user", "password", "token", "private", "https");
+    }
+
     @Test
     void should_apply_slack_safe_allowlist_when_api_summary_fields_are_adversarial() {
         String arguments = """
@@ -203,7 +240,8 @@ class ToolCallSummaryTest {
                 Set.of(ToolNames.FIND_API_CALL_GRAPH),
                 "title");
 
-        assertThat(summary).contains("GET", "/orders/{id}", "order-service");
+        assertThat(summary).contains("GET", "/ | repo: `order-service");
+        assertThat(summary).doesNotContain("/orders/{id}");
         assertThat(summary).doesNotContain("<!channel>", "<https://", "`breakout`", "`method`");
         assertThat(summary.chars().filter(character -> character == '`').count()).isEqualTo(2L);
     }
@@ -246,5 +284,17 @@ class ToolCallSummaryTest {
 
         assertThat(summary).contains("NOT_FOUND", "API_ROUTE_NOT_FOUND");
         assertThat(summary).doesNotContain("className", "methodName", "packageName");
+    }
+
+    private String renderApiSummary(String apiPath) throws Exception {
+        String arguments = objectMapper.writeValueAsString(Map.of(
+                "apiPath", apiPath,
+                "httpMethod", "GET",
+                "repoId", "order-service"));
+        return ToolCallSummary.render(
+                List.of(new ToolCallRecord(ToolNames.FIND_API_CALL_GRAPH, arguments)),
+                objectMapper,
+                Set.of(ToolNames.FIND_API_CALL_GRAPH),
+                "title");
     }
 }

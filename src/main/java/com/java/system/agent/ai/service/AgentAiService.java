@@ -66,8 +66,8 @@ public class AgentAiService {
 
     private static final String TIMEOUT_RESPONSE = "\n\n❌ 分析逾時，請稍後再試或縮小問題範圍";
     private static final String GENERIC_ERROR_RESPONSE = "\n\n❌ 分析暫時無法完成，請稍後再試";
-    private static final String VERIFIED_DELIVERY_ERROR_RESPONSE =
-            "\n\n❌ 分析已完成，但回覆傳遞暫時失敗，請稍後再試";
+    private static final String VERIFIED_PROCESSING_ERROR_RESPONSE =
+            "\n\n❌ 分析或回覆處理暫時失敗，請稍後再試。";
 
     private static final String SELF_EVAL_PROMPT = """
             你要嚴格自評下面這份「業務流程回答」是否可以交付給 PM / QA。
@@ -216,7 +216,7 @@ public class AgentAiService {
             return GENERIC_ERROR_RESPONSE;
         }
         if (snapshot.hasValidEvidence()) {
-            return VERIFIED_DELIVERY_ERROR_RESPONSE;
+            return VERIFIED_PROCESSING_ERROR_RESPONSE;
         }
         return evidenceFallbackRenderer.render(snapshot);
     }

@@ -17,6 +17,9 @@ public final class QueryEvidencePolicy {
     private static final Pattern EXPLICIT_API_INTENT = Pattern.compile(
             "(?<![A-Za-z0-9_])(?:api|endpoint)(?![A-Za-z0-9_])|端點|路由",
             INTENT_PATTERN_FLAGS);
+    private static final Pattern SERVICE_OWNERSHIP_WORDING = Pattern.compile(
+            "哪個服務負責|(?:服務|-service)\\s*負責",
+            INTENT_PATTERN_FLAGS);
     private static final List<Pattern> DOCS_ONLY_INTENTS = List.of(
             intent("(?:(?:這個|本)?系統)?有哪些服務(?:[，,]?各自負責什麼)?"),
             intent("(?:這個|本)?系統(?:的)?概覽"),
@@ -28,12 +31,13 @@ public final class QueryEvidencePolicy {
             intent("(?:請)?(?:列出)?repo\\s*清單"),
             intent(".+(?:屬於|在哪個)(?:業務群組|repo)"),
             intent(".+(?:由)?哪個(?:業務群組|repo)(?:負責|處理)"),
-            intent("哪個服務負責會員"),
-            intent("[A-Za-z0-9][A-Za-z0-9._-]*-service\\s*負責什麼"),
+            intent("哪個服務負責(?!.*(?:並|以及|而且|同時|然後|也))[\\p{L}\\p{N}._-]+"),
+            intent("[\\p{L}\\p{N}._-]+(?:服務|-service)\\s*負責什麼"),
             intent("(?:怎麼|如何)使用(?:這個|本)?\\s*(?:bot|機器人|系統)?"),
             intent("(?:(?:這個|本)?\\s*(?:bot|機器人|系統)\\s*)?(?:怎麼|如何)使用"));
     private static final List<String> BUSINESS_BEHAVIOR_MARKERS = List.of(
             "流程", "規則", "條件", "計算", "判斷", "副作用", "何時", "為什麼");
+    private static final List<String> OWNERSHIP_BEHAVIOR_MARKERS = List.of("如何", "怎麼");
 
     private final ApiQueryParser apiQueryParser;
 
@@ -75,7 +79,10 @@ public final class QueryEvidencePolicy {
     }
 
     private boolean isBusinessBehavior(String query) {
-        return BUSINESS_BEHAVIOR_MARKERS.stream().anyMatch(query::contains);
+        boolean hasOwnershipBehaviorMarker = SERVICE_OWNERSHIP_WORDING.matcher(query).find()
+                && OWNERSHIP_BEHAVIOR_MARKERS.stream().anyMatch(query::contains);
+        return BUSINESS_BEHAVIOR_MARKERS.stream().anyMatch(query::contains)
+                || hasOwnershipBehaviorMarker;
     }
 
     private boolean hasExplicitApiIntent(String query) {
