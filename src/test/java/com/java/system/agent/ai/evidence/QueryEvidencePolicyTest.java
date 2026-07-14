@@ -21,6 +21,24 @@ class QueryEvidencePolicyTest {
     }
 
     @Test
+    void should_require_api_evidence_when_query_contains_delimited_relative_path() {
+        assertThat(policy.classify("請說明 `/orders/42`"))
+                .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+    }
+
+    @Test
+    void should_require_api_evidence_when_query_has_explicit_api_intent_without_path() {
+        assertThat(policy.classify("orders endpoint 做什麼"))
+                .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+        assertThat(policy.classify("訂單 API 的用途"))
+                .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+        assertThat(policy.classify("這個端點做什麼"))
+                .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+        assertThat(policy.classify("訂單路由在哪裡"))
+                .isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+    }
+
+    @Test
     void should_allow_docs_only_when_query_requests_service_overview() {
         assertThat(policy.classify("這個系統有哪些服務，各自負責什麼？"))
                 .isEqualTo(EvidenceRequirement.DOCS_ONLY);
@@ -43,6 +61,18 @@ class QueryEvidencePolicyTest {
     }
 
     @Test
+    void should_require_business_evidence_when_greeting_prefix_precedes_business_details() {
+        assertThat(policy.classify("你好，告訴我獎金取消的細節"))
+                .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
+    }
+
+    @Test
+    void should_require_business_evidence_when_usage_wording_contains_business_request() {
+        assertThat(policy.classify("如何使用這個 bot 查詢獎金取消的細節"))
+                .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
+    }
+
+    @Test
     void should_require_business_evidence_when_query_has_no_known_marker() {
         assertThat(policy.classify("告訴我獎金取消的細節"))
                 .isEqualTo(EvidenceRequirement.BUSINESS_CODE_REQUIRED);
@@ -52,5 +82,16 @@ class QueryEvidencePolicyTest {
     void should_allow_docs_only_when_query_is_blank() {
         assertThat(policy.classify(null)).isEqualTo(EvidenceRequirement.DOCS_ONLY);
         assertThat(policy.classify("  ")).isEqualTo(EvidenceRequirement.DOCS_ONLY);
+    }
+
+    @Test
+    void should_allow_docs_only_when_query_is_only_greeting_or_navigation_intent() {
+        assertThat(policy.classify("你好")).isEqualTo(EvidenceRequirement.DOCS_ONLY);
+        assertThat(policy.classify("有哪些業務群組？"))
+                .isEqualTo(EvidenceRequirement.DOCS_ONLY);
+        assertThat(policy.classify("請列出候選 repo"))
+                .isEqualTo(EvidenceRequirement.DOCS_ONLY);
+        assertThat(policy.classify("repo 清單"))
+                .isEqualTo(EvidenceRequirement.DOCS_ONLY);
     }
 }

@@ -21,6 +21,23 @@ class CodeEvidenceTrackerTest {
     }
 
     @Test
+    void should_reject_find_call_graph_when_policy_recognizes_api_query() {
+        QueryEvidencePolicy policy = new QueryEvidencePolicy();
+        List<String> apiQueries = List.of(
+                "請說明 `/orders/42`",
+                "orders endpoint 做什麼");
+
+        for (String apiQuery : apiQueries) {
+            EvidenceRequirement requirement = policy.classify(apiQuery);
+            CodeEvidenceTracker tracker = new CodeEvidenceTracker(requirement);
+            tracker.recordVerified("find_call_graph", "order-service", "", List.of());
+
+            assertThat(requirement).isEqualTo(EvidenceRequirement.API_CODE_REQUIRED);
+            assertThat(tracker.snapshot().hasValidEvidence()).isFalse();
+        }
+    }
+
+    @Test
     void should_accept_unverified_translation_when_api_call_graph_is_available() {
         CodeEvidenceTracker tracker = new CodeEvidenceTracker(
                 EvidenceRequirement.API_CODE_REQUIRED);

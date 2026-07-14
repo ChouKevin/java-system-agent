@@ -34,6 +34,23 @@ class ApiQueryParserTest {
     }
 
     @Test
+    void should_extract_relative_path_when_path_is_safely_delimited() {
+        Optional<ApiQueryHint> result = new ApiQueryParser().parse(
+                "請說明 `/orders/42`");
+
+        assertThat(result).contains(new ApiQueryHint("", "/orders/42"));
+    }
+
+    @Test
+    void should_return_empty_when_slash_is_not_a_delimited_nonblank_path() {
+        ApiQueryParser parser = new ApiQueryParser();
+
+        assertThat(parser.parse("比較訂單/付款功能")).isEmpty();
+        assertThat(parser.parse("請說明 `/`")).isEmpty();
+        assertThat(parser.parse("A / B")).isEmpty();
+    }
+
+    @Test
     void should_return_empty_when_query_has_no_explicit_api() {
         ApiQueryParser parser = new ApiQueryParser();
 

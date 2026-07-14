@@ -13,6 +13,10 @@ public final class ApiQueryParser {
             "(?i)\\b(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\\b\\s*:?\\s*"
                     + "(https?://[^\\s`]+|/[^\\s`]+)");
     private static final Pattern URL_ONLY = Pattern.compile("(?i)(https?://[^\\s`]+)");
+    private static final Pattern DELIMITED_RELATIVE_PATH = Pattern.compile(
+            "(?<![\\p{L}\\p{N}_/])"
+                    + "(/[^\\s/`\"'，。！？；、)\\]>][^\\s`\"'，。！？；、)\\]>]*)"
+                    + "(?=$|[\\s`\"'，。！？；、)\\]>])");
 
     public Optional<ApiQueryHint> parse(String query) {
         if (!StringUtils.hasText(query)) {
@@ -28,6 +32,11 @@ public final class ApiQueryParser {
         if (urlMatcher.find()) {
             return Optional.of(new ApiQueryHint(
                     "", trimSentencePunctuation(urlMatcher.group(1))));
+        }
+        Matcher relativePathMatcher = DELIMITED_RELATIVE_PATH.matcher(query);
+        if (relativePathMatcher.find()) {
+            return Optional.of(new ApiQueryHint(
+                    "", trimSentencePunctuation(relativePathMatcher.group(1))));
         }
         return Optional.empty();
     }

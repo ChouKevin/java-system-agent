@@ -112,7 +112,7 @@ class AgentAiServiceTest {
 
         reactor.core.publisher.Flux.merge(IntStream.range(0, 4)
                         .mapToObj(index -> service.analyzeWithTools(
-                                        "thread-1", "這個系統有哪些服務？" + index)
+                                        "thread-1", "這個系統有哪些服務？")
                                 .collectList())
                         .toList())
                 .collectList()
