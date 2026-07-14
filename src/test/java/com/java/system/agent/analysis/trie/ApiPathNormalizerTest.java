@@ -50,4 +50,26 @@ class ApiPathNormalizerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("conflict");
     }
+
+    @Test
+    void should_normalize_root_path_when_input_has_method_prefix() {
+        NormalizedApiPath result = ApiPathNormalizer.normalize("GET /", "");
+
+        assertThat(result.path()).isEqualTo("/");
+        assertThat(result.httpMethod()).isEqualTo("GET");
+    }
+
+    @Test
+    void should_preserve_non_ascii_percent_octets_when_path_contains_utf8_sequence() {
+        NormalizedApiPath result = ApiPathNormalizer.normalize("/caf%C3%A9", "GET");
+
+        assertThat(result.path()).isEqualTo("/caf%C3%A9");
+    }
+
+    @Test
+    void should_decode_ascii_unreserved_and_template_characters_when_path_contains_safe_escapes() {
+        NormalizedApiPath result = ApiPathNormalizer.normalize("/users/%7Eowner/%7Bid%7D", "GET");
+
+        assertThat(result.path()).isEqualTo("/users/~owner/{*}");
+    }
 }

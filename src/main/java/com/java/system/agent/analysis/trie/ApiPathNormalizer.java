@@ -19,7 +19,7 @@ final class ApiPathNormalizer {
             "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "ALL");
     private static final Pattern METHOD_PREFIX = Pattern.compile(
             "(?i)^\\[?(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\\]?\\s*:?\\s*"
-                    + "(/\\S+|https?://\\S+)$");
+                    + "(/\\S*|https?://\\S+)$");
     private static final Pattern PERCENT_ESCAPE = Pattern.compile("%([0-9a-fA-F]{2})");
 
     private ApiPathNormalizer() {
@@ -117,7 +117,9 @@ final class ApiPathNormalizer {
     }
 
     private static boolean isSafeToDecode(char value) {
-        return Character.isLetterOrDigit(value)
+        return value >= 'A' && value <= 'Z'
+                || value >= 'a' && value <= 'z'
+                || value >= '0' && value <= '9'
                 || value == '-' || value == '.' || value == '_' || value == '~'
                 || value == '{' || value == '}' || value == '<' || value == '>';
     }
