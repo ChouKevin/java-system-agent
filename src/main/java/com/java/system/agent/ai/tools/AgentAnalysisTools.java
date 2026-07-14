@@ -1,7 +1,9 @@
 package com.java.system.agent.ai.tools;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
+import com.java.system.agent.ai.evidence.CodeEvidenceTracker;
 import com.java.system.agent.ai.loop.AgentLoop;
 import com.java.system.agent.ai.loop.AgentLoopRunner;
 import com.java.system.agent.ai.loop.ChatModelStep;
@@ -16,6 +18,7 @@ import com.java.system.agent.ai.loop.verify.TranslatorVerifyGate;
 import com.java.system.agent.analysis.AnalysisService;
 import com.java.system.agent.analysis.model.AnalysisResult;
 import com.java.system.agent.analysis.model.AnalysisStatus;
+import com.java.system.agent.analysis.model.ApiRouteCandidate;
 import com.java.system.agent.analysis.model.ExplainableCallGraph;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.Message;
@@ -30,11 +33,13 @@ import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Singleton tool. Runs call graph analysis and translates the result with an
@@ -81,27 +86,160 @@ public class AgentAnalysisTools {
 
         log.info("AgentAnalysisTools.findCallGraph: {}.{}.{}", repoId, className, methodSignature);
 
-        AnalysisResult<ExplainableCallGraph> analysisResult = analysisService.analyzeMethodExplainableStructured(
-                repoId, packageName, className, methodSignature);
+        CallGraphToolOutcome outcome = analyzeAndTranslate(
+                repoId, packageName, className, methodSignature, toolContext);
+        recordEvidence(outcome, ToolNames.FIND_CALL_GRAPH, repoId, "", List.of(), toolContext);
+        return outcome.output();
+    }
+
+    @Tool(name = ToolNames.FIND_API_CALL_GRAPH,
+          description = "依 API path 與 HTTP method 定位程式入口，分析 call graph 並以業務語言回答")
+    public String findApiCallGraph(
+            @ToolParam(description = "API path 或完整 URL，例如 /orders/{id}") String apiPath,
+            @ToolParam(required = false, description = "HTTP method，例如 GET；不確定可留空") String httpMethod,
+            @ToolParam(required = false, description = "目標 repo；不確定可留空") String repoId,
+            ToolContext toolContext) {
         try {
-            String callGraphJson = objectMapper.writeValueAsString(analysisResult);
-            if (analysisResult.status() == AnalysisStatus.FAILED) {
-                return callGraphJson;
-            }
-            return translateCallGraph(callGraphJson, toolContext);
-        } catch (Exception e) {
-            log.error("Call graph analysis serialization failed for {}.{}", className, methodSignature, e);
-            return UNAVAILABLE_RESULT;
+            return resolveApiCallGraph(apiPath, httpMethod, repoId, toolContext);
+        } catch (IllegalArgumentException exception) {
+            return renderApiFailure(ApiAnalysisStatus.NOT_FOUND,
+                    "INVALID_API_PATH", apiPath, List.of(), toolContext);
+        } catch (RuntimeException exception) {
+            log.error("Unexpected API analysis tool failure", exception);
+            tracker(toolContext).ifPresent(value -> value.recordFailed(
+                    ToolNames.FIND_API_CALL_GRAPH,
+                    Objects.toString(repoId, ""),
+                    Objects.toString(apiPath, ""),
+                    "UNEXPECTED_TOOL_FAILURE"));
+            return renderApiResult(new ApiAnalysisToolResult(
+                    ApiAnalysisStatus.ANALYSIS_FAILED,
+                    false,
+                    "",
+                    "UNEXPECTED_TOOL_FAILURE",
+                    List.of()));
         }
     }
 
-    private String translateCallGraph(String callGraphJson, ToolContext toolContext) {
-        String userQuery = Objects.toString(toolContext.getContext().get("userQuery"), "");
+    private String resolveApiCallGraph(
+            String apiPath, String httpMethod, String repoId, ToolContext toolContext) {
+        String safeMethod = Objects.toString(httpMethod, "");
+        String safeRepoId = Objects.toString(repoId, "");
+        List<ApiRouteCandidate> candidates = analysisService.lookupApiCandidates(
+                apiPath, safeMethod, safeRepoId);
+
+        if (CollectionUtils.isEmpty(candidates)) {
+            List<ApiRouteCandidate> suggestions = analysisService.suggestApiCandidates(
+                    apiPath, safeMethod, safeRepoId, 5);
+            return renderApiFailure(ApiAnalysisStatus.NOT_FOUND,
+                    "API_ROUTE_NOT_FOUND", apiPath, suggestions, toolContext);
+        }
+        if (candidates.size() > 1) {
+            tracker(toolContext).ifPresent(value -> value.recordAmbiguous(
+                    ToolNames.FIND_API_CALL_GRAPH, Objects.toString(apiPath, ""), candidates));
+            return renderApiResult(new ApiAnalysisToolResult(
+                    ApiAnalysisStatus.AMBIGUOUS,
+                    false,
+                    "",
+                    "MULTIPLE_API_CANDIDATES",
+                    candidates.stream().map(ApiRouteSummary::from).toList()));
+        }
+
+        ApiRouteCandidate candidate = candidates.getFirst();
+        log.info("API evidence route resolved: method={}, route={}, repo={}, candidateCount={}",
+                candidate.httpMethod(), candidate.routeTemplate(), candidate.repoId(), candidates.size());
+        CallGraphToolOutcome outcome = analyzeAndTranslate(
+                candidate.repoId(),
+                candidate.packageName(),
+                candidate.className(),
+                candidate.methodName(),
+                toolContext);
+        recordEvidence(outcome, ToolNames.FIND_API_CALL_GRAPH,
+                candidate.repoId(), candidate.routeTemplate(), candidates, toolContext);
+
+        ApiAnalysisStatus status = !outcome.translationAvailable()
+                ? ApiAnalysisStatus.ANALYSIS_FAILED
+                : outcome.verified()
+                        ? ApiAnalysisStatus.RESOLVED
+                        : ApiAnalysisStatus.TRANSLATION_UNVERIFIED;
+        return renderApiResult(new ApiAnalysisToolResult(
+                status,
+                outcome.verified(),
+                outcome.translationAvailable() ? outcome.output() : "",
+                outcome.failureCode(),
+                List.of(ApiRouteSummary.from(candidate))));
+    }
+
+    private CallGraphToolOutcome analyzeAndTranslate(
+            String repoId,
+            String packageName,
+            String className,
+            String methodSignature,
+            ToolContext toolContext) {
+        AnalysisResult<ExplainableCallGraph> analysisResult =
+                analysisService.analyzeMethodExplainableStructured(
+                        repoId, packageName, className, methodSignature);
+        String callGraphJson;
+        try {
+            callGraphJson = objectMapper.writeValueAsString(analysisResult);
+        } catch (JsonProcessingException | RuntimeException exception) {
+            log.error("Call graph analysis serialization failed for {}.{}",
+                    className, methodSignature, exception);
+            return new CallGraphToolOutcome(
+                    false, false, false, UNAVAILABLE_RESULT, "SERIALIZATION_FAILED");
+        }
+        if (!hasUsableGraph(analysisResult)) {
+            String unavailableOutput = Objects.isNull(analysisResult)
+                    ? UNAVAILABLE_RESULT
+                    : callGraphJson;
+            return new CallGraphToolOutcome(
+                    false, false, false, unavailableOutput, "CALL_GRAPH_UNAVAILABLE");
+        }
+
+        try {
+            Optional<TranslatorToolResult> translation = translateCallGraph(
+                    callGraphJson, toolContext);
+            if (translation.isEmpty()) {
+                return new CallGraphToolOutcome(
+                        true, false, false, UNAVAILABLE_RESULT, "TRANSLATOR_UNAVAILABLE");
+            }
+            TranslatorToolResult translated = translation.get();
+            String failureCode = translated.verified() ? "" : "TRANSLATION_UNVERIFIED";
+            return new CallGraphToolOutcome(
+                    true, true, translated.verified(), translated.render(), failureCode);
+        } catch (RuntimeException exception) {
+            log.error("Call graph translation failed for {}.{}",
+                    className, methodSignature, exception);
+            return new CallGraphToolOutcome(
+                    true, false, false, UNAVAILABLE_RESULT, "TRANSLATOR_UNAVAILABLE");
+        }
+    }
+
+    private boolean hasUsableGraph(AnalysisResult<ExplainableCallGraph> result) {
+        return Objects.nonNull(result)
+                && result.status() != AnalysisStatus.FAILED
+                && Objects.nonNull(result.data())
+                && Objects.nonNull(result.data().root());
+    }
+
+    private Optional<TranslatorToolResult> translateCallGraph(
+            String callGraphJson, ToolContext toolContext) {
         long blockMillis = translatorBlockMillis(toolContext);
         if (blockMillis <= 0) {
             log.warn("Translator skipped: overall deadline already exhausted");
-            return UNAVAILABLE_RESULT;
+            return Optional.empty();
         }
+        Optional<LoopTrace> result = runTranslatorLoop(callGraphJson, toolContext, blockMillis);
+        if (result.isEmpty()) {
+            return Optional.empty();
+        }
+        LoopTrace trace = result.get();
+        publishTrace(toolContext, trace);
+        return Optional.of(TranslatorToolResult.from(trace));
+    }
+
+    private Optional<LoopTrace> runTranslatorLoop(
+            String callGraphJson, ToolContext toolContext, long blockMillis) {
+        String userQuery = Objects.toString(toolContext.getContext().get("userQuery"), "");
         CallGraphExpandTools expandTools = new CallGraphExpandTools(analysisService);
         ChatOptions options = ToolCallingChatOptions.builder()
                 .toolCallbacks(ToolCallbacks.from(expandTools))
@@ -119,22 +257,76 @@ public class AgentAnalysisTools {
                 new TranslatorVerifyGate(callGraphJson),
                 "translator");
 
-        LoopTrace result;
         try {
-            result = loop.run(new LoopRequest("translator", userQuery))
+            LoopTrace result = loop.run(new LoopRequest("translator", userQuery))
                     .ofType(LoopEvent.Done.class)
                     .map(LoopEvent.Done::result)
                     .subscribeOn(Schedulers.boundedElastic())
                     .blockLast(Duration.ofMillis(blockMillis));
+            return Optional.ofNullable(result);
         } catch (IllegalStateException exception) {
             log.warn("Translator loop timed out after {} ms", blockMillis, exception);
-            return UNAVAILABLE_RESULT;
+            return Optional.empty();
         }
-        if (Objects.isNull(result)) {
-            return UNAVAILABLE_RESULT;
+    }
+
+    private Optional<CodeEvidenceTracker> tracker(ToolContext toolContext) {
+        if (Objects.isNull(toolContext) || Objects.isNull(toolContext.getContext())) {
+            return Optional.empty();
         }
-        publishTrace(toolContext, result);
-        return TranslatorToolResult.from(result).render();
+        Object value = toolContext.getContext().get(CodeEvidenceTracker.CONTEXT_KEY);
+        return value instanceof CodeEvidenceTracker tracker
+                ? Optional.of(tracker)
+                : Optional.empty();
+    }
+
+    private void recordEvidence(
+            CallGraphToolOutcome outcome,
+            String toolName,
+            String repoId,
+            String apiPath,
+            List<ApiRouteCandidate> candidates,
+            ToolContext toolContext) {
+        tracker(toolContext).ifPresent(value -> {
+            if (!outcome.translationAvailable()) {
+                value.recordFailed(toolName, repoId, apiPath, outcome.failureCode());
+            } else if (outcome.verified()) {
+                value.recordVerified(toolName, repoId, apiPath, candidates);
+            } else {
+                value.recordTranslationUnverified(toolName, repoId, apiPath, candidates);
+            }
+        });
+    }
+
+    private String renderApiFailure(
+            ApiAnalysisStatus status,
+            String reasonCode,
+            String apiPath,
+            List<ApiRouteCandidate> candidates,
+            ToolContext toolContext) {
+        List<ApiRouteCandidate> safeCandidates = CollectionUtils.isEmpty(candidates)
+                ? List.of()
+                : List.copyOf(candidates);
+        String safeApiPath = Objects.toString(apiPath, "");
+        tracker(toolContext).ifPresent(value -> value.recordNotFound(
+                ToolNames.FIND_API_CALL_GRAPH, safeApiPath, reasonCode, safeCandidates));
+        return renderApiResult(new ApiAnalysisToolResult(
+                status,
+                false,
+                "",
+                reasonCode,
+                safeCandidates.stream().map(ApiRouteSummary::from).toList()));
+    }
+
+    private String renderApiResult(ApiAnalysisToolResult result) {
+        try {
+            return objectMapper.writeValueAsString(result);
+        } catch (JsonProcessingException | RuntimeException exception) {
+            log.error("API analysis tool result serialization failed", exception);
+            return """
+                    {"status":"ANALYSIS_FAILED","verified":false,"answer":"","reasonCode":"SERIALIZATION_FAILED","candidates":[]}
+                    """.strip();
+        }
     }
 
     private long translatorBlockMillis(ToolContext toolContext) {
