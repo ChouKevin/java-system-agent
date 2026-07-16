@@ -30,7 +30,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DemoRepositoryContractTest {
 
     private static final String REPO_ID = "test-repo";
+
+    /** 原始碼:分析器讀取的可變 clone 位置 */
     private static final Path REPO_ROOT = Path.of("repos", REPO_ID);
+
+    /** 業務文件:agent 自有、手工維護,不隨原始碼移動 */
+    private static final Path DOC_ROOT = Path.of("knowledge", "repos", REPO_ID);
+
+    private static final Path SERVICE_MAP = Path.of("knowledge", "service-map.md");
     private static final Pattern BUSINESS_GROUP_LINK = Pattern.compile(
             "\\| `([^`]+)` \\|[^\\n]+\\| \\[[^]]+]\\((business-groups/[^)]+)\\) \\|");
     private static final Pattern SOURCE_LOOKUP_ROW = Pattern.compile(
@@ -61,7 +68,7 @@ class DemoRepositoryContractTest {
 
     @Test
     void serviceMap_should_list_demo_repository() throws IOException {
-        String serviceMap = Files.readString(Path.of("repos", "service-map.md"));
+        String serviceMap = Files.readString(SERVICE_MAP);
 
         assertThat(serviceMap).contains("`test-repo`");
         assertThat(serviceMap).contains("read_service_map");
@@ -72,14 +79,14 @@ class DemoRepositoryContractTest {
 
     @Test
     void businessMap_should_link_to_existing_group_documents() throws IOException {
-        String businessMap = Files.readString(REPO_ROOT.resolve("docs/business-map.md"));
+        String businessMap = Files.readString(DOC_ROOT.resolve("business-map.md"));
         List<BusinessGroupDoc> groupDocs = parseBusinessGroupDocs(businessMap);
 
         assertThat(groupDocs)
                 .extracting(BusinessGroupDoc::groupName)
                 .containsExactly("order-checkout", "payment-settlement", "shipping-arrangement");
         for (BusinessGroupDoc groupDoc : groupDocs) {
-            assertThat(REPO_ROOT.resolve("docs").resolve(groupDoc.relativePath()))
+            assertThat(DOC_ROOT.resolve(groupDoc.relativePath()))
                     .as("business group document exists: %s", groupDoc.relativePath())
                     .exists()
                     .isRegularFile();
@@ -88,11 +95,11 @@ class DemoRepositoryContractTest {
 
     @Test
     void businessGroupSourceLookup_should_point_to_analyzable_entryPoints() throws IOException {
-        String businessMap = Files.readString(REPO_ROOT.resolve("docs/business-map.md"));
+        String businessMap = Files.readString(DOC_ROOT.resolve("business-map.md"));
         List<BusinessGroupDoc> groupDocs = parseBusinessGroupDocs(businessMap);
 
         for (BusinessGroupDoc groupDoc : groupDocs) {
-            String groupContent = Files.readString(REPO_ROOT.resolve("docs").resolve(groupDoc.relativePath()));
+            String groupContent = Files.readString(DOC_ROOT.resolve(groupDoc.relativePath()));
             List<SourceLookup> lookups = parseSourceLookups(groupContent);
             assertThat(lookups)
                     .as("source lookup rows for %s", groupDoc.groupName())
@@ -109,8 +116,8 @@ class DemoRepositoryContractTest {
         String readme = Files.readString(Path.of("README.md"));
 
         assertThat(readme).contains("## Adding Another Repository");
-        assertThat(readme).contains("repos/{repoId}/docs/business-map.md");
-        assertThat(readme).contains("repos/{repoId}/docs/business-groups/{groupName}.md");
+        assertThat(readme).contains("knowledge/repos/{repoId}/business-map.md");
+        assertThat(readme).contains("knowledge/repos/{repoId}/business-groups/{groupName}.md");
         assertThat(readme).contains("read_service_map -> read_business_map -> read_business_group_doc -> find_call_graph");
     }
 

@@ -194,7 +194,7 @@ public class AgentAnalysisTools {
 
         try {
             Optional<TranslatorToolResult> translation = translateCallGraph(
-                    callGraphJson, toolContext);
+                    analysisResult, callGraphJson, toolContext);
             if (translation.isEmpty()) {
                 return new CallGraphToolOutcome(
                         true, false, false, UNAVAILABLE_RESULT, "TRANSLATOR_UNAVAILABLE");
@@ -219,13 +219,15 @@ public class AgentAnalysisTools {
     }
 
     private Optional<TranslatorToolResult> translateCallGraph(
-            String callGraphJson, ToolContext toolContext) {
+            AnalysisResult<ExplainableCallGraph> analysisResult,
+            String callGraphJson,
+            ToolContext toolContext) {
         long blockMillis = translatorBlockMillis(toolContext);
         if (blockMillis <= 0) {
             log.warn("Translator skipped: overall deadline already exhausted");
             return Optional.empty();
         }
-        Optional<LoopTrace> result = runTranslatorLoop(callGraphJson, toolContext, blockMillis);
+        Optional<LoopTrace> result = runTranslatorLoop(analysisResult, callGraphJson, toolContext, blockMillis);
         if (result.isEmpty()) {
             return Optional.empty();
         }
@@ -235,7 +237,10 @@ public class AgentAnalysisTools {
     }
 
     private Optional<LoopTrace> runTranslatorLoop(
-            String callGraphJson, ToolContext toolContext, long blockMillis) {
+            AnalysisResult<ExplainableCallGraph> analysisResult,
+            String callGraphJson,
+            ToolContext toolContext,
+            long blockMillis) {
         String userQuery = Objects.toString(toolContext.getContext().get("userQuery"), "");
         CallGraphExpandTools expandTools = new CallGraphExpandTools(analysisService);
         ChatOptions options = ToolCallingChatOptions.builder()
@@ -254,7 +259,7 @@ public class AgentAnalysisTools {
                 new CompositeVerifyGate(List.of(
                         new NamedVerifyGate(
                                 "translator-output",
-                                new TranslatorVerifyGate(callGraphJson)))),
+                                new TranslatorVerifyGate(analysisResult)))),
                 "translator");
 
         try {

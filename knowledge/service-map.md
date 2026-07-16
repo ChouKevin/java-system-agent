@@ -4,7 +4,7 @@
 
 | repoId | Purpose | Primary documents |
 |--------|---------|-------------------|
-| `test-repo` | Demonstrates an order workflow service with checkout, payment confirmation, and shipping arrangement flows. | `repos/test-repo/docs/business-map.md` |
+| `test-repo` | Demonstrates an order workflow service with checkout, payment confirmation, and shipping arrangement flows. | `knowledge/repos/test-repo/business-map.md` |
 
 ## How to Use This Example
 

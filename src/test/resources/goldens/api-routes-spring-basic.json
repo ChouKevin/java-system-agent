@@ -1,0 +1,77 @@
+{
+  "fixture" : "spring-basic",
+  "classes" : [ {
+    "className" : "BasicController",
+    "packagePath" : "com/example/basic/BasicController.java",
+    "basePath" : "",
+    "description" : "",
+    "apis" : [ {
+      "name" : "getBasic",
+      "description" : "",
+      "type" : "API",
+      "apiUrl" : "/basic/{id}",
+      "apiType" : [ "GET" ],
+      "swaggerDesc" : [ ]
+    } ]
+  } ],
+  "lookups" : [ {
+    "request" : "* /basic/42",
+    "matches" : [ {
+      "repoId" : "spring-basic",
+      "httpMethod" : "GET",
+      "routeTemplate" : "/basic/{*}",
+      "packageName" : "com.example.basic",
+      "className" : "BasicController",
+      "methodName" : "getBasic"
+    } ]
+  }, {
+    "request" : "GET //basic//42",
+    "matches" : [ {
+      "repoId" : "spring-basic",
+      "httpMethod" : "GET",
+      "routeTemplate" : "/basic/{*}",
+      "packageName" : "com.example.basic",
+      "className" : "BasicController",
+      "methodName" : "getBasic"
+    } ]
+  }, {
+    "request" : "GET /basic",
+    "matches" : [ ]
+  }, {
+    "request" : "GET /basic/42",
+    "matches" : [ {
+      "repoId" : "spring-basic",
+      "httpMethod" : "GET",
+      "routeTemplate" : "/basic/{*}",
+      "packageName" : "com.example.basic",
+      "className" : "BasicController",
+      "methodName" : "getBasic"
+    } ]
+  }, {
+    "request" : "GET /basic/42/",
+    "matches" : [ {
+      "repoId" : "spring-basic",
+      "httpMethod" : "GET",
+      "routeTemplate" : "/basic/{*}",
+      "packageName" : "com.example.basic",
+      "className" : "BasicController",
+      "methodName" : "getBasic"
+    } ]
+  }, {
+    "request" : "GET /basic/42/extra",
+    "matches" : [ ]
+  }, {
+    "request" : "GET /basic/{id}",
+    "matches" : [ {
+      "repoId" : "spring-basic",
+      "httpMethod" : "GET",
+      "routeTemplate" : "/basic/{*}",
+      "packageName" : "com.example.basic",
+      "className" : "BasicController",
+      "methodName" : "getBasic"
+    } ]
+  }, {
+    "request" : "POST /basic/42",
+    "matches" : [ ]
+  } ]
+}

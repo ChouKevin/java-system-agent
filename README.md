@@ -157,9 +157,9 @@ The agent uses a two-layer LLM architecture (outer + inner) with five outer tool
 
 | Tool | Parameters | Reads | Purpose |
 |------|-----------|-------|---------|
-| `read_service_map` | (none) | `repos/service-map.md` | System-wide repo overview, used to identify target repo |
-| `read_business_map` | `repoId` | `repos/{repoId}/docs/business-map.md` | Business group list for a repo |
-| `read_business_group_doc` | `repoId`, `groupName` | `repos/{repoId}/docs/business-groups/{groupName}.md` | Detailed entry points and business logic for a group |
+| `read_service_map` | (none) | `knowledge/service-map.md` | System-wide repo overview, used to identify target repo |
+| `read_business_map` | `repoId` | `knowledge/repos/{repoId}/business-map.md` | Business group list for a repo |
+| `read_business_group_doc` | `repoId`, `groupName` | `knowledge/repos/{repoId}/business-groups/{groupName}.md` | Detailed entry points and business logic for a group |
 | `find_call_graph` | `repoId`, `packageName`, `className`, `methodSignature` | Java source code in `repos/{repoId}/` | Analyzes method call chain, delegates to inner LLM for translation |
 | `find_api_call_graph` | `apiPath`, `httpMethod?`, `repoId?` | Canonical API trie and Java source code | Finds API route candidates; a unique route is analyzed and translated, while zero or multiple matches return a safe status and candidates |
 
@@ -222,33 +222,40 @@ Slack tool-call summaries expose only route and evidence status information. The
 
 ## Business Documentation Structure
 
-Repos are available under `repos/` at runtime. Each repo must have the following `docs/` structure for the tools to work:
+Business documents live under `knowledge/`, which is **owned by the agent and hand-authored**. They are never cloned and never travel with the analyzed repository:
 
 ```
-repos/
+knowledge/
   service-map.md                       # Top-level: all repos overview
-  {repoId}/
-    docs/
+  repos/
+    {repoId}/
       business-map.md                  # Business group index
+      business-scope.md                # API/job/consumer inventory, optional
       summary.md                       # Business summary, optional but recommended
       business-groups/
         {groupName}.md                 # One file per business group
 ```
 
-A committed example is available at `repos/test-repo`. It shows the expected source layout, mapper resource location, top-level service map, business map, and per-group documents.
+`knowledge/` is deliberately separate from `repos/`. Repos under `repos/{repoId}/` are working clones that `git pull` overwrites, so any hand-authored document kept beside the source tree is destroyed on the next sync. Keeping the documents in `knowledge/` is what makes them durable.
+
+The tradeoff is explicit: because documents no longer travel with the source, **nothing regenerates them and nothing notices when they drift from the code**. Keeping them accurate is a human responsibility.
+
+A committed example is available at `knowledge/repos/test-repo` (documents) alongside `repos/test-repo` (the source the analyzer reads).
 
 ## Adding Another Repository
 
-To add another repository, place the source code under `repos/{repoId}/` and keep the business documents beside that source tree. The minimum useful structure is:
+Adding a repository is two separate steps, because source and documents no longer live together:
+
+1. Register the repository so the source is cloned to `repos/{repoId}/` (see `git.repos` in `application.yml` and the `REPO_{NAME}_*` variables in `.env`).
+2. **Hand-author `knowledge/repos/{repoId}/` yourself.** Nothing generates it, and nothing is inherited from the analyzed repository:
 
 ```
-repos/
+knowledge/
   service-map.md
-  {repoId}/
-    src/main/java/...
-    src/main/resources/...
-    docs/
+  repos/
+    {repoId}/
       business-map.md
+      business-scope.md                # API/job/consumer inventory, optional
       summary.md
       business-groups/
         {groupName}.md
@@ -258,10 +265,12 @@ Update these files together:
 
 | File | Required content |
 |------|------------------|
-| `repos/service-map.md` | Add the new `repoId`, service purpose, and primary document path. |
-| `repos/{repoId}/docs/business-map.md` | List every business group and link to `business-groups/{groupName}.md`. |
-| `repos/{repoId}/docs/business-groups/{groupName}.md` | Describe the business purpose, required input data, behavior, dependencies, and `find_call_graph` parameters. |
-| `repos/{repoId}/docs/summary.md` | Summarize the service in business language. |
+| `knowledge/service-map.md` | Add the new `repoId`, service purpose, and primary document path. |
+| `knowledge/repos/{repoId}/business-map.md` | List every business group and link to `business-groups/{groupName}.md`. |
+| `knowledge/repos/{repoId}/business-groups/{groupName}.md` | Describe the business purpose, required input data, behavior, dependencies, and `find_call_graph` parameters. |
+| `knowledge/repos/{repoId}/summary.md` | Summarize the service in business language. |
+
+`repoId` and `groupName` are used to build document paths, so both must match `^[a-z0-9][a-z0-9._-]{0,63}$`. Any other value is rejected.
 
 The expected lookup path is `read_service_map -> read_business_map -> read_business_group_doc -> find_call_graph`. Each business group document should list source lookup rows with `repoId`, `packageName`, `className`, and `methodSignature` values that match real Java source under `repos/{repoId}/src/main/java`.
 
@@ -294,5 +303,5 @@ Swagger UI: `/swagger-ui/index.html`
 
 ## Further Reading
 
-- [`repos/service-map.md`](repos/service-map.md) -- Example top-level service index
-- [`repos/test-repo/docs/business-map.md`](repos/test-repo/docs/business-map.md) -- Example business group index
+- [`knowledge/service-map.md`](knowledge/service-map.md) -- Example top-level service index
+- [`knowledge/repos/test-repo/business-map.md`](knowledge/repos/test-repo/business-map.md) -- Example business group index

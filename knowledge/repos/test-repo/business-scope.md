@@ -18,5 +18,5 @@
 |------|----------|
 | Java source | `repos/test-repo/src/main/java/com/example/order/` |
 | Mapper resource | `repos/test-repo/src/main/resources/mapper/OrderMapper.xml` |
-| Business group index | `repos/test-repo/docs/business-map.md` |
-| Detailed group files | `repos/test-repo/docs/business-groups/*.md` |
+| Business group index | `knowledge/repos/test-repo/business-map.md` |
+| Detailed group files | `knowledge/repos/test-repo/business-groups/*.md` |

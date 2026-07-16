@@ -15,7 +15,6 @@ logs/
 
 # Repos (keep committed demo only)
 repos/*
-!repos/service-map.md
 !repos/test-repo/
 !repos/test-repo/**
 

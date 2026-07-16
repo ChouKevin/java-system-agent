@@ -134,7 +134,7 @@ Side Effects：無（唯讀查詢 agent trace 儲存）
 
 **讀取的資料來源：**
 - Slack Socket Mode 事件（app_mention）
-- repos/service-map.md、repos/{repoId}/docs/business-map.md、repos/{repoId}/docs/business-groups/*.md（透過 DocumentTools）
+- knowledge/service-map.md、knowledge/repos/{repoId}/business-map.md、knowledge/repos/{repoId}/business-groups/{groupName}.md（透過 DocumentTools）
 - 分析快取（透過 AgentAnalysisTools → AnalysisService）
 - 同一 Slack threadTs 的對話記憶與 agent trace 儲存（UAT 預設持久化，dev/pro 預設保存在有界記憶體）
 

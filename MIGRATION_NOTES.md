@@ -6,7 +6,7 @@
 
 - Regression-only static analysis cases live under `src/test/resources/fixtures/*`.
 - `repos/test-repo` is the committed user-facing example repository.
-- The runtime document contract is `repos/service-map.md`, `repos/{repoId}/docs/business-map.md`, and `repos/{repoId}/docs/business-groups/*.md`.
+- The runtime document contract is `knowledge/service-map.md`, `knowledge/repos/{repoId}/business-map.md`, `knowledge/repos/{repoId}/business-groups/{groupName}.md`, and `knowledge/repos/{repoId}/summary.md`.
 - The exposed document tool for group details is `read_business_group_doc`.
 - Demo repository contract coverage verifies that business group documents point to real, analyzable Java entry points.
 
@@ -14,7 +14,7 @@
 
 1. Add analyzer fixtures only for supported framework or data-access patterns that are not already covered.
 2. Keep `repos/test-repo` focused on onboarding and usage examples, not regression edge cases.
-3. Update `repos/service-map.md` and README onboarding instructions when adding another committed example repository.
+3. Update `knowledge/service-map.md` and README onboarding instructions when adding another committed example repository.
 4. Keep noisy test output low; prefer assertions over console dumps.
 
 ### Review Questions
