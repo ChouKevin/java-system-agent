@@ -1,4 +1,10 @@
 package com.java.system.agent.ai.loop;
 
-public record LoopRequest(String conversationId, String userQuery) {
+import java.util.UUID;
+
+public record LoopRequest(String traceId, String conversationId, String userQuery) {
+
+    public LoopRequest(String conversationId, String userQuery) {
+        this(UUID.randomUUID().toString(), conversationId, userQuery);
+    }
 }

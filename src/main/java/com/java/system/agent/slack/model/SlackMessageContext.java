@@ -8,6 +8,7 @@ import lombok.Data;
 @Data
 @Builder
 public class SlackMessageContext {
+    private String traceId;
     @RateLimitKey
     private String userId;
     private String teamId;
@@ -36,6 +37,11 @@ public class SlackMessageContext {
 
     public String getRateLimitMessage(long cooldownSeconds) {
         return formatMention(String.format("請求太頻繁，請稍後再試 (冷卻時間 %d 秒)。", cooldownSeconds));
+    }
+
+    /** 串流失敗時由 listener 發送的 fallback 錯誤訊息 */
+    public String getStreamFailureMessage() {
+        return formatMention("處理您的請求時發生錯誤，請稍後再試。");
     }
 
     public String getFinalAnalysisMessage(String aiResponse) {

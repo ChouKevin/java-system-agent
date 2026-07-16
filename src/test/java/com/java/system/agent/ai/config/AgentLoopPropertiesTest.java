@@ -21,6 +21,7 @@ class AgentLoopPropertiesTest {
         assertThat(properties.analyst().noProgressLimit()).isEqualTo(2);
         assertThat(properties.translator().maxTurns()).isEqualTo(6);
         assertThat(properties.translator().maxWallMs()).isEqualTo(60_000L);
+        assertThat(properties.overall().maxWallMs()).isEqualTo(300_000L);
         assertThat(properties.trace().enabled()).isTrue();
         assertThat(properties.trace().retain()).isEqualTo(20);
         assertThat(properties.trace().maxConversations()).isEqualTo(200);
@@ -28,6 +29,7 @@ class AgentLoopPropertiesTest {
         assertThat(properties.rateLimit().requestsPerMinute()).isEqualTo(30);
         assertThat(properties.rateLimit().tokensPerMinute()).isEqualTo(1_000_000);
         assertThat(properties.rateLimit().requestsPerDay()).isEqualTo(1_500);
+        assertThat(properties.rateLimit().maxWaitMillis()).isEqualTo(300_000L);
     }
 
     @Test
@@ -35,14 +37,18 @@ class AgentLoopPropertiesTest {
         AgentLoopProperties properties = new Binder(new MapConfigurationPropertySource(
                 Map.of(
                         "agent.loop.analyst.max-turns", "5",
+                        "agent.loop.overall.max-wall-ms", "45000",
                         "agent.loop.rate-limit.requests-per-minute", "12",
                         "agent.loop.rate-limit.tokens-per-minute", "9000",
-                        "agent.loop.rate-limit.requests-per-day", "300")))
+                        "agent.loop.rate-limit.requests-per-day", "300",
+                        "agent.loop.rate-limit.max-wait-millis", "120000")))
                 .bindOrCreate("agent.loop", Bindable.of(AgentLoopProperties.class));
 
         assertThat(properties.analyst().maxTurns()).isEqualTo(5);
+        assertThat(properties.overall().maxWallMs()).isEqualTo(45_000L);
         assertThat(properties.rateLimit().requestsPerMinute()).isEqualTo(12);
         assertThat(properties.rateLimit().tokensPerMinute()).isEqualTo(9_000);
         assertThat(properties.rateLimit().requestsPerDay()).isEqualTo(300);
+        assertThat(properties.rateLimit().maxWaitMillis()).isEqualTo(120_000L);
     }
 }

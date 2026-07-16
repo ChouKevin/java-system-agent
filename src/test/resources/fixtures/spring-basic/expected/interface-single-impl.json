@@ -1,32 +1,32 @@
 {
-  "rootSignature": "com.example.basic.BasicController#public String getBasic(@PathVariable Long id)",
+  "rootSignature": "com.example.basic.BasicController#getBasic(Long)",
   "expectedMethodCount": 4,
   "expectedEdgeCount": 3,
   "expectedNodes": [
     {
-      "signatureContains": "BasicController#public String getBasic(@PathVariable Long id)",
+      "signatureContains": "BasicController#getBasic(Long)",
       "type": "INTERNAL_CONTROLLER",
       "className": "BasicController"
     },
     {
-      "signatureContains": "BasicService#getName",
+      "signatureContains": "BasicService#getName(Long)",
       "type": "INTERFACE",
       "className": "BasicService"
     },
     {
-      "signatureContains": "BasicServiceImpl#public String getName(Long id)",
+      "signatureContains": "BasicServiceImpl#getName(Long)",
       "type": "INTERNAL_SERVICE",
       "className": "BasicServiceImpl"
     }
   ],
   "expectedEdges": [
     {
-      "fromContains": "BasicController#public String getBasic(@PathVariable Long id)",
-      "toContains": "BasicService#getName"
+      "fromContains": "BasicController#getBasic(Long)",
+      "toContains": "BasicService#getName(Long)"
     },
     {
-      "fromContains": "BasicService#getName",
-      "toContains": "BasicServiceImpl#public String getName(Long id)"
+      "fromContains": "BasicService#getName(Long)",
+      "toContains": "BasicServiceImpl#getName(Long)"
     }
   ],
   "expectedSql": []

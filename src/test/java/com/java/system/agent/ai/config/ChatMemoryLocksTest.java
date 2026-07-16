@@ -26,4 +26,21 @@ class ChatMemoryLocksTest {
         assertThatThrownBy(() -> locks.withConversationLock(" ", () -> { }))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void withConversationResultLock_returnsActionResult() {
+        ChatMemoryLocks locks = new ChatMemoryLocks();
+
+        String result = locks.withConversationResultLock("thread-1", () -> "snapshot");
+
+        assertThat(result).isEqualTo("snapshot");
+    }
+
+    @Test
+    void withConversationResultLock_rejectsMissingAction() {
+        ChatMemoryLocks locks = new ChatMemoryLocks();
+
+        assertThatThrownBy(() -> locks.withConversationResultLock("thread-1", null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

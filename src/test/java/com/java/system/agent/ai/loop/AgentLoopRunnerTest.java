@@ -21,7 +21,8 @@ class AgentLoopRunnerTest {
             verifyCalls.incrementAndGet();
             return Verdict.accept();
         };
-        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE, verifyGate, "test");
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor, state -> TerminationDecision.continueLoop(), verifyGate, "test");
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
@@ -43,7 +44,8 @@ class AgentLoopRunnerTest {
         VerifyGate verifyGate = (candidate, state) -> state.iteration() == 0
                 ? Verdict.revise("證據不足")
                 : Verdict.accept();
-        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE, verifyGate, "test");
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor, state -> TerminationDecision.continueLoop(), verifyGate, "test");
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
@@ -61,7 +63,8 @@ class AgentLoopRunnerTest {
         VerifyGate verifyGate = (candidate, state) -> state.iteration() == 0
                 ? Verdict.revise("證據不足")
                 : Verdict.accept();
-        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE, verifyGate, "test");
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor, state -> TerminationDecision.continueLoop(), verifyGate, "test");
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
@@ -76,7 +79,7 @@ class AgentLoopRunnerTest {
     void acceptedCandidate_emitsTokenAndAcceptedTrace() {
         AgentLoop loop = new AgentLoopRunner(
                 state -> StepOutcome.finalCandidate("完成回答", new Candidate("可以申請")),
-                state -> LoopDecision.CONTINUE,
+                state -> TerminationDecision.continueLoop(),
                 (candidate, state) -> Verdict.accept(),
                 "test");
 
@@ -96,31 +99,166 @@ class AgentLoopRunnerTest {
             return StepOutcome.finalCandidate("產生草稿", new Candidate("先用這版回答"));
         };
         TerminationPolicy terminationPolicy = state -> state.iteration() == 0
-                ? LoopDecision.CONTINUE
-                : LoopDecision.FORCE_FINALIZE;
+                ? TerminationDecision.continueLoop()
+                : TerminationDecision.terminate(LoopDecision.FORCE_FINALIZE, TerminationReason.MAX_TURNS);
         AgentLoop loop = new AgentLoopRunner(stepExecutor, terminationPolicy,
                 (candidate, state) -> Verdict.revise("再更精準"), "test");
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
         assertThat(stepCalls).hasValue(1);
-        assertThat(events).contains(new LoopEvent.Token(AgentLoopRunner.UNVERIFIED_NOTE + "先用這版回答"));
+        assertThat(events).noneMatch(LoopEvent.Token.class::isInstance);
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
         assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "先用這版回答");
         assertThat(done.result().accepted()).isFalse();
+        assertThat(done.result().terminationReason()).isEqualTo(TerminationReason.MAX_TURNS);
+    }
+
+    @Test
+    void should_apply_terminal_policy_when_force_finalize_uses_rejected_draft() {
+        StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
+                "產生草稿", new Candidate("未驗證業務結論"));
+        TerminationPolicy terminationPolicy = state -> state.iteration() == 0
+                ? TerminationDecision.continueLoop()
+                : TerminationDecision.terminate(LoopDecision.FORCE_FINALIZE, TerminationReason.MAX_TURNS);
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor,
+                terminationPolicy,
+                (candidate, state) -> Verdict.revise("缺少證據"),
+                "test",
+                trace -> {
+                },
+                candidate -> new Candidate("safe"));
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q"))
+                .collectList()
+                .block();
+
+        assertThat(events).noneMatch(LoopEvent.Token.class::isInstance);
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "safe");
+    }
+
+    @Test
+    void should_not_apply_terminal_policy_when_candidate_is_normally_accepted() {
+        AgentLoop loop = new AgentLoopRunner(
+                state -> StepOutcome.finalCandidate("完成回答", new Candidate("已接受結論")),
+                state -> TerminationDecision.continueLoop(),
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                trace -> {
+                },
+                candidate -> new Candidate("safe"));
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q"))
+                .collectList()
+                .block();
+
+        assertThat(events).contains(new LoopEvent.Token("已接受結論"));
+        assertThat(events).doesNotContain(new LoopEvent.Token("safe"));
+    }
+
+    @Test
+    void should_apply_terminal_policy_when_stop_uses_rejected_draft() {
+        StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
+                "產生草稿", new Candidate("未驗證業務結論"));
+        TerminationPolicy terminationPolicy = state -> state.iteration() == 0
+                ? TerminationDecision.continueLoop()
+                : TerminationDecision.terminate(LoopDecision.STOP, TerminationReason.NO_PROGRESS);
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor,
+                terminationPolicy,
+                (candidate, state) -> Verdict.revise("缺少證據"),
+                "test",
+                trace -> {
+                },
+                candidate -> new Candidate("safe"));
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q"))
+                .collectList()
+                .block();
+
+        assertThat(events).noneMatch(LoopEvent.Token.class::isInstance);
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "safe");
+    }
+
+    @Test
+    void should_apply_terminal_policy_when_step_throws() {
+        StepExecutor stepExecutor = state -> {
+            throw new IllegalStateException("model unavailable");
+        };
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor,
+                state -> TerminationDecision.continueLoop(),
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                trace -> {
+                },
+                candidate -> new Candidate("safe"));
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q"))
+                .collectList()
+                .block();
+
+        assertThat(events).noneMatch(LoopEvent.Token.class::isInstance);
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "safe");
+        assertThat(done.result().terminationReason()).isEqualTo(TerminationReason.STEP_ERROR);
+    }
+
+    @Test
+    void should_apply_terminal_policy_when_cancelled() {
+        StepExecutor stepExecutor = state -> StepOutcome.acted(
+                "查詢", List.of(ToolCallRecord.of("read_service_map")));
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(
+                stepExecutor,
+                state -> TerminationDecision.continueLoop(),
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                saved::add,
+                candidate -> new Candidate("safe"));
+
+        loop.run(new LoopRequest("t", "q")).take(1).blockLast();
+
+        assertThat(saved).singleElement()
+                .extracting(LoopTrace::finalAnswer)
+                .isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "safe");
+        assertThat(saved.getFirst().terminationReason()).isEqualTo(TerminationReason.CANCELLED);
+    }
+
+    @Test
+    void finalCandidateCancellation_recordsCancelledInsteadOfAcceptedTrace() {
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(
+                state -> StepOutcome.finalCandidate("完成回答", new Candidate("不應送出的答案")),
+                state -> TerminationDecision.continueLoop(),
+                (candidate, state) -> Verdict.accept(),
+                "test",
+                saved::add);
+
+        loop.run(new LoopRequest("t", "q")).take(1).blockLast();
+
+        assertThat(saved).singleElement()
+                .extracting(LoopTrace::terminationReason)
+                .isEqualTo(TerminationReason.CANCELLED);
+        assertThat(saved.getFirst().steps()).singleElement()
+                .extracting(LoopStep::candidateAnswer)
+                .isEqualTo("不應送出的答案");
     }
 
     @Test
     void stopBeforeAnyStep_emitsFallback() {
         AgentLoop loop = new AgentLoopRunner(
                 state -> StepOutcome.finalCandidate("不應執行", new Candidate("x")),
-                state -> LoopDecision.STOP,
+                state -> TerminationDecision.terminate(LoopDecision.STOP, TerminationReason.NO_PROGRESS),
                 (candidate, state) -> Verdict.accept(),
                 "test");
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
-        assertThat(events).contains(new LoopEvent.Token(AgentLoopRunner.FALLBACK));
+        assertThat(events).noneMatch(LoopEvent.Token.class::isInstance);
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
         assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.FALLBACK);
         assertThat(done.result().accepted()).isFalse();
@@ -141,49 +279,84 @@ class AgentLoopRunnerTest {
             }
         };
         AgentLoop loop = new AgentLoopRunner(stepExecutor,
-                state -> LoopDecision.FORCE_FINALIZE,
+                state -> TerminationDecision.terminate(
+                        LoopDecision.FORCE_FINALIZE, TerminationReason.MAX_TURNS),
                 (candidate, state) -> Verdict.accept(),
                 "test");
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
-        assertThat(events).contains(new LoopEvent.Token(AgentLoopRunner.UNVERIFIED_NOTE + "直接回答"));
+        assertThat(events).noneMatch(LoopEvent.Token.class::isInstance);
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
         assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.UNVERIFIED_NOTE + "直接回答");
         assertThat(done.result().accepted()).isFalse();
+        assertThat(done.result().steps()).singleElement()
+                .extracting(LoopStep::candidateAnswer)
+                .isEqualTo("直接回答");
     }
 
     @Test
-    void stopWithRejectedDraft_marksAnswerUnverified() {
+    void forceAnswerThrows_emitsFallbackInsteadOfError() {
+        StepExecutor stepExecutor = new StepExecutor() {
+            @Override
+            public StepOutcome step(LoopState state) {
+                return StepOutcome.acted("查詢", List.of(ToolCallRecord.of("find_call_graph")));
+            }
+
+            @Override
+            public Candidate forceAnswer(LoopState state) {
+                throw new IllegalStateException(
+                        "Estimated LLM request tokens exceed configured tokens-per-minute limit");
+            }
+        };
+        List<LoopTrace> saved = new ArrayList<>();
+        AgentLoop loop = new AgentLoopRunner(stepExecutor,
+                state -> TerminationDecision.terminate(
+                        LoopDecision.FORCE_FINALIZE, TerminationReason.MAX_TURNS),
+                (candidate, state) -> Verdict.accept(), "test", saved::add);
+
+        List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
+
+        LoopEvent.Done done = (LoopEvent.Done) events.getLast();
+        assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.FALLBACK);
+        assertThat(done.result().accepted()).isFalse();
+        assertThat(saved).hasSize(1);
+    }
+
+    @Test
+    void stopWithRejectedDraft_recordsCandidateAndReasonWithoutEmittingToken() {
         StepExecutor stepExecutor = state -> StepOutcome.finalCandidate(
                 "整理回覆", new Candidate("被拒的草稿"));
         TerminationPolicy terminationPolicy = state -> state.iteration() < 1
-                ? LoopDecision.CONTINUE
-                : LoopDecision.STOP;
+                ? TerminationDecision.continueLoop()
+                : TerminationDecision.terminate(LoopDecision.STOP, TerminationReason.NO_PROGRESS);
         AgentLoop loop = new AgentLoopRunner(stepExecutor, terminationPolicy,
                 (candidate, state) -> Verdict.revise("臆測"), "test");
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
 
+        assertThat(events).noneMatch(LoopEvent.Token.class::isInstance);
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
-        assertThat(done.result().finalAnswer()).startsWith(AgentLoopRunner.UNVERIFIED_NOTE);
+        assertThat(done.result().terminationReason()).isEqualTo(TerminationReason.NO_PROGRESS);
+        assertThat(done.result().steps().getLast().candidateAnswer()).isEqualTo("被拒的草稿");
         assertThat(done.result().accepted()).isFalse();
     }
 
     @Test
     void run_stampsTraceIdAndRole() {
+        LoopRequest request = new LoopRequest("trace-1", "t", "q");
         List<LoopEvent> events = new AgentLoopRunner(
                 state -> StepOutcome.finalCandidate("p", new Candidate("ans")),
-                state -> LoopDecision.CONTINUE,
+                state -> TerminationDecision.continueLoop(),
                 (candidate, state) -> Verdict.accept(),
                 "analyst")
-                .run(new LoopRequest("t", "q"))
+                .run(request)
                 .collectList()
                 .block();
 
         LoopEvent.Done done = (LoopEvent.Done) events.getLast();
         assertThat(done.result().role()).isEqualTo("analyst");
-        assertThat(done.result().traceId()).isNotBlank();
+        assertThat(done.result().traceId()).isEqualTo(request.traceId());
     }
 
     @Test
@@ -196,7 +369,7 @@ class AgentLoopRunnerTest {
 
         List<LoopEvent> events = new AgentLoopRunner(
                 stepExecutor,
-                state -> LoopDecision.CONTINUE,
+                state -> TerminationDecision.continueLoop(),
                 (candidate, state) -> Verdict.accept(),
                 "analyst")
                 .run(new LoopRequest("t", "q"))
@@ -214,7 +387,7 @@ class AgentLoopRunnerTest {
             throw new IllegalStateException("model unavailable");
         };
         List<LoopTrace> saved = new ArrayList<>();
-        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE,
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> TerminationDecision.continueLoop(),
                 (candidate, state) -> Verdict.accept(), "test", saved::add);
 
         List<LoopEvent> events = loop.run(new LoopRequest("t", "q")).collectList().block();
@@ -224,6 +397,7 @@ class AgentLoopRunnerTest {
         assertThat(done.result().finalAnswer()).isEqualTo(AgentLoopRunner.FALLBACK);
         assertThat(done.result().steps()).hasSize(1);
         assertThat(done.result().steps().getFirst().summary()).contains("model unavailable");
+        assertThat(done.result().terminationReason()).isEqualTo(TerminationReason.STEP_ERROR);
         assertThat(saved).hasSize(1);
     }
 
@@ -232,7 +406,7 @@ class AgentLoopRunnerTest {
         List<LoopTrace> saved = new ArrayList<>();
         AgentLoop loop = new AgentLoopRunner(
                 state -> StepOutcome.finalCandidate("完成回答", new Candidate("答案")),
-                state -> LoopDecision.CONTINUE,
+                state -> TerminationDecision.continueLoop(),
                 (candidate, state) -> Verdict.accept(),
                 "test", saved::add);
 
@@ -246,7 +420,7 @@ class AgentLoopRunnerTest {
     void traceListenerThrows_stillEmitsDone() {
         AgentLoop loop = new AgentLoopRunner(
                 state -> StepOutcome.finalCandidate("完成回答", new Candidate("答案")),
-                state -> LoopDecision.CONTINUE,
+                state -> TerminationDecision.continueLoop(),
                 (candidate, state) -> Verdict.accept(),
                 "test",
                 trace -> {
@@ -265,12 +439,13 @@ class AgentLoopRunnerTest {
         StepExecutor stepExecutor = state -> StepOutcome.acted(
                 "查詢", List.of(ToolCallRecord.of("read_service_map")));
         List<LoopTrace> saved = new ArrayList<>();
-        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> LoopDecision.CONTINUE,
+        AgentLoop loop = new AgentLoopRunner(stepExecutor, state -> TerminationDecision.continueLoop(),
                 (candidate, state) -> Verdict.accept(), "test", saved::add);
 
         loop.run(new LoopRequest("t", "q")).take(1).blockLast();
 
         assertThat(saved).hasSize(1);
         assertThat(saved.getFirst().accepted()).isFalse();
+        assertThat(saved.getFirst().terminationReason()).isEqualTo(TerminationReason.CANCELLED);
     }
 }

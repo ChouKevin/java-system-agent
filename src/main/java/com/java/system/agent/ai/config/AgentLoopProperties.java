@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record AgentLoopProperties(
         @DefaultValue Analyst analyst,
         @DefaultValue Translator translator,
+        @DefaultValue Overall overall,
         @DefaultValue Trace trace,
         @DefaultValue RateLimit rateLimit) {
 
@@ -21,6 +22,11 @@ public record AgentLoopProperties(
             @DefaultValue("60000") long maxWallMs) {
     }
 
+    /** 單一問題從進入到回覆的整體 wall-clock 上限，涵蓋巢狀 translator loop。 */
+    public record Overall(
+            @DefaultValue("300000") long maxWallMs) {
+    }
+
     public record Trace(
             @DefaultValue("true") boolean enabled,
             @DefaultValue("20") int retain,
@@ -31,6 +37,7 @@ public record AgentLoopProperties(
             @DefaultValue("true") boolean enabled,
             @DefaultValue("30") int requestsPerMinute,
             @DefaultValue("1000000") int tokensPerMinute,
-            @DefaultValue("1500") int requestsPerDay) {
+            @DefaultValue("1500") int requestsPerDay,
+            @DefaultValue("300000") long maxWaitMillis) {
     }
 }

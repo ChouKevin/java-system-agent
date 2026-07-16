@@ -3,6 +3,7 @@ package com.java.system.agent.ai.config;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 /** 固定分段鎖，避免 MessageWindowChatMemory 的 read-modify-write 被同 conversation 並發覆蓋。 */
@@ -21,6 +22,15 @@ public class ChatMemoryLocks {
 
         synchronized (lockFor(conversationId)) {
             action.run();
+        }
+    }
+
+    public <T> T withConversationResultLock(String conversationId, Supplier<T> action) {
+        Assert.hasText(conversationId, "conversationId must not be blank");
+        Assert.notNull(action, "action must not be null");
+
+        synchronized (lockFor(conversationId)) {
+            return action.get();
         }
     }
 

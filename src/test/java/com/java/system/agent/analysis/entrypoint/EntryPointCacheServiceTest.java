@@ -58,7 +58,7 @@ class EntryPointCacheServiceTest {
         cacheService.getEntryPoints(repoRoot, EntryPointType.ALL);
 
         // per-repo cache：第二次不觸發 scan，parser 只被取一次
-        verify(mockParserService, times(1)).getOrCreateParser(repoRoot);
+        verify(mockParserService, times(1)).createParser(repoRoot);
     }
 
     @Test
@@ -70,7 +70,7 @@ class EntryPointCacheServiceTest {
         cacheService.getEntryPoints(repoRoot, List.of(EntryPointType.API));
 
         // 同 repo 不同 filter 共用 cache，parser 只被取一次
-        verify(mockParserService, times(1)).getOrCreateParser(repoRoot);
+        verify(mockParserService, times(1)).createParser(repoRoot);
     }
 
     @Test
@@ -82,7 +82,7 @@ class EntryPointCacheServiceTest {
         cacheService.reload(repoRoot);
 
         // reload 觸發重新掃描，parser 被取兩次
-        verify(mockParserService, times(2)).getOrCreateParser(repoRoot);
+        verify(mockParserService, times(2)).createParser(repoRoot);
 
         // parser invalidation 由 AnalysisService 統一管理，此處不應呼叫
         verify(mockParserService, never()).invalidate(any());
@@ -103,7 +103,7 @@ class EntryPointCacheServiceTest {
         // 清除後再取，應該重新掃描
         cacheService.getEntryPoints(repo1, EntryPointType.ALL);
 
-        verify(mockParserService, times(2)).getOrCreateParser(repo1);
+        verify(mockParserService, times(2)).createParser(repo1);
         verify(mockParserService, never()).invalidateAll();
     }
 

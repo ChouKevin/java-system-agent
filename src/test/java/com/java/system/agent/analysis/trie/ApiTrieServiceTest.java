@@ -14,6 +14,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -186,5 +188,217 @@ public class ApiTrieServiceTest {
         assertTrue(apiTrieService.lookup("/api/vip/info", "GET").isEmpty());
         // repo-b path still present
         assertTrue(apiTrieService.lookup("/api/bonus/info", "GET").isPresent());
+    }
+
+    @Test
+    void should_backtrack_to_wildcard_when_exact_branch_dead_ends() {
+        EntryPointClass exactList = buildClass(
+                "com/java/user/controller/UserController.java", "UserController", "/api/user",
+                "listUsers", List.of("GET"), "/api/user/list");
+        EntryPointClass wildcardDetail = buildClass(
+                "com/java/generic/controller/GenericController.java", "GenericController", "/api",
+                "getDetail", List.of("GET"), "/api/{type}/detail");
+        loadRepo("test-repo", List.of(exactList, wildcardDetail));
+
+        Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/user/detail", "GET");
+
+        assertTrue(result.isPresent(), "wildcard route should match after exact branch dead-end");
+        assertEquals("getDetail", result.get().methodName());
+    }
+
+    @Test
+    void should_keep_repo_a_route_when_repo_b_registers_same_route_and_is_removed() {
+        EntryPointClass fromA = buildClass(
+                "com/java/a/AController.java", "AController", "/api",
+                "fromA", List.of("GET"), "/api/shared/info");
+        EntryPointClass fromB = buildClass(
+                "com/java/b/BController.java", "BController", "/api",
+                "fromB", List.of("GET"), "/api/shared/info");
+        loadRepo("repo-a", List.of(fromA));
+        loadRepo("repo-b", List.of(fromB));
+        loadRepo("repo-b", List.of());
+
+        Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/shared/info", "GET");
+
+        assertTrue(result.isPresent(), "repo-a route should survive repo-b removal");
+        assertEquals("repo-a", result.get().repoId());
+        assertEquals("fromA", result.get().methodName());
+    }
+
+    @Test
+    void should_return_lexicographically_smallest_repo_when_routes_collide() {
+        EntryPointClass fromA = buildClass(
+                "com/java/a/AController.java", "AController", "/api",
+                "fromA", List.of("GET"), "/api/shared/info");
+        EntryPointClass fromB = buildClass(
+                "com/java/b/BController.java", "BController", "/api",
+                "fromB", List.of("GET"), "/api/shared/info");
+        loadRepo("repo-a", List.of(fromA));
+        loadRepo("repo-b", List.of(fromB));
+
+        Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/shared/info", "GET");
+
+        assertTrue(result.isPresent());
+        assertEquals("repo-a", result.get().repoId(), "collision must resolve deterministically");
+    }
+
+    @Test
+    void should_fallback_to_all_method_when_request_mapping_declares_no_verb() {
+        EntryPointClass cls = buildClass(
+                "com/java/vip/controller/LegacyController.java", "LegacyController", "/api/legacy",
+                "handleLegacy", List.of("ALL"), "/api/legacy/echo");
+        loadRepo("test-repo", List.of(cls));
+
+        Optional<ApiEntryPointRef> getResult = apiTrieService.lookup("/api/legacy/echo", "GET");
+        Optional<ApiEntryPointRef> postResult = apiTrieService.lookup("/api/legacy/echo", "post");
+
+        assertTrue(getResult.isPresent());
+        assertEquals("handleLegacy", getResult.get().methodName());
+        assertTrue(postResult.isPresent());
+        assertEquals("handleLegacy", postResult.get().methodName());
+    }
+
+    @Test
+    void should_prefer_exact_verb_over_all_fallback() {
+        EntryPointClass getOnly = buildClass(
+                "com/java/vip/controller/MixedController.java", "MixedController", "/api/mixed",
+                "getSpecific", List.of("GET"), "/api/mixed/data");
+        EntryPointClass allVerbs = buildClass(
+                "com/java/vip/controller/MixedController.java", "MixedController", "/api/mixed",
+                "handleAny", List.of("ALL"), "/api/mixed/data");
+        loadRepo("test-repo", List.of(getOnly, allVerbs));
+
+        Optional<ApiEntryPointRef> getResult = apiTrieService.lookup("/api/mixed/data", "GET");
+        Optional<ApiEntryPointRef> deleteResult = apiTrieService.lookup("/api/mixed/data", "DELETE");
+
+        assertTrue(getResult.isPresent());
+        assertEquals("getSpecific", getResult.get().methodName());
+        assertTrue(deleteResult.isPresent());
+        assertEquals("handleAny", deleteResult.get().methodName());
+    }
+
+    @Test
+    void should_return_all_repositories_when_same_route_exists_in_multiple_repositories() {
+        EntryPointClass fromA = buildClass(
+                "com/java/a/AController.java", "AController", "/api",
+                "fromA", List.of("GET"), "/api/shared/{id}");
+        EntryPointClass fromB = buildClass(
+                "com/java/b/BController.java", "BController", "/api",
+                "fromB", List.of("GET"), "/api/shared/{sharedId}");
+        loadRepo("repo-b", List.of(fromB));
+        loadRepo("repo-a", List.of(fromA));
+
+        List<ApiEntryPointRef> result = apiTrieService.lookupCandidates(
+                "/api/shared/123", "GET", "");
+
+        assertThat(result).extracting(ApiEntryPointRef::repoId)
+                .containsExactly("repo-a", "repo-b");
+    }
+
+    @Test
+    void should_filter_candidates_when_repository_scope_is_provided() {
+        EntryPointClass fromA = buildClass(
+                "com/java/a/AController.java", "AController", "/api",
+                "fromA", List.of("GET"), "/api/shared/{id}");
+        EntryPointClass fromB = buildClass(
+                "com/java/b/BController.java", "BController", "/api",
+                "fromB", List.of("GET"), "/api/shared/{id}");
+        loadRepo("repo-a", List.of(fromA));
+        loadRepo("repo-b", List.of(fromB));
+
+        List<ApiEntryPointRef> result = apiTrieService.lookupCandidates(
+                "/api/shared/:id", "GET", "repo-b");
+
+        assertThat(result).extracting(ApiEntryPointRef::repoId)
+                .containsExactly("repo-b");
+    }
+
+    @Test
+    void should_return_all_methods_when_http_method_is_missing() {
+        EntryPointClass getRoute = buildClass(
+                "com/java/order/OrderController.java", "OrderController", "/orders",
+                "getOrder", List.of("GET"), "/orders/{id}");
+        EntryPointClass deleteRoute = buildClass(
+                "com/java/order/OrderController.java", "OrderController", "/orders",
+                "deleteOrder", List.of("DELETE"), "/orders/{id}");
+        loadRepo("order-service", List.of(getRoute, deleteRoute));
+
+        List<ApiEntryPointRef> result = apiTrieService.lookupCandidates(
+                "/orders/42", "", "");
+
+        assertThat(result).extracting(ApiEntryPointRef::httpMethod)
+                .containsExactly("DELETE", "GET");
+    }
+
+    @Test
+    void should_match_zero_or_many_segments_when_route_uses_terminal_catch_all() {
+        EntryPointClass route = buildClass(
+                "com/java/file/FileController.java", "FileController", "/files",
+                "readFile", List.of("GET"), "/files/{*path}");
+        loadRepo("file-service", List.of(route));
+
+        assertThat(apiTrieService.lookupCandidates("/files", "GET", ""))
+                .hasSize(1);
+        assertThat(apiTrieService.lookupCandidates("/files/a/b/c", "GET", ""))
+                .hasSize(1);
+    }
+
+    @Test
+    void should_return_only_static_segment_matches_when_suggesting_stored_routes() {
+        EntryPointClass orderRoute = buildClass(
+                "com/java/order/OrderController.java", "OrderController", "/orders",
+                "getOrder", List.of("GET"), "/orders/{id}");
+        EntryPointClass memberRoute = buildClass(
+                "com/java/member/MemberController.java", "MemberController", "/members",
+                "getMember", List.of("GET"), "/members/{id}");
+        loadRepo("catalog-service", List.of(memberRoute, orderRoute));
+
+        List<ApiEntryPointRef> result = apiTrieService.suggestCandidates(
+                "/gateway/v1/orders/42", "GET", "", 5);
+
+        assertThat(result).extracting(ApiEntryPointRef::methodName)
+                .containsExactly("getOrder");
+    }
+
+    @Test
+    void should_filter_suggestions_when_repository_and_method_scopes_are_provided() {
+        EntryPointClass repoAGet = buildClass(
+                "com/java/a/OrderController.java", "OrderController", "/orders",
+                "getFromA", List.of("GET"), "/orders/{id}");
+        EntryPointClass repoBGet = buildClass(
+                "com/java/b/OrderController.java", "OrderController", "/orders",
+                "getFromB", List.of("GET"), "/orders/{id}");
+        EntryPointClass repoBPost = buildClass(
+                "com/java/b/OrderController.java", "OrderController", "/orders",
+                "postFromB", List.of("POST"), "/orders/{id}");
+        loadRepo("repo-a", List.of(repoAGet));
+        loadRepo("repo-b", List.of(repoBGet, repoBPost));
+
+        List<ApiEntryPointRef> result = apiTrieService.suggestCandidates(
+                "/gateway/orders/42", "POST", "repo-b", 5);
+
+        assertThat(result).extracting(
+                        ApiEntryPointRef::repoId,
+                        ApiEntryPointRef::httpMethod,
+                        ApiEntryPointRef::methodName)
+                .containsExactly(tuple("repo-b", "POST", "postFromB"));
+    }
+
+    @Test
+    void should_apply_limit_after_deterministic_ordering_when_suggestion_scores_tie() {
+        EntryPointClass fromB = buildClass(
+                "com/java/b/OrderController.java", "OrderController", "/orders",
+                "fromB", List.of("GET"), "/orders/{id}");
+        EntryPointClass fromA = buildClass(
+                "com/java/a/OrderController.java", "OrderController", "/orders",
+                "fromA", List.of("GET"), "/orders/{id}");
+        loadRepo("repo-b", List.of(fromB));
+        loadRepo("repo-a", List.of(fromA));
+
+        List<ApiEntryPointRef> result = apiTrieService.suggestCandidates(
+                "/gateway/orders/42", "GET", "", 1);
+
+        assertThat(result).extracting(ApiEntryPointRef::repoId)
+                .containsExactly("repo-a");
     }
 }

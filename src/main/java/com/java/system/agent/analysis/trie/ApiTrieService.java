@@ -10,15 +10,20 @@ import com.java.system.agent.analysis.port.SourceCodePort;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
+import org.springframework.util.Assert;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -32,7 +37,7 @@ public class ApiTrieService {
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final ApiTrieNode root = new ApiTrieNode();
-    private final Map<String, List<String>> repoPaths = new HashMap<>();
+    private final Map<String, List<ApiEntryPointRef>> repoEntries = new HashMap<>();
 
     public ApiTrieService(SourceCodePort sourceCodePort,
                           EntryPointCacheService entryPointCacheService) {
@@ -53,28 +58,49 @@ public class ApiTrieService {
         log.info("API trie reload complete for repo: {}", repoId);
     }
 
-    /** 查詢 API 路徑，exact match 優先，其次 wildcard */
-    public Optional<ApiEntryPointRef> lookup(String apiPath, String httpMethod) {
+    /** 查詢 API 路徑的所有候選項目，exact match 優先，其次 wildcard。 */
+    public List<ApiEntryPointRef> lookupCandidates(
+            String apiPath, String httpMethod, String repoScope) {
         lock.readLock().lock();
         try {
-            String[] segments = splitPath(apiPath);
-            ApiTrieNode node = root;
+            NormalizedApiPath normalized = ApiPathNormalizer.normalize(apiPath, httpMethod);
+            return search(root, splitPath(normalized.path()), 0,
+                    normalized.httpMethod(), repoScope);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
 
-            for (String segment : segments) {
-                ApiTrieNode exact = node.children.get(segment);
-                if (exact != null) {
-                    node = exact;
-                } else {
-                    ApiTrieNode wildcard = node.children.get(ApiTrieNode.WILDCARD);
-                    if (wildcard != null) {
-                        node = wildcard;
-                    } else {
-                        return Optional.empty();
-                    }
-                }
-            }
+    /** 查詢 API 路徑，並回傳排序後的第一個候選項目。 */
+    public Optional<ApiEntryPointRef> lookup(String apiPath, String httpMethod) {
+        return lookupCandidates(apiPath, httpMethod, "").stream().findFirst();
+    }
 
-            return Optional.ofNullable(node.methodMap.get(httpMethod.toUpperCase()));
+    public List<ApiEntryPointRef> suggestCandidates(
+            String apiPath, String httpMethod, String repoScope, int limit) {
+        Assert.isTrue(limit > 0, "Suggestion limit must be positive");
+        lock.readLock().lock();
+        try {
+            NormalizedApiPath normalized = ApiPathNormalizer.normalize(apiPath, httpMethod);
+            return repoEntries.values().stream()
+                    .flatMap(List::stream)
+                    .filter(ref -> !StringUtils.hasText(repoScope) || repoScope.equals(ref.repoId()))
+                    .filter(ref -> !StringUtils.hasText(normalized.httpMethod())
+                            || normalized.httpMethod().equals(ref.httpMethod())
+                            || ApiTrieNode.METHOD_ALL.equals(ref.httpMethod()))
+                    .map(ref -> new ScoredRoute(ref,
+                            ApiRouteCandidateMatcher.score(normalized.path(), ref.routeTemplate())))
+                    .filter(scored -> scored.score() >= 0)
+                    .sorted(Comparator.comparingInt(ScoredRoute::score).reversed()
+                            .thenComparing(scored -> scored.ref().repoId())
+                            .thenComparing(scored -> scored.ref().httpMethod())
+                            .thenComparing(scored -> scored.ref().routeTemplate())
+                            .thenComparing(scored -> scored.ref().packageName())
+                            .thenComparing(scored -> scored.ref().className())
+                            .thenComparing(scored -> scored.ref().methodName()))
+                    .limit(limit)
+                    .map(ScoredRoute::ref)
+                    .toList();
         } finally {
             lock.readLock().unlock();
         }
@@ -87,24 +113,31 @@ public class ApiTrieService {
             String packageName = toPackageName(cls.packagePath(), cls.className());
             for (EntryPointMethod method : cls.methods()) {
                 if (!(method instanceof ApiEntryPoint api)) continue;
-                if (api.apiUrl() == null || api.apiType() == null) continue;
+                if (Objects.isNull(api.apiUrl()) || Objects.isNull(api.apiType())) continue;
                 for (String httpMethod : api.apiType()) {
+                    NormalizedApiPath normalized = ApiPathNormalizer.normalize(
+                            api.apiUrl(), httpMethod);
                     ApiEntryPointRef ref = new ApiEntryPointRef(
-                            repoId, packageName, cls.className(), api.name());
-                    insertPath(api.apiUrl(), httpMethod.toUpperCase(), ref);
-                    repoPaths.computeIfAbsent(repoId, k -> new ArrayList<>())
-                             .add(api.apiUrl() + "|" + httpMethod.toUpperCase());
+                            repoId,
+                            packageName,
+                            cls.className(),
+                            api.name(),
+                            normalized.httpMethod(),
+                            normalized.path());
+                    insertPath(ref);
+                    repoEntries.computeIfAbsent(repoId, ignored -> new ArrayList<>()).add(ref);
                 }
             }
         }
     }
 
     private void removeRepo(String repoId) {
-        List<String> paths = repoPaths.remove(repoId);
-        if (paths == null) return;
-        for (String pathAndMethod : paths) {
-            String[] parts = pathAndMethod.split("\\|", 2);
-            removePath(parts[0], parts[1]);
+        List<ApiEntryPointRef> refs = repoEntries.remove(repoId);
+        if (CollectionUtils.isEmpty(refs)) {
+            return;
+        }
+        for (ApiEntryPointRef ref : refs) {
+            removePath(ref.routeTemplate(), ref.httpMethod(), ref.repoId());
         }
     }
 
@@ -120,43 +153,134 @@ public class ApiTrieService {
         }
     }
 
-    private void insertPath(String apiPath, String httpMethod, ApiEntryPointRef ref) {
-        String[] segments = splitPath(apiPath);
+    private void insertPath(ApiEntryPointRef ref) {
+        String[] segments = splitPath(ref.routeTemplate());
         ApiTrieNode node = root;
         for (String segment : segments) {
-            String key = segment.startsWith("{") ? ApiTrieNode.WILDCARD : segment;
-            node = node.children.computeIfAbsent(key, k -> new ApiTrieNode());
+            node = node.children.computeIfAbsent(segment, ignored -> new ApiTrieNode());
         }
-        node.methodMap.put(httpMethod, ref);
+        Map<String, ApiEntryPointRef> refsByRepo = node.methodMap.computeIfAbsent(
+                ref.httpMethod(), ignored -> new HashMap<>());
+        refsByRepo.put(ref.repoId(), ref);
+        warnOnCollision(ref.routeTemplate(), ref.httpMethod(), refsByRepo);
     }
 
-    private void removePath(String apiPath, String httpMethod) {
+    private void removePath(String apiPath, String httpMethod, String repoId) {
         String[] segments = splitPath(apiPath);
         Deque<Map.Entry<String, ApiTrieNode>> stack = new ArrayDeque<>();
         ApiTrieNode node = root;
 
         for (String segment : segments) {
-            String key = segment.startsWith("{") ? ApiTrieNode.WILDCARD : segment;
-            ApiTrieNode child = node.children.get(key);
-            if (child == null) return;
-            stack.push(Map.entry(key, node));
+            ApiTrieNode child = node.children.get(segment);
+            if (Objects.isNull(child)) return;
+            stack.push(Map.entry(segment, node));
             node = child;
         }
 
-        node.methodMap.remove(httpMethod);
+        Map<String, ApiEntryPointRef> refsByRepo = node.methodMap.get(httpMethod);
+        if (!CollectionUtils.isEmpty(refsByRepo)) {
+            refsByRepo.remove(repoId);
+            if (CollectionUtils.isEmpty(refsByRepo)) {
+                node.methodMap.remove(httpMethod);
+            }
+        }
 
         // 回溯清理空節點
-        while (!stack.isEmpty()) {
-            if (!node.methodMap.isEmpty() || !node.children.isEmpty()) break;
+        while (!CollectionUtils.isEmpty(stack)) {
+            if (!CollectionUtils.isEmpty(node.methodMap)
+                    || !CollectionUtils.isEmpty(node.children)) break;
             Map.Entry<String, ApiTrieNode> parent = stack.pop();
             parent.getValue().children.remove(parent.getKey());
             node = parent.getValue();
         }
     }
 
+    private List<ApiEntryPointRef> search(
+            ApiTrieNode node,
+            String[] segments,
+            int index,
+            String httpMethod,
+            String repoScope) {
+        if (index == segments.length) {
+            List<ApiEntryPointRef> direct = resolveRefs(node, httpMethod, repoScope);
+            if (!CollectionUtils.isEmpty(direct)) {
+                return direct;
+            }
+            ApiTrieNode rest = node.children.get(ApiTrieNode.REST_WILDCARD);
+            return Objects.nonNull(rest) ? resolveRefs(rest, httpMethod, repoScope) : List.of();
+        }
+
+        ApiTrieNode exact = node.children.get(segments[index]);
+        if (Objects.nonNull(exact)) {
+            List<ApiEntryPointRef> exactResult = search(
+                    exact, segments, index + 1, httpMethod, repoScope);
+            if (!CollectionUtils.isEmpty(exactResult)) {
+                return exactResult;
+            }
+        }
+
+        ApiTrieNode wildcard = node.children.get(ApiTrieNode.WILDCARD);
+        if (Objects.nonNull(wildcard) && wildcard != exact) {
+            List<ApiEntryPointRef> wildcardResult = search(
+                    wildcard, segments, index + 1, httpMethod, repoScope);
+            if (!CollectionUtils.isEmpty(wildcardResult)) {
+                return wildcardResult;
+            }
+        }
+
+        ApiTrieNode rest = node.children.get(ApiTrieNode.REST_WILDCARD);
+        return Objects.nonNull(rest) ? resolveRefs(rest, httpMethod, repoScope) : List.of();
+    }
+
+    private List<ApiEntryPointRef> resolveRefs(
+            ApiTrieNode node, String httpMethod, String repoScope) {
+        if (StringUtils.hasText(httpMethod)) {
+            List<ApiEntryPointRef> exact = sortedRefs(
+                    node.methodMap.get(httpMethod), repoScope);
+            if (!CollectionUtils.isEmpty(exact)) {
+                return exact;
+            }
+            return sortedRefs(node.methodMap.get(ApiTrieNode.METHOD_ALL), repoScope);
+        }
+        return node.methodMap.values().stream()
+                .flatMap(refs -> refs.values().stream())
+                .filter(ref -> !StringUtils.hasText(repoScope) || repoScope.equals(ref.repoId()))
+                .sorted(candidateComparator())
+                .toList();
+    }
+
+    private List<ApiEntryPointRef> sortedRefs(
+            Map<String, ApiEntryPointRef> refsByRepo, String repoScope) {
+        if (CollectionUtils.isEmpty(refsByRepo)) {
+            return List.of();
+        }
+        return refsByRepo.values().stream()
+                .filter(ref -> !StringUtils.hasText(repoScope) || repoScope.equals(ref.repoId()))
+                .sorted(candidateComparator())
+                .toList();
+    }
+
+    private Comparator<ApiEntryPointRef> candidateComparator() {
+        return Comparator.comparing(ApiEntryPointRef::repoId)
+                .thenComparing(ApiEntryPointRef::httpMethod)
+                .thenComparing(ApiEntryPointRef::routeTemplate);
+    }
+
+    private record ScoredRoute(ApiEntryPointRef ref, int score) {
+    }
+
+    private void warnOnCollision(String apiPath,
+                                 String httpMethod,
+                                 Map<String, ApiEntryPointRef> refsByRepo) {
+        if (refsByRepo.size() > 1) {
+            log.warn("API route collision for {} {} across repos: {}",
+                    httpMethod, apiPath, refsByRepo.keySet());
+        }
+    }
+
     private static String[] splitPath(String path) {
         return Arrays.stream(path.split("/"))
-                .filter(s -> !s.isBlank())
+                .filter(StringUtils::hasText)
                 .toArray(String[]::new);
     }
 

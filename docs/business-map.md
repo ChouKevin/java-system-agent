@@ -1,9 +1,9 @@
 # Business Map
 
 > 專案：java-system-agent
-> 更新時間：2026-04-06 21:00
+> 更新時間：2026-07-15 18:15
 > 來源：business-scope.md
-> 來源同步：2026-04-06 21:00
+> 來源同步：2026-07-15 18:15
 
 ---
 
@@ -23,8 +23,8 @@
 
 ### slack-agent
 
-說明：Slack AI 助理，接收 @mention 後透過 LLM 工具鏈分析程式碼並串流回覆，含去重與限流維護
-關鍵字：Slack、AI、agent、@mention、LLM、tool、問答、串流回覆、去重、dedup、限流、rate limit、cleanup、user ID、冷卻、錯誤回饋、self-invocation
+說明：Slack AI 助理，接收 @mention 後透過 LLM 工具鏈分析程式碼並串流回覆，含去重、限流、決策追蹤（UAT 預設持久化）與 dev/uat 診斷查詢
+關鍵字：Slack、AI、agent、@mention、LLM、tool、問答、串流回覆、traceId、threadTs、決策追蹤、debug trace、去重、dedup、限流、rate limit、cleanup、user ID、冷卻、錯誤回饋、async
 業務群組文件：business-groups/slack-agent.md
 
 ### misc

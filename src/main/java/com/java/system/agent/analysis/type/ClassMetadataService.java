@@ -5,6 +5,9 @@ import com.github.javaparser.ast.CompilationUnit;
 
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
 import com.java.system.agent.analysis.model.ClassMetadata;
 import com.java.system.agent.analysis.parser.ProjectParserService;
 import com.java.system.agent.analysis.parser.SourceRootResolver;
@@ -59,7 +62,7 @@ public class ClassMetadataService {
     }
 
     private JavaParser getParser(Path repoRoot) {
-        return projectParserService.getOrCreateParser(repoRoot);
+        return projectParserService.createParser(repoRoot);
     }
 
     public void reload(Path repoRoot) {
@@ -94,8 +97,9 @@ public class ClassMetadataService {
                         .forEach(p -> {
                             Optional<CompilationUnit> cu = parseFile(p, repoRoot);
                             if (cu.isPresent()) {
-                                cu.get().findAll(ClassOrInterfaceDeclaration.class)
-                                        .forEach(cls -> metadata.add(extractMetadata(cls, p, repoRoot)));
+                                cu.get().findAll(TypeDeclaration.class).stream()
+                                        .filter(type -> !type.isAnnotationDeclaration())
+                                        .forEach(type -> metadata.add(extractMetadata(type, p, repoRoot)));
                             }
                         });
             } catch (IOException e) {
@@ -107,52 +111,70 @@ public class ClassMetadataService {
         return MetadataSnapshot.of(metadata);
     }
 
-    private ClassMetadata extractMetadata(ClassOrInterfaceDeclaration cls, Path filePath, Path repoRoot) {
-        String packageName = cls.findCompilationUnit()
+    private ClassMetadata extractMetadata(TypeDeclaration<?> type, Path filePath, Path repoRoot) {
+        String packageName = type.findCompilationUnit()
                 .flatMap(CompilationUnit::getPackageDeclaration)
                 .map(p -> p.getNameAsString())
                 .orElse("");
 
-        String fullyQualifiedName = packageName.isEmpty()
-                ? cls.getNameAsString()
-                : packageName + "." + cls.getNameAsString();
+        String fullyQualifiedName = StringUtils.hasText(packageName)
+                ? packageName + "." + type.getNameAsString()
+                : type.getNameAsString();
 
-        List<String> annotations = cls.getAnnotations().stream()
+        List<String> annotations = type.getAnnotations().stream()
                 .map(a -> a.getNameAsString())
                 .toList();
 
-        List<String> implementedTypes = cls.getImplementedTypes().stream()
-                .map(t -> t.getNameAsString())
-                .toList();
+        List<String> implementedTypes = extractImplementedTypes(type);
+        List<String> extendedTypes = extractExtendedTypes(type);
 
-        List<String> extendedTypes = cls.getExtendedTypes().stream()
-                .map(t -> t.getNameAsString())
-                .toList();
-
-        List<String> imports = cls.findCompilationUnit()
+        List<String> imports = type.findCompilationUnit()
                 .map(cu -> cu.getImports().stream()
                         .map(imp -> imp.getNameAsString())
                         .toList())
                 .orElse(Collections.emptyList());
 
+        boolean isInterface = type instanceof ClassOrInterfaceDeclaration classDeclaration
+                && classDeclaration.isInterface();
+        boolean isAbstract = type instanceof ClassOrInterfaceDeclaration classDeclaration
+                && classDeclaration.isAbstract();
+
         return ClassMetadata.builder()
-                .className(cls.getNameAsString())
+                .className(type.getNameAsString())
                 .packageName(packageName)
                 .filePath(filePath)
-                .isInterface(cls.isInterface())
-                .isAbstract(cls.isAbstract())
+                .isInterface(isInterface)
+                .isAbstract(isAbstract)
                 .implementedTypes(implementedTypes)
                 .extendedTypes(extendedTypes)
-                .methods(extractMethods(cls, fullyQualifiedName, repoRoot))
+                .methods(extractMethods(type, fullyQualifiedName, repoRoot))
                 .annotations(annotations)
-                .fields(extractFields(cls))
+                .fields(extractFields(type))
                 .imports(imports)
-                .hasFluentAccessors(detectFluentAccessors(cls))
-                .profiles(extractProfiles(cls))
+                .hasFluentAccessors(detectFluentAccessors(type))
+                .profiles(extractProfiles(type))
                 .build();
     }
 
-    private List<ClassMetadata.MethodSignature> extractMethods(ClassOrInterfaceDeclaration cls,
+    private List<String> extractImplementedTypes(TypeDeclaration<?> type) {
+        if (type instanceof NodeWithImplements<?> withImplements) {
+            return withImplements.getImplementedTypes().stream()
+                    .map(implementedType -> implementedType.getNameAsString())
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private List<String> extractExtendedTypes(TypeDeclaration<?> type) {
+        if (type instanceof ClassOrInterfaceDeclaration classDeclaration) {
+            return classDeclaration.getExtendedTypes().stream()
+                    .map(extendedType -> extendedType.getNameAsString())
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private List<ClassMetadata.MethodSignature> extractMethods(TypeDeclaration<?> cls,
             String fullyQualifiedName, Path repoRoot) {
         return cls.getMethods().stream()
                 .map(m -> {
@@ -179,7 +201,7 @@ public class ClassMetadataService {
                 .toList();
     }
 
-    private List<String> extractProfiles(ClassOrInterfaceDeclaration cls) {
+    private List<String> extractProfiles(TypeDeclaration<?> cls) {
         return cls.getAnnotations().stream()
                 .filter(a -> a.getNameAsString().equals("Profile") || a.getNameAsString().endsWith(".Profile"))
                 .flatMap(a -> {
@@ -197,17 +219,25 @@ public class ClassMetadataService {
                 .toList();
     }
 
-    private List<ClassMetadata.FieldInfo> extractFields(ClassOrInterfaceDeclaration cls) {
-        return cls.getFields().stream()
+    private List<ClassMetadata.FieldInfo> extractFields(TypeDeclaration<?> type) {
+        List<ClassMetadata.FieldInfo> fields = new ArrayList<>(type.getFields().stream()
                 .flatMap(f -> f.getVariables().stream())
                 .map(v -> ClassMetadata.FieldInfo.builder()
                         .name(v.getNameAsString())
                         .type(ScopeTypeResolver.simpleTypeName(v.getType().asString()))
                         .build())
-                .toList();
+                .toList());
+        if (type instanceof RecordDeclaration recordDeclaration) {
+            recordDeclaration.getParameters().forEach(parameter -> fields.add(
+                    ClassMetadata.FieldInfo.builder()
+                            .name(parameter.getNameAsString())
+                            .type(ScopeTypeResolver.simpleTypeName(parameter.getType().asString()))
+                            .build()));
+        }
+        return List.copyOf(fields);
     }
 
-    private boolean detectFluentAccessors(ClassOrInterfaceDeclaration cls) {
+    private boolean detectFluentAccessors(TypeDeclaration<?> cls) {
         return cls.getAnnotations().stream()
                 .filter(ann -> {
                     String name = ann.getNameAsString();
@@ -270,10 +300,11 @@ public class ClassMetadataService {
      * 在 call graph 遞迴中同一個檔案可能被 parse 多次
      * 未來可考慮加入 LRU cache，但需先評估記憶體佔用
      */
-    public Optional<ClassOrInterfaceDeclaration> resolveToAST(ClassMetadata metadata, Path repoRoot) {
+    public Optional<TypeDeclaration<?>> resolveToAST(ClassMetadata metadata, Path repoRoot) {
         return parseFile(metadata.filePath(), repoRoot)
-                .flatMap(cu -> cu.findFirst(ClassOrInterfaceDeclaration.class,
-                        c -> c.getNameAsString().equals(metadata.className())));
+                .flatMap(cu -> cu.findFirst(TypeDeclaration.class,
+                        type -> type.getNameAsString().equals(metadata.className()))
+                        .map(type -> (TypeDeclaration<?>) type));
     }
 
     public Optional<ClassMetadata> findClassMetadataByName(String typeName, MethodDeclaration currentMethod,

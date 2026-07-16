@@ -1,7 +1,9 @@
 package com.java.system.agent.api;
 
+import com.java.system.agent.analysis.exception.UnknownRepoException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.convert.ConversionFailedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     public record ErrorResponse(
@@ -62,7 +65,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleTypeMismatch(
             Exception ex,
             HttpServletRequest request) {
-        return badRequest("Invalid parameter value", request, List.of(ex.getMessage()));
+        return badRequest("Invalid parameter value", request, List.of());
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
@@ -77,7 +80,36 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleIllegalArgument(
             IllegalArgumentException ex,
             HttpServletRequest request) {
-        return badRequest("Invalid request argument", request, List.of(ex.getMessage()));
+        return badRequest("Invalid request argument", request, List.of());
+    }
+
+    @ExceptionHandler(UnknownRepoException.class)
+    public ResponseEntity<ErrorResponse> handleUnknownRepo(
+            UnknownRepoException ex,
+            HttpServletRequest request) {
+        ErrorResponse body = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                "Repository not found",
+                request.getRequestURI(),
+                List.of(ex.getMessage()));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleUnexpected(
+            Exception ex,
+            HttpServletRequest request) {
+        log.error("Unhandled exception for {}: {}", request.getRequestURI(), ex.getMessage(), ex);
+        ErrorResponse body = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(),
+                "Unexpected server error",
+                request.getRequestURI(),
+                List.of());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
     }
 
     private ResponseEntity<ErrorResponse> badRequest(String message,

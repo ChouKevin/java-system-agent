@@ -33,8 +33,4 @@
         <appender-ref ref="FILE"/>
     </root>
 
-    <!-- Application specific loggers -->
-    <logger name="com.java.system.agent" level="DEBUG"/>
-    <logger name="org.springframework.ai" level="INFO"/>
-
 </configuration>

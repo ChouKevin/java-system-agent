@@ -15,6 +15,9 @@ slack:
   bot-token: ${SLACK_BOT_TOKEN:}
   signing-secret: ${SLACK_SIGNING_SECRET:}
 
+api:
+  write-token: ${API_WRITE_TOKEN:}
+
 entry-point:
   call-graph-depth: 3
 
@@ -29,11 +32,14 @@ agent:
     translator:
       max-turns: 6
       max-wall-ms: 60000
+    overall:
+      max-wall-ms: 300000
     rate-limit:
       enabled: ${GOOGLE_GENAI_RATE_LIMIT_ENABLED:true}
       requests-per-minute: ${GOOGLE_GENAI_RPM:30}
       tokens-per-minute: ${GOOGLE_GENAI_TPM:1000000}
       requests-per-day: ${GOOGLE_GENAI_RPD:1500}
+      max-wait-millis: ${GOOGLE_GENAI_MAX_WAIT_MILLIS:300000}
     trace:
       enabled: true
       retain: 20
@@ -50,8 +56,8 @@ springdoc:
 
 logging:
   level:
-    '[com.java.system.agent]': DEBUG
-    '[org.springframework.ai]': DEBUG
+    '[com.java.system.agent]': INFO
+    '[org.springframework.ai]': INFO
 
 git:
   username: ${GIT_USERNAME:}

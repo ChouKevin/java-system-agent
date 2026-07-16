@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest(properties = {
+        "spring.profiles.active=dev",
+        "agent.trace.persistence-enabled=false",
         "slack.app-token=",
         "slack.bot-token=xoxb-test",
         "slack.signing-secret=test",

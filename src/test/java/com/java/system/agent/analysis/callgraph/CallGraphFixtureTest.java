@@ -159,7 +159,7 @@ class CallGraphFixtureTest {
                 .calledMethods(List.of(unresolvedChild))
                 .build();
 
-        when(projectParserService.getOrCreateParser(repoRoot)).thenReturn(new JavaParser());
+        when(projectParserService.createParser(repoRoot)).thenReturn(new JavaParser());
         when(dtoAnalyzer.analyze(any(MethodDeclaration.class))).thenReturn(Map.of());
         when(callGraphBuilder.build(any(MethodDeclaration.class), eq(repoRoot), anyMap(), eq(4)))
                 .thenReturn(root);

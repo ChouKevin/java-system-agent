@@ -1,7 +1,9 @@
 package com.java.system.agent.slack.pipeline;
 
 import com.java.system.agent.ai.service.AgentAiService;
+import com.java.system.agent.ai.trace.AgentRequestContext;
 import com.java.system.agent.slack.client.SlackStreamClient;
+import com.java.system.agent.slack.client.SlackStreamFailureHandler;
 import com.java.system.agent.slack.model.SlackMessageContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -19,10 +21,20 @@ public class SlackAgentPipeline {
         this.slackStreamClient = slackStreamClient;
     }
 
-    public void execute(SlackMessageContext ctx) {
+    /** 執行 agent 分析並串流回覆，串流失敗時通知呼叫端 */
+    public void execute(SlackMessageContext ctx, SlackStreamFailureHandler failureHandler) {
+        AgentRequestContext request = AgentRequestContext.create(
+                ctx.getTraceId(),
+                ctx.getUserId(),
+                ctx.getTeamId(),
+                ctx.getChannelId(),
+                ctx.getEventId(),
+                ctx.getThreadTs(),
+                ctx.getText());
         slackStreamClient.consumeStream(
                 ctx,
                 "",
-                () -> agentAiService.analyzeWithTools(ctx.getThreadTs(), ctx.getText()));
+                () -> agentAiService.analyzeWithTools(request),
+                failureHandler);
     }
 }

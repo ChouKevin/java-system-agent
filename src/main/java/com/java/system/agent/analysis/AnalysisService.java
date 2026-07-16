@@ -1,6 +1,7 @@
 package com.java.system.agent.analysis;
 
 import com.java.system.agent.analysis.model.ApiRef;
+import com.java.system.agent.analysis.model.ApiRouteCandidate;
 import com.java.system.agent.analysis.model.AnalysisErrorCode;
 import com.java.system.agent.analysis.model.AnalysisMetadata;
 import com.java.system.agent.analysis.model.AnalysisResult;
@@ -23,6 +24,7 @@ import com.java.system.agent.analysis.type.ClassMetadataService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.Assert;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,6 +34,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Supplier;
 
 /**
  * Public facade for the analysis module.
@@ -203,6 +206,20 @@ public class AnalysisService {
                 .orElse(List.of());
     }
 
+    public List<ApiRouteCandidate> lookupApiCandidates(
+            String apiPath, String httpMethod, String repoScope) {
+        return apiTrieService.lookupCandidates(apiPath, httpMethod, repoScope).stream()
+                .map(this::toRouteCandidate)
+                .toList();
+    }
+
+    public List<ApiRouteCandidate> suggestApiCandidates(
+            String apiPath, String httpMethod, String repoScope, int limit) {
+        return apiTrieService.suggestCandidates(apiPath, httpMethod, repoScope, limit).stream()
+                .map(this::toRouteCandidate)
+                .toList();
+    }
+
     /**
      * Evicts caches for the given repository and rebuilds the trie index.
      * Call this after a git pull to ensure stale data is discarded.
@@ -214,18 +231,44 @@ public class AnalysisService {
         ReentrantReadWriteLock.WriteLock writeLock = lockFor(repoId).writeLock();
         writeLock.lock();
         try {
-            Path repoRoot = sourceCodePort.sourceRoot(repoId);
-            // 先清除 source root cache，確保模組結構變更被偵測到
-            sourceRootResolver.invalidate(repoRoot);
-            // parser 共享資源，先清除 parser cache 再重建 metadata cache，確保 call graph builder 讀到最新的 AST + metadata
-            projectParserService.invalidate(repoRoot);
-            entryPointCacheService.reload(repoRoot);
-            classMetadataService.reload(repoRoot);
-            apiTrieService.reload(repoId);
+            reloadCaches(repoId);
         } finally {
             writeLock.unlock();
         }
         log.info("Reload complete for repo: {}", repoId);
+    }
+
+    /**
+     * 在同一把 per-repo write lock 內執行 git 異動並重建快取
+     * 確保併發分析不會讀到 checkout 或 pull 到一半的 working tree
+     * git 操作失敗時例外向外傳播且不重建快取
+     *
+     * @param repoId 目標 repo
+     * @param gitOperation 會改變 working tree 的 git 操作
+     * @return git 操作的結果訊息
+     */
+    public String reloadRepoAfter(String repoId, Supplier<String> gitOperation) {
+        Assert.notNull(gitOperation, "gitOperation must not be null");
+        log.info("Executing git mutation and cache reload for repo: {}", repoId);
+        ReentrantReadWriteLock.WriteLock writeLock = lockFor(repoId).writeLock();
+        writeLock.lock();
+        try {
+            String result = gitOperation.get();
+            reloadCaches(repoId);
+            return result;
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    /** 清除並重建指定 repo 的所有分析快取，呼叫端必須已持有該 repo 的 write lock */
+    private void reloadCaches(String repoId) {
+        Path repoRoot = sourceCodePort.sourceRoot(repoId);
+        sourceRootResolver.invalidate(repoRoot);
+        projectParserService.invalidate(repoRoot);
+        entryPointCacheService.reload(repoRoot);
+        classMetadataService.reload(repoRoot);
+        apiTrieService.reload(repoId);
     }
 
     /** Returns descriptors for all registered repositories */
@@ -256,5 +299,15 @@ public class AnalysisService {
 
     private ReentrantReadWriteLock lockFor(String repoId) {
         return repoLocks.computeIfAbsent(repoId, key -> new ReentrantReadWriteLock(true));
+    }
+
+    private ApiRouteCandidate toRouteCandidate(ApiEntryPointRef ref) {
+        return new ApiRouteCandidate(
+                ref.repoId(),
+                ref.httpMethod(),
+                ref.routeTemplate(),
+                ref.packageName(),
+                ref.className(),
+                ref.methodName());
     }
 }

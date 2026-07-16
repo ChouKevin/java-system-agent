@@ -2,7 +2,9 @@ package com.java.system.agent.ai.loop.policy;
 
 import com.java.system.agent.ai.loop.LoopDecision;
 import com.java.system.agent.ai.loop.LoopState;
+import com.java.system.agent.ai.loop.TerminationDecision;
 import com.java.system.agent.ai.loop.TerminationPolicy;
+import com.java.system.agent.ai.loop.TerminationReason;
 import org.springframework.util.Assert;
 
 public final class TranslatorTerminationPolicy implements TerminationPolicy {
@@ -18,13 +20,14 @@ public final class TranslatorTerminationPolicy implements TerminationPolicy {
     }
 
     @Override
-    public LoopDecision decide(LoopState state) {
+    public TerminationDecision decide(LoopState state) {
         if (state.iteration() >= maxTurns) {
-            return LoopDecision.FORCE_FINALIZE;
+            return TerminationDecision.terminate(LoopDecision.FORCE_FINALIZE, TerminationReason.MAX_TURNS);
         }
         if (System.currentTimeMillis() - state.startedAtMillis() > maxWallMillis) {
-            return LoopDecision.FORCE_FINALIZE;
+            return TerminationDecision.terminate(
+                    LoopDecision.FORCE_FINALIZE, TerminationReason.TRANSLATOR_TIMEOUT);
         }
-        return LoopDecision.CONTINUE;
+        return TerminationDecision.continueLoop();
     }
 }

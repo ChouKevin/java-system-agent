@@ -4,6 +4,8 @@ import com.java.system.agent.ai.loop.LoopDecision;
 import com.java.system.agent.ai.loop.LoopRequest;
 import com.java.system.agent.ai.loop.LoopState;
 import com.java.system.agent.ai.loop.LoopStep;
+import com.java.system.agent.ai.loop.TerminationDecision;
+import com.java.system.agent.ai.loop.TerminationReason;
 import com.java.system.agent.ai.loop.Verdict;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +23,8 @@ class TranslatorTerminationPolicyTest {
                 new LoopStep(0, "查詢", List.of("find_call_graph"), null),
                 new LoopStep(1, "回答", List.of(), Verdict.revise("再整理"))), System.currentTimeMillis());
 
-        assertThat(policy.decide(state)).isEqualTo(LoopDecision.FORCE_FINALIZE);
+        assertThat(policy.decide(state)).isEqualTo(TerminationDecision.terminate(
+                LoopDecision.FORCE_FINALIZE, TerminationReason.MAX_TURNS));
     }
 
     @Test
@@ -29,13 +32,14 @@ class TranslatorTerminationPolicyTest {
         long startedAtMillis = System.currentTimeMillis() - 61_000;
         LoopState state = new LoopState(new LoopRequest("t", "q"), 0, List.of(), List.of(), startedAtMillis);
 
-        assertThat(policy.decide(state)).isEqualTo(LoopDecision.FORCE_FINALIZE);
+        assertThat(policy.decide(state)).isEqualTo(TerminationDecision.terminate(
+                LoopDecision.FORCE_FINALIZE, TerminationReason.TRANSLATOR_TIMEOUT));
     }
 
     @Test
     void withinBudgets_continues() {
         LoopState state = LoopState.init(new LoopRequest("t", "q"));
 
-        assertThat(policy.decide(state)).isEqualTo(LoopDecision.CONTINUE);
+        assertThat(policy.decide(state)).isEqualTo(TerminationDecision.continueLoop());
     }
 }

@@ -1,4 +1,13 @@
 spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5432}/${DB_NAME:java_system_agent}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+  flyway:
+    enabled: ${TRACE_PERSISTENCE_ENABLED:true}
+    create-schemas: true
+    schemas: observability
+    default-schema: observability
   ai:
     openai:
       api-key: ${OPENAI_API_KEY:}
@@ -9,3 +18,7 @@ spring:
           options:
             model: ${GOOGLE_GENAI_MODEL:gemini-3.1-flash-lite}
             # thinking-level: HIGH
+
+agent:
+  trace:
+    persistence-enabled: ${TRACE_PERSISTENCE_ENABLED:true}

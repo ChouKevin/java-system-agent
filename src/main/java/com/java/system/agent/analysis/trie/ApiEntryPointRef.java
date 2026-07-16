@@ -5,7 +5,13 @@ package com.java.system.agent.analysis.trie;
  */
 public record ApiEntryPointRef(
         String repoId,
-        String packageName,   // dot notation, e.g. "com.java.vip.controller"
-        String className,     // e.g. "VipController"
-        String methodName     // e.g. "getVip"
-) {}
+        String packageName,
+        String className,
+        String methodName,
+        String httpMethod,
+        String routeTemplate) {
+
+    public ApiEntryPointRef(String repoId, String packageName, String className, String methodName) {
+        this(repoId, packageName, className, methodName, "", "");
+    }
+}

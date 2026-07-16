@@ -24,9 +24,6 @@ public final class LlmVerifier implements VerifyGate {
     private static final Pattern VERDICT = Pattern.compile(
             "^VERDICT:\\s*(PASS|REVISE)(?:\\s*[—:-]\\s*(.*))?$",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern ANSWER_OPEN_TAG = Pattern.compile("<\\s*answer\\s*>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern ANSWER_CLOSE_TAG = Pattern.compile("<\\s*/\\s*answer\\s*>", Pattern.CASE_INSENSITIVE);
-
     private static final String UNAVAILABLE_CRITIQUE = "驗證程序未完成，請確認回答符合輸出規則後重新提交";
 
     private final ChatModel chatModel;
@@ -49,7 +46,9 @@ public final class LlmVerifier implements VerifyGate {
     public Verdict verify(Candidate candidate, LoopState state) {
         String reply;
         try {
-            String prompt = promptTemplate.formatted(safePromptData(candidate.answer()), safePromptData(state.query()));
+            String prompt = promptTemplate.formatted(
+                    PromptDataEscaper.escapeTag(candidate.answer(), "answer"),
+                    PromptDataEscaper.escapeTag(state.query(), "answer"));
             RateLimitReservation reservation = rateLimiter.acquire(prompt);
             reply = chatModel.call(prompt);
             rateLimiter.record(reservation, reply);
@@ -65,11 +64,8 @@ public final class LlmVerifier implements VerifyGate {
             log.debug("[{}] verifier reply missing final-line marker, revising: {}", label, reply);
             return unavailable();
         }
-        if ("PASS".equalsIgnoreCase(matcher.group(1)) && !StringUtils.hasText(matcher.group(2))) {
-            return Verdict.accept();
-        }
         if ("PASS".equalsIgnoreCase(matcher.group(1))) {
-            return unavailable();
+            return Verdict.accept();
         }
         String reason = StringUtils.hasText(matcher.group(2)) ? matcher.group(2).strip() : "需要修正";
         return Verdict.revise("[" + label + "] " + reason);
@@ -92,11 +88,4 @@ public final class LlmVerifier implements VerifyGate {
         return Verdict.revise("[" + label + "] " + UNAVAILABLE_CRITIQUE);
     }
 
-    private String safePromptData(String value) {
-        if (value == null) {
-            return "";
-        }
-        String safe = ANSWER_CLOSE_TAG.matcher(value).replaceAll("＜/answer＞");
-        return ANSWER_OPEN_TAG.matcher(safe).replaceAll("＜answer＞");
-    }
 }

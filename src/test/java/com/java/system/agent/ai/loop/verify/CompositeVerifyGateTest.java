@@ -1,10 +1,10 @@
 package com.java.system.agent.ai.loop.verify;
 
 import com.java.system.agent.ai.loop.Candidate;
+import com.java.system.agent.ai.loop.GateDecision;
 import com.java.system.agent.ai.loop.LoopRequest;
 import com.java.system.agent.ai.loop.LoopState;
 import com.java.system.agent.ai.loop.Verdict;
-import com.java.system.agent.ai.loop.VerifyGate;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,25 +18,31 @@ class CompositeVerifyGateTest {
     }
 
     @Test
-    void returnsFirstReviseAndSkipsLaterStages() {
-        VerifyGate reject = (candidate, loopState) -> Verdict.revise("stage1");
-        VerifyGate boom = (candidate, loopState) -> {
-            throw new AssertionError("不該被呼叫");
-        };
+    void recordsStableGateNamesAndStopsAtFirstRejection() {
+        CompositeVerifyGate gate = new CompositeVerifyGate(List.of(
+                new NamedVerifyGate("first", (candidate, loopState) -> Verdict.accept()),
+                new NamedVerifyGate("second", (candidate, loopState) -> Verdict.revise("不完整")),
+                new NamedVerifyGate("third", (candidate, loopState) -> Verdict.accept())));
 
-        Verdict verdict = new CompositeVerifyGate(List.of(reject, boom))
-                .verify(new Candidate("x"), state());
+        Verdict verdict = gate.verify(new Candidate("草稿"), state());
 
-        assertThat(verdict.accepted()).isFalse();
-        assertThat(verdict.critique()).isEqualTo("stage1");
+        assertThat(verdict.decisions()).extracting(GateDecision::gateName)
+                .containsExactly("first", "second");
+        assertThat(verdict.decisions()).extracting(GateDecision::accepted)
+                .containsExactly(true, false);
+        assertThat(verdict.critique()).isEqualTo("不完整");
     }
 
     @Test
     void acceptsWhenAllAccept() {
         CompositeVerifyGate gate = new CompositeVerifyGate(List.of(
-                (candidate, loopState) -> Verdict.accept(),
-                (candidate, loopState) -> Verdict.accept()));
+                new NamedVerifyGate("first", (candidate, loopState) -> Verdict.accept()),
+                new NamedVerifyGate("second", (candidate, loopState) -> Verdict.accept())));
 
-        assertThat(gate.verify(new Candidate("x"), state()).accepted()).isTrue();
+        Verdict verdict = gate.verify(new Candidate("x"), state());
+
+        assertThat(verdict.accepted()).isTrue();
+        assertThat(verdict.decisions()).extracting(GateDecision::gateName)
+                .containsExactly("first", "second");
     }
 }
