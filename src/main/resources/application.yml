@@ -6,3 +6,7 @@ semantic:
   git-username: ${GIT_USERNAME:}
   git-token: ${GIT_TOKEN:}
   repositories: {}
+
+logging:
+  level:
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
