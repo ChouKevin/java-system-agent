@@ -1,3 +1,8 @@
 semantic:
   api:
     api-token: ${SEMANTIC_API_TOKEN:}
+  data-root: /data/repos
+  repository-lock-timeout: 5s
+  git-username: ${GIT_USERNAME:}
+  git-token: ${GIT_TOKEN:}
+  repositories: {}
