@@ -68,6 +68,7 @@ public class JGitRepositoryAdapter implements GitRepositoryPort {
             if (Objects.isNull(target)) {
                 throw new RepositoryMutationException("remote branch was not found");
             }
+            checkoutRevision(git, branch);
             git.reset()
                     .setMode(ResetCommand.ResetType.HARD)
                     .setRef(target.getName())
@@ -81,15 +82,7 @@ public class JGitRepositoryAdapter implements GitRepositoryPort {
     @Override
     public RepositoryRevision checkout(Path workingTree, String revision) {
         try (Git git = Git.open(workingTree.toFile())) {
-            boolean localBranchExists = Objects.nonNull(
-                    git.getRepository().findRef("refs/heads/" + revision));
-            CheckoutCommand checkout = git.checkout().setName(revision);
-            if (!localBranchExists && remoteBranchExists(git, revision)) {
-                checkout.setCreateBranch(true)
-                        .setStartPoint("origin/" + revision)
-                        .setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK);
-            }
-            checkout.call();
+            checkoutRevision(git, revision);
             return resolveHead(git);
         } catch (IOException | GitAPIException exception) {
             throw new RepositoryMutationException("checkout failed", exception);
@@ -116,6 +109,19 @@ public class JGitRepositoryAdapter implements GitRepositoryPort {
 
     private boolean remoteBranchExists(Git git, String branch) throws IOException {
         return Objects.nonNull(git.getRepository().findRef("refs/remotes/origin/" + branch));
+    }
+
+    private void checkoutRevision(Git git, String revision)
+            throws IOException, GitAPIException {
+        boolean localBranchExists = Objects.nonNull(
+                git.getRepository().findRef("refs/heads/" + revision));
+        CheckoutCommand checkout = git.checkout().setName(revision);
+        if (!localBranchExists && remoteBranchExists(git, revision)) {
+            checkout.setCreateBranch(true)
+                    .setStartPoint("origin/" + revision)
+                    .setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK);
+        }
+        checkout.call();
     }
 
     private RepositoryRevision resolveHead(Git git) throws IOException {

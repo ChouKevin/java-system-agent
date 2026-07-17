@@ -56,6 +56,41 @@ class JGitRepositoryAdapterTest {
         }
     }
 
+    @Test
+    void should_sync_the_requested_branch_when_current_branch_is_a_distinct_feature() throws Exception {
+        try (RemoteFixture fixture = createRemote()) {
+            String mainSha = commit(fixture.seed(), fixture.seedRoot(), "main");
+            pushBranch(fixture.seed(), "main");
+            fixture.seed().checkout().setCreateBranch(true).setName("feature").call();
+            String featureSha = commit(fixture.seed(), fixture.seedRoot(), "feature");
+            pushBranch(fixture.seed(), "feature");
+            assertThat(featureSha).isNotEqualTo(mainSha);
+
+            JGitRepositoryAdapter adapter = new JGitRepositoryAdapter(new RepositoryProperties());
+            Path clone = tempDirectory.resolve("cross-branch-clone");
+            adapter.clone(clone, fixture.remote().toUri().toString(), "main");
+            adapter.checkout(clone, "feature");
+
+            try (Git clonedGit = Git.open(clone.toFile())) {
+                StoredConfig config = clonedGit.getRepository().getConfig();
+                assertThat(config.getString("branch", "feature", "remote")).isEqualTo("origin");
+                assertThat(config.getString("branch", "feature", "merge"))
+                        .isEqualTo("refs/heads/feature");
+            }
+
+            RepositoryRevision synced = adapter.fetchAndReset(clone, "main");
+
+            assertThat(synced.value()).isEqualTo(mainSha);
+            assertThat(adapter.currentBranch(clone)).isEqualTo("main");
+            try (Git clonedGit = Git.open(clone.toFile())) {
+                assertThat(clonedGit.getRepository().resolve("refs/heads/main").getName())
+                        .isEqualTo(mainSha);
+                assertThat(clonedGit.getRepository().resolve("refs/heads/feature").getName())
+                        .isEqualTo(featureSha);
+            }
+        }
+    }
+
     private RemoteFixture createRemote() throws Exception {
         Path remote = tempDirectory.resolve("remote.git");
         try (Git bare = Git.init().setBare(true).setDirectory(remote.toFile()).call()) {
