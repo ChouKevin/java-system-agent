@@ -1,0 +1,3 @@
+semantic:
+  api:
+    api-token: ${SEMANTIC_API_TOKEN:}
