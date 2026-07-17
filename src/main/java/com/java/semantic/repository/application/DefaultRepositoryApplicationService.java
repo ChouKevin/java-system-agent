@@ -61,8 +61,7 @@ public class DefaultRepositoryApplicationService implements RepositoryApplicatio
             notifyBeforeMutation(repositoryId);
             RepositoryRevision revision = gitRepositoryPort.fetchAndReset(
                     runtime.workingTree(), targetBranch);
-            runtime.publish(revision, gitRepositoryPort.currentBranch(runtime.workingTree()));
-            return runtime.status();
+            return publishRevisionAndBranch(runtime, revision);
         });
     }
 
@@ -76,8 +75,7 @@ public class DefaultRepositoryApplicationService implements RepositoryApplicatio
             notifyBeforeMutation(repositoryId);
             RepositoryRevision revision = gitRepositoryPort.checkout(
                     runtime.workingTree(), revisionValue);
-            runtime.publish(revision, gitRepositoryPort.currentBranch(runtime.workingTree()));
-            return runtime.status();
+            return publishRevisionAndBranch(runtime, revision);
         });
     }
 
@@ -131,7 +129,14 @@ public class DefaultRepositoryApplicationService implements RepositoryApplicatio
             revision = gitRepositoryPort.clone(
                     runtime.workingTree(), runtime.remoteUrl(), runtime.defaultBranch());
         }
-        runtime.publish(revision, gitRepositoryPort.currentBranch(runtime.workingTree()));
+        return publishRevisionAndBranch(runtime, revision);
+    }
+
+    private RepositoryStatus publishRevisionAndBranch(
+            RepositoryRuntime runtime, RepositoryRevision revision) {
+        runtime.publish(revision, "");
+        String branch = gitRepositoryPort.currentBranch(runtime.workingTree());
+        runtime.publish(revision, branch);
         return runtime.status();
     }
 

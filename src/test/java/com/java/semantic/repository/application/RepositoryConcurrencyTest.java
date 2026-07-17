@@ -8,11 +8,13 @@ import com.java.semantic.repository.domain.RepositoryRuntime;
 import com.java.semantic.repository.domain.RepositorySnapshot;
 import com.java.semantic.repository.domain.RepositoryStatus;
 import com.java.semantic.repository.port.GitRepositoryPort;
+import com.java.semantic.repository.port.RepositoryMutationListener;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -44,6 +46,7 @@ class RepositoryConcurrencyTest {
         service.ensure(REPOSITORY_ID);
         CountDownLatch readerStarted = new CountDownLatch(1);
         CountDownLatch readerMayFinish = new CountDownLatch(1);
+        CountDownLatch mutationTaskStarted = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<RepositorySnapshot> reader = pool.submit(() -> service.withSnapshot(
@@ -54,8 +57,11 @@ class RepositoryConcurrencyTest {
                     }));
             assertThat(readerStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
-            Future<RepositoryStatus> mutation = pool.submit(
-                    () -> service.sync(REPOSITORY_ID, Optional.empty()));
+            Future<RepositoryStatus> mutation = pool.submit(() -> {
+                mutationTaskStarted.countDown();
+                return service.sync(REPOSITORY_ID, Optional.empty());
+            });
+            assertThat(mutationTaskStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
             assertThatThrownBy(() -> mutation.get(100, TimeUnit.MILLISECONDS))
                     .isInstanceOf(TimeoutException.class);
@@ -75,14 +81,19 @@ class RepositoryConcurrencyTest {
         DefaultRepositoryApplicationService service = service(git, Duration.ofSeconds(2));
         service.ensure(REPOSITORY_ID);
         git.blockNextMutation();
+        CountDownLatch readerTaskStarted = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<RepositoryStatus> mutation = pool.submit(
                     () -> service.sync(REPOSITORY_ID, Optional.empty()));
             assertThat(git.awaitMutationStart()).isTrue();
 
-            Future<RepositorySnapshot> reader = pool.submit(() -> service.withSnapshot(
-                    REPOSITORY_ID, Optional.empty(), snapshot -> snapshot));
+            Future<RepositorySnapshot> reader = pool.submit(() -> {
+                readerTaskStarted.countDown();
+                return service.withSnapshot(
+                        REPOSITORY_ID, Optional.empty(), snapshot -> snapshot);
+            });
+            assertThat(readerTaskStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
             assertThatThrownBy(() -> reader.get(100, TimeUnit.MILLISECONDS))
                     .isInstanceOf(TimeoutException.class);
@@ -96,7 +107,7 @@ class RepositoryConcurrencyTest {
     }
 
     @Test
-    void should_release_the_read_lock_when_the_operation_throws() {
+    void should_release_the_read_lock_when_the_operation_throws() throws Exception {
         FakeGitRepositoryPort git = new FakeGitRepositoryPort();
         DefaultRepositoryApplicationService service = service(git, Duration.ofMillis(100));
         service.ensure(REPOSITORY_ID);
@@ -105,11 +116,18 @@ class RepositoryConcurrencyTest {
             throw new IllegalStateException("boom");
         })).isInstanceOf(IllegalStateException.class);
 
-        assertThat(service.status(REPOSITORY_ID).currentRevision()).contains(SHA_ONE);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<RepositoryStatus> followUp = pool.submit(
+                    () -> service.sync(REPOSITORY_ID, Optional.empty()));
+            assertThat(followUp.get(5, TimeUnit.SECONDS).currentRevision()).contains(SHA_TWO);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
-    void should_release_the_write_lock_when_the_mutation_throws() {
+    void should_release_the_write_lock_when_the_mutation_throws() throws Exception {
         FakeGitRepositoryPort git = new FakeGitRepositoryPort();
         DefaultRepositoryApplicationService service = service(git, Duration.ofMillis(100));
         service.ensure(REPOSITORY_ID);
@@ -118,8 +136,32 @@ class RepositoryConcurrencyTest {
         assertThatThrownBy(() -> service.sync(REPOSITORY_ID, Optional.empty()))
                 .isInstanceOf(RepositoryMutationException.class);
 
-        assertThat(service.sync(REPOSITORY_ID, Optional.empty()).currentRevision())
-                .contains(SHA_TWO);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<RepositoryStatus> followUp = pool.submit(
+                    () -> service.sync(REPOSITORY_ID, Optional.empty()));
+            assertThat(followUp.get(5, TimeUnit.SECONDS).currentRevision()).contains(SHA_TWO);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void should_publish_mutated_revision_when_branch_lookup_fails_after_sync() {
+        FakeGitRepositoryPort git = new FakeGitRepositoryPort();
+        DefaultRepositoryApplicationService service = service(git, Duration.ofMillis(100));
+        service.ensure(REPOSITORY_ID);
+        git.failNextCurrentBranchLookup();
+
+        assertThatThrownBy(() -> service.sync(REPOSITORY_ID, Optional.empty()))
+                .isInstanceOf(RepositoryMutationException.class);
+
+        RepositoryRevision revision = service.withSnapshot(
+                REPOSITORY_ID, Optional.of(SHA_TWO), RepositorySnapshot::revision);
+        assertThat(revision).isEqualTo(SHA_TWO);
+        assertThatThrownBy(() -> service.withSnapshot(
+                REPOSITORY_ID, Optional.of(SHA_ONE), RepositorySnapshot::revision))
+                .isInstanceOf(RepositoryRevisionMismatchException.class);
     }
 
     @Test
@@ -197,11 +239,88 @@ class RepositoryConcurrencyTest {
                 .isInstanceOf(ImmutableFixtureException.class);
     }
 
+    @Test
+    void should_notify_listener_before_clone_when_ensure_clones_repository() {
+        FakeGitRepositoryPort git = new FakeGitRepositoryPort();
+        DefaultRepositoryApplicationService service = service(
+                git, List.of(repositoryId -> git.recordListenerEvent()), Duration.ofMillis(100));
+
+        RepositoryStatus status = service.ensure(REPOSITORY_ID);
+
+        assertThat(git.events()).containsExactly("listener", "clone");
+        assertThat(status.currentRevision()).contains(SHA_ONE);
+    }
+
+    @Test
+    void should_notify_listener_before_fetch_when_sync_mutates_repository() {
+        FakeGitRepositoryPort git = new FakeGitRepositoryPort();
+        DefaultRepositoryApplicationService service = service(
+                git, List.of(repositoryId -> git.recordListenerEvent()), Duration.ofMillis(100));
+        service.ensure(REPOSITORY_ID);
+        git.clearEvents();
+
+        RepositoryStatus status = service.sync(REPOSITORY_ID, Optional.empty());
+
+        assertThat(git.events()).containsExactly("listener", "sync");
+        assertThat(status.currentRevision()).contains(SHA_TWO);
+    }
+
+    @Test
+    void should_notify_listener_before_checkout_when_checkout_mutates_repository() {
+        FakeGitRepositoryPort git = new FakeGitRepositoryPort();
+        DefaultRepositoryApplicationService service = service(
+                git, List.of(repositoryId -> git.recordListenerEvent()), Duration.ofMillis(100));
+        service.ensure(REPOSITORY_ID);
+        git.clearEvents();
+
+        RepositoryStatus status = service.checkout(REPOSITORY_ID, "feature");
+
+        assertThat(git.events()).containsExactly("listener", "checkout");
+        assertThat(status.currentRevision()).contains(SHA_TWO);
+    }
+
+    @Test
+    void should_prevent_git_mutation_when_listener_throws() {
+        FakeGitRepositoryPort git = new FakeGitRepositoryPort();
+        RepositoryMutationListener listener = repositoryId -> {
+            git.recordListenerEvent();
+            throw new IllegalStateException("planned listener failure");
+        };
+        DefaultRepositoryApplicationService service = service(
+                git, List.of(listener), Duration.ofMillis(100));
+
+        assertThatThrownBy(() -> service.ensure(REPOSITORY_ID))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(git.events()).containsExactly("listener");
+        assertThat(git.isCloned(tempDirectory)).isFalse();
+    }
+
+    @Test
+    void should_not_notify_listener_when_ensure_finds_existing_clone() {
+        FakeGitRepositoryPort git = new FakeGitRepositoryPort();
+        git.markCloned();
+        DefaultRepositoryApplicationService service = service(
+                git, List.of(repositoryId -> git.recordListenerEvent()), Duration.ofMillis(100));
+
+        RepositoryStatus status = service.ensure(REPOSITORY_ID);
+
+        assertThat(git.events()).isEqualTo(List.of());
+        assertThat(status.currentRevision()).contains(SHA_ONE);
+    }
+
     private DefaultRepositoryApplicationService service(
             FakeGitRepositoryPort git, Duration lockTimeout) {
+        return service(git, List.of(), lockTimeout);
+    }
+
+    private DefaultRepositoryApplicationService service(
+            FakeGitRepositoryPort git,
+            List<RepositoryMutationListener> listeners,
+            Duration lockTimeout) {
         RepositoryProperties properties = properties(lockTimeout);
         RepositoryRuntimeRegistry registry = new RepositoryRuntimeRegistry(properties);
-        return new DefaultRepositoryApplicationService(registry, git, List.of(), properties);
+        return new DefaultRepositoryApplicationService(registry, git, listeners, properties);
     }
 
     private RepositoryProperties properties(Duration lockTimeout) {
@@ -227,11 +346,13 @@ class RepositoryConcurrencyTest {
 
     private static final class FakeGitRepositoryPort implements GitRepositoryPort {
 
+        private final List<String> events = new ArrayList<>();
         private boolean cloned;
         private RepositoryRevision revision = SHA_ONE;
         private CountDownLatch mutationStarted = new CountDownLatch(0);
         private CountDownLatch mutationMayFinish = new CountDownLatch(0);
         private boolean failMutation;
+        private boolean failCurrentBranchLookup;
 
         @Override
         public boolean isCloned(Path workingTree) {
@@ -240,6 +361,7 @@ class RepositoryConcurrencyTest {
 
         @Override
         public RepositoryRevision clone(Path workingTree, String url, String branch) {
+            events.add("clone");
             cloned = true;
             revision = SHA_ONE;
             return revision;
@@ -247,6 +369,7 @@ class RepositoryConcurrencyTest {
 
         @Override
         public RepositoryRevision fetchAndReset(Path workingTree, String branch) {
+            events.add("sync");
             mutationStarted.countDown();
             await(mutationMayFinish);
             if (failMutation) {
@@ -259,6 +382,7 @@ class RepositoryConcurrencyTest {
 
         @Override
         public RepositoryRevision checkout(Path workingTree, String revisionValue) {
+            events.add("checkout");
             revision = SHA_TWO;
             return revision;
         }
@@ -270,6 +394,10 @@ class RepositoryConcurrencyTest {
 
         @Override
         public String currentBranch(Path workingTree) {
+            if (failCurrentBranchLookup) {
+                failCurrentBranchLookup = false;
+                throw new RepositoryMutationException("planned branch lookup failure");
+            }
             return "main";
         }
 
@@ -288,6 +416,27 @@ class RepositoryConcurrencyTest {
 
         void failNextMutation() {
             failMutation = true;
+        }
+
+        void failNextCurrentBranchLookup() {
+            failCurrentBranchLookup = true;
+        }
+
+        void recordListenerEvent() {
+            events.add("listener");
+        }
+
+        List<String> events() {
+            return List.copyOf(events);
+        }
+
+        void clearEvents() {
+            events.clear();
+        }
+
+        void markCloned() {
+            cloned = true;
+            revision = SHA_ONE;
         }
     }
 }
