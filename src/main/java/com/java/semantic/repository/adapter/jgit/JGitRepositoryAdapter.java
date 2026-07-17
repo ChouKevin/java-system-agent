@@ -53,7 +53,9 @@ public class JGitRepositoryAdapter implements GitRepositoryPort {
             try (Git git = command.call()) {
                 return resolveHead(git);
             }
-        } catch (IOException | GitAPIException exception) {
+        } catch (RepositoryMutationException exception) {
+            throw exception;
+        } catch (IOException | GitAPIException | RuntimeException exception) {
             throw new RepositoryMutationException("clone failed", exception);
         }
     }
@@ -74,7 +76,9 @@ public class JGitRepositoryAdapter implements GitRepositoryPort {
                     .setRef(target.getName())
                     .call();
             return resolveHead(git);
-        } catch (IOException | GitAPIException exception) {
+        } catch (RepositoryMutationException exception) {
+            throw exception;
+        } catch (IOException | GitAPIException | RuntimeException exception) {
             throw new RepositoryMutationException("sync failed", exception);
         }
     }
@@ -84,7 +88,9 @@ public class JGitRepositoryAdapter implements GitRepositoryPort {
         try (Git git = Git.open(workingTree.toFile())) {
             checkoutRevision(git, revision);
             return resolveHead(git);
-        } catch (IOException | GitAPIException exception) {
+        } catch (RepositoryMutationException exception) {
+            throw exception;
+        } catch (IOException | GitAPIException | RuntimeException exception) {
             throw new RepositoryMutationException("checkout failed", exception);
         }
     }
@@ -93,7 +99,9 @@ public class JGitRepositoryAdapter implements GitRepositoryPort {
     public RepositoryRevision currentRevision(Path workingTree) {
         try (Git git = Git.open(workingTree.toFile())) {
             return resolveHead(git);
-        } catch (IOException exception) {
+        } catch (RepositoryMutationException exception) {
+            throw exception;
+        } catch (IOException | RuntimeException exception) {
             throw new RepositoryMutationException("cannot read HEAD", exception);
         }
     }
@@ -102,7 +110,7 @@ public class JGitRepositoryAdapter implements GitRepositoryPort {
     public String currentBranch(Path workingTree) {
         try (Git git = Git.open(workingTree.toFile())) {
             return git.getRepository().getBranch();
-        } catch (IOException exception) {
+        } catch (IOException | RuntimeException exception) {
             throw new RepositoryMutationException("cannot read current branch", exception);
         }
     }

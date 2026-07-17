@@ -1,8 +1,10 @@
 package com.java.semantic.repository.adapter.jgit;
 
+import com.java.semantic.repository.application.RepositoryMutationException;
 import com.java.semantic.repository.config.RepositoryProperties;
 import com.java.semantic.repository.domain.RepositoryRevision;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.JGitInternalException;
 import org.eclipse.jgit.lib.StoredConfig;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.URIish;
@@ -13,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JGitRepositoryAdapterTest {
 
@@ -89,6 +92,20 @@ class JGitRepositoryAdapterTest {
                         .isEqualTo(featureSha);
             }
         }
+    }
+
+    @Test
+    void should_wrap_as_repository_mutation_exception_when_jgit_throws_an_unchecked_failure()
+            throws Exception {
+        JGitRepositoryAdapter adapter = new JGitRepositoryAdapter(new RepositoryProperties());
+        Path occupied = tempDirectory.resolve("occupied");
+        Files.createDirectories(occupied);
+        Files.writeString(occupied.resolve("existing.txt"), "keep-me");
+
+        assertThatThrownBy(() -> adapter.clone(occupied, "https://example.invalid/repo.git", "main"))
+                .isInstanceOf(RepositoryMutationException.class)
+                .cause()
+                .isInstanceOf(JGitInternalException.class);
     }
 
     private RemoteFixture createRemote() throws Exception {
