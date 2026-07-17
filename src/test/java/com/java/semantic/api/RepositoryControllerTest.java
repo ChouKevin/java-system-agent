@@ -25,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.List;
 import java.util.Objects;
@@ -34,6 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willReturn;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -47,6 +50,13 @@ class RepositoryControllerTest {
     private static final String TOKEN = "test-token";
     private static final String CONFIGURED_GIT_TOKEN = "ghp_realsecretvalue";
     private static final RepositoryId REPOSITORY_ID = RepositoryId.of("test-repo");
+    private static final RepositoryStatus FIXTURE_STATUS = new RepositoryStatus(
+            REPOSITORY_ID,
+            RepositoryMode.LOCAL_FIXTURE,
+            "test-repo",
+            Optional.of("main"),
+            Optional.of(RepositoryRevision.fixture()),
+            true);
 
     @Autowired
     private MockMvc mockMvc;
@@ -56,15 +66,8 @@ class RepositoryControllerTest {
 
     @BeforeEach
     void setUp() {
-        RepositoryStatus fixture = new RepositoryStatus(
-                REPOSITORY_ID,
-                RepositoryMode.LOCAL_FIXTURE,
-                "test-repo",
-                Optional.of("main"),
-                Optional.of(RepositoryRevision.fixture()),
-                true);
-        given(repositoryApplicationService.status(REPOSITORY_ID)).willReturn(fixture);
-        given(repositoryApplicationService.list()).willReturn(List.of(fixture));
+        given(repositoryApplicationService.status(REPOSITORY_ID)).willReturn(FIXTURE_STATUS);
+        given(repositoryApplicationService.list()).willReturn(List.of(FIXTURE_STATUS));
         given(repositoryApplicationService.status(RepositoryId.of("nope")))
                 .willThrow(new RepositoryNotFoundException(RepositoryId.of("nope")));
         given(repositoryApplicationService.sync(eq(REPOSITORY_ID), any()))
@@ -73,13 +76,86 @@ class RepositoryControllerTest {
 
     @Test
     void should_return_status_without_any_filesystem_path_when_repository_is_fetched() throws Exception {
-        mockMvc.perform(get("/v1/repositories/test-repo")
+        ResultActions result = mockMvc.perform(get("/v1/repositories/test-repo")
+                        .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN))
+                .andExpect(status().isOk());
+
+        assertSafeStatus(result, "$");
+        then(repositoryApplicationService).should().status(REPOSITORY_ID);
+    }
+
+    @Test
+    void should_return_safe_statuses_when_repositories_are_listed() throws Exception {
+        ResultActions result = mockMvc.perform(get("/v1/repositories")
                         .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repoId").value("test-repo"))
-                .andExpect(jsonPath("$.currentRevision").value("FIXTURE"))
-                .andExpect(jsonPath("$.sourceRoot").doesNotExist())
-                .andExpect(jsonPath("$.url").doesNotExist());
+                .andExpect(jsonPath("$.length()").value(1));
+
+        assertSafeStatus(result, "$[0]");
+        then(repositoryApplicationService).should().list();
+    }
+
+    @Test
+    void should_ensure_exact_repository_when_ensure_is_requested() throws Exception {
+        given(repositoryApplicationService.ensure(REPOSITORY_ID)).willReturn(FIXTURE_STATUS);
+
+        ResultActions result = mockMvc.perform(post("/v1/repositories/test-repo/ensure")
+                        .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN))
+                .andExpect(status().isOk());
+
+        assertSafeStatus(result, "$");
+        then(repositoryApplicationService).should().ensure(REPOSITORY_ID);
+    }
+
+    @Test
+    void should_forward_branch_when_repository_sync_is_requested() throws Exception {
+        Optional<String> branch = Optional.of("release");
+        willReturn(FIXTURE_STATUS).given(repositoryApplicationService).sync(REPOSITORY_ID, branch);
+
+        ResultActions result = mockMvc.perform(post("/v1/repositories/test-repo/sync")
+                        .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"branch":"release"}
+                                """))
+                .andExpect(status().isOk());
+
+        assertSafeStatus(result, "$");
+        then(repositoryApplicationService).should().sync(REPOSITORY_ID, branch);
+    }
+
+    @Test
+    void should_normalize_branch_to_empty_when_repository_sync_branch_is_blank() throws Exception {
+        Optional<String> branch = Optional.empty();
+        willReturn(FIXTURE_STATUS).given(repositoryApplicationService).sync(REPOSITORY_ID, branch);
+
+        ResultActions result = mockMvc.perform(post("/v1/repositories/test-repo/sync")
+                        .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"branch":"   "}
+                                """))
+                .andExpect(status().isOk());
+
+        assertSafeStatus(result, "$");
+        then(repositoryApplicationService).should().sync(REPOSITORY_ID, branch);
+    }
+
+    @Test
+    void should_forward_revision_when_repository_checkout_is_requested() throws Exception {
+        String revision = "release-tag";
+        given(repositoryApplicationService.checkout(REPOSITORY_ID, revision)).willReturn(FIXTURE_STATUS);
+
+        ResultActions result = mockMvc.perform(post("/v1/repositories/test-repo/checkout")
+                        .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"revision":"release-tag"}
+                                """))
+                .andExpect(status().isOk());
+
+        assertSafeStatus(result, "$");
+        then(repositoryApplicationService).should().checkout(REPOSITORY_ID, revision);
     }
 
     @Test
@@ -105,6 +181,40 @@ class RepositoryControllerTest {
                         .content("{}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.errorCode").value("REPOSITORY_IMMUTABLE_FIXTURE"));
+    }
+
+    @Test
+    void should_return_request_invalid_when_sync_request_body_is_absent() throws Exception {
+        mockMvc.perform(post("/v1/repositories/test-repo/sync")
+                        .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("REQUEST_INVALID"))
+                .andExpect(jsonPath("$.message").value("request body is invalid"));
+    }
+
+    @Test
+    void should_return_request_invalid_when_checkout_request_json_is_malformed() throws Exception {
+        mockMvc.perform(post("/v1/repositories/test-repo/checkout")
+                        .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("REQUEST_INVALID"))
+                .andExpect(jsonPath("$.message").value("request body is invalid"));
+    }
+
+    @Test
+    void should_return_request_invalid_when_checkout_revision_is_blank() throws Exception {
+        mockMvc.perform(post("/v1/repositories/test-repo/checkout")
+                        .header(ApiTokenFilter.API_TOKEN_HEADER, TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"revision":"   "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("REQUEST_INVALID"))
+                .andExpect(jsonPath("$.message").value("request body is invalid"));
     }
 
     @Test
@@ -201,5 +311,18 @@ class RepositoryControllerTest {
         assertThat(response.getStatusCode().value()).isEqualTo(409);
         assertThat(body.currentRevision()).contains(current.value());
         assertThat(body.expectedRevision()).contains(expected.value());
+    }
+
+    private ResultActions assertSafeStatus(ResultActions result, String prefix) throws Exception {
+        return result
+                .andExpect(jsonPath(prefix + ".repoId").value("test-repo"))
+                .andExpect(jsonPath(prefix + ".mode").value("LOCAL_FIXTURE"))
+                .andExpect(jsonPath(prefix + ".displayName").value("test-repo"))
+                .andExpect(jsonPath(prefix + ".currentBranch").value("main"))
+                .andExpect(jsonPath(prefix + ".currentRevision").value("FIXTURE"))
+                .andExpect(jsonPath(prefix + ".cloned").value(true))
+                .andExpect(jsonPath(prefix + ".sourceRoot").doesNotExist())
+                .andExpect(jsonPath(prefix + ".path").doesNotExist())
+                .andExpect(jsonPath(prefix + ".url").doesNotExist());
     }
 }

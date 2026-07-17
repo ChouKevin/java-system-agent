@@ -10,6 +10,7 @@ import com.java.semantic.repository.application.RepositoryRevisionMismatchExcept
 import com.java.semantic.repository.domain.InvalidRepositoryIdException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -23,7 +24,7 @@ public class ApiExceptionHandler {
         return response(HttpStatus.BAD_REQUEST, "REPOSITORY_ID_INVALID", "repository id is invalid");
     }
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class})
     public ResponseEntity<ApiErrorResponse> invalidRequest() {
         return response(HttpStatus.BAD_REQUEST, "REQUEST_INVALID", "request body is invalid");
     }

@@ -21,6 +21,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/AuthDisabled'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /v1/repositories/{repoId}:
     parameters:
       - $ref: '#/components/parameters/RepoId'
@@ -182,6 +184,7 @@ components:
         revision:
           type: string
           minLength: 1
+          pattern: '.*\S.*'
     RepositoryStatusResponse:
       type: object
       required:
@@ -201,8 +204,10 @@ components:
           type: string
         currentBranch:
           type: string
+          nullable: true
         currentRevision:
           type: string
+          nullable: true
           pattern: '^[0-9a-f]{40}$|^FIXTURE$'
         cloned:
           type: boolean
@@ -218,5 +223,7 @@ components:
           type: string
         currentRevision:
           type: string
+          nullable: true
         expectedRevision:
           type: string
+          nullable: true
