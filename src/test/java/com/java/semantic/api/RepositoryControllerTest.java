@@ -42,7 +42,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "semantic.api.api-token=test-token")
+@SpringBootTest(properties = {
+        "semantic.api.api-token=test-token",
+        "semantic.git-token=ghp_realsecretvalue",
+        "semantic.repositories.test-repo.url=https://user:ghp_realsecretvalue@example.com/repo.git"
+})
 @AutoConfigureMockMvc
 @ExtendWith(OutputCaptureExtension.class)
 class RepositoryControllerTest {
