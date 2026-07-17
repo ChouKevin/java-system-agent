@@ -115,7 +115,7 @@ public class DefaultRepositoryApplicationService implements RepositoryApplicatio
             if (!Files.isDirectory(runtime.workingTree()) || !Files.isReadable(runtime.workingTree())) {
                 throw new RepositoryMutationException("fixture path is unavailable");
             }
-            runtime.publish(RepositoryRevision.fixture(), runtime.defaultBranch());
+            runtime.publish(RepositoryRevision.fixture(), "");
             return runtime.status();
         }
         RepositoryRevision revision;

@@ -233,6 +233,7 @@ class RepositoryConcurrencyTest {
         RepositoryStatus status = service.ensure(REPOSITORY_ID);
 
         assertThat(status.currentRevision()).contains(RepositoryRevision.fixture());
+        assertThat(status.currentBranch()).isEmpty();
         assertThatThrownBy(() -> service.sync(REPOSITORY_ID, Optional.empty()))
                 .isInstanceOf(ImmutableFixtureException.class);
         assertThatThrownBy(() -> service.checkout(REPOSITORY_ID, "main"))

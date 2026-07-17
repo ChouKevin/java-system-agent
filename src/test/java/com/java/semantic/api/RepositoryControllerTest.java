@@ -58,7 +58,7 @@ class RepositoryControllerTest {
             REPOSITORY_ID,
             RepositoryMode.LOCAL_FIXTURE,
             "test-repo",
-            Optional.of("main"),
+            Optional.empty(),
             Optional.of(RepositoryRevision.fixture()),
             true);
 
@@ -322,7 +322,7 @@ class RepositoryControllerTest {
                 .andExpect(jsonPath(prefix + ".repoId").value("test-repo"))
                 .andExpect(jsonPath(prefix + ".mode").value("LOCAL_FIXTURE"))
                 .andExpect(jsonPath(prefix + ".displayName").value("test-repo"))
-                .andExpect(jsonPath(prefix + ".currentBranch").value("main"))
+                .andExpect(jsonPath(prefix + ".currentBranch").doesNotExist())
                 .andExpect(jsonPath(prefix + ".currentRevision").value("FIXTURE"))
                 .andExpect(jsonPath(prefix + ".cloned").value(true))
                 .andExpect(jsonPath(prefix + ".sourceRoot").doesNotExist())
