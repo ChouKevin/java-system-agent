@@ -5,6 +5,18 @@ spring:
     active: dev
   application:
     name: java-system-agent
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://agent:agent@127.0.0.1:27017/java_system_agent?authSource=admin}
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+    google:
+      genai:
+        api-key: ${GOOGLE_GENAI_API_KEY:}
+        chat:
+          options:
+            model: ${GOOGLE_GENAI_MODEL:gemini-3.1-flash-lite}
   http:
     client:
       connect-timeout: 10s
@@ -44,6 +56,8 @@ agent:
       enabled: true
       retain: 20
       max-conversations: 200
+  trace:
+    persistence-enabled: ${TRACE_PERSISTENCE_ENABLED:false}
 
 springdoc:
   api-docs:

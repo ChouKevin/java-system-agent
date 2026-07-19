@@ -4,10 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.ai.config.AgentLoopProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.data.mongodb.core.MongoTemplate;
 
 @Configuration
 @EnableConfigurationProperties(TracePersistenceProperties.class)
@@ -26,13 +25,12 @@ public class TraceStoreConfiguration {
     }
 
     @Bean
-    @DependsOnDatabaseInitialization
     @ConditionalOnProperty(
             prefix = "agent.trace",
             name = "persistence-enabled",
             havingValue = "true")
-    TracePartitionManager tracePartitionManager(JdbcClient jdbcClient) {
-        return new TracePartitionManager(jdbcClient);
+    MongoTraceIndexInitializer mongoTraceIndexInitializer(MongoTemplate mongoTemplate) {
+        return new MongoTraceIndexInitializer(mongoTemplate);
     }
 
     @Bean
@@ -40,10 +38,11 @@ public class TraceStoreConfiguration {
             prefix = "agent.trace",
             name = "persistence-enabled",
             havingValue = "true")
-    AgentTraceStore postgresAgentTraceStore(
-            JdbcClient jdbcClient,
+    AgentTraceStore mongoAgentTraceStore(
+            MongoTemplate mongoTemplate,
             ObjectMapper objectMapper,
-            TracePartitionManager partitionManager) {
-        return new PostgresAgentTraceStore(jdbcClient, objectMapper, partitionManager);
+            AgentLoopProperties properties) {
+        return new MongoAgentTraceStore(
+                mongoTemplate, objectMapper, properties.trace().retain());
     }
 }

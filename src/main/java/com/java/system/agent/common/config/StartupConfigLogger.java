@@ -17,7 +17,6 @@ public class StartupConfigLogger implements CommandLineRunner {
     public void run(String... args) {
         String appName = environment.getProperty("spring.application.name", "java-system-agent");
         String[] activeProfiles = environment.getActiveProfiles();
-        String datasourceUrl = environment.getProperty("spring.datasource.url", "<not-configured>");
         String rabbitAddresses = environment.getProperty("spring.rabbitmq.addresses", "<not-configured>");
         String jacksonTimeZone = environment.getProperty("spring.jackson.time-zone", "<default>");
 
@@ -34,7 +33,6 @@ public class StartupConfigLogger implements CommandLineRunner {
         log.info("========================================================");
         log.info(" Application '{}' started", appName);
         log.info(" Active profiles        : {}", (Object) activeProfiles);
-        log.info(" Datasource URL         : {}", datasourceUrl);
         log.info(" RabbitMQ addresses     : {}", rabbitAddresses);
         log.info(" Jackson time-zone      : {}", jacksonTimeZone);
         log.info(" JVM default TimeZone   : {}", java.util.TimeZone.getDefault().getID());
