@@ -14,12 +14,12 @@ class SourceCodeAdapterTest {
     @Test
     void sourceRoot_should_resolve_configured_repo_to_runtime_repos_directory() {
         GitProperties gitProperties = new GitProperties();
-        gitProperties.getRepos().put("test-repo", new GitProperties.RepoConfig());
+        gitProperties.getRepos().put("demo-repo", new GitProperties.RepoConfig());
         SourceCodeAdapter adapter = new SourceCodeAdapter(gitProperties);
 
-        Path result = adapter.sourceRoot("test-repo");
+        Path result = adapter.sourceRoot("demo-repo");
 
-        assertThat(result).isEqualTo(Path.of("repos", "test-repo"));
+        assertThat(result).isEqualTo(Path.of("repos", "demo-repo"));
     }
 
     @Test

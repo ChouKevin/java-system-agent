@@ -45,11 +45,11 @@ class CallGraphExpandToolsTest {
                         explainableGraph("calculate"),
                         null));
 
-        tools.findCallGraph("test-repo",
+        tools.findCallGraph("demo-repo",
                 "com.example.service", "MainService", "calculate");
 
         verify(analysisService).analyzeMethodExplainableStructured(
-                "test-repo", "com.example.service", "MainService", "calculate");
+                "demo-repo", "com.example.service", "MainService", "calculate");
     }
 
     @Test
@@ -60,7 +60,7 @@ class CallGraphExpandToolsTest {
                 .thenReturn(expected);
 
         AnalysisResult<ExplainableCallGraph> result = tools.findCallGraph(
-                "test-repo", "pkg", "MainService", "calculate");
+                "demo-repo", "pkg", "MainService", "calculate");
 
         assertThat(result).isEqualTo(expected);
     }
@@ -78,7 +78,7 @@ class CallGraphExpandToolsTest {
         logger.addAppender(appender);
         logger.setAdditive(false);
         try {
-            result = tools.findCallGraph("test-repo", "pkg", "MainService", "calculate");
+            result = tools.findCallGraph("demo-repo", "pkg", "MainService", "calculate");
         } finally {
             logger.detachAppender(appender);
             logger.setAdditive(originalAdditive);
@@ -98,7 +98,7 @@ class CallGraphExpandToolsTest {
     }
 
     private ExplainableCallGraph explainableGraph(String methodName) {
-        MethodId root = new MethodId("test-repo", "pkg", "MainService", methodName, List.of());
+        MethodId root = new MethodId("demo-repo", "pkg", "MainService", methodName, List.of());
         return new ExplainableCallGraph(
                 root,
                 List.of(),

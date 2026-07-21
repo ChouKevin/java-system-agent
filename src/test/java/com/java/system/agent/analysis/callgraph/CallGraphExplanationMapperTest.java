@@ -18,7 +18,7 @@ class CallGraphExplanationMapperTest {
     @Test
     void should_allow_legacy_call_node_constructor_without_source_location() {
         CallNode node = new CallNode(
-                new MethodId("test-repo", "com.example", "BasicService", "getBasic", List.of()),
+                new MethodId("demo-repo", "com.example", "BasicService", "getBasic", List.of()),
                 "com.example.BasicService#getBasic",
                 CallType.INTERNAL_SERVICE,
                 Map.of(),
@@ -42,7 +42,7 @@ class CallGraphExplanationMapperTest {
                 .endLine(24)
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", service, null);
 
         CallNode node = graph.nodes().get(0);
         Assertions.assertEquals("src/main/java/com/example/BasicService.java", node.sourceFile());
@@ -76,7 +76,7 @@ class CallGraphExplanationMapperTest {
                 .calledMethods(List.of(repository))
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", service, null);
 
         CallEdge edge = graph.edges().get(0);
         Assertions.assertEquals("src/main/java/com/example/BasicService.java", edge.sourceFile());
@@ -109,7 +109,7 @@ class CallGraphExplanationMapperTest {
                 .calledMethods(List.of(interfaceNode))
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", root, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", root, null);
 
         Assertions.assertEquals(3, graph.nodes().size());
         Assertions.assertEquals(2, graph.edges().size());
@@ -138,7 +138,7 @@ class CallGraphExplanationMapperTest {
                 .calledMethods(List.of(dataAccess))
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", service, null);
 
         Assertions.assertEquals(1, graph.edges().size());
         CallEdge edge = graph.edges().get(0);
@@ -172,7 +172,7 @@ class CallGraphExplanationMapperTest {
                 .calledMethods(List.of(repository))
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", service, null);
 
         CallEdge edge = graph.edges().get(0);
         Assertions.assertEquals(ResolutionStrategy.SPRING_BEAN_BY_TYPE, edge.resolutionStrategy());
@@ -207,7 +207,7 @@ class CallGraphExplanationMapperTest {
                 .calledMethods(List.of(repository))
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", service, null);
 
         CallEdge edge = graph.edges().get(0);
         Assertions.assertTrue(edge.evidence().isEmpty());
@@ -231,7 +231,7 @@ class CallGraphExplanationMapperTest {
                 .calledMethods(List.of(dataAccess))
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", service, null);
 
         Assertions.assertEquals(1, graph.edges().size());
         CallEdge edge = graph.edges().get(0);
@@ -263,7 +263,7 @@ class CallGraphExplanationMapperTest {
                 .calledMethods(List.of(findByCode, findById))
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", service, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", service, null);
 
         Assertions.assertEquals(3, graph.nodes().size());
         Assertions.assertTrue(graph.nodes().stream()
@@ -287,7 +287,7 @@ class CallGraphExplanationMapperTest {
                 .calledMethods(List.of(unresolved))
                 .build();
 
-        ExplainableCallGraph graph = mapper.map("test-repo", root, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", root, null);
 
         Assertions.assertEquals(1, graph.edges().size());
         CallEdge edge = graph.edges().get(0);
@@ -299,7 +299,7 @@ class CallGraphExplanationMapperTest {
 
     @Test
     void should_return_empty_graph_when_root_is_null() {
-        ExplainableCallGraph graph = mapper.map("test-repo", null, null);
+        ExplainableCallGraph graph = mapper.map("demo-repo", null, null);
 
         Assertions.assertNull(graph.root());
         Assertions.assertTrue(graph.nodes().isEmpty());

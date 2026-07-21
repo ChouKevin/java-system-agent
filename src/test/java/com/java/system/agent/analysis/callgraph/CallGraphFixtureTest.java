@@ -165,11 +165,11 @@ class CallGraphFixtureTest {
                 .thenReturn(root);
 
         AnalysisResult<ExplainableCallGraph> result = analyzerWithUnresolvedEdge.analyzeExplainableResult(
-                "test-repo",
+                "demo-repo",
                 repoRoot,
                 repoRoot.relativize(sourceFile).toString(),
                 "run",
-                AnalysisMetadata.now("test-repo", "com.example", "ExampleController", "run"));
+                AnalysisMetadata.now("demo-repo", "com.example", "ExampleController", "run"));
 
         assertEquals(AnalysisStatus.PARTIAL, result.status());
         assertTrue(result.warnings().stream()

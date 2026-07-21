@@ -62,11 +62,11 @@ public class ApiTrieServiceTest {
                 "com/java/vip/controller/VipController.java",
                 "VipController", "/api/vip",
                 "getVip", List.of("GET"), "/api/vip/info");
-        loadRepo("test-repo", List.of(cls));
+        loadRepo("demo-repo", List.of(cls));
 
         Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/vip/info", "GET");
         assertTrue(result.isPresent());
-        assertEquals("test-repo", result.get().repoId());
+        assertEquals("demo-repo", result.get().repoId());
         assertEquals("VipController", result.get().className());
         assertEquals("com.java.vip.controller", result.get().packageName());
         assertEquals("getVip", result.get().methodName());
@@ -78,7 +78,7 @@ public class ApiTrieServiceTest {
                 "com/java/vip/controller/VipController.java",
                 "VipController", "/api/vip",
                 "getById", List.of("GET"), "/api/vip/{id}/level");
-        loadRepo("test-repo", List.of(cls));
+        loadRepo("demo-repo", List.of(cls));
 
         Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/vip/123/level", "GET");
         assertTrue(result.isPresent());
@@ -95,7 +95,7 @@ public class ApiTrieServiceTest {
                 "com/java/vip/controller/VipController.java",
                 "VipController", "/api/vip",
                 "getById", List.of("GET"), "/api/vip/{id}");
-        loadRepo("test-repo", List.of(exact, wildcard));
+        loadRepo("demo-repo", List.of(exact, wildcard));
 
         Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/vip/special", "GET");
         assertTrue(result.isPresent());
@@ -114,7 +114,7 @@ public class ApiTrieServiceTest {
                 "com/java/vip/controller/VipController.java",
                 "VipController", "/api/vip",
                 "getVip", List.of("GET"), "/api/vip/info");
-        loadRepo("test-repo", List.of(cls));
+        loadRepo("demo-repo", List.of(cls));
 
         Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/vip/info", "POST");
         assertTrue(result.isEmpty());
@@ -126,7 +126,7 @@ public class ApiTrieServiceTest {
                 "com/java/vip/controller/VipController.java",
                 "VipController", "/api/vip",
                 "getVip", List.of("GET"), "/api/vip/info");
-        loadRepo("test-repo", List.of(cls));
+        loadRepo("demo-repo", List.of(cls));
 
         Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/vip/info", "get");
         assertTrue(result.isPresent());
@@ -138,11 +138,11 @@ public class ApiTrieServiceTest {
                 "com/java/vip/controller/VipController.java",
                 "VipController", "/api/vip",
                 "getVip", List.of("GET"), "/api/vip/info");
-        loadRepo("test-repo", List.of(cls));
+        loadRepo("demo-repo", List.of(cls));
         assertTrue(apiTrieService.lookup("/api/vip/info", "GET").isPresent());
 
         // Reload with empty list — simulates repo having no APIs after update
-        loadRepo("test-repo", List.of());
+        loadRepo("demo-repo", List.of());
         assertTrue(apiTrieService.lookup("/api/vip/info", "GET").isEmpty());
     }
 
@@ -152,11 +152,11 @@ public class ApiTrieServiceTest {
                 "com/java/vip/controller/VipController.java",
                 "VipController", "/api/vip",
                 "getById", List.of("GET"), "/api/vip/{id}/level");
-        loadRepo("test-repo", List.of(cls));
+        loadRepo("demo-repo", List.of(cls));
         assertTrue(apiTrieService.lookup("/api/vip/123/level", "GET").isPresent());
 
         // Reload with empty — all paths should be fully removed
-        loadRepo("test-repo", List.of());
+        loadRepo("demo-repo", List.of());
 
         // Verify no wildcard/exact sub-path leaks remain
         assertTrue(apiTrieService.lookup("/api/vip/123/level", "GET").isEmpty(),
@@ -198,7 +198,7 @@ public class ApiTrieServiceTest {
         EntryPointClass wildcardDetail = buildClass(
                 "com/java/generic/controller/GenericController.java", "GenericController", "/api",
                 "getDetail", List.of("GET"), "/api/{type}/detail");
-        loadRepo("test-repo", List.of(exactList, wildcardDetail));
+        loadRepo("demo-repo", List.of(exactList, wildcardDetail));
 
         Optional<ApiEntryPointRef> result = apiTrieService.lookup("/api/user/detail", "GET");
 
@@ -247,7 +247,7 @@ public class ApiTrieServiceTest {
         EntryPointClass cls = buildClass(
                 "com/java/vip/controller/LegacyController.java", "LegacyController", "/api/legacy",
                 "handleLegacy", List.of("ALL"), "/api/legacy/echo");
-        loadRepo("test-repo", List.of(cls));
+        loadRepo("demo-repo", List.of(cls));
 
         Optional<ApiEntryPointRef> getResult = apiTrieService.lookup("/api/legacy/echo", "GET");
         Optional<ApiEntryPointRef> postResult = apiTrieService.lookup("/api/legacy/echo", "post");
@@ -266,7 +266,7 @@ public class ApiTrieServiceTest {
         EntryPointClass allVerbs = buildClass(
                 "com/java/vip/controller/MixedController.java", "MixedController", "/api/mixed",
                 "handleAny", List.of("ALL"), "/api/mixed/data");
-        loadRepo("test-repo", List.of(getOnly, allVerbs));
+        loadRepo("demo-repo", List.of(getOnly, allVerbs));
 
         Optional<ApiEntryPointRef> getResult = apiTrieService.lookup("/api/mixed/data", "GET");
         Optional<ApiEntryPointRef> deleteResult = apiTrieService.lookup("/api/mixed/data", "DELETE");

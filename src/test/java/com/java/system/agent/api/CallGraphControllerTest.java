@@ -50,10 +50,10 @@ class CallGraphControllerTest {
     void callGraphShouldReturnExplainableAnalysisResult() throws Exception {
         ExplainableCallGraph graph = explainableGraph();
         when(analysisService.analyzeMethodExplainableStructured(
-                "test-repo", "com.example", "OrderService", "createOrder"))
+                "demo-repo", "com.example", "OrderService", "createOrder"))
                 .thenReturn(AnalysisResult.success(graph, null));
 
-        mockMvc.perform(post("/analysis/call-graph/test-repo")
+        mockMvc.perform(post("/analysis/call-graph/demo-repo")
                         .contentType("application/json")
                         .content(methodRequest()))
                 .andExpect(status().isOk())
@@ -71,32 +71,32 @@ class CallGraphControllerTest {
                 .andExpect(jsonPath("$.data.legacyFlattened.rootSignature").value("OrderService#createOrder"));
 
         verify(analysisService).analyzeMethodExplainableStructured(
-                "test-repo", "com.example", "OrderService", "createOrder");
+                "demo-repo", "com.example", "OrderService", "createOrder");
     }
 
     @Test
     void callGraphFlattenShouldReturnLegacyFlattenedGraph() throws Exception {
         FlattenedCallGraph flattenedGraph = flattenedGraph();
-        when(analysisService.analyzeMethod("test-repo", "com.example", "OrderService", "createOrder"))
+        when(analysisService.analyzeMethod("demo-repo", "com.example", "OrderService", "createOrder"))
                 .thenReturn(flattenedGraph);
 
-        mockMvc.perform(post("/analysis/call-graph/test-repo/flatten")
+        mockMvc.perform(post("/analysis/call-graph/demo-repo/flatten")
                         .contentType("application/json")
                         .content(methodRequest()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.rootSignature").value("OrderService#createOrder"))
                 .andExpect(jsonPath("$.methods[0].methodName").value("createOrder"));
 
-        verify(analysisService).analyzeMethod("test-repo", "com.example", "OrderService", "createOrder");
+        verify(analysisService).analyzeMethod("demo-repo", "com.example", "OrderService", "createOrder");
     }
 
     @Test
     void apiCallGraphShouldReturnExplainableAnalysisResultWhenApiExists() throws Exception {
         ExplainableCallGraph graph = explainableGraph();
         when(analysisService.lookupApi("/orders", "POST"))
-                .thenReturn(List.of(new ApiRef("test-repo", "com.example", "OrderController", "createOrder")));
+                .thenReturn(List.of(new ApiRef("demo-repo", "com.example", "OrderController", "createOrder")));
         when(analysisService.analyzeMethodExplainableStructured(
-                "test-repo", "com.example", "OrderController", "createOrder"))
+                "demo-repo", "com.example", "OrderController", "createOrder"))
                 .thenReturn(AnalysisResult.success(graph, null));
 
         mockMvc.perform(post("/analysis/api-call-graph")
@@ -113,7 +113,7 @@ class CallGraphControllerTest {
 
         verify(analysisService).lookupApi("/orders", "POST");
         verify(analysisService).analyzeMethodExplainableStructured(
-                "test-repo", "com.example", "OrderController", "createOrder");
+                "demo-repo", "com.example", "OrderController", "createOrder");
     }
 
     @Test
@@ -144,8 +144,8 @@ class CallGraphControllerTest {
     }
 
     private ExplainableCallGraph explainableGraph() {
-        MethodId root = new MethodId("test-repo", "com.example", "OrderService", "createOrder", List.of());
-        MethodId callee = new MethodId("test-repo", "com.example", "OrderRepository", "save", List.of());
+        MethodId root = new MethodId("demo-repo", "com.example", "OrderService", "createOrder", List.of());
+        MethodId callee = new MethodId("demo-repo", "com.example", "OrderRepository", "save", List.of());
         CallNode rootNode = new CallNode(
                 root,
                 "com.example.OrderService#createOrder",

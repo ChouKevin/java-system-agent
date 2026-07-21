@@ -63,8 +63,8 @@ class AnalysisServiceTest {
 
     @Test
     void should_delegateToAnalyzerWithFallbackPath_when_fileNotFoundInSourceRoots() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot))
                 .thenReturn(List.of(repoRoot.resolve("src/main/java")));
         FlattenedCallGraph expected = FlattenedCallGraph.builder().methods(List.of()).build();
@@ -76,7 +76,7 @@ class AnalysisServiceTest {
                 .thenReturn(AnalysisResult.success(expected, null));
 
         FlattenedCallGraph result = analysisService.analyzeMethod(
-                "test-repo", "com.example.controller", "FooController", "doStuff");
+                "demo-repo", "com.example.controller", "FooController", "doStuff");
 
         assertSame(expected, result);
         verify(javaCallGraphAnalyzer).analyzeFlattenedResult(
@@ -88,13 +88,13 @@ class AnalysisServiceTest {
 
     @Test
     void should_delegateToAnalyzerForExplainableGraph_when_fileNotFoundInSourceRoots() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot))
                 .thenReturn(List.of(repoRoot.resolve("src/main/java")));
         ExplainableCallGraph expected = emptyExplainableGraph();
         when(javaCallGraphAnalyzer.analyzeExplainableResult(
-                eq("test-repo"),
+                eq("demo-repo"),
                 eq(repoRoot),
                 eq("src/main/java/com/example/controller/FooController.java"),
                 eq("doStuff"),
@@ -102,11 +102,11 @@ class AnalysisServiceTest {
                 .thenReturn(AnalysisResult.success(expected, null));
 
         ExplainableCallGraph result = analysisService.analyzeMethodExplainable(
-                "test-repo", "com.example.controller", "FooController", "doStuff");
+                "demo-repo", "com.example.controller", "FooController", "doStuff");
 
         assertSame(expected, result);
         verify(javaCallGraphAnalyzer).analyzeExplainableResult(
-                eq("test-repo"),
+                eq("demo-repo"),
                 eq(repoRoot),
                 eq("src/main/java/com/example/controller/FooController.java"),
                 eq("doStuff"),
@@ -128,8 +128,8 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodStructured_preservesFailedAnalyzerResult() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
                 .thenReturn(AnalysisResult.failed(
@@ -139,7 +139,7 @@ class AnalysisServiceTest {
                         null));
 
         AnalysisResult<FlattenedCallGraph> result = analysisService.analyzeMethodStructured(
-                "test-repo", "com.example", "MissingService", "missing");
+                "demo-repo", "com.example", "MissingService", "missing");
 
         assertEquals(AnalysisStatus.FAILED, result.status());
         assertEquals(AnalysisErrorCode.ENTRYPOINT_NOT_FOUND, result.errors().get(0).code());
@@ -147,8 +147,8 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodExplainableStructured_preservesFailedAnalyzerResult() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeExplainableResult(anyString(), any(), anyString(), anyString(), any()))
                 .thenReturn(AnalysisResult.failed(
@@ -158,7 +158,7 @@ class AnalysisServiceTest {
                         null));
 
         AnalysisResult<ExplainableCallGraph> result = analysisService.analyzeMethodExplainableStructured(
-                "test-repo", "com.example", "MissingService", "missing");
+                "demo-repo", "com.example", "MissingService", "missing");
 
         assertEquals(AnalysisStatus.FAILED, result.status());
         assertEquals(AnalysisErrorCode.ENTRYPOINT_NOT_FOUND, result.errors().get(0).code());
@@ -166,8 +166,8 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethod_returnsEmptyGraph_whenStructuredAnalysisFailsForCompatibility() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
                 .thenReturn(AnalysisResult.failed(
@@ -177,7 +177,7 @@ class AnalysisServiceTest {
                         null));
 
         FlattenedCallGraph result = analysisService.analyzeMethod(
-                "test-repo", "com.example", "BrokenService", "run");
+                "demo-repo", "com.example", "BrokenService", "run");
 
         assertNotNull(result);
         assertTrue(result.getMethods().isEmpty());
@@ -185,8 +185,8 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodExplainable_returnsEmptyGraph_whenStructuredAnalysisFailsForCompatibility() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeExplainableResult(anyString(), any(), anyString(), anyString(), any()))
                 .thenReturn(AnalysisResult.failed(
@@ -196,7 +196,7 @@ class AnalysisServiceTest {
                         null));
 
         ExplainableCallGraph result = analysisService.analyzeMethodExplainable(
-                "test-repo", "com.example", "BrokenService", "run");
+                "demo-repo", "com.example", "BrokenService", "run");
 
         assertNotNull(result);
         assertTrue(result.nodes().isEmpty());
@@ -206,15 +206,15 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodStructured_distinguishesSuccessfulEmptyGraph() {
-        Path repoRoot = Path.of("/repos/test-repo");
+        Path repoRoot = Path.of("/repos/demo-repo");
         FlattenedCallGraph emptyGraph = FlattenedCallGraph.builder().methods(List.of()).build();
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
                 .thenReturn(AnalysisResult.success(emptyGraph, null));
 
         AnalysisResult<FlattenedCallGraph> result = analysisService.analyzeMethodStructured(
-                "test-repo", "com.example", "LeafService", "leaf");
+                "demo-repo", "com.example", "LeafService", "leaf");
 
         assertEquals(AnalysisStatus.SUCCESS, result.status());
         assertSame(emptyGraph, result.data());
@@ -223,19 +223,19 @@ class AnalysisServiceTest {
 
     @Test
     void analyzeMethodStructured_preservesPartialResultWithWarnings() {
-        Path repoRoot = Path.of("/repos/test-repo");
+        Path repoRoot = Path.of("/repos/demo-repo");
         FlattenedCallGraph partialGraph = FlattenedCallGraph.builder().methods(List.of()).build();
         AnalysisWarning warning = new AnalysisWarning(
                 "UNRESOLVED_CALL",
                 "Call graph contains an unresolved method",
                 "MissingService#run");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(sourceRootResolver.resolveSourceRoots(repoRoot)).thenReturn(List.of());
         when(javaCallGraphAnalyzer.analyzeFlattenedResult(any(), anyString(), anyString(), any()))
                 .thenReturn(AnalysisResult.partial(partialGraph, List.of(warning), List.of(), null));
 
         AnalysisResult<FlattenedCallGraph> result = analysisService.analyzeMethodStructured(
-                "test-repo", "com.example", "PartialService", "run");
+                "demo-repo", "com.example", "PartialService", "run");
 
         assertEquals(AnalysisStatus.PARTIAL, result.status());
         assertSame(partialGraph, result.data());
@@ -244,12 +244,12 @@ class AnalysisServiceTest {
 
     @Test
     void scanEntryPoints_defaultsToAllWhenNoTypes() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(entryPointCacheService.getEntryPoints(repoRoot, EntryPointType.ALL))
                 .thenReturn(List.of());
 
-        List<EntryPointClass> result = analysisService.scanEntryPoints("test-repo");
+        List<EntryPointClass> result = analysisService.scanEntryPoints("demo-repo");
 
         verify(entryPointCacheService).getEntryPoints(repoRoot, EntryPointType.ALL);
         assertTrue(result.isEmpty());
@@ -257,12 +257,12 @@ class AnalysisServiceTest {
 
     @Test
     void scanEntryPoints_passesSpecificTypes() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         when(entryPointCacheService.getEntryPoints(repoRoot, List.of(EntryPointType.API)))
                 .thenReturn(List.of());
 
-        analysisService.scanEntryPoints("test-repo", EntryPointType.API);
+        analysisService.scanEntryPoints("demo-repo", EntryPointType.API);
 
         verify(entryPointCacheService).getEntryPoints(repoRoot, List.of(EntryPointType.API));
     }
@@ -325,10 +325,10 @@ class AnalysisServiceTest {
 
     @Test
     void should_evictAllCachesInOrder_when_reloadRepo() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
 
-        analysisService.reloadRepo("test-repo");
+        analysisService.reloadRepo("demo-repo");
 
         InOrder inOrder = inOrder(
                 sourceRootResolver,
@@ -340,18 +340,18 @@ class AnalysisServiceTest {
         inOrder.verify(projectParserService).invalidate(repoRoot);
         inOrder.verify(entryPointCacheService).reload(repoRoot);
         inOrder.verify(classMetadataService).reload(repoRoot);
-        inOrder.verify(apiTrieService).reload("test-repo");
+        inOrder.verify(apiTrieService).reload("demo-repo");
     }
 
     @Test
     void should_run_git_operation_before_cache_eviction_when_reload_repo_after() {
-        Path repoRoot = Path.of("/repos/test-repo");
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(repoRoot);
+        Path repoRoot = Path.of("/repos/demo-repo");
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(repoRoot);
         @SuppressWarnings("unchecked")
         Supplier<String> gitOperation = mock(Supplier.class);
         when(gitOperation.get()).thenReturn("pulled");
 
-        String result = analysisService.reloadRepoAfter("test-repo", gitOperation);
+        String result = analysisService.reloadRepoAfter("demo-repo", gitOperation);
 
         assertEquals("pulled", result);
         InOrder inOrder = inOrder(
@@ -366,7 +366,7 @@ class AnalysisServiceTest {
         inOrder.verify(projectParserService).invalidate(repoRoot);
         inOrder.verify(entryPointCacheService).reload(repoRoot);
         inOrder.verify(classMetadataService).reload(repoRoot);
-        inOrder.verify(apiTrieService).reload("test-repo");
+        inOrder.verify(apiTrieService).reload("demo-repo");
     }
 
     @Test
@@ -376,21 +376,21 @@ class AnalysisServiceTest {
         };
 
         assertThrows(IllegalStateException.class,
-                () -> analysisService.reloadRepoAfter("test-repo", gitOperation));
+                () -> analysisService.reloadRepoAfter("demo-repo", gitOperation));
 
         verify(entryPointCacheService, never()).reload(any());
         verify(classMetadataService, never()).reload(any());
         verify(apiTrieService, never()).reload(anyString());
 
-        when(sourceCodePort.sourceRoot("test-repo")).thenReturn(Path.of("/repos/test-repo"));
+        when(sourceCodePort.sourceRoot("demo-repo")).thenReturn(Path.of("/repos/demo-repo"));
         when(entryPointCacheService.getEntryPoints(any(), any())).thenReturn(List.of());
-        assertTrue(analysisService.scanEntryPoints("test-repo").isEmpty());
+        assertTrue(analysisService.scanEntryPoints("demo-repo").isEmpty());
     }
 
     @Test
     void allRepos_delegatesToPort() {
         List<RepoDescriptor> expected = List.of(
-                new RepoDescriptor("test-repo", "Test", "desc", Path.of("/repos/test-repo")));
+                new RepoDescriptor("demo-repo", "Test", "desc", Path.of("/repos/demo-repo")));
         when(repoRegistryPort.all()).thenReturn(expected);
 
         List<RepoDescriptor> result = analysisService.allRepos();
@@ -399,7 +399,7 @@ class AnalysisServiceTest {
     }
 
     private ExplainableCallGraph emptyExplainableGraph() {
-        MethodId root = new MethodId("test-repo", "com.example", "FooController", "doStuff", List.of());
+        MethodId root = new MethodId("demo-repo", "com.example", "FooController", "doStuff", List.of());
         return new ExplainableCallGraph(
                 root,
                 List.of(),

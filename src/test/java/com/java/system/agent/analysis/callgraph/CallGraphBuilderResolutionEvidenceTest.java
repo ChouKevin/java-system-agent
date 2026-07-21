@@ -84,12 +84,12 @@ class CallGraphBuilderResolutionEvidenceTest {
         Path repoRoot = Path.of("src/test/resources/fixtures/multi-module-data-access");
 
         AnalysisResult<ExplainableCallGraph> result = analyzer.analyzeExplainableResult(
-                "test-repo",
+                "demo-repo",
                 repoRoot,
                 "module-service/src/main/java/com/example/service/OrderApplicationService.java",
                 "loadOrder",
                 AnalysisMetadata.now(
-                        "test-repo",
+                        "demo-repo",
                         "com.example.service",
                         "OrderApplicationService",
                         "loadOrder"));
@@ -164,11 +164,11 @@ class CallGraphBuilderResolutionEvidenceTest {
 
         JavaCallGraphAnalyzer cutoffAnalyzer = analyzerWithMaxDepth(0);
         AnalysisResult<ExplainableCallGraph> result = cutoffAnalyzer.analyzeExplainableResult(
-                "test-repo",
+                "demo-repo",
                 repoRoot,
                 "src/main/java/com/example/basic/BasicService.java",
                 "getBasic",
-                AnalysisMetadata.now("test-repo", "com.example.basic", "BasicService", "getBasic"));
+                AnalysisMetadata.now("demo-repo", "com.example.basic", "BasicService", "getBasic"));
 
         assertNotEquals(AnalysisStatus.FAILED, result.status());
         CallEdge edge = edgeTo(result.data(), "normalize");
@@ -203,11 +203,11 @@ class CallGraphBuilderResolutionEvidenceTest {
 
         JavaCallGraphAnalyzer cutoffAnalyzer = analyzerWithMaxDepth(0);
         AnalysisResult<ExplainableCallGraph> result = cutoffAnalyzer.analyzeExplainableResult(
-                "test-repo",
+                "demo-repo",
                 repoRoot,
                 "src/main/java/com/example/basic/BasicService.java",
                 "getBasic",
-                AnalysisMetadata.now("test-repo", "com.example.basic", "BasicService", "getBasic"));
+                AnalysisMetadata.now("demo-repo", "com.example.basic", "BasicService", "getBasic"));
 
         assertNotEquals(AnalysisStatus.FAILED, result.status());
         CallEdge edge = edgeTo(result.data(), "fetch");
@@ -236,11 +236,11 @@ class CallGraphBuilderResolutionEvidenceTest {
 
         JavaCallGraphAnalyzer cutoffAnalyzer = analyzerWithMaxDepth(0);
         AnalysisResult<ExplainableCallGraph> result = cutoffAnalyzer.analyzeExplainableResult(
-                "test-repo",
+                "demo-repo",
                 repoRoot,
                 "src/main/java/com/example/basic/BasicService.java",
                 "getBasic",
-                AnalysisMetadata.now("test-repo", "com.example.basic", "BasicService", "getBasic"));
+                AnalysisMetadata.now("demo-repo", "com.example.basic", "BasicService", "getBasic"));
 
         assertNotEquals(AnalysisStatus.FAILED, result.status());
         CallEdge edge = edgeTo(result.data(), "fetch");
@@ -800,11 +800,11 @@ class CallGraphBuilderResolutionEvidenceTest {
 
     private AnalysisResult<ExplainableCallGraph> analyze(Path repoRoot, String methodName) {
         return analyzer.analyzeExplainableResult(
-                "test-repo",
+                "demo-repo",
                 repoRoot,
                 "src/main/java/com/example/basic/BasicService.java",
                 methodName,
-                AnalysisMetadata.now("test-repo", "com.example.basic", "BasicService", methodName));
+                AnalysisMetadata.now("demo-repo", "com.example.basic", "BasicService", methodName));
     }
 
     private void writeSource(Path repoRoot, String fileName, String code) throws IOException {

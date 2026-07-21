@@ -28,7 +28,7 @@ public class TestRepoService {
     }
 
     public String repoId() {
-        return "test-repo";
+        return "demo-repo";
     }
 
     public Path repoRoot() {

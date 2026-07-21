@@ -44,7 +44,7 @@ class ControllerValidationTest {
                 }
                 """;
 
-        mockMvc.perform(post("/analysis/call-graph/test-repo")
+        mockMvc.perform(post("/analysis/call-graph/demo-repo")
                         .contentType("application/json")
                         .content(invalidBody))
                 .andExpect(status().isBadRequest())
@@ -55,7 +55,7 @@ class ControllerValidationTest {
 
     @Test
     void checkoutShouldReturnBadRequestWhenBranchIsMissing() throws Exception {
-        mockMvc.perform(post("/git/checkout-repo/test-repo")
+        mockMvc.perform(post("/git/checkout-repo/demo-repo")
                         .param("unused", "x"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))

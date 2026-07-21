@@ -33,13 +33,13 @@ class ToolCallSummaryTest {
     void render_formatsReadBusinessGroupDoc_withRepoAndGroup() {
         String summary = ToolCallSummary.render(
                 List.of(new ToolCallRecord(ToolNames.READ_BUSINESS_GROUP_DOC,
-                        "{\"repoId\":\"test-repo\",\"groupName\":\"order-checkout\"}")),
+                        "{\"repoId\":\"demo-repo\",\"groupName\":\"order-checkout\"}")),
                 objectMapper,
                 Set.of(ToolNames.READ_BUSINESS_GROUP_DOC),
                 "title");
 
         assertThat(summary).contains("[read_business_group_doc]");
-        assertThat(summary).contains("repo: `test-repo`");
+        assertThat(summary).contains("repo: `demo-repo`");
         assertThat(summary).contains("group: `order-checkout`");
     }
 

@@ -51,7 +51,7 @@ class EntryPointCacheServiceTest {
 
     @Test
     void testGetEntryPoints_CacheHitDoesNotRescan(@TempDir Path tempDir) throws Exception {
-        Path repoRoot = tempDir.resolve("test-repo");
+        Path repoRoot = tempDir.resolve("demo-repo");
         Files.createDirectories(repoRoot.resolve("src/main/java"));
 
         cacheService.getEntryPoints(repoRoot, EntryPointType.ALL);
@@ -63,7 +63,7 @@ class EntryPointCacheServiceTest {
 
     @Test
     void testGetEntryPoints_DifferentFiltersShareCache(@TempDir Path tempDir) throws Exception {
-        Path repoRoot = tempDir.resolve("test-repo");
+        Path repoRoot = tempDir.resolve("demo-repo");
         Files.createDirectories(repoRoot.resolve("src/main/java"));
 
         cacheService.getEntryPoints(repoRoot, EntryPointType.ALL);
@@ -75,7 +75,7 @@ class EntryPointCacheServiceTest {
 
     @Test
     void testReload_RescansRepo(@TempDir Path tempDir) throws Exception {
-        Path repoRoot = tempDir.resolve("test-repo");
+        Path repoRoot = tempDir.resolve("demo-repo");
         Files.createDirectories(repoRoot.resolve("src/main/java"));
 
         cacheService.getEntryPoints(repoRoot, EntryPointType.ALL);
@@ -132,7 +132,7 @@ class EntryPointCacheServiceTest {
 
     @Test
     void testGetEntryPoints_HandlesNullFilter(@TempDir Path tempDir) {
-        Path repoRoot = tempDir.resolve("test-repo");
+        Path repoRoot = tempDir.resolve("demo-repo");
 
         assertDoesNotThrow(() -> {
             List<EntryPointClass> result = cacheService.getEntryPoints(repoRoot, null);

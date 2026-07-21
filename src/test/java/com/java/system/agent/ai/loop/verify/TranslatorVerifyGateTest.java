@@ -170,7 +170,7 @@ class TranslatorVerifyGateTest {
     }
 
     private static MethodId methodId(String className, String methodName) {
-        return new MethodId("test-repo", "com.example.order", className, methodName, List.of());
+        return new MethodId("demo-repo", "com.example.order", className, methodName, List.of());
     }
 
     private LoopState state() {

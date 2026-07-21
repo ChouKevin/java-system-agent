@@ -41,7 +41,7 @@ class ProjectParserServiceTest {
     @Test
     void should_return_distinct_parser_instances_when_same_repo_creates_twice(@TempDir Path tempDir)
             throws Exception {
-        Path repoRoot = tempDir.resolve("test-repo");
+        Path repoRoot = tempDir.resolve("demo-repo");
         Files.createDirectories(repoRoot.resolve("src/main/java"));
 
         JavaParser parser1 = service.createParser(repoRoot);
@@ -53,7 +53,7 @@ class ProjectParserServiceTest {
     @Test
     void should_share_cached_configuration_when_same_repo_creates_twice(@TempDir Path tempDir)
             throws Exception {
-        Path repoRoot = tempDir.resolve("test-repo");
+        Path repoRoot = tempDir.resolve("demo-repo");
         Files.createDirectories(repoRoot.resolve("src/main/java"));
 
         JavaParser parser1 = service.createParser(repoRoot);
@@ -79,7 +79,7 @@ class ProjectParserServiceTest {
 
     @Test
     void should_rebuild_configuration_when_invalidated(@TempDir Path tempDir) throws Exception {
-        Path repoRoot = tempDir.resolve("test-repo");
+        Path repoRoot = tempDir.resolve("demo-repo");
         Files.createDirectories(repoRoot.resolve("src/main/java"));
 
         JavaParser parser1 = service.createParser(repoRoot);

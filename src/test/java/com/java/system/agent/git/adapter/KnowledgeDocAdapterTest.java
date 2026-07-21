@@ -18,7 +18,7 @@ class KnowledgeDocAdapterTest {
 
     @Test
     void should_truncate_business_map_when_entry_point_table_marker_present() throws Exception {
-        writeDoc("knowledge/repos/test-repo/business-map.md", """
+        writeDoc("knowledge/repos/demo-repo/business-map.md", """
                 # 業務群組
                 訂單結帳
 
@@ -26,7 +26,7 @@ class KnowledgeDocAdapterTest {
                 | API | 方法 |
                 """);
 
-        String content = adapter().readBusinessMap("test-repo");
+        String content = adapter().readBusinessMap("demo-repo");
 
         assertThat(content).contains("訂單結帳");
         assertThat(content).doesNotContain("進入點快速對照表");
@@ -35,16 +35,16 @@ class KnowledgeDocAdapterTest {
 
     @Test
     void should_return_whole_business_map_when_marker_absent() throws Exception {
-        writeDoc("knowledge/repos/test-repo/business-map.md", "# 業務群組\n訂單結帳\n");
+        writeDoc("knowledge/repos/demo-repo/business-map.md", "# 業務群組\n訂單結帳\n");
 
-        assertThat(adapter().readBusinessMap("test-repo")).contains("訂單結帳");
+        assertThat(adapter().readBusinessMap("demo-repo")).contains("訂單結帳");
     }
 
     @Test
     void should_return_empty_when_business_map_starts_with_entry_point_table() throws Exception {
-        writeDoc("knowledge/repos/test-repo/business-map.md", "\n## 進入點快速對照表\n| API | 方法 |\n");
+        writeDoc("knowledge/repos/demo-repo/business-map.md", "\n## 進入點快速對照表\n| API | 方法 |\n");
 
-        assertThat(adapter().readBusinessMap("test-repo")).isEmpty();
+        assertThat(adapter().readBusinessMap("demo-repo")).isEmpty();
     }
 
     // ── 缺文件回空字串的契約 ────────────────────────────────────────────
@@ -53,10 +53,10 @@ class KnowledgeDocAdapterTest {
     void should_return_empty_when_document_missing() {
         // 缺文件時回空字串,由 prompt 轉為「該文件尚未建立」提示
         // 回 null 或丟例外會改變 agent 行為
-        assertThat(adapter().readBusinessMap("test-repo")).isEmpty();
+        assertThat(adapter().readBusinessMap("demo-repo")).isEmpty();
         assertThat(adapter().readServiceMap()).isEmpty();
-        assertThat(adapter().readSummary("test-repo")).isEmpty();
-        assertThat(adapter().readBusinessGroupDoc("test-repo", "order-checkout")).isEmpty();
+        assertThat(adapter().readSummary("demo-repo")).isEmpty();
+        assertThat(adapter().readBusinessGroupDoc("demo-repo", "order-checkout")).isEmpty();
     }
 
     // ── knowledge/ 為唯一文件來源 ──────────────────────────────────────
@@ -70,23 +70,23 @@ class KnowledgeDocAdapterTest {
 
     @Test
     void should_read_business_group_doc_when_it_exists_in_knowledge_root() throws Exception {
-        writeDoc("knowledge/repos/test-repo/business-groups/order-checkout.md", "# 訂單結帳\n");
+        writeDoc("knowledge/repos/demo-repo/business-groups/order-checkout.md", "# 訂單結帳\n");
 
-        assertThat(adapter().readBusinessGroupDoc("test-repo", "order-checkout")).contains("訂單結帳");
+        assertThat(adapter().readBusinessGroupDoc("demo-repo", "order-checkout")).contains("訂單結帳");
     }
 
     @Test
     void should_read_summary_when_it_exists_in_knowledge_root() throws Exception {
-        writeDoc("knowledge/repos/test-repo/summary.md", "核心訂單服務\n");
+        writeDoc("knowledge/repos/demo-repo/summary.md", "核心訂單服務\n");
 
-        assertThat(adapter().readSummary("test-repo")).contains("核心訂單服務");
+        assertThat(adapter().readSummary("demo-repo")).contains("核心訂單服務");
     }
 
     @Test
     void should_return_empty_when_document_only_exists_at_legacy_repos_path() throws Exception {
-        writeDoc("repos/test-repo/docs/business-map.md", "# 舊路徑不應被讀取\n");
+        writeDoc("repos/demo-repo/docs/business-map.md", "# 舊路徑不應被讀取\n");
 
-        assertThat(adapter().readBusinessMap("test-repo"))
+        assertThat(adapter().readBusinessMap("demo-repo"))
                 .as("documents must come from knowledge/ only; repos/ is mutable clone territory")
                 .isEmpty();
     }
@@ -114,7 +114,7 @@ class KnowledgeDocAdapterTest {
 
     @Test
     void should_reject_group_name_when_it_escapes_the_knowledge_root() {
-        assertThatThrownBy(() -> adapter().readBusinessGroupDoc("test-repo", "../../../summary"))
+        assertThatThrownBy(() -> adapter().readBusinessGroupDoc("demo-repo", "../../../summary"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -126,7 +126,7 @@ class KnowledgeDocAdapterTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> adapter().readBusinessMap("  "))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> adapter().readBusinessGroupDoc("test-repo", null))
+        assertThatThrownBy(() -> adapter().readBusinessGroupDoc("demo-repo", null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -135,7 +135,7 @@ class KnowledgeDocAdapterTest {
             throws Exception {
         writeDoc("secrets.md", "TOP SECRET");
 
-        assertThatThrownBy(() -> adapter().readBusinessGroupDoc("test-repo", "../../../../secrets"))
+        assertThatThrownBy(() -> adapter().readBusinessGroupDoc("demo-repo", "../../../../secrets"))
                 .as("a traversal that would otherwise resolve to a readable file must be rejected")
                 .isInstanceOf(IllegalArgumentException.class);
     }

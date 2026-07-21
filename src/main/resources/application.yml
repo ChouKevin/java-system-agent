@@ -77,7 +77,7 @@ git:
   username: ${GIT_USERNAME:}
   token: ${GIT_TOKEN:}
   repos:
-    test-repo:
-      url: ${REPO_TEST_URL:}
-      api-host: ${REPO_TEST_API_HOST:}
-      default-branch: ${REPO_TEST_DEFAULT_BRANCH:main}
+    java-system-agent:
+      url: ${REPO_JAVA_SYSTEM_AGENT_URL:}
+      api-host: ${REPO_JAVA_SYSTEM_AGENT_API_HOST:}
+      default-branch: ${REPO_JAVA_SYSTEM_AGENT_DEFAULT_BRANCH:master}

@@ -97,12 +97,12 @@ Each managed repo needs three variables. The naming convention is `REPO_{REPO_NA
 | `REPO_{NAME}_API_HOST` | No | Service API host (for API lookup) |
 | `REPO_{NAME}_DEFAULT_BRANCH` | No | Default branch (default: `main`) |
 
-Repos are registered in `application.yml` under `git.repos`. Example for `test-repo`:
+Repos are registered in `application.yml` under `git.repos`. Multiple repositories can be registered side by side; each gets its own `REPO_{NAME}_*` variable set. Example for `java-system-agent` (this repository, registered as the demo analysis target):
 
 ```bash
-REPO_TEST_URL=https://github.com/org/test-repo
-REPO_TEST_API_HOST=http://localhost:8080
-REPO_TEST_DEFAULT_BRANCH=main
+REPO_JAVA_SYSTEM_AGENT_URL=https://github.com/org/java-system-agent
+REPO_JAVA_SYSTEM_AGENT_API_HOST=http://localhost:8080
+REPO_JAVA_SYSTEM_AGENT_DEFAULT_BRANCH=master
 ```
 
 ### API Protection
@@ -122,7 +122,7 @@ Read-only `GET /git/**` endpoints and non-Git APIs remain open. A missing or inv
 ```bash
 curl -X POST \
   -H "X-Api-Token: ${API_WRITE_TOKEN}" \
-  http://localhost:8080/git/pull-repo/test-repo
+  http://localhost:8080/git/pull-repo/java-system-agent
 ```
 
 ### Runtime
@@ -240,7 +240,7 @@ knowledge/
 
 The tradeoff is explicit: because documents no longer travel with the source, **nothing regenerates them and nothing notices when they drift from the code**. Keeping them accurate is a human responsibility.
 
-A committed example is available at `knowledge/repos/test-repo` (documents) alongside `repos/test-repo` (the source the analyzer reads).
+A committed example is available at `knowledge/repos/java-system-agent`: this repository documents itself and serves as the demo analysis target. At runtime the analyzed source is a clone under `repos/java-system-agent` (nothing under `repos/` is committed).
 
 ## Adding Another Repository
 
@@ -304,4 +304,4 @@ Swagger UI: `/swagger-ui/index.html`
 ## Further Reading
 
 - [`knowledge/service-map.md`](knowledge/service-map.md) -- Example top-level service index
-- [`knowledge/repos/test-repo/business-map.md`](knowledge/repos/test-repo/business-map.md) -- Example business group index
+- [`knowledge/repos/java-system-agent/business-map.md`](knowledge/repos/java-system-agent/business-map.md) -- Example business group index

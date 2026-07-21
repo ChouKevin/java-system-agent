@@ -27,12 +27,17 @@ import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * 示範 repo 契約:本 repo 以自身作為示範分析對象
+ * 文件位於 knowledge/repos/java-system-agent,原始碼即本工作目錄
+ * (實際部署時由 git.repos 註冊並 clone 至 repos/java-system-agent)
+ */
 class DemoRepositoryContractTest {
 
-    private static final String REPO_ID = "test-repo";
+    private static final String REPO_ID = "java-system-agent";
 
-    /** 原始碼:分析器讀取的可變 clone 位置 */
-    private static final Path REPO_ROOT = Path.of("repos", REPO_ID);
+    /** 原始碼:測試直接讀取本 repo 工作目錄,內容等同 runtime 的 clone */
+    private static final Path REPO_ROOT = Path.of(".");
 
     /** 業務文件:agent 自有、手工維護,不隨原始碼移動 */
     private static final Path DOC_ROOT = Path.of("knowledge", "repos", REPO_ID);
@@ -70,7 +75,7 @@ class DemoRepositoryContractTest {
     void serviceMap_should_list_demo_repository() throws IOException {
         String serviceMap = Files.readString(SERVICE_MAP);
 
-        assertThat(serviceMap).contains("`test-repo`");
+        assertThat(serviceMap).contains("`java-system-agent`");
         assertThat(serviceMap).contains("read_service_map");
         assertThat(serviceMap).contains("read_business_map");
         assertThat(serviceMap).contains("read_business_group_doc");
@@ -84,7 +89,7 @@ class DemoRepositoryContractTest {
 
         assertThat(groupDocs)
                 .extracting(BusinessGroupDoc::groupName)
-                .containsExactly("order-checkout", "payment-settlement", "shipping-arrangement");
+                .containsExactly("repo-management", "code-analysis", "slack-agent");
         for (BusinessGroupDoc groupDoc : groupDocs) {
             assertThat(DOC_ROOT.resolve(groupDoc.relativePath()))
                     .as("business group document exists: %s", groupDoc.relativePath())

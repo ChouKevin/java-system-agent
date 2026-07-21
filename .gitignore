@@ -13,10 +13,8 @@ target/
 # Logs
 logs/
 
-# Repos (keep committed demo only)
-repos/*
-!repos/test-repo/
-!repos/test-repo/**
+# Repos (runtime clones only; nothing is committed here)
+/repos/
 
 # Ollama
 ollama/
