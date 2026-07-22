@@ -165,7 +165,7 @@ public class CallGraphBuilder {
                 if (metadataOpt.isEmpty()) {
                     CallGraph external = CallGraph.leaf(null, targetClassName, methodName, CallType.EXTERNAL_LIB, null);
                     external.setResolutionEvidence(evidence(
-                            ResolutionStrategy.UNKNOWN,
+                            ResolutionStrategy.EXTERNAL_LIBRARY,
                             0.50,
                             evidenceCodes(receiver, "TARGET_METADATA_MISSING"),
                             List.of("Target metadata could not be resolved"),
@@ -365,7 +365,7 @@ public class CallGraphBuilder {
             CallGraph external = CallGraph.leaf(null, targetClassName, methodName,
                     CallType.EXTERNAL_LIB, null);
             children.add(withEvidence(external, evidence(
-                    ResolutionStrategy.UNKNOWN,
+                    ResolutionStrategy.EXTERNAL_LIBRARY,
                     0.50,
                     evidenceCodes(receiver, "TARGET_METADATA_MISSING"),
                     List.of("Target metadata could not be resolved"),
@@ -410,7 +410,9 @@ public class CallGraphBuilder {
                     || "MYBATIS_ANNOTATION_SQL_FOUND".equals(dataAccess.sqlEvidenceCode())
                     || hasMyBatisPlusDataAccess;
             children.add(withEvidence(dataAccess.node(), evidence(
-                    hasMyBatisEvidence ? ResolutionStrategy.MYBATIS_MAPPER : ResolutionStrategy.UNKNOWN,
+                    hasMyBatisEvidence
+                            ? ResolutionStrategy.MYBATIS_MAPPER
+                            : ResolutionStrategy.DATA_ACCESS_WITHOUT_EVIDENCE,
                     hasMyBatisEvidence ? 0.95 : 0.70,
                     dataAccessEvidence,
                     hasMyBatisEvidence ? List.of() : List.of(NON_MYBATIS_DATA_ACCESS_WARNING),
@@ -440,7 +442,7 @@ public class CallGraphBuilder {
             CallGraph generated = CallGraph.leaf(signature, metadata.className(), methodName,
                     CallType.GENERATED_CODE, null);
             children.add(withEvidence(generated, evidence(
-                    ResolutionStrategy.UNKNOWN,
+                    ResolutionStrategy.LOMBOK_GENERATED,
                     0.80,
                     evidenceCodes(receiver, "LOMBOK_GENERATED_METHOD"),
                     List.of(),
@@ -561,7 +563,7 @@ public class CallGraphBuilder {
         if (classifier.isLombokGenerated(metadata, methodName)) {
             return withEvidence(CallGraph.leaf(signature, metadata.className(), methodName,
                     CallType.GENERATED_CODE, null), evidence(
-                    ResolutionStrategy.UNKNOWN,
+                    ResolutionStrategy.LOMBOK_GENERATED,
                     0.80,
                     evidenceCodes(receiver, "LOMBOK_GENERATED_METHOD"),
                     List.of(),

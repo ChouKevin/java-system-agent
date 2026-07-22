@@ -243,7 +243,7 @@ public class CallGraphExplanationMapper {
         }
         if (CallType.EXTERNAL_LIB.equals(callee.getCallType())) {
             return new Resolution(
-                    ResolutionStrategy.UNKNOWN,
+                    ResolutionStrategy.EXTERNAL_LIBRARY,
                     EXTERNAL_LIB_CONFIDENCE,
                     List.of("FALLBACK_CALL_TYPE_HEURISTIC"),
                     List.of(),

@@ -244,7 +244,7 @@ class CallGraphBuilderResolutionEvidenceTest {
 
         assertNotEquals(AnalysisStatus.FAILED, result.status());
         CallEdge edge = edgeTo(result.data(), "fetch");
-        assertEquals(ResolutionStrategy.UNKNOWN, edge.resolutionStrategy());
+        assertEquals(ResolutionStrategy.EXTERNAL_LIBRARY, edge.resolutionStrategy());
         assertEquals("src/main/java/com/example/basic/BasicService.java", edge.sourceFile());
         assertEquals(10, edge.lineNumber());
     }
@@ -674,7 +674,7 @@ class CallGraphBuilderResolutionEvidenceTest {
 
         assertNotEquals(AnalysisStatus.FAILED, result.status());
         CallEdge edge = edgeTo(result.data(), "findName");
-        assertEquals(ResolutionStrategy.UNKNOWN, edge.resolutionStrategy());
+        assertEquals(ResolutionStrategy.DATA_ACCESS_WITHOUT_EVIDENCE, edge.resolutionStrategy());
         assertEquals(0.70, edge.confidence());
         assertFalse(edge.evidence().contains("MYBATIS_MAPPER_ANNOTATION"));
         assertFalse(edge.evidence().contains("MYBATIS_XML_SQL_FOUND"));
