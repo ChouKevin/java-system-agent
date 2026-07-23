@@ -4,6 +4,7 @@ import com.java.system.agent.analysis.domain.AnalysisOutcome;
 import com.java.system.agent.analysis.domain.AnalysisState;
 import com.java.system.agent.analysis.domain.AttemptOutcome;
 import com.java.system.agent.analysis.domain.InformationNeed;
+import com.java.system.agent.analysis.domain.InformationNeedId;
 import com.java.system.agent.analysis.domain.RepositoryDiscoverySource;
 import com.java.system.agent.analysis.domain.RepositoryId;
 import com.java.system.agent.analysis.domain.SemanticTarget;
@@ -23,7 +24,9 @@ import com.java.system.agent.analysis.port.out.SemanticQueryResult;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -78,9 +81,12 @@ public final class BoundedAnalysisCoordinator implements ExecuteAnalysisUseCase 
         Objects.requireNonNull(command, "analysis execution command must not be null");
         AttemptLifecycle lifecycle;
         try {
-            lifecycle = attemptLifecycleManager.startForExecution(command);
+            lifecycle = attemptLifecycleManager.startForExecution(command, analysisCancellationPort);
         } catch (AttemptPreparationException exception) {
             return concludeForPreparationFailure(exception);
+        } catch (AttemptPreparationCancelledException exception) {
+            return conclude(exception.lastCommittedLifecycle(), AttemptOutcome.CANCELLED, AnalysisOutcome.CANCELLED,
+                    AnalysisTerminationReason.CANCELLED);
         } catch (AttemptPreparationBudgetExhaustedException exception) {
             return conclude(exception.lastCommittedLifecycle(), AttemptOutcome.INCONCLUSIVE, AnalysisOutcome.INCONCLUSIVE,
                     AnalysisTerminationReason.BUDGET_EXHAUSTED);
@@ -94,6 +100,7 @@ public final class BoundedAnalysisCoordinator implements ExecuteAnalysisUseCase 
             AnalysisExecutionCommand command,
             AttemptLifecycle lifecycle) {
         List<ProgressFingerprint> progressHistory = new ArrayList<>();
+        Map<InformationNeedId, Integer> semanticCallsByNeed = new HashMap<>();
 
         try {
             while (lifecycle.run().outcome().isEmpty()) {
@@ -121,28 +128,39 @@ public final class BoundedAnalysisCoordinator implements ExecuteAnalysisUseCase 
                 }
                 SemanticQuery query = queryFor(plannedCapability);
 
+                if (isCancellationRequested(lifecycle)) {
+                    return conclude(lifecycle, AttemptOutcome.CANCELLED, AnalysisOutcome.CANCELLED,
+                            AnalysisTerminationReason.CANCELLED);
+                }
+                if (hasReachedSemanticCallLimit(semanticCallsByNeed, informationNeed.id())) {
+                    return conclude(lifecycle, AttemptOutcome.INCONCLUSIVE, AnalysisOutcome.INCONCLUSIVE,
+                            AnalysisTerminationReason.NO_PROGRESS);
+                }
                 if (!lifecycle.state().budget().hasStepRemaining()) {
                     return conclude(lifecycle, AttemptOutcome.INCONCLUSIVE, AnalysisOutcome.INCONCLUSIVE,
                             AnalysisTerminationReason.BUDGET_EXHAUSTED);
                 }
                 lifecycle = consumeSemanticBudget(lifecycle, AnalysisBudgetActivity.SEMANTIC_QUERY);
-                if (isCancellationRequested(lifecycle)) {
-                    return conclude(lifecycle, AttemptOutcome.CANCELLED, AnalysisOutcome.CANCELLED,
-                            AnalysisTerminationReason.CANCELLED);
-                }
+                recordSemanticCall(semanticCallsByNeed, informationNeed.id());
                 SemanticQueryResult initialResult = invokeSemanticQuery(query);
+                int callsSoFar = semanticCallsByNeed.getOrDefault(informationNeed.id(), 0);
                 boolean retryAllowed = semanticRetryPolicy.shouldRetry(
-                        initialResult, 1, lifecycle.state().budget());
+                        initialResult, callsSoFar, lifecycle.state().budget());
                 SemanticStepResult semanticStep = semanticResultHandler.handleForExecution(
                         lifecycle.state(), query, initialResult, retryAllowed);
                 lifecycle = withState(lifecycle, semanticStep.state());
 
                 if (semanticStep.disposition() == SemanticStepDisposition.RETRYABLE && retryAllowed) {
-                    lifecycle = consumeSemanticBudget(lifecycle, AnalysisBudgetActivity.SEMANTIC_RETRY);
                     if (isCancellationRequested(lifecycle)) {
                         return conclude(lifecycle, AttemptOutcome.CANCELLED, AnalysisOutcome.CANCELLED,
                                 AnalysisTerminationReason.CANCELLED);
                     }
+                    if (hasReachedSemanticCallLimit(semanticCallsByNeed, informationNeed.id())) {
+                        return conclude(lifecycle, AttemptOutcome.INCONCLUSIVE, AnalysisOutcome.INCONCLUSIVE,
+                                AnalysisTerminationReason.NO_PROGRESS);
+                    }
+                    lifecycle = consumeSemanticBudget(lifecycle, AnalysisBudgetActivity.SEMANTIC_RETRY);
+                    recordSemanticCall(semanticCallsByNeed, informationNeed.id());
                     SemanticQueryResult retryResult = invokeSemanticQuery(query);
                     semanticStep = semanticResultHandler.handleForExecution(
                             lifecycle.state(), query, retryResult, false);
@@ -169,8 +187,10 @@ public final class BoundedAnalysisCoordinator implements ExecuteAnalysisUseCase 
                         return conclude(lifecycle, AttemptOutcome.CANCELLED, AnalysisOutcome.CANCELLED,
                                 AnalysisTerminationReason.CANCELLED);
                     }
-                    lifecycle = attemptLifecycleManager.restartAfterRevisionMismatch(lifecycle, command);
+                    lifecycle = attemptLifecycleManager.restartAfterRevisionMismatchForExecution(
+                            lifecycle, command, analysisCancellationPort);
                     progressHistory.clear();
+                    semanticCallsByNeed.clear();
                     continue;
                 }
                 if (semanticStep.disposition() == SemanticStepDisposition.BLOCKED
@@ -189,6 +209,9 @@ public final class BoundedAnalysisCoordinator implements ExecuteAnalysisUseCase 
             throw new IllegalStateException("active bounded analysis loop ended without a terminal result");
         } catch (AttemptPreparationException exception) {
             return concludeForPreparationFailure(exception);
+        } catch (AttemptPreparationCancelledException exception) {
+            return conclude(exception.lastCommittedLifecycle(), AttemptOutcome.CANCELLED, AnalysisOutcome.CANCELLED,
+                    AnalysisTerminationReason.CANCELLED);
         } catch (AttemptPreparationBudgetExhaustedException exception) {
             return conclude(exception.lastCommittedLifecycle(), AttemptOutcome.INCONCLUSIVE, AnalysisOutcome.INCONCLUSIVE,
                     AnalysisTerminationReason.BUDGET_EXHAUSTED);
@@ -314,6 +337,18 @@ public final class BoundedAnalysisCoordinator implements ExecuteAnalysisUseCase 
 
     private SemanticQueryResult invokeSemanticQuery(SemanticQuery query) {
         return Objects.requireNonNull(semanticQueryPort.query(query), "semantic query port must return a result");
+    }
+
+    private boolean hasReachedSemanticCallLimit(
+            Map<InformationNeedId, Integer> semanticCallsByNeed,
+            InformationNeedId informationNeedId) {
+        return semanticCallsByNeed.getOrDefault(informationNeedId, 0) >= 2;
+    }
+
+    private void recordSemanticCall(
+            Map<InformationNeedId, Integer> semanticCallsByNeed,
+            InformationNeedId informationNeedId) {
+        semanticCallsByNeed.merge(informationNeedId, 1, Integer::sum);
     }
 
     private boolean isCancellationRequested(AttemptLifecycle lifecycle) {

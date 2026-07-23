@@ -16,6 +16,7 @@ import com.java.system.agent.analysis.domain.RepositoryScope;
 import com.java.system.agent.analysis.domain.RevisionVector;
 import com.java.system.agent.analysis.port.in.AnalysisExecutionCommand;
 import com.java.system.agent.analysis.port.out.AnalysisAttemptIdGenerator;
+import com.java.system.agent.analysis.port.out.AnalysisCancellationPort;
 import com.java.system.agent.analysis.port.out.RepositoryRevisionPort;
 import com.java.system.agent.analysis.port.out.RepositoryRevisionResult;
 
@@ -47,36 +48,63 @@ public final class AttemptLifecycleManager {
     }
 
     public AttemptLifecycle start(AnalysisExecutionCommand command) {
-        return start(command, false);
+        return start(command, false, Optional.empty());
     }
 
     AttemptLifecycle startForExecution(AnalysisExecutionCommand command) {
-        return start(command, true);
+        return start(command, true, Optional.empty());
+    }
+
+    AttemptLifecycle startForExecution(
+            AnalysisExecutionCommand command,
+            AnalysisCancellationPort analysisCancellationPort) {
+        Objects.requireNonNull(analysisCancellationPort, "analysis cancellation port must not be null");
+        return start(command, true, Optional.of(analysisCancellationPort));
     }
 
     private AttemptLifecycle start(
             AnalysisExecutionCommand command,
-            boolean translateTransitionFailures) {
+            boolean translateTransitionFailures,
+            Optional<AnalysisCancellationPort> analysisCancellationPort) {
         Objects.requireNonNull(command, "analysis execution command must not be null");
+        Objects.requireNonNull(analysisCancellationPort, "analysis cancellation port must not be null");
         AnalysisBudget freshBudget = freshBudget(command.attemptBudget());
         AnalysisRun run = AnalysisRun.start(command.runId(), AnalysisAttempt.start(
                 command.firstAttemptId(), RevisionVector.empty(), freshBudget));
         AnalysisState state = AnalysisState.initial(command.runId(), command.firstAttemptId(), freshBudget);
+        AttemptLifecycle initialLifecycle = new AttemptLifecycle(run, state, 0);
         return prepare(
                 run,
                 state,
                 0,
                 command.initialScope(),
                 command.informationNeeds(),
-                Optional.empty(),
-                translateTransitionFailures);
+                translateTransitionFailures ? Optional.of(initialLifecycle) : Optional.empty(),
+                translateTransitionFailures,
+                analysisCancellationPort);
     }
 
     public AttemptLifecycle restartAfterRevisionMismatch(
             AttemptLifecycle lifecycle,
             AnalysisExecutionCommand command) {
+        return restartAfterRevisionMismatch(lifecycle, command, Optional.empty());
+    }
+
+    AttemptLifecycle restartAfterRevisionMismatchForExecution(
+            AttemptLifecycle lifecycle,
+            AnalysisExecutionCommand command,
+            AnalysisCancellationPort analysisCancellationPort) {
+        Objects.requireNonNull(analysisCancellationPort, "analysis cancellation port must not be null");
+        return restartAfterRevisionMismatch(lifecycle, command, Optional.of(analysisCancellationPort));
+    }
+
+    private AttemptLifecycle restartAfterRevisionMismatch(
+            AttemptLifecycle lifecycle,
+            AnalysisExecutionCommand command,
+            Optional<AnalysisCancellationPort> analysisCancellationPort) {
         Objects.requireNonNull(lifecycle, "attempt lifecycle must not be null");
         Objects.requireNonNull(command, "analysis execution command must not be null");
+        Objects.requireNonNull(analysisCancellationPort, "analysis cancellation port must not be null");
         validateActiveLifecycle(lifecycle);
         validateRestartCommand(lifecycle, command);
         if (lifecycle.revisionRestartCount() >= 1) {
@@ -94,9 +122,15 @@ public final class AttemptLifecycleManager {
                 staleRun, staleState, lifecycle.revisionRestartCount());
         AnalysisAttemptId nextAttemptId = nextAttemptId(staleLifecycle, lifecycle.run().id());
         AnalysisBudget freshBudget = freshBudget(command.attemptBudget());
-        AnalysisRun restartedRun = staleRun.replaceCurrentAttempt(
-                staleRun.currentAttempt(),
-                AnalysisAttempt.start(nextAttemptId, RevisionVector.empty(), freshBudget));
+        AnalysisRun restartedRun;
+        try {
+            restartedRun = staleRun.replaceCurrentAttempt(
+                    staleRun.currentAttempt(),
+                    AnalysisAttempt.start(nextAttemptId, RevisionVector.empty(), freshBudget));
+        } catch (IllegalArgumentException exception) {
+            throw new AttemptLifecycleExternalFailureException(
+                    "replacement analysis attempt ID is invalid", staleLifecycle, exception);
+        }
         AnalysisState restartedState = AnalysisState.initial(
                 restartedRun.id(), nextAttemptId, freshBudget);
         return prepare(
@@ -106,7 +140,8 @@ public final class AttemptLifecycleManager {
                 lifecycle.state().repositoryScope(),
                 command.informationNeeds(),
                 Optional.of(staleLifecycle),
-                true);
+                true,
+                analysisCancellationPort);
     }
 
     public AttemptLifecycle pinDiscoveredRepository(
@@ -121,7 +156,7 @@ public final class AttemptLifecycleManager {
         if (lifecycle.state().revisionVector().revisionOf(repositoryId).isPresent()) {
             return lifecycle;
         }
-        return probeAndPin(lifecycle, repositoryId, true);
+        return probeAndPin(lifecycle, repositoryId, true, Optional.empty());
     }
 
     public AttemptLifecycle conclude(
@@ -153,7 +188,9 @@ public final class AttemptLifecycleManager {
             RepositoryScope repositoryScope,
             List<InformationNeed> informationNeeds,
             Optional<AttemptLifecycle> lastCommittedBeforeScope,
-            boolean translateTransitionFailures) {
+            boolean translateTransitionFailures,
+            Optional<AnalysisCancellationPort> analysisCancellationPort) {
+        Objects.requireNonNull(analysisCancellationPort, "analysis cancellation port must not be null");
         AnalysisState scopedState;
         try {
             scopedState = commit(initialState, new AnalysisEvent.ScopeResolved(
@@ -173,7 +210,8 @@ public final class AttemptLifecycleManager {
             if (translateTransitionFailures && !lifecycle.state().budget().hasStepRemaining()) {
                 throw new AttemptPreparationBudgetExhaustedException(lifecycle);
             }
-            lifecycle = probeAndPin(lifecycle, repositoryId, translateTransitionFailures);
+            lifecycle = probeAndPin(
+                    lifecycle, repositoryId, translateTransitionFailures, analysisCancellationPort);
         }
         for (InformationNeed informationNeed : informationNeeds) {
             AnalysisState registeredState;
@@ -200,7 +238,10 @@ public final class AttemptLifecycleManager {
     private AttemptLifecycle probeAndPin(
             AttemptLifecycle lifecycle,
             RepositoryId repositoryId,
-            boolean carryTransitionFailures) {
+            boolean carryTransitionFailures,
+            Optional<AnalysisCancellationPort> analysisCancellationPort) {
+        Objects.requireNonNull(analysisCancellationPort, "analysis cancellation port must not be null");
+        throwIfPreparationCancellationRequested(analysisCancellationPort, lifecycle);
         AnalysisState probedState;
         try {
             probedState = commit(lifecycle.state(), new AnalysisEvent.BudgetConsumed(
@@ -240,6 +281,17 @@ public final class AttemptLifecycleManager {
         }
         throw new AttemptPreparationException(
                 probedLifecycle, revisionResult.failure().orElseThrow());
+    }
+
+    private void throwIfPreparationCancellationRequested(
+            Optional<AnalysisCancellationPort> analysisCancellationPort,
+            AttemptLifecycle lifecycle) {
+        boolean cancellationRequested = analysisCancellationPort
+                .map(port -> port.isCancellationRequested(lifecycle.run().id()))
+                .orElse(false);
+        if (cancellationRequested) {
+            throw new AttemptPreparationCancelledException(lifecycle);
+        }
     }
 
     private void throwWithLifecycleIfAvailable(

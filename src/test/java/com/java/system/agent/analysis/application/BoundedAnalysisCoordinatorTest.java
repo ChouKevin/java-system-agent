@@ -356,6 +356,79 @@ class BoundedAnalysisCoordinatorTest {
     }
 
     @Test
+    void retryableTimeoutThenPartialResultDoesNotIssueAThirdSemanticCallForTheNeed() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .registerSequence(
+                        orders,
+                        ordersRevision,
+                        timeout(true),
+                        partial(orders, ordersRevision, "orders-partial"));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-timeout-partial-call-limit", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.NO_PROGRESS);
+        assertThat(semanticPort.queries()).hasSize(2);
+        assertThat(result.finalState().budget().usedSemanticCalls()).isEqualTo(2);
+    }
+
+    @Test
+    void changingPartialResultsDoNotIssueAThirdSemanticCallForTheNeed() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .registerSequence(
+                        orders,
+                        ordersRevision,
+                        partial(orders, ordersRevision, "orders-partial-one"),
+                        partial(orders, ordersRevision, "orders-partial-two"));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-changing-partials-call-limit", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.NO_PROGRESS);
+        assertThat(semanticPort.queries()).hasSize(2);
+        assertThat(result.finalState().evidenceBindings()).hasSize(2);
+        assertThat(result.finalState().budget().usedSemanticCalls()).isEqualTo(2);
+    }
+
+    @Test
+    void retryPolicyReceivesTheTotalCallsAlreadyMadeForTheNeed() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .registerSequence(
+                        orders,
+                        ordersRevision,
+                        partial(orders, ordersRevision, "orders-partial"),
+                        timeout(true));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-partial-timeout-call-limit", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.SEMANTIC_UNAVAILABLE);
+        assertThat(semanticPort.queries()).hasSize(2);
+        assertThat(result.finalState().budget().usedSemanticCalls()).isEqualTo(2);
+    }
+
+    @Test
     void exhaustedSemanticCallBudgetConcludesBeforeAnotherExternalCall() {
         RepositoryId orders = repository("orders");
         RepositoryRevision ordersRevision = revision("orders-a");
@@ -444,7 +517,7 @@ class BoundedAnalysisCoordinatorTest {
         Fixture fixture = fixture(
                 revisions,
                 semanticPort,
-                new SequenceCancellationPort(true));
+                new SequenceCancellationPort(false, false, true));
 
         AnalysisExecutionResult result = fixture.coordinator().execute(command(
                 "run-cancel-before-call", List.of(orders), List.of(need)));
@@ -458,6 +531,7 @@ class BoundedAnalysisCoordinatorTest {
                 .satisfies(event -> assertThat(((AnalysisEvent.AttemptConcluded) event).outcome())
                         .isEqualTo(AttemptOutcome.CANCELLED));
         assertThat(semanticPort.queries()).isEmpty();
+        assertThat(result.finalState().budget().usedSemanticCalls()).isZero();
     }
 
     @Test
@@ -472,7 +546,7 @@ class BoundedAnalysisCoordinatorTest {
         Fixture fixture = fixture(
                 revisions,
                 semanticPort,
-                new SequenceCancellationPort(false, false, true));
+                new SequenceCancellationPort(false, false, false, true));
 
         AnalysisExecutionResult result = fixture.coordinator().execute(command(
                 "run-cancel-before-retry", List.of(orders), List.of(need)));
@@ -481,6 +555,7 @@ class BoundedAnalysisCoordinatorTest {
         assertThat(result.run().currentAttempt().outcome()).contains(AttemptOutcome.CANCELLED);
         assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.CANCELLED);
         assertThat(semanticPort.queries()).hasSize(1);
+        assertThat(result.finalState().budget().usedSemanticCalls()).isEqualTo(1);
     }
 
     @Test
@@ -572,6 +647,28 @@ class BoundedAnalysisCoordinatorTest {
     }
 
     @Test
+    void initialScopeCommitFailureReportsTheInitialRevisionZeroState() {
+        RepositoryId orders = repository("orders");
+        InformationNeed need = need("need-orders", orders);
+        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter()
+                .failAtCommit(1);
+        Fixture fixture = fixture(
+                new RecordingRevisionPort().register(orders, revision("orders-a")),
+                new RecordingSemanticPort(),
+                new FakeCancellationAdapter(),
+                transitions);
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-initial-scope-commit-failure", List.of(orders), List.of(need))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.lastCommittedState().stateRevision()).isZero();
+                    assertThat(exception.lastCommittedState().status()).isEqualTo(AnalysisStatus.RECEIVED);
+                });
+        assertThat(fixture.transitions().events()).isEmpty();
+    }
+
+    @Test
     void initialRevisionPreparationExhaustsTheBudgetBeforeTheSecondRevisionPortCall() {
         RepositoryId alpha = repository("alpha");
         RepositoryId zeta = repository("zeta");
@@ -590,6 +687,59 @@ class BoundedAnalysisCoordinatorTest {
         assertThat(result.run().currentAttempt().outcome()).contains(AttemptOutcome.INCONCLUSIVE);
         assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.BUDGET_EXHAUSTED);
         assertThat(revisions.calls()).containsExactly(alpha);
+    }
+
+    @Test
+    void cancellationBetweenInitialRevisionProbesPreventsTheLaterRevisionCall() {
+        RepositoryId alpha = repository("alpha");
+        RepositoryId zeta = repository("zeta");
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(alpha, revision("alpha-a"))
+                .register(zeta, revision("zeta-a"));
+        Fixture fixture = fixture(
+                revisions,
+                new RecordingSemanticPort(),
+                new SequenceCancellationPort(false, true));
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-cancel-between-initial-probes",
+                List.of(zeta, alpha),
+                List.of(need("need-alpha", alpha))));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.CANCELLED);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.CANCELLED);
+        assertThat(revisions.calls()).containsExactly(alpha);
+        assertThat(result.finalState().budget().usedSemanticCalls()).isZero();
+    }
+
+    @Test
+    void cancellationBetweenReplacementRevisionProbesPreventsTheLaterRevisionCall() {
+        RepositoryId alpha = repository("alpha");
+        RepositoryId zeta = repository("zeta");
+        RepositoryRevision alphaA = revision("alpha-a");
+        RepositoryRevision alphaB = revision("alpha-b");
+        RepositoryRevision zetaA = revision("zeta-a");
+        InformationNeed need = need("need-alpha", alpha);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .registerSequence(alpha, alphaA, alphaB)
+                .register(zeta, zetaA);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(alpha, alphaA, revisionMismatch(alphaB));
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new SequenceCancellationPort(false, false, false, false, false, false, true));
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-cancel-between-replacement-probes",
+                List.of(zeta, alpha),
+                List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.CANCELLED);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.CANCELLED);
+        assertThat(revisions.calls()).containsExactly(alpha, zeta, alpha);
+        assertThat(semanticPort.queries()).hasSize(1);
+        assertThat(result.finalState().budget().usedSemanticCalls()).isZero();
     }
 
     @Test

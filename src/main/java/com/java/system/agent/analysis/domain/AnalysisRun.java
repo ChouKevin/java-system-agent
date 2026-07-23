@@ -1,9 +1,11 @@
 package com.java.system.agent.analysis.domain;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 public record AnalysisRun(
         AnalysisRunId id,
@@ -19,6 +21,12 @@ public record AnalysisRun(
                 .toList();
         if (attempts.size() < 1) {
             throw new IllegalArgumentException("analysis run must contain at least one attempt");
+        }
+        Set<AnalysisAttemptId> attemptIds = new HashSet<>();
+        for (AnalysisAttempt attempt : attempts) {
+            if (!attemptIds.add(attempt.id())) {
+                throw new IllegalArgumentException("analysis run attempt IDs must be unique");
+            }
         }
     }
 

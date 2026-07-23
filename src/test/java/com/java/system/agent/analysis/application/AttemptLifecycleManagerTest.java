@@ -355,6 +355,26 @@ class AttemptLifecycleManagerTest {
     }
 
     @Test
+    void retainsTheStaleLifecycleWhenRestartAttemptIdDuplicatesAnExistingAttempt() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator(new AnalysisAttemptId("attempt-1"));
+        Fixture fixture = fixture(revisions, attemptIds);
+        AnalysisExecutionCommand command = command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)));
+        AttemptLifecycle initial = fixture.manager().start(command);
+
+        assertThatThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(initial, command))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception).hasCauseInstanceOf(IllegalArgumentException.class);
+                    assertStaleLifecycle(exception.lastCommittedLifecycle(), repositoryId);
+                });
+        assertThat(revisions.calls()).containsExactly(repositoryId);
+        assertThat(fixture.transitions().events().getLast()).isInstanceOf(AnalysisEvent.AttemptConcluded.class);
+    }
+
+    @Test
     void rejectsSecondRestartBeforeTransitionOrAttemptIdSideEffect() {
         RepositoryId repositoryId = repository("order-service");
         RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
