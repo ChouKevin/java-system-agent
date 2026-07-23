@@ -9,6 +9,7 @@ import com.java.system.agent.analysis.domain.RepositoryId;
 import com.java.system.agent.analysis.domain.RepositoryRevision;
 import com.java.system.agent.analysis.port.out.RepositoryDiscovery;
 import com.java.system.agent.analysis.port.out.SemanticFailure;
+import com.java.system.agent.analysis.port.out.SemanticFailureCode;
 import com.java.system.agent.analysis.port.out.SemanticQueryResult;
 import com.java.system.agent.analysis.port.out.SemanticResultStatus;
 
@@ -54,11 +55,15 @@ public final class SemanticResultHandler {
             AnalysisState state,
             InformationNeed pendingNeed,
             SemanticQueryResult result) {
-        Optional<ValidatedEvidence> validated = validateEvidenceAndDiscoveries(state, pendingNeed, result);
-        if (validated.isEmpty()) {
+        EvidenceValidation validation = validateEvidenceAndDiscoveries(state, pendingNeed, result);
+        if (validation.outcome() == EvidenceValidationOutcome.STALE) {
             return step(state, SemanticStepDisposition.STALE, result.failure());
         }
-        AppliedEvidence applied = applyEvidenceAndDiscoveries(state, pendingNeed, validated.orElseThrow());
+        if (validation.outcome() == EvidenceValidationOutcome.PROTOCOL_ERROR) {
+            return protocolFailure(state);
+        }
+        AppliedEvidence applied = applyEvidenceAndDiscoveries(
+                state, pendingNeed, validation.validatedEvidence().orElseThrow());
         AnalysisState resolved = commit(applied.state(), new AnalysisEvent.NeedResolved(
                 applied.state().runId(),
                 applied.state().attemptId(),
@@ -72,11 +77,15 @@ public final class SemanticResultHandler {
             AnalysisState state,
             InformationNeed pendingNeed,
             SemanticQueryResult result) {
-        Optional<ValidatedEvidence> validated = validateEvidenceAndDiscoveries(state, pendingNeed, result);
-        if (validated.isEmpty()) {
+        EvidenceValidation validation = validateEvidenceAndDiscoveries(state, pendingNeed, result);
+        if (validation.outcome() == EvidenceValidationOutcome.STALE) {
             return step(state, SemanticStepDisposition.STALE, result.failure());
         }
-        AppliedEvidence applied = applyEvidenceAndDiscoveries(state, pendingNeed, validated.orElseThrow());
+        if (validation.outcome() == EvidenceValidationOutcome.PROTOCOL_ERROR) {
+            return protocolFailure(state);
+        }
+        AppliedEvidence applied = applyEvidenceAndDiscoveries(
+                state, pendingNeed, validation.validatedEvidence().orElseThrow());
         AnalysisState warned = recordWarningIfAbsent(
                 applied.state(), "SEMANTIC_PARTIAL_RESULT", result.failure().orElseThrow());
         return new SemanticStepResult(
@@ -113,22 +122,35 @@ public final class SemanticResultHandler {
         return step(warned, SemanticStepDisposition.FAILED, result.failure());
     }
 
-    private Optional<ValidatedEvidence> validateEvidenceAndDiscoveries(
+    private SemanticStepResult protocolFailure(AnalysisState state) {
+        SemanticFailure failure = new SemanticFailure(
+                SemanticFailureCode.PROTOCOL_ERROR,
+                "semantic result violates the revision-bound evidence contract",
+                false);
+        AnalysisState warned = recordWarningIfAbsent(
+                state, "SEMANTIC_PROTOCOL_ERROR", failure);
+        return step(warned, SemanticStepDisposition.FAILED, Optional.of(failure));
+    }
+
+    private EvidenceValidation validateEvidenceAndDiscoveries(
             AnalysisState state,
             InformationNeed pendingNeed,
             SemanticQueryResult result) {
         Optional<RepositoryRevision> analyzedRevision = result.analyzedRevision();
         if (analyzedRevision.isEmpty()) {
-            return Optional.empty();
+            return EvidenceValidation.protocolError();
         }
+        boolean revisionMismatch = false;
         Set<EvidenceRef> returnedEvidence = new LinkedHashSet<>(result.evidence());
         List<EvidenceRef> newEvidence = new ArrayList<>();
         for (EvidenceRef evidence : result.evidence()) {
             if (!evidence.repositoryRevision().equals(analyzedRevision.orElseThrow())
                     || !pendingNeed.repositoryCandidates().contains(evidence.repositoryId())
-                    || !state.repositoryScope().contains(evidence.repositoryId())
-                    || !state.revisionVector().matches(evidence.repositoryId(), evidence.repositoryRevision())) {
-                return Optional.empty();
+                    || !state.repositoryScope().contains(evidence.repositoryId())) {
+                return EvidenceValidation.protocolError();
+            }
+            if (!state.revisionVector().matches(evidence.repositoryId(), evidence.repositoryRevision())) {
+                revisionMismatch = true;
             }
             if (!isAcceptedForNeed(state, pendingNeed, evidence) && !newEvidence.contains(evidence)) {
                 newEvidence.add(evidence);
@@ -145,14 +167,17 @@ public final class SemanticResultHandler {
         for (RepositoryDiscovery discovery : result.repositoryDiscoveries()) {
             if (!returnedEvidence.contains(discovery.sourceEvidence())
                     || !acceptedOrNewEvidence.contains(discovery.sourceEvidence())) {
-                return Optional.empty();
+                return EvidenceValidation.protocolError();
             }
             if (!state.repositoryScope().contains(discovery.repositoryId())
                     && discoveredRepositories.add(discovery.repositoryId())) {
                 newDiscoveries.add(discovery);
             }
         }
-        return Optional.of(new ValidatedEvidence(newEvidence, newDiscoveries));
+        if (revisionMismatch) {
+            return EvidenceValidation.stale();
+        }
+        return EvidenceValidation.valid(new ValidatedEvidence(newEvidence, newDiscoveries));
     }
 
     private AppliedEvidence applyEvidenceAndDiscoveries(
@@ -219,6 +244,41 @@ public final class SemanticResultHandler {
         private ValidatedEvidence {
             newEvidence = List.copyOf(newEvidence);
             newDiscoveries = List.copyOf(newDiscoveries);
+        }
+    }
+
+    private enum EvidenceValidationOutcome {
+        VALID,
+        STALE,
+        PROTOCOL_ERROR
+    }
+
+    private record EvidenceValidation(
+            EvidenceValidationOutcome outcome,
+            Optional<ValidatedEvidence> validatedEvidence) {
+
+        private EvidenceValidation {
+            Objects.requireNonNull(outcome, "evidence validation outcome must not be null");
+            Objects.requireNonNull(validatedEvidence, "validated evidence must not be null");
+            if ((outcome == EvidenceValidationOutcome.VALID) != validatedEvidence.isPresent()) {
+                throw new IllegalArgumentException(
+                        "valid evidence outcome requires exactly one validated evidence value");
+            }
+        }
+
+        private static EvidenceValidation valid(ValidatedEvidence validatedEvidence) {
+            return new EvidenceValidation(
+                    EvidenceValidationOutcome.VALID,
+                    Optional.of(Objects.requireNonNull(
+                            validatedEvidence, "validated evidence must not be null")));
+        }
+
+        private static EvidenceValidation stale() {
+            return new EvidenceValidation(EvidenceValidationOutcome.STALE, Optional.empty());
+        }
+
+        private static EvidenceValidation protocolError() {
+            return new EvidenceValidation(EvidenceValidationOutcome.PROTOCOL_ERROR, Optional.empty());
         }
     }
 

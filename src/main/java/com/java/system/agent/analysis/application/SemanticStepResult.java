@@ -12,13 +12,13 @@ public record SemanticStepResult(
         AnalysisState state,
         SemanticStepDisposition disposition,
         Optional<SemanticFailure> failure,
-        List<RepositoryDiscovery> discoveries) {
+        List<RepositoryDiscovery> newDiscoveries) {
 
     public SemanticStepResult {
         Objects.requireNonNull(state, "analysis state must not be null");
         Objects.requireNonNull(disposition, "semantic step disposition must not be null");
         Objects.requireNonNull(failure, "semantic failure must not be null");
-        Objects.requireNonNull(discoveries, "repository discoveries must not be null");
-        discoveries = List.copyOf(discoveries);
+        Objects.requireNonNull(newDiscoveries, "repository discoveries must not be null");
+        newDiscoveries = List.copyOf(newDiscoveries);
     }
 }

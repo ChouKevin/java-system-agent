@@ -55,7 +55,7 @@ class SemanticResultHandlerTest {
 
         assertThat(result.disposition()).isEqualTo(SemanticStepDisposition.PROGRESSED);
         assertThat(result.failure()).isEmpty();
-        assertThat(result.discoveries()).containsExactly(discovery);
+        assertThat(result.newDiscoveries()).containsExactly(discovery);
         assertThat(result.state().resolvedNeedIds()).contains(mainNeed().id());
         assertThat(result.state().pendingNeeds()).containsKey(discoveredNeed.id());
         assertThat(result.state().repositoryScope().contains(NOTIFICATION_REPOSITORY)).isTrue();
@@ -199,6 +199,82 @@ class SemanticResultHandlerTest {
     }
 
     @Test
+    void evidenceFromPinnedRepositoryOutsideNeedCandidatesFailsAsProtocolError() {
+        Fixture fixture = fixture();
+        EvidenceRef sourceEvidence = evidence(ORDER_REVISION, "sha256:protocol-scope");
+        TransitionCommitter setupCommitter = new TransitionCommitter(
+                new DefaultStateReducer(), fixture.adapter());
+        AnalysisState withEvidence = setupCommitter.apply(fixture.state(), new AnalysisEvent.EvidenceAccepted(
+                fixture.state().runId(),
+                fixture.state().attemptId(),
+                fixture.state().stateRevision(),
+                mainNeed().id(),
+                sourceEvidence));
+        AnalysisState withExpandedScope = setupCommitter.apply(withEvidence, new AnalysisEvent.ScopeExpanded(
+                withEvidence.runId(),
+                withEvidence.attemptId(),
+                withEvidence.stateRevision(),
+                discovery(sourceEvidence),
+                false));
+        AnalysisState state = setupCommitter.apply(withExpandedScope, new AnalysisEvent.RevisionPinned(
+                withExpandedScope.runId(),
+                withExpandedScope.attemptId(),
+                withExpandedScope.stateRevision(),
+                NOTIFICATION_REPOSITORY,
+                NOTIFICATION_REVISION));
+        int evidenceCount = state.evidenceBindings().size();
+
+        SemanticStepResult handled = fixture.handler().handle(
+                state,
+                mainNeed(),
+                successAt(
+                        NOTIFICATION_REVISION,
+                        List.of(evidence(
+                                NOTIFICATION_REPOSITORY,
+                                NOTIFICATION_REVISION,
+                                "sha256:invalid-candidate"))),
+                false);
+
+        assertThat(handled.disposition()).isEqualTo(SemanticStepDisposition.FAILED);
+        assertThat(handled.failure()).get()
+                .extracting(SemanticFailure::code)
+                .isEqualTo(SemanticFailureCode.PROTOCOL_ERROR);
+        assertThat(handled.state().evidenceBindings()).hasSize(evidenceCount);
+        assertThat(handled.state().repositoryScope()).isEqualTo(state.repositoryScope());
+        assertThat(handled.state().warnings()).extracting(warning -> warning.code())
+                .containsExactly("SEMANTIC_PROTOCOL_ERROR");
+        assertThat(handled.newDiscoveries()).isEmpty();
+    }
+
+    @Test
+    void evidenceForCandidateOutsideCurrentScopeFailsAsProtocolError() {
+        Fixture fixture = fixture();
+        InformationNeed need = dualRepositoryNeed();
+        AnalysisState state = register(fixture, fixture.state(), need);
+
+        SemanticStepResult handled = fixture.handler().handle(
+                state,
+                need,
+                successAt(
+                        NOTIFICATION_REVISION,
+                        List.of(evidence(
+                                NOTIFICATION_REPOSITORY,
+                                NOTIFICATION_REVISION,
+                                "sha256:outside-scope"))),
+                false);
+
+        assertThat(handled.disposition()).isEqualTo(SemanticStepDisposition.FAILED);
+        assertThat(handled.failure()).get()
+                .extracting(SemanticFailure::code)
+                .isEqualTo(SemanticFailureCode.PROTOCOL_ERROR);
+        assertThat(handled.state().evidenceBindings()).isEqualTo(state.evidenceBindings());
+        assertThat(handled.state().repositoryScope()).isEqualTo(state.repositoryScope());
+        assertThat(handled.state().warnings()).extracting(warning -> warning.code())
+                .containsExactly("SEMANTIC_PROTOCOL_ERROR");
+        assertThat(handled.newDiscoveries()).isEmpty();
+    }
+
+    @Test
     void partialResultPrevalidationRejectsLaterInvalidEvidenceWithoutAnyCommit() {
         Fixture fixture = fixture();
         EvidenceRef scopeEvidence = evidence(ORDER_REVISION, "sha256:scope");
@@ -312,9 +388,34 @@ class SemanticResultHandlerTest {
                 discoveries);
         discoveries.clear();
 
-        assertThat(result.discoveries()).hasSize(1);
-        assertThatThrownBy(() -> result.discoveries().clear())
+        assertThat(result.newDiscoveries()).hasSize(1);
+        assertThatThrownBy(() -> result.newDiscoveries().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void protocolWarningCommitFailurePropagatesUnchanged() {
+        Fixture fixture = fixture();
+        InformationNeed need = dualRepositoryNeed();
+        AnalysisState state = register(fixture, fixture.state(), need);
+        AnalysisTransitionCommitException expected = new AnalysisTransitionCommitException(
+                "protocol warning rejected");
+        SemanticResultHandler handler = new SemanticResultHandler(new TransitionCommitter(
+                new DefaultStateReducer(), transition -> {
+                    throw expected;
+                }));
+
+        assertThatThrownBy(() -> handler.handle(
+                state,
+                need,
+                successAt(
+                        NOTIFICATION_REVISION,
+                        List.of(evidence(
+                                NOTIFICATION_REPOSITORY,
+                                NOTIFICATION_REVISION,
+                                "sha256:protocol-warning-failure"))),
+                false))
+                .isSameAs(expected);
     }
 
     @Test
@@ -397,9 +498,22 @@ class SemanticResultHandlerTest {
     private static SemanticQueryResult success(
             List<EvidenceRef> evidence,
             List<RepositoryDiscovery> discoveries) {
+        return successAt(ORDER_REVISION, evidence, discoveries);
+    }
+
+    private static SemanticQueryResult successAt(
+            RepositoryRevision revision,
+            List<EvidenceRef> evidence) {
+        return successAt(revision, evidence, List.of());
+    }
+
+    private static SemanticQueryResult successAt(
+            RepositoryRevision revision,
+            List<EvidenceRef> evidence,
+            List<RepositoryDiscovery> discoveries) {
         return new SemanticQueryResult(
                 SemanticResultStatus.SUCCESS,
-                Optional.of(ORDER_REVISION),
+                Optional.of(revision),
                 evidence,
                 discoveries,
                 Optional.empty());
@@ -428,7 +542,21 @@ class SemanticResultHandlerTest {
     }
 
     private static EvidenceRef evidence(RepositoryRevision revision, String digest) {
-        return new EvidenceRef("semantic", ORDER_REPOSITORY, revision, target(), 1.0, List.of(), new ArtifactRef(digest));
+        return evidence(ORDER_REPOSITORY, revision, digest);
+    }
+
+    private static EvidenceRef evidence(
+            RepositoryId repositoryId,
+            RepositoryRevision revision,
+            String digest) {
+        return new EvidenceRef(
+                "semantic",
+                repositoryId,
+                revision,
+                target(),
+                1.0,
+                List.of(),
+                new ArtifactRef(digest));
     }
 
     private static RepositoryDiscovery discovery(EvidenceRef evidence) {
