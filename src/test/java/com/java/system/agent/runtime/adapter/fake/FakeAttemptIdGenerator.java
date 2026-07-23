@@ -17,10 +17,12 @@ public final class FakeAttemptIdGenerator implements AnalysisAttemptIdGenerator 
         if (attemptIds.length == 0) {
             throw new IllegalArgumentException("analysis attempt IDs must not be empty");
         }
+        Deque<AnalysisAttemptId> validatedAttemptIds = new ArrayDeque<>();
         for (AnalysisAttemptId attemptId : attemptIds) {
-            registeredAttemptIds.addLast(Objects.requireNonNull(
+            validatedAttemptIds.addLast(Objects.requireNonNull(
                     attemptId, "analysis attempt ID must not be null"));
         }
+        registeredAttemptIds.addAll(validatedAttemptIds);
         return this;
     }
 

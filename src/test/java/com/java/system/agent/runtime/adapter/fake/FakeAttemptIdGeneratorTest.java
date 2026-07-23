@@ -48,6 +48,24 @@ class FakeAttemptIdGeneratorTest {
     }
 
     @Test
+    void registrationWithNullDoesNotPartiallyMutateSequence() {
+        AnalysisAttemptId existingFirst = new AnalysisAttemptId("existing-1");
+        AnalysisAttemptId existingSecond = new AnalysisAttemptId("existing-2");
+        AnalysisAttemptId rejectedAttemptId = new AnalysisAttemptId("rejected");
+        FakeAttemptIdGenerator generator = new FakeAttemptIdGenerator()
+                .register(existingFirst, existingSecond);
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> generator.register(rejectedAttemptId, null));
+
+        assertThat(generator.nextAttemptId(runId, 1)).isSameAs(existingFirst);
+        assertThat(generator.nextAttemptId(runId, 2)).isSameAs(existingSecond);
+        assertThatIllegalStateException()
+                .isThrownBy(() -> generator.nextAttemptId(runId, 3))
+                .withMessageContaining("exhausted");
+    }
+
+    @Test
     void rejectsInvalidRequestsWithoutConsumingRegisteredId() {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         FakeAttemptIdGenerator generator = new FakeAttemptIdGenerator().register(attemptId);
