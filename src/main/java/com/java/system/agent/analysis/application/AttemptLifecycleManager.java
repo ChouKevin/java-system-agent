@@ -5,6 +5,7 @@ import com.java.system.agent.analysis.domain.AnalysisAttemptId;
 import com.java.system.agent.analysis.domain.AnalysisBudget;
 import com.java.system.agent.analysis.domain.AnalysisOutcome;
 import com.java.system.agent.analysis.domain.AnalysisRun;
+import com.java.system.agent.analysis.domain.AnalysisRunId;
 import com.java.system.agent.analysis.domain.AnalysisState;
 import com.java.system.agent.analysis.domain.AnalysisStatus;
 import com.java.system.agent.analysis.domain.AttemptOutcome;
@@ -71,9 +72,9 @@ public final class AttemptLifecycleManager {
                 AttemptOutcome.STALE));
         AnalysisRun staleRun = lifecycle.run().concludeCurrentAttempt(
                 staleState.revisionVector(), staleState.budget(), AttemptOutcome.STALE);
-        AnalysisAttemptId nextAttemptId = Objects.requireNonNull(
-                analysisAttemptIdGenerator.nextAttemptId(lifecycle.run().id(), 2),
-                "analysis attempt ID generator must return an attempt ID");
+        AttemptLifecycle staleLifecycle = new AttemptLifecycle(
+                staleRun, staleState, lifecycle.revisionRestartCount());
+        AnalysisAttemptId nextAttemptId = nextAttemptId(staleLifecycle, lifecycle.run().id());
         AnalysisBudget freshBudget = freshBudget(command.attemptBudget());
         AnalysisRun restartedRun = staleRun.replaceCurrentAttempt(
                 staleRun.currentAttempt(),
@@ -160,9 +161,7 @@ public final class AttemptLifecycleManager {
                 AnalysisBudgetActivity.REVISION_PROBE));
         AttemptLifecycle probedLifecycle = new AttemptLifecycle(
                 lifecycle.run(), probedState, lifecycle.revisionRestartCount());
-        RepositoryRevisionResult revisionResult = Objects.requireNonNull(
-                repositoryRevisionPort.currentRevision(repositoryId),
-                "repository revision port must return a revision result");
+        RepositoryRevisionResult revisionResult = currentRevision(probedLifecycle, repositoryId);
         if (revisionResult.revision().isPresent()) {
             AnalysisState pinnedState = commit(probedState, new AnalysisEvent.RevisionPinned(
                     probedState.runId(),
@@ -175,6 +174,32 @@ public final class AttemptLifecycleManager {
         }
         throw new AttemptPreparationException(
                 probedLifecycle, revisionResult.failure().orElseThrow());
+    }
+
+    private AnalysisAttemptId nextAttemptId(
+            AttemptLifecycle staleLifecycle,
+            AnalysisRunId runId) {
+        try {
+            return Objects.requireNonNull(
+                    analysisAttemptIdGenerator.nextAttemptId(runId, 2),
+                    "analysis attempt ID generator must return an attempt ID");
+        } catch (RuntimeException exception) {
+            throw new AttemptLifecycleExternalFailureException(
+                    "analysis attempt ID generation failed", staleLifecycle, exception);
+        }
+    }
+
+    private RepositoryRevisionResult currentRevision(
+            AttemptLifecycle probedLifecycle,
+            RepositoryId repositoryId) {
+        try {
+            return Objects.requireNonNull(
+                    repositoryRevisionPort.currentRevision(repositoryId),
+                    "repository revision port must return a revision result");
+        } catch (RuntimeException exception) {
+            throw new AttemptLifecycleExternalFailureException(
+                    "repository revision preparation failed", probedLifecycle, exception);
+        }
     }
 
     private AnalysisState commit(AnalysisState state, AnalysisEvent event) {

@@ -135,6 +135,47 @@ class AttemptLifecycleManagerTest {
     }
 
     @Test
+    void retainsProbedLifecycleWhenStartingRevisionProbeThrows() {
+        RepositoryId repositoryId = repository("order-service");
+        IllegalStateException expected = new IllegalStateException("revision source failed");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .registerFailure(repositoryId, expected);
+        Fixture fixture = fixture(revisions);
+
+        assertThatThrownBy(() -> fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)))))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception.getCause()).isSameAs(expected);
+                    assertProbedLifecycle(
+                            exception.lastCommittedLifecycle(), repositoryId, 1, AnalysisStatus.REVISION_PINNING);
+                });
+        assertThat(revisions.calls()).containsExactly(repositoryId);
+        assertEventOrder(fixture.transitions().events(),
+                AnalysisEvent.ScopeResolved.class,
+                AnalysisEvent.BudgetConsumed.class);
+    }
+
+    @Test
+    void retainsProbedLifecycleWhenStartingRevisionProbeReturnsNull() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .registerNull(repositoryId);
+        Fixture fixture = fixture(revisions);
+
+        assertThatThrownBy(() -> fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)))))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception).hasCauseInstanceOf(NullPointerException.class);
+                    assertProbedLifecycle(
+                            exception.lastCommittedLifecycle(), repositoryId, 1, AnalysisStatus.REVISION_PINNING);
+                });
+        assertThat(revisions.calls()).containsExactly(repositoryId);
+        assertEventOrder(fixture.transitions().events(),
+                AnalysisEvent.ScopeResolved.class,
+                AnalysisEvent.BudgetConsumed.class);
+    }
+
+    @Test
     void restartsForAnEquivalentCommandWithAStaleOldAttemptFreshStateAndFullPriorScope() {
         RepositoryId initialRepository = repository("order-service");
         RepositoryId discoveredRepository = repository("notification-service");
@@ -187,6 +228,108 @@ class AttemptLifecycleManagerTest {
                 .singleElement()
                 .satisfies(event -> assertThat(((AnalysisEvent.AttemptConcluded) event).outcome())
                         .isEqualTo(AttemptOutcome.STALE));
+    }
+
+    @Test
+    void retainsRestartPreparationLifecycleWhenRevisionProbeThrows() {
+        RepositoryId repositoryId = repository("order-service");
+        IllegalStateException expected = new IllegalStateException("revision source failed");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"))
+                .registerFailure(repositoryId, expected);
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator(new AnalysisAttemptId("attempt-2"));
+        Fixture fixture = fixture(revisions, attemptIds);
+        AnalysisExecutionCommand command = command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)));
+        AttemptLifecycle initial = fixture.manager().start(command);
+
+        assertThatThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(initial, command))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception.getCause()).isSameAs(expected);
+                    assertRestartProbeLifecycle(exception.lastCommittedLifecycle(), repositoryId);
+                });
+        assertThat(revisions.calls()).containsExactly(repositoryId, repositoryId);
+        assertThat(attemptIds.calls()).containsExactly(new AttemptIdCall(new AnalysisRunId("run-1"), 2));
+        assertEventOrder(fixture.transitions().events(),
+                AnalysisEvent.ScopeResolved.class,
+                AnalysisEvent.BudgetConsumed.class,
+                AnalysisEvent.RevisionPinned.class,
+                AnalysisEvent.NeedRegistered.class,
+                AnalysisEvent.AttemptConcluded.class,
+                AnalysisEvent.ScopeResolved.class,
+                AnalysisEvent.BudgetConsumed.class);
+    }
+
+    @Test
+    void retainsRestartPreparationLifecycleWhenRevisionProbeReturnsNull() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"))
+                .registerNull(repositoryId);
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator(new AnalysisAttemptId("attempt-2"));
+        Fixture fixture = fixture(revisions, attemptIds);
+        AnalysisExecutionCommand command = command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)));
+        AttemptLifecycle initial = fixture.manager().start(command);
+
+        assertThatThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(initial, command))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception).hasCauseInstanceOf(NullPointerException.class);
+                    assertRestartProbeLifecycle(exception.lastCommittedLifecycle(), repositoryId);
+                });
+        assertThat(revisions.calls()).containsExactly(repositoryId, repositoryId);
+        assertThat(attemptIds.calls()).containsExactly(new AttemptIdCall(new AnalysisRunId("run-1"), 2));
+        assertEventOrder(fixture.transitions().events(),
+                AnalysisEvent.ScopeResolved.class,
+                AnalysisEvent.BudgetConsumed.class,
+                AnalysisEvent.RevisionPinned.class,
+                AnalysisEvent.NeedRegistered.class,
+                AnalysisEvent.AttemptConcluded.class,
+                AnalysisEvent.ScopeResolved.class,
+                AnalysisEvent.BudgetConsumed.class);
+    }
+
+    @Test
+    void retainsStaleLifecycleWhenRestartAttemptIdGenerationThrows() {
+        RepositoryId repositoryId = repository("order-service");
+        IllegalStateException expected = new IllegalStateException("attempt ID generator failed");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator().failWith(expected);
+        Fixture fixture = fixture(revisions, attemptIds);
+        AnalysisExecutionCommand command = command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)));
+        AttemptLifecycle initial = fixture.manager().start(command);
+
+        assertThatThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(initial, command))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception.getCause()).isSameAs(expected);
+                    assertStaleLifecycle(exception.lastCommittedLifecycle(), repositoryId);
+                });
+        assertThat(revisions.calls()).containsExactly(repositoryId);
+        assertThat(attemptIds.calls()).containsExactly(new AttemptIdCall(new AnalysisRunId("run-1"), 2));
+        assertThat(fixture.transitions().events().getLast()).isInstanceOf(AnalysisEvent.AttemptConcluded.class);
+    }
+
+    @Test
+    void retainsStaleLifecycleWhenRestartAttemptIdGenerationReturnsNull() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator().returnNull();
+        Fixture fixture = fixture(revisions, attemptIds);
+        AnalysisExecutionCommand command = command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)));
+        AttemptLifecycle initial = fixture.manager().start(command);
+
+        assertThatThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(initial, command))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception).hasCauseInstanceOf(NullPointerException.class);
+                    assertStaleLifecycle(exception.lastCommittedLifecycle(), repositoryId);
+                });
+        assertThat(revisions.calls()).containsExactly(repositoryId);
+        assertThat(attemptIds.calls()).containsExactly(new AttemptIdCall(new AnalysisRunId("run-1"), 2));
+        assertThat(fixture.transitions().events().getLast()).isInstanceOf(AnalysisEvent.AttemptConcluded.class);
     }
 
     @Test
@@ -418,6 +561,65 @@ class AttemptLifecycleManagerTest {
                     assertThat(exception.lastCommittedLifecycle().state().revisionVector()
                             .revisionOf(discoveredRepository)).isEmpty();
                 });
+        assertThat(fixture.transitions().events()).hasSize(eventsBeforeProbe + 1);
+    }
+
+    @Test
+    void retainsProbedLifecycleWhenDiscoveredRepositoryRevisionProbeThrows() {
+        RepositoryId initialRepository = repository("order-service");
+        RepositoryId discoveredRepository = repository("notification-service");
+        IllegalStateException expected = new IllegalStateException("revision source failed");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(initialRepository, ready("order-1"))
+                .registerFailure(discoveredRepository, expected);
+        Fixture fixture = fixture(revisions);
+        AttemptLifecycle lifecycle = lifecycleWithEvidenceAndDiscoveredScope(
+                fixture,
+                fixture.manager().start(command(
+                        "run-1", "attempt-1", List.of(initialRepository),
+                        List.of(need("need-1", initialRepository)))),
+                discoveredRepository);
+        int eventsBeforeProbe = fixture.transitions().events().size();
+
+        assertThatThrownBy(() -> fixture.manager().pinDiscoveredRepository(lifecycle, discoveredRepository))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception.getCause()).isSameAs(expected);
+                    assertProbedLifecycle(
+                            exception.lastCommittedLifecycle(),
+                            discoveredRepository,
+                            lifecycle.state().budget().usedSteps() + 1,
+                            AnalysisStatus.EXECUTING);
+                });
+        assertThat(revisions.calls()).containsExactly(initialRepository, discoveredRepository);
+        assertThat(fixture.transitions().events()).hasSize(eventsBeforeProbe + 1);
+    }
+
+    @Test
+    void retainsProbedLifecycleWhenDiscoveredRepositoryRevisionProbeReturnsNull() {
+        RepositoryId initialRepository = repository("order-service");
+        RepositoryId discoveredRepository = repository("notification-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(initialRepository, ready("order-1"))
+                .registerNull(discoveredRepository);
+        Fixture fixture = fixture(revisions);
+        AttemptLifecycle lifecycle = lifecycleWithEvidenceAndDiscoveredScope(
+                fixture,
+                fixture.manager().start(command(
+                        "run-1", "attempt-1", List.of(initialRepository),
+                        List.of(need("need-1", initialRepository)))),
+                discoveredRepository);
+        int eventsBeforeProbe = fixture.transitions().events().size();
+
+        assertThatThrownBy(() -> fixture.manager().pinDiscoveredRepository(lifecycle, discoveredRepository))
+                .isInstanceOfSatisfying(AttemptLifecycleExternalFailureException.class, exception -> {
+                    assertThat(exception).hasCauseInstanceOf(NullPointerException.class);
+                    assertProbedLifecycle(
+                            exception.lastCommittedLifecycle(),
+                            discoveredRepository,
+                            lifecycle.state().budget().usedSteps() + 1,
+                            AnalysisStatus.EXECUTING);
+                });
+        assertThat(revisions.calls()).containsExactly(initialRepository, discoveredRepository);
         assertThat(fixture.transitions().events()).hasSize(eventsBeforeProbe + 1);
     }
 
@@ -716,6 +918,35 @@ class AttemptLifecycleManagerTest {
         return RepositoryRevisionResult.ready(new RepositoryRevision(revision));
     }
 
+    private void assertProbedLifecycle(
+            AttemptLifecycle lifecycle,
+            RepositoryId unpinnedRepository,
+            int expectedUsedSteps,
+            AnalysisStatus expectedStatus) {
+        assertThat(lifecycle.state().status()).isEqualTo(expectedStatus);
+        assertThat(lifecycle.state().budget().usedSteps()).isEqualTo(expectedUsedSteps);
+        assertThat(lifecycle.state().revisionVector().revisionOf(unpinnedRepository)).isEmpty();
+        assertThat(lifecycle.run().outcome()).isEmpty();
+        assertThat(lifecycle.run().currentAttempt().outcome()).isEmpty();
+    }
+
+    private void assertRestartProbeLifecycle(AttemptLifecycle lifecycle, RepositoryId repositoryId) {
+        assertProbedLifecycle(lifecycle, repositoryId, 1, AnalysisStatus.REVISION_PINNING);
+        assertThat(lifecycle.revisionRestartCount()).isEqualTo(1);
+        assertThat(lifecycle.run().attempts()).hasSize(2);
+        assertThat(lifecycle.run().attempts().getFirst().outcome()).contains(AttemptOutcome.STALE);
+    }
+
+    private void assertStaleLifecycle(AttemptLifecycle lifecycle, RepositoryId repositoryId) {
+        assertThat(lifecycle.state().status()).isEqualTo(AnalysisStatus.STALE);
+        assertThat(lifecycle.state().revisionVector().revisionOf(repositoryId))
+                .contains(new RepositoryRevision("order-1"));
+        assertThat(lifecycle.state().budget().usedSteps()).isEqualTo(1);
+        assertThat(lifecycle.run().currentAttempt().outcome()).contains(AttemptOutcome.STALE);
+        assertThat(lifecycle.run().outcome()).isEmpty();
+        assertThat(lifecycle.revisionRestartCount()).isZero();
+    }
+
     @SafeVarargs
     private final void assertEventOrder(
             List<AnalysisEvent> events,
@@ -762,7 +993,7 @@ class AttemptLifecycleManagerTest {
 
     private static final class RecordingRepositoryRevisionPort implements RepositoryRevisionPort {
 
-        private final Map<RepositoryId, Deque<RepositoryRevisionResult>> results = new TreeMap<>();
+        private final Map<RepositoryId, Deque<RepositoryRevisionResponse>> results = new TreeMap<>();
         private final List<RepositoryId> calls = new ArrayList<>();
 
         private RecordingRepositoryRevisionPort register(
@@ -770,12 +1001,35 @@ class AttemptLifecycleManagerTest {
                 RepositoryRevisionResult... registeredResults) {
             Objects.requireNonNull(repositoryId, "repository ID must not be null");
             Objects.requireNonNull(registeredResults, "registered revisions must not be null");
-            Deque<RepositoryRevisionResult> values = new ArrayDeque<>();
+            Deque<RepositoryRevisionResponse> values = results.computeIfAbsent(
+                    repositoryId, ignored -> new ArrayDeque<>());
             for (RepositoryRevisionResult registeredResult : registeredResults) {
-                values.addLast(Objects.requireNonNull(
-                        registeredResult, "registered revision result must not be null"));
+                RepositoryRevisionResult nonNullResult = Objects.requireNonNull(
+                        registeredResult, "registered revision result must not be null");
+                values.addLast(() -> nonNullResult);
             }
-            results.put(repositoryId, values);
+            return this;
+        }
+
+        private RecordingRepositoryRevisionPort registerFailure(
+                RepositoryId repositoryId,
+                RuntimeException failure) {
+            Objects.requireNonNull(failure, "repository revision failure must not be null");
+            return registerResponse(repositoryId, () -> {
+                throw failure;
+            });
+        }
+
+        private RecordingRepositoryRevisionPort registerNull(RepositoryId repositoryId) {
+            return registerResponse(repositoryId, () -> null);
+        }
+
+        private RecordingRepositoryRevisionPort registerResponse(
+                RepositoryId repositoryId,
+                RepositoryRevisionResponse response) {
+            Objects.requireNonNull(repositoryId, "repository ID must not be null");
+            Objects.requireNonNull(response, "repository revision response must not be null");
+            results.computeIfAbsent(repositoryId, ignored -> new ArrayDeque<>()).addLast(response);
             return this;
         }
 
@@ -783,18 +1037,23 @@ class AttemptLifecycleManagerTest {
         public RepositoryRevisionResult currentRevision(RepositoryId repositoryId) {
             Objects.requireNonNull(repositoryId, "repository ID must not be null");
             calls.add(repositoryId);
-            Deque<RepositoryRevisionResult> values = results.get(repositoryId);
+            Deque<RepositoryRevisionResponse> values = results.get(repositoryId);
             if (Objects.isNull(values) || values.size() == 0) {
                 throw new IllegalStateException("missing repository revision result");
             }
             if (values.size() > 1) {
-                return values.removeFirst();
+                return values.removeFirst().respond();
             }
-            return values.getFirst();
+            return values.getFirst().respond();
         }
 
         private List<RepositoryId> calls() {
             return List.copyOf(calls);
+        }
+
+        private interface RepositoryRevisionResponse {
+
+            RepositoryRevisionResult respond();
         }
     }
 
@@ -802,6 +1061,8 @@ class AttemptLifecycleManagerTest {
 
         private final Deque<AnalysisAttemptId> generatedIds = new ArrayDeque<>();
         private final List<AttemptIdCall> calls = new ArrayList<>();
+        private RuntimeException failure;
+        private boolean returnsNull;
 
         private RecordingAttemptIdGenerator(AnalysisAttemptId... attemptIds) {
             for (AnalysisAttemptId attemptId : attemptIds) {
@@ -814,10 +1075,26 @@ class AttemptLifecycleManagerTest {
         public AnalysisAttemptId nextAttemptId(AnalysisRunId runId, int attemptNumber) {
             Objects.requireNonNull(runId, "analysis run ID must not be null");
             calls.add(new AttemptIdCall(runId, attemptNumber));
+            if (Objects.nonNull(failure)) {
+                throw failure;
+            }
+            if (returnsNull) {
+                return null;
+            }
             if (generatedIds.size() == 0) {
                 throw new IllegalStateException("no generated attempt ID is registered");
             }
             return generatedIds.removeFirst();
+        }
+
+        private RecordingAttemptIdGenerator failWith(RuntimeException generatedFailure) {
+            failure = Objects.requireNonNull(generatedFailure, "generated failure must not be null");
+            return this;
+        }
+
+        private RecordingAttemptIdGenerator returnNull() {
+            returnsNull = true;
+            return this;
         }
 
         private List<AttemptIdCall> calls() {
