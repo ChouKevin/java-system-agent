@@ -9,6 +9,10 @@ import com.java.system.agent.analysis.port.out.AnalysisTransitionPort;
 import com.java.system.agent.runtime.adapter.fake.InMemoryAnalysisTransitionAdapter;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,6 +34,80 @@ class TransitionCommitterTest {
         assertThat(committedState.stateRevision()).isEqualTo(1);
         assertThat(transitionPort.events()).containsExactly(event);
         assertThat(transitionPort.commitCount()).isEqualTo(1);
+    }
+
+    @Test
+    void acceptsObjectTransitionPortAndReturnsItsCandidate() {
+        AnalysisState currentState = initialState();
+        AnalysisEvent event = warningEvent(currentState);
+        AnalysisState candidateState = currentState.withStateRevision(1);
+        StateReducer reducer = (state, reducedEvent) -> new StateTransition(reducedEvent, candidateState);
+        AnalysisTransitionPort<Object> transitionPort = transition ->
+                ((StateTransition) transition).candidateState();
+        TransitionCommitter committer = new TransitionCommitter(reducer, transitionPort);
+
+        AnalysisState committedState = committer.apply(currentState, event);
+
+        assertThat(committedState).isSameAs(candidateState);
+    }
+
+    @Test
+    void rejectsNullTransitionReturnedByReducerBeforeInvokingPort() {
+        AnalysisState currentState = initialState();
+        AnalysisEvent event = warningEvent(currentState);
+        AtomicBoolean portInvoked = new AtomicBoolean();
+        StateReducer reducer = (state, reducedEvent) -> null;
+        AnalysisTransitionPort<StateTransition> transitionPort = transition -> {
+            portInvoked.set(true);
+            return currentState.withStateRevision(1);
+        };
+        TransitionCommitter committer = new TransitionCommitter(reducer, transitionPort);
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> committer.apply(currentState, event))
+                .withMessage("state reducer must return a transition");
+        assertThat(portInvoked).isFalse();
+    }
+
+    @Test
+    void acceptsEqualButDistinctCommittedCandidateState() {
+        AnalysisState currentState = initialState();
+        AnalysisEvent event = warningEvent(currentState);
+        AnalysisState candidateState = currentState.withStateRevision(1);
+        AnalysisState distinctCommittedState = candidateState.withStateRevision(1);
+        StateReducer reducer = (state, reducedEvent) -> new StateTransition(reducedEvent, candidateState);
+        AnalysisTransitionPort<StateTransition> transitionPort = transition -> distinctCommittedState;
+        TransitionCommitter committer = new TransitionCommitter(reducer, transitionPort);
+
+        AnalysisState committedState = committer.apply(currentState, event);
+
+        assertThat(committedState).isEqualTo(candidateState);
+        assertThat(committedState).isNotSameAs(candidateState);
+        assertThat(committedState).isSameAs(distinctCommittedState);
+    }
+
+    @Test
+    void reducesBeforeCommittingExactTransitionProducedByReducer() {
+        AnalysisState currentState = initialState();
+        AnalysisEvent event = warningEvent(currentState);
+        AnalysisState candidateState = currentState.withStateRevision(1);
+        StateTransition expectedTransition = new StateTransition(event, candidateState);
+        List<String> callOrder = new ArrayList<>();
+        StateReducer reducer = (state, reducedEvent) -> {
+            callOrder.add("reduce");
+            return expectedTransition;
+        };
+        AnalysisTransitionPort<StateTransition> transitionPort = transition -> {
+            callOrder.add("commit");
+            assertThat(transition).isSameAs(expectedTransition);
+            return candidateState;
+        };
+        TransitionCommitter committer = new TransitionCommitter(reducer, transitionPort);
+
+        AnalysisState committedState = committer.apply(currentState, event);
+
+        assertThat(committedState).isSameAs(candidateState);
+        assertThat(callOrder).containsExactly("reduce", "commit");
     }
 
     @Test
