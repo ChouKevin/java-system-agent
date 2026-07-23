@@ -22,6 +22,7 @@ import com.java.system.agent.analysis.domain.SemanticTarget;
 import com.java.system.agent.analysis.domain.SemanticTargetKind;
 import com.java.system.agent.analysis.port.in.AnalysisExecutionCommand;
 import com.java.system.agent.analysis.port.out.AnalysisAttemptIdGenerator;
+import com.java.system.agent.analysis.port.out.AnalysisTransitionPort;
 import com.java.system.agent.analysis.port.out.RepositoryRevisionPort;
 import com.java.system.agent.analysis.port.out.RepositoryRevisionResult;
 import com.java.system.agent.analysis.port.out.RepositoryDiscovery;
@@ -150,6 +151,27 @@ class AttemptLifecycleManagerTest {
                             exception.lastCommittedLifecycle(), repositoryId, 1, AnalysisStatus.REVISION_PINNING);
                 });
         assertThat(revisions.calls()).containsExactly(repositoryId);
+        assertEventOrder(fixture.transitions().events(),
+                AnalysisEvent.ScopeResolved.class,
+                AnalysisEvent.BudgetConsumed.class);
+    }
+
+    @Test
+    void propagatesTheExactRepositoryRevisionErrorWithoutWrappingDuringStart() {
+        RepositoryId repositoryId = repository("order-service");
+        Error expected = new AssertionError("sentinel revision error");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .registerResponse(repositoryId, () -> {
+                    throw expected;
+                });
+        Fixture fixture = fixture(revisions);
+
+        assertThatThrownBy(() -> fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)))))
+                .isSameAs(expected)
+                .isNotInstanceOf(AttemptLifecycleExternalFailureException.class);
+        assertThat(revisions.calls()).containsExactly(repositoryId);
+        assertThat(fixture.transitions().commitCount()).isEqualTo(2);
         assertEventOrder(fixture.transitions().events(),
                 AnalysisEvent.ScopeResolved.class,
                 AnalysisEvent.BudgetConsumed.class);
@@ -761,6 +783,37 @@ class AttemptLifecycleManagerTest {
         assertThat(active.run().outcome()).isEmpty();
         assertThat(active.run().currentAttempt().outcome()).isEmpty();
         assertThat(active.state().status()).isEqualTo(AnalysisStatus.PLANNING);
+    }
+
+    @Test
+    void propagatesTheOriginalBudgetCommitFailureBeforeInvokingRevisionPort() {
+        RepositoryId repositoryId = repository("order-service");
+        AnalysisTransitionCommitException expected = new AnalysisTransitionCommitException(
+                "sentinel budget commit failure");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter();
+        List<StateTransition> transitionCalls = new ArrayList<>();
+        AnalysisTransitionPort<StateTransition> transitionPort = transition -> {
+            transitionCalls.add(transition);
+            if (transition.event() instanceof AnalysisEvent.BudgetConsumed) {
+                throw expected;
+            }
+            return transitions.commit(transition);
+        };
+        TransitionCommitter committer = new TransitionCommitter(new DefaultStateReducer(), transitionPort);
+        Fixture fixture = new Fixture(
+                new AttemptLifecycleManager(committer, revisions, new RecordingAttemptIdGenerator()),
+                committer,
+                transitions);
+
+        assertThatThrownBy(() -> fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)))))
+                .isSameAs(expected)
+                .isNotInstanceOf(AttemptLifecycleExternalFailureException.class);
+        assertThat(transitionCalls).hasSize(2);
+        assertThat(fixture.transitions().commitCount()).isEqualTo(1);
+        assertThat(revisions.calls()).isEmpty();
     }
 
     @Test
