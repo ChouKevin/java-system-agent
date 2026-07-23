@@ -135,7 +135,7 @@ class AttemptLifecycleManagerTest {
     }
 
     @Test
-    void restartsOnceWithAStaleOldAttemptFreshStateAndFullPriorScope() {
+    void restartsForAnEquivalentCommandWithAStaleOldAttemptFreshStateAndFullPriorScope() {
         RepositoryId initialRepository = repository("order-service");
         RepositoryId discoveredRepository = repository("notification-service");
         RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
@@ -143,15 +143,23 @@ class AttemptLifecycleManagerTest {
                 .register(discoveredRepository, ready("notification-1"));
         RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator(new AnalysisAttemptId("attempt-2"));
         Fixture fixture = fixture(revisions, attemptIds);
-        InformationNeed informationNeed = need("need-1", initialRepository);
+        InformationNeed firstInformationNeed = need("need-1", initialRepository);
+        InformationNeed secondInformationNeed = need("need-2", initialRepository);
         AttemptLifecycle initial = fixture.manager().start(command(
-                "run-1", "attempt-1", List.of(initialRepository), List.of(informationNeed)));
+                "run-1",
+                "attempt-1",
+                List.of(initialRepository),
+                List.of(firstInformationNeed, secondInformationNeed)));
         AttemptLifecycle withEvidenceAndDiscovery = lifecycleWithEvidenceAndDiscoveredScope(
                 fixture, initial, discoveredRepository);
 
         AttemptLifecycle restarted = fixture.manager().restartAfterRevisionMismatch(
                 withEvidenceAndDiscovery,
-                command("run-1", "attempt-1", List.of(initialRepository), List.of(informationNeed)));
+                command(
+                        "run-1",
+                        "attempt-1",
+                        List.of(initialRepository),
+                        List.of(secondInformationNeed, firstInformationNeed)));
 
         assertThat(restarted.revisionRestartCount()).isEqualTo(1);
         assertThat(restarted.run().attempts()).hasSize(2);
@@ -164,7 +172,8 @@ class AttemptLifecycleManagerTest {
                 .containsExactly(discoveredRepository, initialRepository);
         assertThat(restarted.state().revisionVector().repositoryIds())
                 .containsExactly(discoveredRepository, initialRepository);
-        assertThat(restarted.state().pendingNeeds()).containsOnlyKeys(informationNeed.id());
+        assertThat(restarted.state().pendingNeeds())
+                .containsOnlyKeys(firstInformationNeed.id(), secondInformationNeed.id());
         assertThat(restarted.state().resolvedNeedIds()).isEmpty();
         assertThat(restarted.state().evidenceBindings()).isEmpty();
         assertThat(restarted.state().warnings()).isEmpty();
@@ -192,6 +201,7 @@ class AttemptLifecycleManagerTest {
         AttemptLifecycle restarted = fixture.manager().restartAfterRevisionMismatch(
                 fixture.manager().start(command), command);
         long eventsBeforeRejectedRestart = fixture.transitions().events().size();
+        int repositoryCallsBeforeRejectedRestart = revisions.calls().size();
         int callsBeforeRejectedRestart = attemptIds.calls().size();
 
         assertThatIllegalArgumentException()
@@ -199,6 +209,7 @@ class AttemptLifecycleManagerTest {
                 .withMessageContaining("already been restarted");
 
         assertThat(fixture.transitions().events()).hasSize((int) eventsBeforeRejectedRestart);
+        assertThat(revisions.calls()).hasSize(repositoryCallsBeforeRejectedRestart);
         assertThat(attemptIds.calls()).hasSize(callsBeforeRejectedRestart);
     }
 
@@ -206,11 +217,13 @@ class AttemptLifecycleManagerTest {
     void rejectsRestartForACommandWithAnotherFirstAttemptBeforeAnySideEffect() {
         RepositoryId repositoryId = repository("order-service");
         RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
-        Fixture fixture = fixture(new RecordingRepositoryRevisionPort()
-                .register(repositoryId, ready("order-1")), attemptIds);
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        Fixture fixture = fixture(revisions, attemptIds);
         AttemptLifecycle lifecycle = fixture.manager().start(command(
                 "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId))));
         int eventsBeforeRejectedRestart = fixture.transitions().events().size();
+        int repositoryCallsBeforeRejectedRestart = revisions.calls().size();
 
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(
@@ -220,7 +233,134 @@ class AttemptLifecycleManagerTest {
                 .withMessageContaining("first attempt");
 
         assertThat(fixture.transitions().events()).hasSize(eventsBeforeRejectedRestart);
+        assertThat(revisions.calls()).hasSize(repositoryCallsBeforeRejectedRestart);
         assertThat(attemptIds.calls()).isEmpty();
+    }
+
+    @Test
+    void shouldRejectRestartWhenCommandOmitsAnOriginalInformationNeedBeforeAnySideEffect() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
+        Fixture fixture = fixture(revisions, attemptIds);
+        InformationNeed firstNeed = need("need-1", repositoryId);
+        InformationNeed secondNeed = need("need-2", repositoryId);
+        AttemptLifecycle lifecycle = fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(firstNeed, secondNeed)));
+        RestartSideEffects sideEffectsBeforeRejection = restartSideEffects(fixture, revisions, attemptIds);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(
+                        lifecycle,
+                        command("run-1", "attempt-1", List.of(repositoryId), List.of(firstNeed))))
+                .withMessageContaining("information need IDs");
+
+        assertRestartSideEffectsUnchanged(fixture, revisions, attemptIds, sideEffectsBeforeRejection);
+    }
+
+    @Test
+    void shouldRejectRestartWhenCommandAddsAnInformationNeedBeforeAnySideEffect() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
+        Fixture fixture = fixture(revisions, attemptIds);
+        InformationNeed originalNeed = need("need-1", repositoryId);
+        InformationNeed addedNeed = need("need-2", repositoryId);
+        AttemptLifecycle lifecycle = fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(originalNeed)));
+        RestartSideEffects sideEffectsBeforeRejection = restartSideEffects(fixture, revisions, attemptIds);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(
+                        lifecycle,
+                        command(
+                                "run-1",
+                                "attempt-1",
+                                List.of(repositoryId),
+                                List.of(originalNeed, addedNeed))))
+                .withMessageContaining("information need IDs");
+
+        assertRestartSideEffectsUnchanged(fixture, revisions, attemptIds, sideEffectsBeforeRejection);
+    }
+
+    @Test
+    void shouldRejectRestartWhenAPendingInformationNeedDetailsChangeBeforeAnySideEffect() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
+        Fixture fixture = fixture(revisions, attemptIds);
+        InformationNeed originalNeed = need("need-1", repositoryId);
+        InformationNeed changedNeed = new InformationNeed(
+                originalNeed.id(),
+                originalNeed.type(),
+                "Resolve a different question",
+                originalNeed.required(),
+                originalNeed.repositoryCandidates(),
+                originalNeed.targetHints());
+        AttemptLifecycle lifecycle = fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(originalNeed)));
+        RestartSideEffects sideEffectsBeforeRejection = restartSideEffects(fixture, revisions, attemptIds);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(
+                        lifecycle,
+                        command("run-1", "attempt-1", List.of(repositoryId), List.of(changedNeed))))
+                .withMessageContaining("pending information need");
+
+        assertRestartSideEffectsUnchanged(fixture, revisions, attemptIds, sideEffectsBeforeRejection);
+    }
+
+    @Test
+    void shouldRejectRestartWhenCommandAttemptBudgetLimitsChangeBeforeAnySideEffect() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
+        Fixture fixture = fixture(revisions, attemptIds);
+        InformationNeed informationNeed = need("need-1", repositoryId);
+        AttemptLifecycle lifecycle = fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(informationNeed)));
+        RestartSideEffects sideEffectsBeforeRejection = restartSideEffects(fixture, revisions, attemptIds);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(
+                        lifecycle,
+                        command(
+                                "run-1",
+                                "attempt-1",
+                                List.of(repositoryId),
+                                List.of(informationNeed),
+                                AnalysisBudget.of(11, 5))))
+                .withMessageContaining("budget limits");
+
+        assertRestartSideEffectsUnchanged(fixture, revisions, attemptIds, sideEffectsBeforeRejection);
+    }
+
+    @Test
+    void shouldRejectRestartWhenCommandOmitsAResolvedInformationNeedBeforeAnySideEffect() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
+        Fixture fixture = fixture(revisions, attemptIds);
+        InformationNeed resolvedNeed = need("need-1", repositoryId);
+        InformationNeed pendingNeed = need("need-2", repositoryId);
+        AttemptLifecycle lifecycle = fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(resolvedNeed, pendingNeed)));
+        AttemptLifecycle lifecycleWithResolvedNeed = lifecycleWithResolvedNeed(
+                fixture, lifecycle, resolvedNeed.id());
+        RestartSideEffects sideEffectsBeforeRejection = restartSideEffects(fixture, revisions, attemptIds);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(
+                        lifecycleWithResolvedNeed,
+                        command("run-1", "attempt-1", List.of(repositoryId), List.of(pendingNeed))))
+                .withMessageContaining("information need IDs");
+
+        assertRestartSideEffectsUnchanged(fixture, revisions, attemptIds, sideEffectsBeforeRejection);
     }
 
     @Test
@@ -322,8 +462,9 @@ class AttemptLifecycleManagerTest {
     void rejectsConcludeAndRestartBeforeSideEffectsWhenRunIsAlreadyConcluded() {
         RepositoryId repositoryId = repository("order-service");
         RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
-        Fixture fixture = fixture(new RecordingRepositoryRevisionPort()
-                .register(repositoryId, ready("order-1")), attemptIds);
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        Fixture fixture = fixture(revisions, attemptIds);
         AnalysisExecutionCommand command = command(
                 "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)));
         AttemptLifecycle active = fixture.manager().start(command);
@@ -335,6 +476,7 @@ class AttemptLifecycleManagerTest {
                 active.state(),
                 active.revisionRestartCount());
         int eventsBeforeRejectedOperations = fixture.transitions().events().size();
+        int repositoryCallsBeforeRejectedOperations = revisions.calls().size();
         int generatedIdsBeforeRejectedOperations = attemptIds.calls().size();
 
         assertThatIllegalArgumentException()
@@ -349,6 +491,7 @@ class AttemptLifecycleManagerTest {
                 .withMessageContaining("active lifecycle");
 
         assertThat(fixture.transitions().events()).hasSize(eventsBeforeRejectedOperations);
+        assertThat(revisions.calls()).hasSize(repositoryCallsBeforeRejectedOperations);
         assertThat(attemptIds.calls()).hasSize(generatedIdsBeforeRejectedOperations);
     }
 
@@ -470,6 +613,31 @@ class AttemptLifecycleManagerTest {
         return lifecycleWithDiscoveredScope(fixture, withEvidence, discoveredRepository);
     }
 
+    private AttemptLifecycle lifecycleWithResolvedNeed(
+            Fixture fixture,
+            AttemptLifecycle lifecycle,
+            InformationNeedId informationNeedId) {
+        AnalysisEvent.EvidenceAccepted evidenceEvent = new AnalysisEvent.EvidenceAccepted(
+                lifecycle.state().runId(),
+                lifecycle.state().attemptId(),
+                lifecycle.state().stateRevision(),
+                informationNeedId,
+                evidence(lifecycle));
+        AttemptLifecycle lifecycleWithEvidence = new AttemptLifecycle(
+                lifecycle.run(),
+                fixture.committer().apply(lifecycle.state(), evidenceEvent),
+                lifecycle.revisionRestartCount());
+        AnalysisEvent.NeedResolved needResolvedEvent = new AnalysisEvent.NeedResolved(
+                lifecycleWithEvidence.state().runId(),
+                lifecycleWithEvidence.state().attemptId(),
+                lifecycleWithEvidence.state().stateRevision(),
+                informationNeedId);
+        return new AttemptLifecycle(
+                lifecycleWithEvidence.run(),
+                fixture.committer().apply(lifecycleWithEvidence.state(), needResolvedEvent),
+                lifecycleWithEvidence.revisionRestartCount());
+    }
+
     private EvidenceRef evidence(AttemptLifecycle lifecycle) {
         RepositoryId repositoryId = lifecycle.state().repositoryScope().repositoryIds().getFirst();
         RepositoryRevision revision = lifecycle.state().revisionVector().revisionOf(repositoryId).orElseThrow();
@@ -504,6 +672,15 @@ class AttemptLifecycleManagerTest {
             String attemptId,
             List<RepositoryId> repositoryIds,
             List<InformationNeed> needs) {
+        return command(runId, attemptId, repositoryIds, needs, AnalysisBudget.of(10, 5));
+    }
+
+    private AnalysisExecutionCommand command(
+            String runId,
+            String attemptId,
+            List<RepositoryId> repositoryIds,
+            List<InformationNeed> needs,
+            AnalysisBudget attemptBudget) {
         return new AnalysisExecutionCommand(
                 new AnalysisRunId(runId),
                 new AnalysisAttemptId(attemptId),
@@ -518,7 +695,7 @@ class AttemptLifecycleManagerTest {
                 new Goal("complete lifecycle test", needs.stream()
                         .map(InformationNeed::id)
                         .collect(Collectors.toUnmodifiableSet())),
-                AnalysisBudget.of(10, 5));
+                attemptBudget);
     }
 
     private InformationNeed need(String id, RepositoryId repositoryId) {
@@ -554,7 +731,33 @@ class AttemptLifecycleManagerTest {
             InMemoryAnalysisTransitionAdapter transitions) {
     }
 
+    private record RestartSideEffects(
+            int transitionEventCount,
+            int repositoryRevisionCallCount,
+            int attemptIdGeneratorCallCount) {
+    }
+
     private record AttemptIdCall(AnalysisRunId runId, int attemptNumber) {
+    }
+
+    private RestartSideEffects restartSideEffects(
+            Fixture fixture,
+            RecordingRepositoryRevisionPort revisions,
+            RecordingAttemptIdGenerator attemptIds) {
+        return new RestartSideEffects(
+                fixture.transitions().events().size(),
+                revisions.calls().size(),
+                attemptIds.calls().size());
+    }
+
+    private void assertRestartSideEffectsUnchanged(
+            Fixture fixture,
+            RecordingRepositoryRevisionPort revisions,
+            RecordingAttemptIdGenerator attemptIds,
+            RestartSideEffects sideEffectsBeforeRejection) {
+        assertThat(fixture.transitions().events()).hasSize(sideEffectsBeforeRejection.transitionEventCount());
+        assertThat(revisions.calls()).hasSize(sideEffectsBeforeRejection.repositoryRevisionCallCount());
+        assertThat(attemptIds.calls()).hasSize(sideEffectsBeforeRejection.attemptIdGeneratorCallCount());
     }
 
     private static final class RecordingRepositoryRevisionPort implements RepositoryRevisionPort {

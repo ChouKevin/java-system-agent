@@ -9,6 +9,7 @@ import com.java.system.agent.analysis.domain.AnalysisState;
 import com.java.system.agent.analysis.domain.AnalysisStatus;
 import com.java.system.agent.analysis.domain.AttemptOutcome;
 import com.java.system.agent.analysis.domain.InformationNeed;
+import com.java.system.agent.analysis.domain.InformationNeedId;
 import com.java.system.agent.analysis.domain.RepositoryId;
 import com.java.system.agent.analysis.domain.RepositoryScope;
 import com.java.system.agent.analysis.domain.RevisionVector;
@@ -18,7 +19,12 @@ import com.java.system.agent.analysis.port.out.RepositoryRevisionPort;
 import com.java.system.agent.analysis.port.out.RepositoryRevisionResult;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public final class AttemptLifecycleManager {
 
@@ -53,7 +59,7 @@ public final class AttemptLifecycleManager {
         Objects.requireNonNull(lifecycle, "attempt lifecycle must not be null");
         Objects.requireNonNull(command, "analysis execution command must not be null");
         validateActiveLifecycle(lifecycle);
-        validateCommandRun(lifecycle, command);
+        validateRestartCommand(lifecycle, command);
         if (lifecycle.revisionRestartCount() >= 1) {
             throw new IllegalArgumentException("analysis attempt has already been restarted for a revision mismatch");
         }
@@ -180,13 +186,53 @@ public final class AttemptLifecycleManager {
         return AnalysisBudget.of(attemptBudget.maxSteps(), attemptBudget.maxSemanticCalls());
     }
 
-    private void validateCommandRun(AttemptLifecycle lifecycle, AnalysisExecutionCommand command) {
+    private void validateRestartCommand(AttemptLifecycle lifecycle, AnalysisExecutionCommand command) {
         if (!lifecycle.run().id().equals(command.runId())) {
             throw new IllegalArgumentException("analysis execution command belongs to another run");
         }
         if (!lifecycle.run().attempts().getFirst().id().equals(command.firstAttemptId())) {
             throw new IllegalArgumentException(
                     "analysis execution command belongs to another first attempt");
+        }
+        validateRestartBudget(lifecycle, command);
+        validateRestartInformationNeeds(lifecycle, command);
+    }
+
+    private void validateRestartBudget(AttemptLifecycle lifecycle, AnalysisExecutionCommand command) {
+        AnalysisBudget commandBudget = command.attemptBudget();
+        if (!hasSameBudgetLimits(commandBudget, lifecycle.run().currentAttempt().budget())
+                || !hasSameBudgetLimits(commandBudget, lifecycle.state().budget())) {
+            throw new IllegalArgumentException(
+                    "analysis execution command has different attempt budget limits");
+        }
+    }
+
+    private boolean hasSameBudgetLimits(AnalysisBudget firstBudget, AnalysisBudget secondBudget) {
+        return firstBudget.maxSteps() == secondBudget.maxSteps()
+                && firstBudget.maxSemanticCalls() == secondBudget.maxSemanticCalls();
+    }
+
+    private void validateRestartInformationNeeds(
+            AttemptLifecycle lifecycle,
+            AnalysisExecutionCommand command) {
+        Set<InformationNeedId> registeredNeedIds = new TreeSet<>(
+                lifecycle.state().pendingNeeds().keySet());
+        registeredNeedIds.addAll(lifecycle.state().resolvedNeedIds());
+        Map<InformationNeedId, InformationNeed> commandNeedsById = command.informationNeeds().stream()
+                .collect(Collectors.toUnmodifiableMap(InformationNeed::id, Function.identity()));
+        if (!registeredNeedIds.equals(commandNeedsById.keySet())) {
+            throw new IllegalArgumentException(
+                    "analysis execution command has different information need IDs");
+        }
+
+        // AnalysisState retains values only for pending needs; resolved need IDs are guarded above.
+        for (Map.Entry<InformationNeedId, InformationNeed> registeredPendingNeed
+                : lifecycle.state().pendingNeeds().entrySet()) {
+            InformationNeed commandNeed = commandNeedsById.get(registeredPendingNeed.getKey());
+            if (!registeredPendingNeed.getValue().equals(commandNeed)) {
+                throw new IllegalArgumentException(
+                        "analysis execution command has a different pending information need");
+            }
         }
     }
 
