@@ -70,4 +70,43 @@ class AnalysisRunLifecycleTest {
                         AttemptOutcome.INCONCLUSIVE))
                 .withMessageContaining("concluded");
     }
+
+    @Test
+    void concludesOnlyCurrentAttemptWhilePreservingPriorStaleAttempt() {
+        AnalysisAttempt initialAttempt = AnalysisAttempt.start(
+                new AnalysisAttemptId("attempt-1"),
+                RevisionVector.empty(),
+                AnalysisBudget.of(10, 5));
+        AnalysisAttempt staleAttempt = initialAttempt.conclude(AttemptOutcome.STALE);
+        AnalysisAttempt activeAttempt = AnalysisAttempt.start(
+                new AnalysisAttemptId("attempt-2"),
+                RevisionVector.empty(),
+                AnalysisBudget.of(10, 5));
+        AnalysisRun run = AnalysisRun.start(new AnalysisRunId("run-1"), initialAttempt)
+                .replaceCurrentAttempt(staleAttempt, activeAttempt);
+        RevisionVector finalRevisionVector = RevisionVector.empty();
+        AnalysisBudget finalBudget = new AnalysisBudget(10, 4, 5, 2);
+
+        AnalysisRun concludedRun = run.concludeCurrentAttempt(
+                finalRevisionVector,
+                finalBudget,
+                AttemptOutcome.COMPLETED);
+
+        assertThat(concludedRun.attempts()).hasSize(2);
+        assertThat(concludedRun.attempts().getFirst()).isSameAs(staleAttempt);
+        assertThat(concludedRun.attempts().getFirst()).isEqualTo(staleAttempt);
+        assertThat(concludedRun.currentAttempt()).isNotSameAs(activeAttempt);
+        assertThat(concludedRun.currentAttempt())
+                .extracting(
+                        AnalysisAttempt::id,
+                        AnalysisAttempt::revisionVector,
+                        AnalysisAttempt::budget,
+                        AnalysisAttempt::outcome)
+                .containsExactly(
+                        activeAttempt.id(),
+                        finalRevisionVector,
+                        finalBudget,
+                        Optional.of(AttemptOutcome.COMPLETED));
+        assertThat(run.attempts()).containsExactly(staleAttempt, activeAttempt);
+    }
 }

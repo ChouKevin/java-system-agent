@@ -292,6 +292,30 @@ class DefaultStateReducerTest {
                 .withMessageContaining("budget");
     }
 
+    @Test
+    void rejectsSemanticRetryWhenSemanticBudgetIsExhaustedBeforeStepBudget() {
+        AnalysisState state = AnalysisState.initial(runId(), attemptId(), AnalysisBudget.of(2, 1));
+        state = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.SEMANTIC_QUERY));
+        AnalysisState semanticBudgetExhaustedState = state;
+
+        assertThat(semanticBudgetExhaustedState.budget().hasStepRemaining()).isTrue();
+        assertThat(semanticBudgetExhaustedState.budget().hasSemanticCallRemaining()).isFalse();
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> reducer.reduce(
+                        semanticBudgetExhaustedState,
+                        new AnalysisEvent.BudgetConsumed(
+                                runId(),
+                                attemptId(),
+                                semanticBudgetExhaustedState.stateRevision(),
+                                AnalysisBudgetActivity.SEMANTIC_RETRY)))
+                .withMessageContaining("semantic call budget")
+                .withMessageNotContaining("step budget");
+    }
+
     private AnalysisState apply(AnalysisState state, AnalysisEvent event) {
         return reducer.reduce(state, event).candidateState();
     }
