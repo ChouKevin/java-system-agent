@@ -42,11 +42,12 @@ public record AnalysisRun(
             throw new IllegalArgumentException("current analysis attempt is already concluded");
         }
         AnalysisAttempt currentAttempt = currentAttempt();
-        AnalysisAttempt concludedAttempt = new AnalysisAttempt(
+        AnalysisAttempt activeAttemptWithFinalState = new AnalysisAttempt(
                 currentAttempt.id(),
                 finalRevisionVector,
                 finalBudget,
-                Optional.of(terminalOutcome));
+                Optional.empty());
+        AnalysisAttempt concludedAttempt = activeAttemptWithFinalState.conclude(terminalOutcome);
         List<AnalysisAttempt> updatedAttempts = new ArrayList<>(attempts);
         updatedAttempts.set(updatedAttempts.size() - 1, concludedAttempt);
         return new AnalysisRun(id, updatedAttempts, outcome);

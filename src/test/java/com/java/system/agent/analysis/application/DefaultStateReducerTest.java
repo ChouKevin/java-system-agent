@@ -301,6 +301,7 @@ class DefaultStateReducerTest {
                 state.stateRevision(),
                 AnalysisBudgetActivity.SEMANTIC_QUERY));
         AnalysisState semanticBudgetExhaustedState = state;
+        AnalysisState stateBeforeRejectedRetry = semanticBudgetExhaustedState;
 
         assertThat(semanticBudgetExhaustedState.budget().hasStepRemaining()).isTrue();
         assertThat(semanticBudgetExhaustedState.budget().hasSemanticCallRemaining()).isFalse();
@@ -314,6 +315,7 @@ class DefaultStateReducerTest {
                                 AnalysisBudgetActivity.SEMANTIC_RETRY)))
                 .withMessageContaining("semantic call budget")
                 .withMessageNotContaining("step budget");
+        assertThat(semanticBudgetExhaustedState).isEqualTo(stateBeforeRejectedRetry);
     }
 
     private AnalysisState apply(AnalysisState state, AnalysisEvent event) {
