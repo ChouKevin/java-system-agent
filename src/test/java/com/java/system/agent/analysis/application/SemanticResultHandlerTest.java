@@ -16,6 +16,7 @@ import com.java.system.agent.analysis.domain.RepositoryScope;
 import com.java.system.agent.analysis.domain.RepositorySelection;
 import com.java.system.agent.analysis.domain.SemanticTarget;
 import com.java.system.agent.analysis.domain.SemanticTargetKind;
+import com.java.system.agent.analysis.port.out.AnalysisTransitionPort;
 import com.java.system.agent.analysis.port.out.RepositoryDiscovery;
 import com.java.system.agent.analysis.port.out.SemanticFailure;
 import com.java.system.agent.analysis.port.out.SemanticFailureCode;
@@ -198,6 +199,92 @@ class SemanticResultHandlerTest {
     }
 
     @Test
+    void partialResultPrevalidationRejectsLaterInvalidEvidenceWithoutAnyCommit() {
+        Fixture fixture = fixture();
+        EvidenceRef scopeEvidence = evidence(ORDER_REVISION, "sha256:scope");
+        TransitionCommitter setupCommitter = new TransitionCommitter(
+                new DefaultStateReducer(), fixture.adapter());
+        AnalysisState withEvidence = setupCommitter.apply(fixture.state(), new AnalysisEvent.EvidenceAccepted(
+                fixture.state().runId(),
+                fixture.state().attemptId(),
+                fixture.state().stateRevision(),
+                mainNeed().id(),
+                scopeEvidence));
+        AnalysisState withExpandedScope = setupCommitter.apply(withEvidence, new AnalysisEvent.ScopeExpanded(
+                withEvidence.runId(),
+                withEvidence.attemptId(),
+                withEvidence.stateRevision(),
+                discovery(scopeEvidence),
+                false));
+        AnalysisState withPinnedScope = setupCommitter.apply(withExpandedScope, new AnalysisEvent.RevisionPinned(
+                withExpandedScope.runId(),
+                withExpandedScope.attemptId(),
+                withExpandedScope.stateRevision(),
+                NOTIFICATION_REPOSITORY,
+                NOTIFICATION_REVISION));
+        InformationNeed dualRepositoryNeed = dualRepositoryNeed();
+        AnalysisState state = register(fixture, withPinnedScope, dualRepositoryNeed);
+        int setupEventCount = fixture.adapter().events().size();
+        long setupCommitCount = fixture.adapter().commitCount();
+        EvidenceRef validEvidence = evidence(ORDER_REVISION, "sha256:prevalidation-order");
+        EvidenceRef invalidEvidence = new EvidenceRef(
+                "semantic",
+                NOTIFICATION_REPOSITORY,
+                ORDER_REVISION,
+                target(),
+                1.0,
+                List.of(),
+                new ArtifactRef("sha256:prevalidation-notification"));
+        SemanticQueryResult result = partial(List.of(validEvidence, invalidEvidence));
+
+        SemanticStepResult handled = fixture.handler().handle(
+                state, dualRepositoryNeed, result, false);
+
+        assertThat(handled.disposition()).isEqualTo(SemanticStepDisposition.STALE);
+        assertThat(handled.state()).isSameAs(state);
+        assertThat(fixture.adapter().events()).hasSize(setupEventCount);
+        assertThat(fixture.adapter().commitCount()).isEqualTo(setupCommitCount);
+        assertThat(handled.state().evidenceBindings()).isEqualTo(state.evidenceBindings());
+        assertThat(handled.state().warnings()).isEqualTo(state.warnings());
+        assertThat(handled.state().repositoryScope()).isEqualTo(state.repositoryScope());
+        assertThat(handled.state().revisionVector()).isEqualTo(state.revisionVector());
+    }
+
+    @Test
+    void scopeExpansionCommitFailurePropagatesAfterEvidenceAndBeforeNeedResolution() {
+        Fixture fixture = fixture();
+        EvidenceRef evidence = evidence(ORDER_REVISION, "sha256:scope-failure");
+        RepositoryDiscovery discovery = discovery(evidence);
+        AnalysisTransitionCommitException expected = new AnalysisTransitionCommitException(
+                "scope expansion rejected");
+        List<AnalysisEvent> attemptedEvents = new ArrayList<>();
+        List<AnalysisEvent> committedEvents = new ArrayList<>();
+        AnalysisTransitionPort<StateTransition> transitionPort = transition -> {
+            attemptedEvents.add(transition.event());
+            if (transition.event() instanceof AnalysisEvent.ScopeExpanded) {
+                throw expected;
+            }
+            committedEvents.add(transition.event());
+            return transition.candidateState();
+        };
+        SemanticResultHandler handler = new SemanticResultHandler(
+                new TransitionCommitter(new DefaultStateReducer(), transitionPort));
+
+        assertThatThrownBy(() -> handler.handle(
+                fixture.state(), mainNeed(), success(List.of(evidence), List.of(discovery)), false))
+                .isSameAs(expected);
+
+        assertThat(attemptedEvents)
+                .extracting(event -> event.getClass().getSimpleName())
+                .containsExactly("EvidenceAccepted", "ScopeExpanded");
+        assertThat(committedEvents)
+                .extracting(event -> event.getClass().getSimpleName())
+                .containsExactly("EvidenceAccepted");
+        assertThat(attemptedEvents).noneMatch(event -> event instanceof AnalysisEvent.NeedResolved);
+        assertThat(attemptedEvents).noneMatch(event -> event instanceof AnalysisEvent.WarningRecorded);
+    }
+
+    @Test
     void requiresTheExactPendingNeedValueBeforeCommitting() {
         Fixture fixture = fixture();
         InformationNeed changedNeed = new InformationNeed(
@@ -368,6 +455,16 @@ class SemanticResultHandlerTest {
                 List.of(target()));
     }
 
+    private static InformationNeed dualRepositoryNeed() {
+        return new InformationNeed(
+                new InformationNeedId("need-dual-repository"),
+                InformationNeedType.ENTRY_POINT,
+                "find an entry point in either repository",
+                true,
+                List.of(ORDER_REPOSITORY, NOTIFICATION_REPOSITORY),
+                List.of(target()));
+    }
+
     private static SemanticTarget target() {
         return new SemanticTarget(SemanticTargetKind.SYMBOL, "com.example.OrderController#create", Optional.empty());
     }
@@ -382,4 +479,5 @@ class SemanticResultHandlerTest {
     private static final RepositoryId ORDER_REPOSITORY = new RepositoryId("order-service");
     private static final RepositoryId NOTIFICATION_REPOSITORY = new RepositoryId("notification-service");
     private static final RepositoryRevision ORDER_REVISION = new RepositoryRevision("order-1");
+    private static final RepositoryRevision NOTIFICATION_REVISION = new RepositoryRevision("notification-1");
 }
