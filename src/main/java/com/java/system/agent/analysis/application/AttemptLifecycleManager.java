@@ -1,0 +1,202 @@
+package com.java.system.agent.analysis.application;
+
+import com.java.system.agent.analysis.domain.AnalysisAttempt;
+import com.java.system.agent.analysis.domain.AnalysisAttemptId;
+import com.java.system.agent.analysis.domain.AnalysisBudget;
+import com.java.system.agent.analysis.domain.AnalysisOutcome;
+import com.java.system.agent.analysis.domain.AnalysisRun;
+import com.java.system.agent.analysis.domain.AnalysisState;
+import com.java.system.agent.analysis.domain.AttemptOutcome;
+import com.java.system.agent.analysis.domain.InformationNeed;
+import com.java.system.agent.analysis.domain.RepositoryId;
+import com.java.system.agent.analysis.domain.RepositoryScope;
+import com.java.system.agent.analysis.domain.RevisionVector;
+import com.java.system.agent.analysis.port.in.AnalysisExecutionCommand;
+import com.java.system.agent.analysis.port.out.AnalysisAttemptIdGenerator;
+import com.java.system.agent.analysis.port.out.RepositoryRevisionPort;
+import com.java.system.agent.analysis.port.out.RepositoryRevisionResult;
+
+import java.util.List;
+import java.util.Objects;
+
+public final class AttemptLifecycleManager {
+
+    private final TransitionCommitter transitionCommitter;
+    private final RepositoryRevisionPort repositoryRevisionPort;
+    private final AnalysisAttemptIdGenerator analysisAttemptIdGenerator;
+
+    public AttemptLifecycleManager(
+            TransitionCommitter transitionCommitter,
+            RepositoryRevisionPort repositoryRevisionPort,
+            AnalysisAttemptIdGenerator analysisAttemptIdGenerator) {
+        this.transitionCommitter = Objects.requireNonNull(
+                transitionCommitter, "transition committer must not be null");
+        this.repositoryRevisionPort = Objects.requireNonNull(
+                repositoryRevisionPort, "repository revision port must not be null");
+        this.analysisAttemptIdGenerator = Objects.requireNonNull(
+                analysisAttemptIdGenerator, "analysis attempt ID generator must not be null");
+    }
+
+    public AttemptLifecycle start(AnalysisExecutionCommand command) {
+        Objects.requireNonNull(command, "analysis execution command must not be null");
+        AnalysisBudget freshBudget = freshBudget(command.attemptBudget());
+        AnalysisRun run = AnalysisRun.start(command.runId(), AnalysisAttempt.start(
+                command.firstAttemptId(), RevisionVector.empty(), freshBudget));
+        AnalysisState state = AnalysisState.initial(command.runId(), command.firstAttemptId(), freshBudget);
+        return prepare(run, state, 0, command.initialScope(), command.informationNeeds());
+    }
+
+    public AttemptLifecycle restartAfterRevisionMismatch(
+            AttemptLifecycle lifecycle,
+            AnalysisExecutionCommand command) {
+        Objects.requireNonNull(lifecycle, "attempt lifecycle must not be null");
+        Objects.requireNonNull(command, "analysis execution command must not be null");
+        validateCommandRun(lifecycle, command);
+        if (lifecycle.revisionRestartCount() >= 1) {
+            throw new IllegalArgumentException("analysis attempt has already been restarted for a revision mismatch");
+        }
+
+        AnalysisState staleState = commit(lifecycle.state(), new AnalysisEvent.AttemptConcluded(
+                lifecycle.state().runId(),
+                lifecycle.state().attemptId(),
+                lifecycle.state().stateRevision(),
+                AttemptOutcome.STALE));
+        AnalysisRun staleRun = lifecycle.run().concludeCurrentAttempt(
+                staleState.revisionVector(), staleState.budget(), AttemptOutcome.STALE);
+        AnalysisAttemptId nextAttemptId = Objects.requireNonNull(
+                analysisAttemptIdGenerator.nextAttemptId(lifecycle.run().id(), 2),
+                "analysis attempt ID generator must return an attempt ID");
+        AnalysisBudget freshBudget = freshBudget(command.attemptBudget());
+        AnalysisRun restartedRun = staleRun.replaceCurrentAttempt(
+                staleRun.currentAttempt(),
+                AnalysisAttempt.start(nextAttemptId, RevisionVector.empty(), freshBudget));
+        AnalysisState restartedState = AnalysisState.initial(
+                restartedRun.id(), nextAttemptId, freshBudget);
+        return prepare(
+                restartedRun,
+                restartedState,
+                lifecycle.revisionRestartCount() + 1,
+                lifecycle.state().repositoryScope(),
+                command.informationNeeds());
+    }
+
+    public AttemptLifecycle pinDiscoveredRepository(
+            AttemptLifecycle lifecycle,
+            RepositoryId repositoryId) {
+        Objects.requireNonNull(lifecycle, "attempt lifecycle must not be null");
+        Objects.requireNonNull(repositoryId, "repository ID must not be null");
+        if (!lifecycle.state().repositoryScope().contains(repositoryId)) {
+            throw new IllegalArgumentException("discovered repository must already be in the repository scope");
+        }
+        if (lifecycle.state().revisionVector().revisionOf(repositoryId).isPresent()) {
+            return lifecycle;
+        }
+        return probeAndPin(lifecycle, repositoryId);
+    }
+
+    public AttemptLifecycle conclude(
+            AttemptLifecycle lifecycle,
+            AttemptOutcome attemptOutcome,
+            AnalysisOutcome analysisOutcome) {
+        Objects.requireNonNull(lifecycle, "attempt lifecycle must not be null");
+        Objects.requireNonNull(attemptOutcome, "analysis attempt outcome must not be null");
+        Objects.requireNonNull(analysisOutcome, "analysis outcome must not be null");
+        validateCompatibleOutcomes(attemptOutcome, analysisOutcome);
+
+        AnalysisState concludedState = commit(lifecycle.state(), new AnalysisEvent.AttemptConcluded(
+                lifecycle.state().runId(),
+                lifecycle.state().attemptId(),
+                lifecycle.state().stateRevision(),
+                attemptOutcome));
+        AnalysisRun concludedRun = lifecycle.run().concludeCurrentAttempt(
+                concludedState.revisionVector(), concludedState.budget(), attemptOutcome)
+                .conclude(analysisOutcome);
+        return new AttemptLifecycle(
+                concludedRun, concludedState, lifecycle.revisionRestartCount());
+    }
+
+    private AttemptLifecycle prepare(
+            AnalysisRun run,
+            AnalysisState initialState,
+            int revisionRestartCount,
+            RepositoryScope repositoryScope,
+            List<InformationNeed> informationNeeds) {
+        AnalysisState scopedState = commit(initialState, new AnalysisEvent.ScopeResolved(
+                initialState.runId(),
+                initialState.attemptId(),
+                initialState.stateRevision(),
+                repositoryScope));
+        AttemptLifecycle lifecycle = new AttemptLifecycle(run, scopedState, revisionRestartCount);
+        for (RepositoryId repositoryId : repositoryScope.repositoryIds()) {
+            lifecycle = probeAndPin(lifecycle, repositoryId);
+        }
+        for (InformationNeed informationNeed : informationNeeds) {
+            AnalysisState registeredState = commit(lifecycle.state(), new AnalysisEvent.NeedRegistered(
+                    lifecycle.state().runId(),
+                    lifecycle.state().attemptId(),
+                    lifecycle.state().stateRevision(),
+                    informationNeed));
+            lifecycle = new AttemptLifecycle(
+                    lifecycle.run(), registeredState, lifecycle.revisionRestartCount());
+        }
+        return lifecycle;
+    }
+
+    private AttemptLifecycle probeAndPin(AttemptLifecycle lifecycle, RepositoryId repositoryId) {
+        AnalysisState probedState = commit(lifecycle.state(), new AnalysisEvent.BudgetConsumed(
+                lifecycle.state().runId(),
+                lifecycle.state().attemptId(),
+                lifecycle.state().stateRevision(),
+                AnalysisBudgetActivity.REVISION_PROBE));
+        AttemptLifecycle probedLifecycle = new AttemptLifecycle(
+                lifecycle.run(), probedState, lifecycle.revisionRestartCount());
+        RepositoryRevisionResult revisionResult = Objects.requireNonNull(
+                repositoryRevisionPort.currentRevision(repositoryId),
+                "repository revision port must return a revision result");
+        if (revisionResult.revision().isPresent()) {
+            AnalysisState pinnedState = commit(probedState, new AnalysisEvent.RevisionPinned(
+                    probedState.runId(),
+                    probedState.attemptId(),
+                    probedState.stateRevision(),
+                    repositoryId,
+                    revisionResult.revision().orElseThrow()));
+            return new AttemptLifecycle(
+                    lifecycle.run(), pinnedState, lifecycle.revisionRestartCount());
+        }
+        throw new AttemptPreparationException(
+                probedLifecycle, revisionResult.failure().orElseThrow());
+    }
+
+    private AnalysisState commit(AnalysisState state, AnalysisEvent event) {
+        return transitionCommitter.apply(state, event);
+    }
+
+    private AnalysisBudget freshBudget(AnalysisBudget attemptBudget) {
+        Objects.requireNonNull(attemptBudget, "analysis attempt budget must not be null");
+        return AnalysisBudget.of(attemptBudget.maxSteps(), attemptBudget.maxSemanticCalls());
+    }
+
+    private void validateCommandRun(AttemptLifecycle lifecycle, AnalysisExecutionCommand command) {
+        if (!lifecycle.run().id().equals(command.runId())) {
+            throw new IllegalArgumentException("analysis execution command belongs to another run");
+        }
+        if (!lifecycle.run().attempts().getFirst().id().equals(command.firstAttemptId())) {
+            throw new IllegalArgumentException(
+                    "analysis execution command belongs to another first attempt");
+        }
+    }
+
+    private void validateCompatibleOutcomes(
+            AttemptOutcome attemptOutcome,
+            AnalysisOutcome analysisOutcome) {
+        boolean compatible = switch (attemptOutcome) {
+            case COMPLETED -> analysisOutcome == AnalysisOutcome.COMPLETED;
+            case INCONCLUSIVE, STALE -> analysisOutcome == AnalysisOutcome.INCONCLUSIVE;
+            case FAILED -> analysisOutcome == AnalysisOutcome.FAILED;
+            case CANCELLED -> analysisOutcome == AnalysisOutcome.CANCELLED;
+        };
+        if (!compatible) {
+            throw new IllegalArgumentException("analysis attempt and run outcomes are not compatible");
+        }
+    }
+}
