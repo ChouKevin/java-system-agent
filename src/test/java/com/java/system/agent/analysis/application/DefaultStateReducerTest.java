@@ -1,0 +1,290 @@
+package com.java.system.agent.analysis.application;
+
+import com.java.system.agent.analysis.domain.AnalysisAttemptId;
+import com.java.system.agent.analysis.domain.AnalysisBudget;
+import com.java.system.agent.analysis.domain.AnalysisRunId;
+import com.java.system.agent.analysis.domain.AnalysisState;
+import com.java.system.agent.analysis.domain.AnalysisStatus;
+import com.java.system.agent.analysis.domain.AnalysisWarning;
+import com.java.system.agent.analysis.domain.ArtifactRef;
+import com.java.system.agent.analysis.domain.AttemptOutcome;
+import com.java.system.agent.analysis.domain.EvidenceRef;
+import com.java.system.agent.analysis.domain.InformationNeed;
+import com.java.system.agent.analysis.domain.InformationNeedId;
+import com.java.system.agent.analysis.domain.InformationNeedType;
+import com.java.system.agent.analysis.domain.RepositoryDiscoverySource;
+import com.java.system.agent.analysis.domain.RepositoryId;
+import com.java.system.agent.analysis.domain.RepositoryRevision;
+import com.java.system.agent.analysis.domain.RepositoryScope;
+import com.java.system.agent.analysis.domain.RepositorySelection;
+import com.java.system.agent.analysis.domain.SemanticTarget;
+import com.java.system.agent.analysis.domain.SemanticTargetKind;
+import com.java.system.agent.analysis.port.out.RepositoryDiscovery;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class DefaultStateReducerTest {
+
+    private final StateReducer reducer = new DefaultStateReducer();
+
+    @Test
+    void rejectsStaleExpectedStateRevision() {
+        AnalysisState state = initialState();
+        AnalysisEvent event = new AnalysisEvent.ScopeResolved(
+                runId(), attemptId(), 1, scope("order-service"));
+
+        assertThatThrownBy(() -> reducer.reduce(state, event))
+                .isInstanceOf(StaleStateRevisionException.class);
+    }
+
+    @Test
+    void rejectsEventForAnotherAttempt() {
+        AnalysisState state = initialState();
+        AnalysisEvent event = new AnalysisEvent.ScopeResolved(
+                runId(), new AnalysisAttemptId("attempt-other"), 0, scope("order-service"));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> reducer.reduce(state, event))
+                .withMessageContaining("attempt");
+    }
+
+    @Test
+    void scopesPinsRegistersAcceptsAndResolvesNeed() {
+        AnalysisState state = initialState();
+        state = apply(state, new AnalysisEvent.ScopeResolved(
+                runId(), attemptId(), 0, scope("order-service")));
+        state = apply(state, new AnalysisEvent.RevisionPinned(
+                runId(), attemptId(), 1,
+                new RepositoryId("order-service"), new RepositoryRevision("ord-456")));
+        InformationNeed need = need();
+        state = apply(state, new AnalysisEvent.NeedRegistered(
+                runId(), attemptId(), 2, need));
+        EvidenceRef evidence = evidence("ord-456");
+        state = apply(state, new AnalysisEvent.EvidenceAccepted(
+                runId(), attemptId(), 3, need.id(), evidence));
+        state = apply(state, new AnalysisEvent.NeedResolved(
+                runId(), attemptId(), 4, need.id()));
+
+        assertThat(state.stateRevision()).isEqualTo(5);
+        assertThat(state.pendingNeeds()).isEmpty();
+        assertThat(state.resolvedNeedIds()).containsExactly(need.id());
+        assertThat(state.evidenceBindings()).singleElement()
+                .satisfies(binding -> assertThat(binding.evidenceRef()).isEqualTo(evidence));
+    }
+
+    @Test
+    void rejectsEvidenceFromDifferentRevision() {
+        AnalysisState state = initialState();
+        state = apply(state, new AnalysisEvent.ScopeResolved(
+                runId(), attemptId(), 0, scope("order-service")));
+        state = apply(state, new AnalysisEvent.RevisionPinned(
+                runId(), attemptId(), 1,
+                new RepositoryId("order-service"), new RepositoryRevision("ord-456")));
+        InformationNeed need = need();
+        state = apply(state, new AnalysisEvent.NeedRegistered(
+                runId(), attemptId(), 2, need));
+        AnalysisState pinnedState = state;
+
+        assertThatThrownBy(() -> reducer.reduce(
+                pinnedState,
+                new AnalysisEvent.EvidenceAccepted(
+                        runId(), attemptId(), 3, need.id(), evidence("ord-789"))))
+                .isInstanceOf(RevisionMismatchException.class);
+        assertThat(pinnedState.evidenceBindings()).isEmpty();
+    }
+
+    @Test
+    void rejectsEvidenceFromRepositoryOutsideTheInformationNeedCandidates() {
+        AnalysisState state = initialState();
+        RepositoryScope multiRepositoryScope = RepositoryScope.of(List.of(
+                new RepositorySelection(
+                        new RepositoryId("order-service"),
+                        "Question entry point",
+                        true,
+                        RepositoryDiscoverySource.USER),
+                new RepositorySelection(
+                        new RepositoryId("notification-service"),
+                        "Related service",
+                        true,
+                        RepositoryDiscoverySource.USER)));
+        state = apply(state, new AnalysisEvent.ScopeResolved(
+                runId(), attemptId(), 0, multiRepositoryScope));
+        state = apply(state, new AnalysisEvent.RevisionPinned(
+                runId(), attemptId(), 1,
+                new RepositoryId("order-service"), new RepositoryRevision("shared-revision")));
+        state = apply(state, new AnalysisEvent.RevisionPinned(
+                runId(), attemptId(), 2,
+                new RepositoryId("notification-service"), new RepositoryRevision("shared-revision")));
+        InformationNeed orderNeed = need();
+        state = apply(state, new AnalysisEvent.NeedRegistered(
+                runId(), attemptId(), 3, orderNeed));
+        EvidenceRef notificationEvidence = new EvidenceRef(
+                "java-semantic-service",
+                new RepositoryId("notification-service"),
+                new RepositoryRevision("shared-revision"),
+                new SemanticTarget(
+                        SemanticTargetKind.SYMBOL,
+                        "com.example.NotificationConsumer#consume",
+                        Optional.empty()),
+                1.0,
+                List.of(),
+                new ArtifactRef("sha256:wrong-repository"));
+        AnalysisState pinnedState = state;
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> reducer.reduce(
+                        pinnedState,
+                        new AnalysisEvent.EvidenceAccepted(
+                                runId(),
+                                attemptId(),
+                                pinnedState.stateRevision(),
+                                orderNeed.id(),
+                                notificationEvidence)))
+                .withMessageContaining("candidate");
+    }
+
+    @Test
+    void expandsScopeBeforePinningDiscoveredRepository() {
+        AnalysisState state = initialState();
+        state = apply(state, new AnalysisEvent.ScopeResolved(
+                runId(), attemptId(), 0, scope("order-service")));
+        state = apply(state, new AnalysisEvent.RevisionPinned(
+                runId(), attemptId(), 1,
+                new RepositoryId("order-service"), new RepositoryRevision("ord-456")));
+        InformationNeed sourceNeed = need();
+        EvidenceRef sourceEvidence = evidence("ord-456");
+        state = apply(state, new AnalysisEvent.NeedRegistered(
+                runId(), attemptId(), 2, sourceNeed));
+        state = apply(state, new AnalysisEvent.EvidenceAccepted(
+                runId(), attemptId(), 3, sourceNeed.id(), sourceEvidence));
+        RepositoryDiscovery discovery = new RepositoryDiscovery(
+                new RepositoryId("notification-service"),
+                "Semantic evidence found the OrderCreated consumer",
+                sourceEvidence);
+        state = apply(state, new AnalysisEvent.ScopeExpanded(
+                runId(), attemptId(), 4, discovery, true));
+        state = apply(state, new AnalysisEvent.RevisionPinned(
+                runId(), attemptId(), 5,
+                discovery.repositoryId(), new RepositoryRevision("not-123")));
+
+        assertThat(state.repositoryScope().repositoryIds()).containsExactly(
+                new RepositoryId("notification-service"),
+                new RepositoryId("order-service"));
+        assertThat(state.revisionVector().matches(
+                discovery.repositoryId(), new RepositoryRevision("not-123"))).isTrue();
+    }
+
+    @Test
+    void recordsWarningAndTerminalAttemptStatus() {
+        AnalysisState state = initialState();
+        AnalysisWarning warning = new AnalysisWarning("PARTIAL_RESULT", "Some calls remain unresolved");
+        state = apply(state, new AnalysisEvent.WarningRecorded(
+                runId(), attemptId(), 0, warning));
+        state = apply(state, new AnalysisEvent.AttemptConcluded(
+                runId(), attemptId(), 1, AttemptOutcome.STALE));
+
+        assertThat(state.warnings()).containsExactly(warning);
+        assertThat(state.status()).isEqualTo(AnalysisStatus.STALE);
+    }
+
+    @Test
+    void rejectsEventsAfterAttemptHasConcluded() {
+        AnalysisState state = initialState();
+        state = apply(state, new AnalysisEvent.AttemptConcluded(
+                runId(), attemptId(), 0, AttemptOutcome.INCONCLUSIVE));
+        AnalysisState terminalState = state;
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> reducer.reduce(
+                        terminalState,
+                        new AnalysisEvent.WarningRecorded(
+                                runId(),
+                                attemptId(),
+                                terminalState.stateRevision(),
+                                new AnalysisWarning("LATE", "Must not mutate terminal state"))))
+                .withMessageContaining("concluded");
+    }
+
+    @Test
+    void rejectsScopeExpansionWithoutPreviouslyAcceptedSourceEvidence() {
+        AnalysisState state = initialState();
+        state = apply(state, new AnalysisEvent.ScopeResolved(
+                runId(), attemptId(), 0, scope("order-service")));
+        state = apply(state, new AnalysisEvent.RevisionPinned(
+                runId(), attemptId(), 1,
+                new RepositoryId("order-service"), new RepositoryRevision("ord-456")));
+        RepositoryDiscovery forgedDiscovery = new RepositoryDiscovery(
+                new RepositoryId("notification-service"),
+                "Claims semantic discovery without accepted source evidence",
+                evidence("ord-456"));
+        AnalysisState pinnedState = state;
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> reducer.reduce(
+                        pinnedState,
+                        new AnalysisEvent.ScopeExpanded(
+                                runId(),
+                                attemptId(),
+                                pinnedState.stateRevision(),
+                                forgedDiscovery,
+                                true)))
+                .withMessageContaining("evidence");
+    }
+
+    private AnalysisState apply(AnalysisState state, AnalysisEvent event) {
+        return reducer.reduce(state, event).candidateState();
+    }
+
+    private AnalysisState initialState() {
+        return AnalysisState.initial(runId(), attemptId(), AnalysisBudget.of(10, 5));
+    }
+
+    private AnalysisRunId runId() {
+        return new AnalysisRunId("run-1");
+    }
+
+    private AnalysisAttemptId attemptId() {
+        return new AnalysisAttemptId("attempt-1");
+    }
+
+    private RepositoryScope scope(String repositoryId) {
+        return RepositoryScope.of(List.of(new RepositorySelection(
+                new RepositoryId(repositoryId),
+                "Selected for reducer test",
+                true,
+                RepositoryDiscoverySource.USER)));
+    }
+
+    private InformationNeed need() {
+        return new InformationNeed(
+                new InformationNeedId("need-entry-point"),
+                InformationNeedType.ENTRY_POINT,
+                "Locate the order entry point",
+                true,
+                List.of(new RepositoryId("order-service")),
+                List.of(new SemanticTarget(
+                        SemanticTargetKind.ROUTE,
+                        "POST /orders",
+                        Optional.empty())));
+    }
+
+    private EvidenceRef evidence(String revision) {
+        return new EvidenceRef(
+                "java-semantic-service",
+                new RepositoryId("order-service"),
+                new RepositoryRevision(revision),
+                new SemanticTarget(
+                        SemanticTargetKind.SYMBOL,
+                        "com.example.OrderController#create",
+                        Optional.empty()),
+                1.0,
+                List.of(),
+                new ArtifactRef("sha256:entry-point"));
+    }
+}

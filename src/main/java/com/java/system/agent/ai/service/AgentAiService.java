@@ -168,7 +168,6 @@ public class AgentAiService {
                         "traceCollector", traceCollector,
                         "deadlineAtMillis", deadlineAtMillis,
                         CodeEvidenceTracker.CONTEXT_KEY, evidenceTracker))
-                .internalToolExecutionEnabled(false)
                 .build();
 
         List<Message> memorySnapshot = memoryLocks.withConversationResultLock(

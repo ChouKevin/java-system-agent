@@ -135,7 +135,6 @@ public final class ChatModelStep implements StepExecutor {
         List<Message> forced = new ArrayList<>(working);
         forced.add(new UserMessage(FORCE_ANSWER_INSTRUCTION));
         ChatOptions noTools = ToolCallingChatOptions.builder()
-                .internalToolExecutionEnabled(false)
                 .build();
         Prompt prompt = promptFor(forced, noTools);
         RateLimitReservation reservation = rateLimiter.acquire(prompt);

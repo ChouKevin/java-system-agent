@@ -9,9 +9,7 @@ import org.springframework.ai.chat.observation.ChatModelObservationConvention;
 import org.springframework.ai.google.genai.GoogleGenAiChatModel;
 import org.springframework.ai.model.google.genai.autoconfigure.chat.GoogleGenAiChatProperties;
 import org.springframework.ai.model.google.genai.autoconfigure.chat.GoogleGenAiConnectionProperties;
-import org.springframework.ai.model.tool.DefaultToolExecutionEligibilityPredicate;
 import org.springframework.ai.model.tool.ToolCallingManager;
-import org.springframework.ai.model.tool.ToolExecutionEligibilityPredicate;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
@@ -19,7 +17,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
-import org.springframework.retry.support.RetryTemplate;
+import org.springframework.core.retry.RetryTemplate;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
@@ -81,15 +79,12 @@ public class AiConfig {
             ApplicationContext context,
             RetryTemplate retryTemplate,
             ObjectProvider<ObservationRegistry> observationRegistry,
-            ObjectProvider<ChatModelObservationConvention> observationConvention,
-            ObjectProvider<ToolExecutionEligibilityPredicate> toolExecutionEligibilityPredicate) {
+            ObjectProvider<ChatModelObservationConvention> observationConvention) {
 
         GoogleGenAiChatModel chatModel = GoogleGenAiChatModel.builder()
             .genAiClient(googleGenAiClient)
-            .defaultOptions(chatProperties.getOptions())
+            .options(chatProperties.toOptions())
             .toolCallingManager(toolCallingManager)
-            .toolExecutionEligibilityPredicate(
-                    toolExecutionEligibilityPredicate.getIfUnique(() -> new DefaultToolExecutionEligibilityPredicate()))
             .retryTemplate(retryTemplate)
             .observationRegistry(observationRegistry.getIfUnique(() -> ObservationRegistry.NOOP))
             .build();
