@@ -6,6 +6,7 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 @AnalyzeClasses(
         packages = "com.java.system.agent.analysis",
@@ -26,7 +27,14 @@ class AnalysisKernelArchitectureTest {
                     "java..",
                     "..analysis.application..",
                     "..analysis.domain..",
+                    "..analysis.port.in..",
                     "..analysis.port.out..");
+
+    @ArchTest
+    static final ArchRule INBOUND_PORTS_ONLY_DEPEND_ON_DOMAIN_AND_JAVA = noClasses()
+            .that().resideInAPackage("..analysis.port.in..")
+            .should().dependOnClassesThat()
+            .resideOutsideOfPackages("java..", "..analysis.domain..", "..analysis.port.in..");
 
     @ArchTest
     static final ArchRule OUTBOUND_PORT_DEPENDS_ONLY_ON_JDK_AND_DOMAIN = classes()
