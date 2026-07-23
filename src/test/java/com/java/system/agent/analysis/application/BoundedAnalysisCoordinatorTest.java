@@ -6,6 +6,7 @@ import com.java.system.agent.analysis.domain.AnalysisOutcome;
 import com.java.system.agent.analysis.domain.AnalysisRunId;
 import com.java.system.agent.analysis.domain.AnalysisStatus;
 import com.java.system.agent.analysis.domain.ArtifactRef;
+import com.java.system.agent.analysis.domain.AttemptOutcome;
 import com.java.system.agent.analysis.domain.EvidenceRef;
 import com.java.system.agent.analysis.domain.Goal;
 import com.java.system.agent.analysis.domain.InformationNeed;
@@ -19,6 +20,7 @@ import com.java.system.agent.analysis.domain.RepositorySelection;
 import com.java.system.agent.analysis.domain.SemanticTarget;
 import com.java.system.agent.analysis.domain.SemanticTargetKind;
 import com.java.system.agent.analysis.port.in.AnalysisExecutionCommand;
+import com.java.system.agent.analysis.port.in.AnalysisExecutionException;
 import com.java.system.agent.analysis.port.in.AnalysisExecutionResult;
 import com.java.system.agent.analysis.port.in.AnalysisTerminationReason;
 import com.java.system.agent.analysis.port.out.AnalysisCancellationPort;
@@ -37,6 +39,7 @@ import com.java.system.agent.runtime.adapter.fake.InMemoryAnalysisTransitionAdap
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +48,7 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class BoundedAnalysisCoordinatorTest {
 
@@ -208,6 +212,509 @@ class BoundedAnalysisCoordinatorTest {
         assertThat(cancellationPort.checkCount()).isEqualTo(3);
     }
 
+    @Test
+    void restartsWithTheNewRevisionAndKeepsOnlyReplacementAttemptEvidence() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision revisionA = revision("orders-a");
+        RepositoryRevision revisionB = revision("orders-b");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .registerSequence(orders, revisionA, revisionB);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, revisionA, revisionMismatch(revisionB))
+                .register(orders, revisionB, success(orders, revisionB, "orders-b-evidence"));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-revision-restart", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.COMPLETED);
+        assertThat(result.run().attempts())
+                .extracting(attempt -> attempt.outcome().orElseThrow())
+                .containsExactly(AttemptOutcome.STALE, AttemptOutcome.COMPLETED);
+        assertThat(revisions.calls()).containsExactly(orders, orders);
+        assertThat(semanticPort.queries())
+                .extracting(SemanticQuery::expectedRevision)
+                .containsExactly(revisionA, revisionB);
+        assertThat(result.finalState().evidenceBindings())
+                .extracting(binding -> binding.evidenceRef().repositoryRevision())
+                .containsExactly(revisionB);
+    }
+
+    @Test
+    void secondRevisionMismatchConcludesAtTheRestartLimitWithoutAThirdAttempt() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision revisionA = revision("orders-a");
+        RepositoryRevision revisionB = revision("orders-b");
+        RepositoryRevision revisionC = revision("orders-c");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .registerSequence(orders, revisionA, revisionB);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, revisionA, revisionMismatch(revisionB))
+                .register(orders, revisionB, revisionMismatch(revisionC));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-revision-limit", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.REVISION_RESTART_LIMIT);
+        assertThat(result.run().attempts())
+                .extracting(attempt -> attempt.outcome().orElseThrow())
+                .containsExactly(AttemptOutcome.STALE, AttemptOutcome.STALE);
+        assertThat(result.run().attempts()).hasSize(2);
+        assertThat(result.finalState().evidenceBindings()).isEmpty();
+        assertThat(revisions.calls()).containsExactly(orders, orders);
+        assertThat(semanticPort.queries())
+                .extracting(SemanticQuery::expectedRevision)
+                .containsExactly(revisionA, revisionB);
+    }
+
+    @Test
+    void retryableTimeoutThenSuccessUsesExactlyTwoSemanticCalls() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .registerSequence(
+                        orders,
+                        ordersRevision,
+                        timeout(true),
+                        success(orders, ordersRevision, "orders-evidence"));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-retry-success", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.COMPLETED);
+        assertThat(semanticPort.queries()).hasSize(2);
+    }
+
+    @Test
+    void twoRetryableTimeoutsConcludeAsSemanticUnavailable() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .registerSequence(orders, ordersRevision, timeout(true), timeout(true));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-retry-timeout", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.SEMANTIC_UNAVAILABLE);
+        assertThat(semanticPort.queries()).hasSize(2);
+    }
+
+    @Test
+    void nonRetryableTimeoutDoesNotRetry() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, timeout(false));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-non-retry-timeout", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.SEMANTIC_UNAVAILABLE);
+        assertThat(semanticPort.queries()).hasSize(1);
+    }
+
+    @Test
+    void repeatedPartialResultAcceptsEvidenceOnceThenConcludesForNoProgress() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        SemanticQueryResult partial = partial(orders, ordersRevision, "orders-partial");
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, partial);
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-no-progress", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.NO_PROGRESS);
+        assertThat(result.finalState().evidenceBindings()).hasSize(1);
+        assertThat(fixture.transitions().events())
+                .filteredOn(AnalysisEvent.EvidenceAccepted.class::isInstance)
+                .hasSize(1);
+        assertThat(semanticPort.queries()).hasSize(2);
+    }
+
+    @Test
+    void exhaustedSemanticCallBudgetConcludesBeforeAnotherExternalCall() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, partial(orders, ordersRevision, "orders-partial"));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-semantic-budget",
+                List.of(orders),
+                List.of(need),
+                AnalysisBudget.of(20, 1)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.BUDGET_EXHAUSTED);
+        assertThat(semanticPort.queries()).hasSize(1);
+    }
+
+    @Test
+    void exhaustedStepBudgetConcludesBeforeAnotherExternalCall() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, partial(orders, ordersRevision, "orders-partial"));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-step-budget",
+                List.of(orders),
+                List.of(need),
+                AnalysisBudget.of(2, 10)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.BUDGET_EXHAUSTED);
+        assertThat(semanticPort.queries()).hasSize(1);
+    }
+
+    @Test
+    void semanticDiscoveryAfterTheFinalStepConcludesBeforeItsRevisionCall() {
+        RepositoryId orders = repository("orders");
+        RepositoryId notifications = repository("notifications");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed ordersNeed = need("need-a-orders", orders);
+        InformationNeed notificationsNeed = need("need-b-notifications", notifications);
+        EvidenceRef ordersEvidence = evidence(orders, ordersRevision, "orders-evidence");
+        RepositoryDiscovery discovery = new RepositoryDiscovery(
+                notifications, "orders publish notification", ordersEvidence);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision)
+                .register(notifications, revision("notifications-a"));
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, new SemanticQueryResult(
+                        SemanticResultStatus.SUCCESS,
+                        Optional.of(ordersRevision),
+                        List.of(ordersEvidence),
+                        List.of(discovery),
+                        Optional.empty()));
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-discovery-step-budget",
+                List.of(orders),
+                List.of(ordersNeed, notificationsNeed),
+                AnalysisBudget.of(2, 10)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.BUDGET_EXHAUSTED);
+        assertThat(revisions.calls()).containsExactly(orders);
+        assertThat(semanticPort.queries()).hasSize(1);
+    }
+
+    @Test
+    void cancellationBeforeFirstSemanticCallConcludesTheAttemptAndRun() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort();
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new SequenceCancellationPort(true));
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-cancel-before-call", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.CANCELLED);
+        assertThat(result.run().currentAttempt().outcome()).contains(AttemptOutcome.CANCELLED);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.CANCELLED);
+        assertThat(fixture.transitions().events())
+                .filteredOn(AnalysisEvent.AttemptConcluded.class::isInstance)
+                .singleElement()
+                .satisfies(event -> assertThat(((AnalysisEvent.AttemptConcluded) event).outcome())
+                        .isEqualTo(AttemptOutcome.CANCELLED));
+        assertThat(semanticPort.queries()).isEmpty();
+    }
+
+    @Test
+    void cancellationBetweenRetryCallsPreventsTheRetry() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, timeout(true));
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new SequenceCancellationPort(false, false, true));
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-cancel-before-retry", List.of(orders), List.of(need)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.CANCELLED);
+        assertThat(result.run().currentAttempt().outcome()).contains(AttemptOutcome.CANCELLED);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.CANCELLED);
+        assertThat(semanticPort.queries()).hasSize(1);
+    }
+
+    @Test
+    void evidenceAcceptanceCommitFailureDoesNotExposeCandidateEvidenceOrTerminalState() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, success(orders, ordersRevision, "orders-evidence"));
+        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter()
+                .failAtCommit(6);
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new FakeCancellationAdapter(),
+                transitions);
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-evidence-acceptance-failure", List.of(orders), List.of(need))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.lastCommittedState().status()).isEqualTo(AnalysisStatus.EXECUTING);
+                    assertThat(exception.lastCommittedState().evidenceBindings()).isEmpty();
+                });
+        assertThat(fixture.transitions().events())
+                .noneMatch(AnalysisEvent.EvidenceAccepted.class::isInstance);
+        assertThat(fixture.transitions().events())
+                .noneMatch(AnalysisEvent.AttemptConcluded.class::isInstance);
+    }
+
+    @Test
+    void needResolutionCommitFailureReportsTheAcceptedEvidenceStateWithoutATerminalEvent() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, success(orders, ordersRevision, "orders-evidence"));
+        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter()
+                .failAtCommit(7);
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new FakeCancellationAdapter(),
+                transitions);
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-transition-failure", List.of(orders), List.of(need))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.lastCommittedState().status()).isEqualTo(AnalysisStatus.EXECUTING);
+                    assertThat(exception.lastCommittedState().evidenceBindings()).hasSize(1);
+                });
+        assertThat(fixture.transitions().events())
+                .filteredOn(AnalysisEvent.EvidenceAccepted.class::isInstance)
+                .singleElement()
+                .isInstanceOf(AnalysisEvent.EvidenceAccepted.class);
+        assertThat(fixture.transitions().events())
+                .noneMatch(AnalysisEvent.NeedResolved.class::isInstance);
+        assertThat(fixture.transitions().events())
+                .noneMatch(AnalysisEvent.AttemptConcluded.class::isInstance);
+    }
+
+    @Test
+    void initialRevisionBudgetCommitFailureReportsTheCommittedScopeState() {
+        RepositoryId orders = repository("orders");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, revision("orders-a"));
+        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter()
+                .failAtCommit(2);
+        Fixture fixture = fixture(revisions, new RecordingSemanticPort(), new FakeCancellationAdapter(), transitions);
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-initial-budget-commit-failure", List.of(orders), List.of(need))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.lastCommittedState().status()).isEqualTo(AnalysisStatus.REVISION_PINNING);
+                    assertThat(exception.lastCommittedState().repositoryScope().repositoryIds())
+                            .containsExactly(orders);
+                });
+        assertThat(fixture.transitions().events())
+                .singleElement()
+                .isInstanceOf(AnalysisEvent.ScopeResolved.class);
+        assertThat(revisions.calls()).isEmpty();
+    }
+
+    @Test
+    void initialRevisionPreparationExhaustsTheBudgetBeforeTheSecondRevisionPortCall() {
+        RepositoryId alpha = repository("alpha");
+        RepositoryId zeta = repository("zeta");
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(alpha, revision("alpha-a"))
+                .register(zeta, revision("zeta-a"));
+        Fixture fixture = fixture(revisions, new RecordingSemanticPort());
+
+        AnalysisExecutionResult result = fixture.coordinator().execute(command(
+                "run-initial-preparation-budget",
+                List.of(zeta, alpha),
+                List.of(need("need-alpha", alpha), need("need-zeta", zeta)),
+                AnalysisBudget.of(1, 10)));
+
+        assertThat(result.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(result.run().currentAttempt().outcome()).contains(AttemptOutcome.INCONCLUSIVE);
+        assertThat(result.reason()).isEqualTo(AnalysisTerminationReason.BUDGET_EXHAUSTED);
+        assertThat(revisions.calls()).containsExactly(alpha);
+    }
+
+    @Test
+    void preparationFailureConclusionCommitFailureReportsThePreConclusionState() {
+        RepositoryId orders = repository("orders");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort().registerFailure(
+                orders,
+                new SemanticFailure(SemanticFailureCode.ENGINE_UNAVAILABLE, "revision service unavailable", false));
+        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter()
+                .failAtCommit(3);
+        Fixture fixture = fixture(revisions, new RecordingSemanticPort(), new FakeCancellationAdapter(), transitions);
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-preparation-conclusion-failure", List.of(orders), List.of(need))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.lastCommittedState().status()).isEqualTo(AnalysisStatus.REVISION_PINNING);
+                    assertThat(exception.lastCommittedState().budget().usedSteps()).isEqualTo(1);
+                });
+        assertThat(fixture.transitions().events())
+                .noneMatch(AnalysisEvent.AttemptConcluded.class::isInstance);
+    }
+
+    @Test
+    void discoveredRevisionPinFailureReportsTheCommittedProbeBudgetState() {
+        RepositoryId orders = repository("orders");
+        RepositoryId notifications = repository("notifications");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed ordersNeed = need("need-a-orders", orders);
+        InformationNeed notificationsNeed = need("need-b-notifications", notifications);
+        EvidenceRef ordersEvidence = evidence(orders, ordersRevision, "orders-evidence");
+        RepositoryDiscovery discovery = new RepositoryDiscovery(
+                notifications, "orders publish notification", ordersEvidence);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision)
+                .register(notifications, revision("notifications-a"));
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, new SemanticQueryResult(
+                        SemanticResultStatus.SUCCESS,
+                        Optional.of(ordersRevision),
+                        List.of(ordersEvidence),
+                        List.of(discovery),
+                        Optional.empty()));
+        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter()
+                .failAtCommit(11);
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new FakeCancellationAdapter(),
+                transitions);
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-discovery-pin-failure",
+                List.of(orders),
+                List.of(ordersNeed, notificationsNeed))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.lastCommittedState().budget().usedSteps()).isEqualTo(3);
+                    assertThat(exception.lastCommittedState().revisionVector().revisionOf(notifications))
+                            .isEmpty();
+                });
+        assertThat(revisions.calls()).containsExactly(orders, notifications);
+        assertThat(fixture.transitions().events().getLast())
+                .isInstanceOf(AnalysisEvent.BudgetConsumed.class);
+        assertThat(fixture.transitions().events())
+                .noneMatch(AnalysisEvent.AttemptConcluded.class::isInstance);
+    }
+
+    @Test
+    void restartPreparationFailureReportsTheCommittedReplacementScopeState() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision revisionA = revision("orders-a");
+        RepositoryRevision revisionB = revision("orders-b");
+        InformationNeed need = need("need-orders", orders);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .registerSequence(orders, revisionA, revisionB);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, revisionA, revisionMismatch(revisionB));
+        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter()
+                .failAtCommit(8);
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new FakeCancellationAdapter(),
+                transitions);
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-restart-preparation-failure", List.of(orders), List.of(need))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.lastCommittedState().attemptId())
+                            .isEqualTo(new AnalysisAttemptId("attempt-2"));
+                    assertThat(exception.lastCommittedState().status())
+                            .isEqualTo(AnalysisStatus.REVISION_PINNING);
+                    assertThat(exception.lastCommittedState().budget().usedSteps()).isZero();
+                });
+        assertThat(revisions.calls()).containsExactly(orders);
+        assertThat(fixture.transitions().events().getLast())
+                .isInstanceOf(AnalysisEvent.ScopeResolved.class);
+    }
+
+    @Test
+    void semanticPortFailureReportsTheBudgetConsumedStateWithoutTerminalEvent() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        InformationNeed need = need("need-orders", orders);
+        IllegalStateException expected = new IllegalStateException("semantic transport failed");
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort().failWith(expected);
+        Fixture fixture = fixture(revisions, semanticPort);
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-semantic-port-failure", List.of(orders), List.of(need))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.getCause()).isSameAs(expected);
+                    assertThat(exception.lastCommittedState().status()).isEqualTo(AnalysisStatus.EXECUTING);
+                    assertThat(exception.lastCommittedState().budget().usedSemanticCalls()).isEqualTo(1);
+                });
+        assertThat(fixture.transitions().events())
+                .noneMatch(AnalysisEvent.AttemptConcluded.class::isInstance);
+    }
+
     private Fixture fixture(RecordingRevisionPort revisions, RecordingSemanticPort semanticPort) {
         return fixture(revisions, semanticPort, new FakeCancellationAdapter());
     }
@@ -216,12 +723,25 @@ class BoundedAnalysisCoordinatorTest {
             RecordingRevisionPort revisions,
             RecordingSemanticPort semanticPort,
             AnalysisCancellationPort cancellationPort) {
+        return fixture(
+                revisions,
+                semanticPort,
+                cancellationPort,
+                new InMemoryAnalysisTransitionAdapter());
+    }
+
+    private Fixture fixture(
+            RecordingRevisionPort revisions,
+            RecordingSemanticPort semanticPort,
+            AnalysisCancellationPort cancellationPort,
+            InMemoryAnalysisTransitionAdapter transitions) {
         revisions.observe(semanticPort);
         semanticPort.observe(revisions);
-        InMemoryAnalysisTransitionAdapter transitions = new InMemoryAnalysisTransitionAdapter();
         TransitionCommitter committer = new TransitionCommitter(new DefaultStateReducer(), transitions);
         AttemptLifecycleManager lifecycleManager = new AttemptLifecycleManager(
-                committer, revisions, new FakeAttemptIdGenerator());
+                committer,
+                revisions,
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-2")));
         return new Fixture(new BoundedAnalysisCoordinator(
                 lifecycleManager,
                 new DefaultGoalEvaluator(),
@@ -239,6 +759,14 @@ class BoundedAnalysisCoordinatorTest {
             String runId,
             List<RepositoryId> repositories,
             List<InformationNeed> needs) {
+        return command(runId, repositories, needs, AnalysisBudget.of(20, 10));
+    }
+
+    private AnalysisExecutionCommand command(
+            String runId,
+            List<RepositoryId> repositories,
+            List<InformationNeed> needs,
+            AnalysisBudget budget) {
         return new AnalysisExecutionCommand(
                 new AnalysisRunId(runId),
                 new AnalysisAttemptId("attempt-1"),
@@ -253,7 +781,7 @@ class BoundedAnalysisCoordinatorTest {
                 new Goal("complete coordinator test", needs.stream()
                         .map(InformationNeed::id)
                         .collect(java.util.stream.Collectors.toUnmodifiableSet())),
-                AnalysisBudget.of(20, 10));
+                budget);
     }
 
     private InformationNeed need(String id, RepositoryId repository) {
@@ -301,6 +829,45 @@ class BoundedAnalysisCoordinatorTest {
                 Optional.of(new SemanticFailure(failureCode, message, false)));
     }
 
+    private SemanticQueryResult revisionMismatch(RepositoryRevision analyzedRevision) {
+        return new SemanticQueryResult(
+                SemanticResultStatus.REVISION_MISMATCH,
+                Optional.of(analyzedRevision),
+                List.of(),
+                List.of(),
+                Optional.of(new SemanticFailure(
+                        SemanticFailureCode.REVISION_MISMATCH,
+                        "repository revision changed",
+                        false)));
+    }
+
+    private SemanticQueryResult timeout(boolean retryable) {
+        return new SemanticQueryResult(
+                SemanticResultStatus.TIMEOUT,
+                Optional.empty(),
+                List.of(),
+                List.of(),
+                Optional.of(new SemanticFailure(
+                        SemanticFailureCode.TIMEOUT,
+                        "semantic call timed out",
+                        retryable)));
+    }
+
+    private SemanticQueryResult partial(
+            RepositoryId repository,
+            RepositoryRevision repositoryRevision,
+            String artifactDigest) {
+        return new SemanticQueryResult(
+                SemanticResultStatus.PARTIAL,
+                Optional.of(repositoryRevision),
+                List.of(evidence(repository, repositoryRevision, artifactDigest)),
+                List.of(),
+                Optional.of(new SemanticFailure(
+                        SemanticFailureCode.PARTIAL_RESULT,
+                        "semantic result remains partial",
+                        false)));
+    }
+
     private EvidenceRef evidence(
             RepositoryId repository,
             RepositoryRevision repositoryRevision,
@@ -340,19 +907,31 @@ class BoundedAnalysisCoordinatorTest {
 
     private static final class RecordingRevisionPort implements RepositoryRevisionPort {
 
-        private final Map<RepositoryId, RepositoryRevisionResult> revisions = new TreeMap<>();
+        private final Map<RepositoryId, ArrayDeque<RepositoryRevisionResult>> revisions = new TreeMap<>();
         private final List<RepositoryId> calls = new ArrayList<>();
         private RecordingSemanticPort semanticPort;
 
         private RecordingRevisionPort register(RepositoryId repository, RepositoryRevision repositoryRevision) {
-            revisions.put(repository, RepositoryRevisionResult.ready(repositoryRevision));
+            return registerSequence(repository, repositoryRevision);
+        }
+
+        private RecordingRevisionPort registerSequence(
+                RepositoryId repository,
+                RepositoryRevision... repositoryRevisions) {
+            ArrayDeque<RepositoryRevisionResult> results = new ArrayDeque<>();
+            for (RepositoryRevision repositoryRevision : repositoryRevisions) {
+                results.add(RepositoryRevisionResult.ready(repositoryRevision));
+            }
+            revisions.put(repository, results);
             return this;
         }
 
         private RecordingRevisionPort registerFailure(
                 RepositoryId repository,
                 SemanticFailure semanticFailure) {
-            revisions.put(repository, RepositoryRevisionResult.unavailable(semanticFailure));
+            revisions.put(
+                    repository,
+                    new ArrayDeque<>(List.of(RepositoryRevisionResult.unavailable(semanticFailure))));
             return this;
         }
 
@@ -364,7 +943,10 @@ class BoundedAnalysisCoordinatorTest {
         @Override
         public RepositoryRevisionResult currentRevision(RepositoryId repository) {
             calls.add(repository);
-            return revisions.get(repository);
+            ArrayDeque<RepositoryRevisionResult> results = revisions.get(repository);
+            RepositoryRevisionResult result = results.removeFirst();
+            results.addLast(result);
+            return result;
         }
 
         private List<RepositoryId> calls() {
@@ -378,8 +960,9 @@ class BoundedAnalysisCoordinatorTest {
 
     private static final class RecordingSemanticPort implements SemanticQueryPort {
 
-        private final Map<QueryKey, SemanticQueryResult> results = new TreeMap<>();
+        private final Map<QueryKey, ArrayDeque<SemanticQueryResult>> results = new TreeMap<>();
         private final List<SemanticQuery> queries = new ArrayList<>();
+        private Optional<RuntimeException> queryFailure = Optional.empty();
         private int firstQueryRevisionCallCount;
         private RecordingRevisionPort revisionPort;
 
@@ -387,7 +970,21 @@ class BoundedAnalysisCoordinatorTest {
                 RepositoryId repository,
                 RepositoryRevision repositoryRevision,
                 SemanticQueryResult result) {
-            results.put(new QueryKey(repository, repositoryRevision), result);
+            return registerSequence(repository, repositoryRevision, result);
+        }
+
+        private RecordingSemanticPort registerSequence(
+                RepositoryId repository,
+                RepositoryRevision repositoryRevision,
+                SemanticQueryResult... sequence) {
+            results.put(
+                    new QueryKey(repository, repositoryRevision),
+                    new ArrayDeque<>(List.of(sequence)));
+            return this;
+        }
+
+        private RecordingSemanticPort failWith(RuntimeException exception) {
+            queryFailure = Optional.of(exception);
             return this;
         }
 
@@ -402,7 +999,15 @@ class BoundedAnalysisCoordinatorTest {
                 firstQueryRevisionCallCount = revisionPort.calls().size();
             }
             queries.add(query);
-            return results.get(new QueryKey(query.repositoryId(), query.expectedRevision()));
+            if (queryFailure.isPresent()) {
+                throw queryFailure.orElseThrow();
+            }
+            ArrayDeque<SemanticQueryResult> sequence = results.get(new QueryKey(
+                    query.repositoryId(),
+                    query.expectedRevision()));
+            SemanticQueryResult result = sequence.removeFirst();
+            sequence.addLast(result);
+            return result;
         }
 
         private List<SemanticQuery> queries() {

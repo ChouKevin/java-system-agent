@@ -22,6 +22,7 @@ import com.java.system.agent.analysis.port.out.RepositoryRevisionResult;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
@@ -46,12 +47,29 @@ public final class AttemptLifecycleManager {
     }
 
     public AttemptLifecycle start(AnalysisExecutionCommand command) {
+        return start(command, false);
+    }
+
+    AttemptLifecycle startForExecution(AnalysisExecutionCommand command) {
+        return start(command, true);
+    }
+
+    private AttemptLifecycle start(
+            AnalysisExecutionCommand command,
+            boolean translateTransitionFailures) {
         Objects.requireNonNull(command, "analysis execution command must not be null");
         AnalysisBudget freshBudget = freshBudget(command.attemptBudget());
         AnalysisRun run = AnalysisRun.start(command.runId(), AnalysisAttempt.start(
                 command.firstAttemptId(), RevisionVector.empty(), freshBudget));
         AnalysisState state = AnalysisState.initial(command.runId(), command.firstAttemptId(), freshBudget);
-        return prepare(run, state, 0, command.initialScope(), command.informationNeeds());
+        return prepare(
+                run,
+                state,
+                0,
+                command.initialScope(),
+                command.informationNeeds(),
+                Optional.empty(),
+                translateTransitionFailures);
     }
 
     public AttemptLifecycle restartAfterRevisionMismatch(
@@ -86,7 +104,9 @@ public final class AttemptLifecycleManager {
                 restartedState,
                 lifecycle.revisionRestartCount() + 1,
                 lifecycle.state().repositoryScope(),
-                command.informationNeeds());
+                command.informationNeeds(),
+                Optional.of(staleLifecycle),
+                true);
     }
 
     public AttemptLifecycle pinDiscoveredRepository(
@@ -101,7 +121,7 @@ public final class AttemptLifecycleManager {
         if (lifecycle.state().revisionVector().revisionOf(repositoryId).isPresent()) {
             return lifecycle;
         }
-        return probeAndPin(lifecycle, repositoryId);
+        return probeAndPin(lifecycle, repositoryId, true);
     }
 
     public AttemptLifecycle conclude(
@@ -131,49 +151,115 @@ public final class AttemptLifecycleManager {
             AnalysisState initialState,
             int revisionRestartCount,
             RepositoryScope repositoryScope,
-            List<InformationNeed> informationNeeds) {
-        AnalysisState scopedState = commit(initialState, new AnalysisEvent.ScopeResolved(
-                initialState.runId(),
-                initialState.attemptId(),
-                initialState.stateRevision(),
-                repositoryScope));
+            List<InformationNeed> informationNeeds,
+            Optional<AttemptLifecycle> lastCommittedBeforeScope,
+            boolean translateTransitionFailures) {
+        AnalysisState scopedState;
+        try {
+            scopedState = commit(initialState, new AnalysisEvent.ScopeResolved(
+                    initialState.runId(),
+                    initialState.attemptId(),
+                    initialState.stateRevision(),
+                    repositoryScope));
+        } catch (AnalysisTransitionCommitException exception) {
+            throwWithLifecycleIfAvailable(
+                    "repository scope preparation failed",
+                    lastCommittedBeforeScope,
+                    exception);
+            throw exception;
+        }
         AttemptLifecycle lifecycle = new AttemptLifecycle(run, scopedState, revisionRestartCount);
         for (RepositoryId repositoryId : repositoryScope.repositoryIds()) {
-            lifecycle = probeAndPin(lifecycle, repositoryId);
+            if (translateTransitionFailures && !lifecycle.state().budget().hasStepRemaining()) {
+                throw new AttemptPreparationBudgetExhaustedException(lifecycle);
+            }
+            lifecycle = probeAndPin(lifecycle, repositoryId, translateTransitionFailures);
         }
         for (InformationNeed informationNeed : informationNeeds) {
-            AnalysisState registeredState = commit(lifecycle.state(), new AnalysisEvent.NeedRegistered(
-                    lifecycle.state().runId(),
-                    lifecycle.state().attemptId(),
-                    lifecycle.state().stateRevision(),
-                    informationNeed));
+            AnalysisState registeredState;
+            try {
+                registeredState = commit(lifecycle.state(), new AnalysisEvent.NeedRegistered(
+                        lifecycle.state().runId(),
+                        lifecycle.state().attemptId(),
+                        lifecycle.state().stateRevision(),
+                        informationNeed));
+            } catch (AnalysisTransitionCommitException exception) {
+                throwWithLifecycleIfRequested(
+                        "information need preparation failed",
+                        lifecycle,
+                        translateTransitionFailures,
+                        exception);
+                throw exception;
+            }
             lifecycle = new AttemptLifecycle(
                     lifecycle.run(), registeredState, lifecycle.revisionRestartCount());
         }
         return lifecycle;
     }
 
-    private AttemptLifecycle probeAndPin(AttemptLifecycle lifecycle, RepositoryId repositoryId) {
-        AnalysisState probedState = commit(lifecycle.state(), new AnalysisEvent.BudgetConsumed(
-                lifecycle.state().runId(),
-                lifecycle.state().attemptId(),
-                lifecycle.state().stateRevision(),
-                AnalysisBudgetActivity.REVISION_PROBE));
+    private AttemptLifecycle probeAndPin(
+            AttemptLifecycle lifecycle,
+            RepositoryId repositoryId,
+            boolean carryTransitionFailures) {
+        AnalysisState probedState;
+        try {
+            probedState = commit(lifecycle.state(), new AnalysisEvent.BudgetConsumed(
+                    lifecycle.state().runId(),
+                    lifecycle.state().attemptId(),
+                    lifecycle.state().stateRevision(),
+                    AnalysisBudgetActivity.REVISION_PROBE));
+        } catch (AnalysisTransitionCommitException exception) {
+            throwWithLifecycleIfRequested(
+                    "repository revision probe preparation failed",
+                    lifecycle,
+                    carryTransitionFailures,
+                    exception);
+            throw exception;
+        }
         AttemptLifecycle probedLifecycle = new AttemptLifecycle(
                 lifecycle.run(), probedState, lifecycle.revisionRestartCount());
         RepositoryRevisionResult revisionResult = currentRevision(probedLifecycle, repositoryId);
         if (revisionResult.revision().isPresent()) {
-            AnalysisState pinnedState = commit(probedState, new AnalysisEvent.RevisionPinned(
-                    probedState.runId(),
-                    probedState.attemptId(),
-                    probedState.stateRevision(),
-                    repositoryId,
-                    revisionResult.revision().orElseThrow()));
-            return new AttemptLifecycle(
-                    lifecycle.run(), pinnedState, lifecycle.revisionRestartCount());
+            try {
+                AnalysisState pinnedState = commit(probedState, new AnalysisEvent.RevisionPinned(
+                        probedState.runId(),
+                        probedState.attemptId(),
+                        probedState.stateRevision(),
+                        repositoryId,
+                        revisionResult.revision().orElseThrow()));
+                return new AttemptLifecycle(
+                        lifecycle.run(), pinnedState, lifecycle.revisionRestartCount());
+            } catch (AnalysisTransitionCommitException exception) {
+                throwWithLifecycleIfRequested(
+                        "repository revision pinning failed",
+                        probedLifecycle,
+                        carryTransitionFailures,
+                        exception);
+                throw exception;
+            }
         }
         throw new AttemptPreparationException(
                 probedLifecycle, revisionResult.failure().orElseThrow());
+    }
+
+    private void throwWithLifecycleIfAvailable(
+            String message,
+            Optional<AttemptLifecycle> lifecycle,
+            AnalysisTransitionCommitException cause) {
+        if (lifecycle.isPresent()) {
+            throw new AttemptLifecycleExternalFailureException(
+                    message, lifecycle.orElseThrow(), cause);
+        }
+    }
+
+    private void throwWithLifecycleIfRequested(
+            String message,
+            AttemptLifecycle lifecycle,
+            boolean requested,
+            AnalysisTransitionCommitException cause) {
+        if (requested) {
+            throw new AttemptLifecycleExternalFailureException(message, lifecycle, cause);
+        }
     }
 
     private AnalysisAttemptId nextAttemptId(

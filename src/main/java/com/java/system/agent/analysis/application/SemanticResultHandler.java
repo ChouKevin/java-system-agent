@@ -35,6 +35,28 @@ public final class SemanticResultHandler {
             SemanticQuery query,
             SemanticQueryResult result,
             boolean retryAllowed) {
+        return handleInternal(state, query, result, retryAllowed, NoopCommitTracker.INSTANCE);
+    }
+
+    SemanticStepResult handleForExecution(
+            AnalysisState state,
+            SemanticQuery query,
+            SemanticQueryResult result,
+            boolean retryAllowed) {
+        TrackingCommitTracker commitTracker = new TrackingCommitTracker(state);
+        try {
+            return handleInternal(state, query, result, retryAllowed, commitTracker);
+        } catch (AnalysisTransitionCommitException exception) {
+            throw new SemanticResultHandlingException(commitTracker.lastCommittedState(), exception);
+        }
+    }
+
+    private SemanticStepResult handleInternal(
+            AnalysisState state,
+            SemanticQuery query,
+            SemanticQueryResult result,
+            boolean retryAllowed,
+            CommitTracker commitTracker) {
         Objects.requireNonNull(state, "analysis state must not be null");
         Objects.requireNonNull(query, "semantic query must not be null");
         Objects.requireNonNull(result, "semantic query result must not be null");
@@ -43,36 +65,37 @@ public final class SemanticResultHandler {
         requireQueryBoundToState(state, query);
 
         return switch (result.status()) {
-            case SUCCESS -> handleSuccess(state, query, result);
-            case PARTIAL -> handlePartial(state, query, result);
-            case REVISION_MISMATCH -> handleRevisionMismatch(state, query, result);
-            case NOT_READY, TIMEOUT -> handleTransient(state, result, retryAllowed);
-            case AMBIGUOUS -> block(state, result, "SEMANTIC_AMBIGUOUS_TARGET");
-            case FORBIDDEN -> block(state, result, "SEMANTIC_FORBIDDEN");
-            case CAPABILITY_MISSING -> block(state, result, "SEMANTIC_CAPABILITY_MISSING");
-            case FAILED -> fail(state, result);
+            case SUCCESS -> handleSuccess(state, query, result, commitTracker);
+            case PARTIAL -> handlePartial(state, query, result, commitTracker);
+            case REVISION_MISMATCH -> handleRevisionMismatch(state, query, result, commitTracker);
+            case NOT_READY, TIMEOUT -> handleTransient(state, result, retryAllowed, commitTracker);
+            case AMBIGUOUS -> block(state, result, "SEMANTIC_AMBIGUOUS_TARGET", commitTracker);
+            case FORBIDDEN -> block(state, result, "SEMANTIC_FORBIDDEN", commitTracker);
+            case CAPABILITY_MISSING -> block(state, result, "SEMANTIC_CAPABILITY_MISSING", commitTracker);
+            case FAILED -> fail(state, result, commitTracker);
         };
     }
 
     private SemanticStepResult handleSuccess(
             AnalysisState state,
             SemanticQuery query,
-            SemanticQueryResult result) {
+            SemanticQueryResult result,
+            CommitTracker commitTracker) {
         InformationNeed pendingNeed = query.informationNeed();
         EvidenceValidation validation = validateEvidenceAndDiscoveries(state, query, result);
         if (validation.outcome() == EvidenceValidationOutcome.STALE) {
             return step(state, SemanticStepDisposition.STALE, result.failure());
         }
         if (validation.outcome() == EvidenceValidationOutcome.PROTOCOL_ERROR) {
-            return protocolFailure(state);
+            return protocolFailure(state, commitTracker);
         }
         AppliedEvidence applied = applyEvidenceAndDiscoveries(
-                state, pendingNeed, validation.validatedEvidence().orElseThrow());
+                state, pendingNeed, validation.validatedEvidence().orElseThrow(), commitTracker);
         AnalysisState resolved = commit(applied.state(), new AnalysisEvent.NeedResolved(
                 applied.state().runId(),
                 applied.state().attemptId(),
                 applied.state().stateRevision(),
-                pendingNeed.id()));
+                pendingNeed.id()), commitTracker);
         return new SemanticStepResult(
                 resolved, SemanticStepDisposition.PROGRESSED, Optional.empty(), applied.discoveries());
     }
@@ -80,19 +103,20 @@ public final class SemanticResultHandler {
     private SemanticStepResult handlePartial(
             AnalysisState state,
             SemanticQuery query,
-            SemanticQueryResult result) {
+            SemanticQueryResult result,
+            CommitTracker commitTracker) {
         InformationNeed pendingNeed = query.informationNeed();
         EvidenceValidation validation = validateEvidenceAndDiscoveries(state, query, result);
         if (validation.outcome() == EvidenceValidationOutcome.STALE) {
             return step(state, SemanticStepDisposition.STALE, result.failure());
         }
         if (validation.outcome() == EvidenceValidationOutcome.PROTOCOL_ERROR) {
-            return protocolFailure(state);
+            return protocolFailure(state, commitTracker);
         }
         AppliedEvidence applied = applyEvidenceAndDiscoveries(
-                state, pendingNeed, validation.validatedEvidence().orElseThrow());
+                state, pendingNeed, validation.validatedEvidence().orElseThrow(), commitTracker);
         AnalysisState warned = recordWarningIfAbsent(
-                applied.state(), "SEMANTIC_PARTIAL_RESULT", result.failure().orElseThrow());
+                applied.state(), "SEMANTIC_PARTIAL_RESULT", result.failure().orElseThrow(), commitTracker);
         return new SemanticStepResult(
                 warned, SemanticStepDisposition.PARTIAL, result.failure(), applied.discoveries());
     }
@@ -100,7 +124,8 @@ public final class SemanticResultHandler {
     private SemanticStepResult handleTransient(
             AnalysisState state,
             SemanticQueryResult result,
-            boolean retryAllowed) {
+            boolean retryAllowed,
+            CommitTracker commitTracker) {
         if (retryAllowed) {
             return step(state, SemanticStepDisposition.RETRYABLE, result.failure());
         }
@@ -109,16 +134,17 @@ public final class SemanticResultHandler {
             case TIMEOUT -> "SEMANTIC_TIMEOUT";
             default -> throw new IllegalArgumentException("semantic status is not transient");
         };
-        return block(state, result, warningCode);
+        return block(state, result, warningCode, commitTracker);
     }
 
     private SemanticStepResult handleRevisionMismatch(
             AnalysisState state,
             SemanticQuery query,
-            SemanticQueryResult result) {
+            SemanticQueryResult result,
+            CommitTracker commitTracker) {
         RepositoryRevision analyzedRevision = result.analyzedRevision().orElseThrow();
         if (analyzedRevision.equals(query.expectedRevision())) {
-            return protocolFailure(state);
+            return protocolFailure(state, commitTracker);
         }
         return step(state, SemanticStepDisposition.STALE, result.failure());
     }
@@ -126,25 +152,30 @@ public final class SemanticResultHandler {
     private SemanticStepResult block(
             AnalysisState state,
             SemanticQueryResult result,
-            String warningCode) {
-        AnalysisState warned = recordWarningIfAbsent(state, warningCode, result.failure().orElseThrow());
+            String warningCode,
+            CommitTracker commitTracker) {
+        AnalysisState warned = recordWarningIfAbsent(
+                state, warningCode, result.failure().orElseThrow(), commitTracker);
         return step(warned, SemanticStepDisposition.BLOCKED, result.failure());
     }
 
-    private SemanticStepResult fail(AnalysisState state, SemanticQueryResult result) {
+    private SemanticStepResult fail(
+            AnalysisState state,
+            SemanticQueryResult result,
+            CommitTracker commitTracker) {
         SemanticFailure failure = result.failure().orElseThrow();
         AnalysisState warned = recordWarningIfAbsent(
-                state, "SEMANTIC_" + failure.code().name(), failure);
+                state, "SEMANTIC_" + failure.code().name(), failure, commitTracker);
         return step(warned, SemanticStepDisposition.FAILED, result.failure());
     }
 
-    private SemanticStepResult protocolFailure(AnalysisState state) {
+    private SemanticStepResult protocolFailure(AnalysisState state, CommitTracker commitTracker) {
         SemanticFailure failure = new SemanticFailure(
                 SemanticFailureCode.PROTOCOL_ERROR,
                 "semantic result violates the revision-bound evidence contract",
                 false);
         AnalysisState warned = recordWarningIfAbsent(
-                state, "SEMANTIC_PROTOCOL_ERROR", failure);
+                state, "SEMANTIC_PROTOCOL_ERROR", failure, commitTracker);
         return step(warned, SemanticStepDisposition.FAILED, Optional.of(failure));
     }
 
@@ -201,15 +232,18 @@ public final class SemanticResultHandler {
     private AppliedEvidence applyEvidenceAndDiscoveries(
             AnalysisState state,
             InformationNeed pendingNeed,
-            ValidatedEvidence validated) {
+            ValidatedEvidence validated,
+            CommitTracker commitTracker) {
         AnalysisState current = state;
         for (EvidenceRef evidence : validated.newEvidence()) {
             current = commit(current, new AnalysisEvent.EvidenceAccepted(
-                    current.runId(), current.attemptId(), current.stateRevision(), pendingNeed.id(), evidence));
+                    current.runId(), current.attemptId(), current.stateRevision(), pendingNeed.id(), evidence),
+                    commitTracker);
         }
         for (RepositoryDiscovery discovery : validated.newDiscoveries()) {
             current = commit(current, new AnalysisEvent.ScopeExpanded(
-                    current.runId(), current.attemptId(), current.stateRevision(), discovery, false));
+                    current.runId(), current.attemptId(), current.stateRevision(), discovery, false),
+                    commitTracker);
         }
         return new AppliedEvidence(current, validated.newDiscoveries());
     }
@@ -217,7 +251,8 @@ public final class SemanticResultHandler {
     private AnalysisState recordWarningIfAbsent(
             AnalysisState state,
             String warningCode,
-            SemanticFailure failure) {
+            SemanticFailure failure,
+            CommitTracker commitTracker) {
         boolean warningAlreadyRecorded = state.warnings().stream()
                 .anyMatch(warning -> warning.code().equals(warningCode));
         if (warningAlreadyRecorded) {
@@ -227,7 +262,7 @@ public final class SemanticResultHandler {
                 state.runId(),
                 state.attemptId(),
                 state.stateRevision(),
-                new AnalysisWarning(warningCode, failure.message())));
+                new AnalysisWarning(warningCode, failure.message())), commitTracker);
     }
 
     private boolean isAcceptedForNeed(
@@ -266,8 +301,46 @@ public final class SemanticResultHandler {
         return new SemanticStepResult(state, disposition, failure, List.of());
     }
 
-    private AnalysisState commit(AnalysisState state, AnalysisEvent event) {
-        return transitionCommitter.apply(state, event);
+    private AnalysisState commit(
+            AnalysisState state,
+            AnalysisEvent event,
+            CommitTracker commitTracker) {
+        AnalysisState committedState = transitionCommitter.apply(state, event);
+        commitTracker.record(committedState);
+        return committedState;
+    }
+
+    private interface CommitTracker {
+
+        void record(AnalysisState committedState);
+    }
+
+    private enum NoopCommitTracker implements CommitTracker {
+        INSTANCE;
+
+        @Override
+        public void record(AnalysisState committedState) {
+            Objects.requireNonNull(committedState, "committed analysis state must not be null");
+        }
+    }
+
+    private static final class TrackingCommitTracker implements CommitTracker {
+
+        private AnalysisState lastCommittedState;
+
+        private TrackingCommitTracker(AnalysisState initialState) {
+            lastCommittedState = Objects.requireNonNull(initialState, "analysis state must not be null");
+        }
+
+        @Override
+        public void record(AnalysisState committedState) {
+            lastCommittedState = Objects.requireNonNull(
+                    committedState, "committed analysis state must not be null");
+        }
+
+        private AnalysisState lastCommittedState() {
+            return lastCommittedState;
+        }
     }
 
     private record ValidatedEvidence(
