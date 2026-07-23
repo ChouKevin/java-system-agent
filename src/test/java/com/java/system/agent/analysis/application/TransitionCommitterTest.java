@@ -100,14 +100,19 @@ class TransitionCommitterTest {
                 List.of(),
                 List.of(),
                 currentState.budget());
+        RepositoryScope rehydratedScope = RepositoryScope.of(List.of(new RepositorySelection(
+                new RepositoryId("order-service"),
+                "Selected for committed state rehydration",
+                true,
+                RepositoryDiscoverySource.USER)));
         RevisionVector rehydratedRevisionVector = RevisionVector.empty().pin(
-                scope, new RepositoryId("order-service"), new RepositoryRevision("ord-456"));
+                rehydratedScope, new RepositoryId("order-service"), new RepositoryRevision("ord-456"));
         AnalysisState distinctCommittedState = new AnalysisState(
                 candidateState.runId(),
                 candidateState.attemptId(),
                 candidateState.stateRevision(),
                 candidateState.status(),
-                candidateState.repositoryScope(),
+                rehydratedScope,
                 rehydratedRevisionVector,
                 candidateState.pendingNeeds(),
                 candidateState.resolvedNeedIds(),
@@ -123,6 +128,7 @@ class TransitionCommitterTest {
         assertThat(committedState).isEqualTo(candidateState);
         assertThat(committedState).isNotSameAs(candidateState);
         assertThat(committedState).isSameAs(distinctCommittedState);
+        assertThat(committedState.repositoryScope()).isNotSameAs(candidateState.repositoryScope());
         assertThat(committedState.revisionVector()).isNotSameAs(candidateState.revisionVector());
     }
 
