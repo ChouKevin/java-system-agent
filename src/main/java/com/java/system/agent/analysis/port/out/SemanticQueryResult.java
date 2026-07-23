@@ -31,8 +31,9 @@ public record SemanticQueryResult(
             List<EvidenceRef> evidence,
             List<RepositoryDiscovery> repositoryDiscoveries,
             Optional<SemanticFailure> failure) {
+        validateAnalyzedRevision(status, analyzedRevision);
         if (status == SemanticResultStatus.SUCCESS || status == SemanticResultStatus.PARTIAL) {
-            if (!analyzedRevision.isPresent() || evidence.size() < 1) {
+            if (evidence.size() < 1) {
                 throw new IllegalArgumentException(
                         "successful or partial semantic result requires revision-bound evidence");
             }
@@ -59,6 +60,7 @@ public record SemanticQueryResult(
             if (status == SemanticResultStatus.PARTIAL && !failure.isPresent()) {
                 throw new IllegalArgumentException("partial semantic result requires a normalized failure");
             }
+            validateFailureCoherence(status, failure);
             return;
         }
         if (evidence.size() > 0 || repositoryDiscoveries.size() > 0) {
@@ -67,8 +69,59 @@ public record SemanticQueryResult(
         if (!failure.isPresent()) {
             throw new IllegalArgumentException("failed semantic result requires a normalized failure");
         }
-        if (status == SemanticResultStatus.REVISION_MISMATCH && !analyzedRevision.isPresent()) {
-            throw new IllegalArgumentException("revision mismatch must report the analyzed revision");
+        validateFailureCoherence(status, failure);
+    }
+
+    private static void validateAnalyzedRevision(
+            SemanticResultStatus status,
+            Optional<RepositoryRevision> analyzedRevision) {
+        boolean requiresAnalyzedRevision = switch (status) {
+            case SUCCESS, PARTIAL, REVISION_MISMATCH -> true;
+            case AMBIGUOUS, NOT_READY, TIMEOUT, FORBIDDEN, CAPABILITY_MISSING, FAILED -> false;
+        };
+        if (requiresAnalyzedRevision && analyzedRevision.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "semantic result status requires an analyzed revision");
+        }
+        if (!requiresAnalyzedRevision && analyzedRevision.isPresent()) {
+            throw new IllegalArgumentException(
+                    "semantic result status cannot contain an analyzed revision");
+        }
+    }
+
+    private static void validateFailureCoherence(
+            SemanticResultStatus status,
+            Optional<SemanticFailure> failure) {
+        if (status == SemanticResultStatus.SUCCESS) {
+            return;
+        }
+        SemanticFailure normalizedFailure = failure.orElseThrow();
+        boolean codeMatchesStatus = switch (status) {
+            case SUCCESS -> false;
+            case PARTIAL -> normalizedFailure.code() == SemanticFailureCode.PARTIAL_RESULT;
+            case AMBIGUOUS -> normalizedFailure.code() == SemanticFailureCode.AMBIGUOUS_TARGET;
+            case REVISION_MISMATCH -> normalizedFailure.code() == SemanticFailureCode.REVISION_MISMATCH;
+            case NOT_READY -> normalizedFailure.code() == SemanticFailureCode.NOT_READY;
+            case TIMEOUT -> normalizedFailure.code() == SemanticFailureCode.TIMEOUT;
+            case FORBIDDEN -> normalizedFailure.code() == SemanticFailureCode.FORBIDDEN;
+            case CAPABILITY_MISSING -> normalizedFailure.code() == SemanticFailureCode.CAPABILITY_MISSING;
+            case FAILED -> switch (normalizedFailure.code()) {
+                case REPOSITORY_NOT_FOUND, PROTOCOL_ERROR, ENGINE_UNAVAILABLE, ENGINE_FAILURE -> true;
+                case PARTIAL_RESULT, AMBIGUOUS_TARGET, REVISION_MISMATCH, NOT_READY, TIMEOUT,
+                        FORBIDDEN, CAPABILITY_MISSING -> false;
+            };
+        };
+        if (!codeMatchesStatus) {
+            throw new IllegalArgumentException(
+                    "semantic result status and failure code are inconsistent");
+        }
+        boolean terminalFailure = switch (status) {
+            case AMBIGUOUS, FORBIDDEN, CAPABILITY_MISSING, FAILED -> true;
+            case SUCCESS, PARTIAL, REVISION_MISMATCH, NOT_READY, TIMEOUT -> false;
+        };
+        if (terminalFailure && normalizedFailure.retryable()) {
+            throw new IllegalArgumentException(
+                    "terminal semantic result failure must not be retryable");
         }
     }
 }

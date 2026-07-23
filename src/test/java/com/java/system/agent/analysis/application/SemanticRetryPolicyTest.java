@@ -40,7 +40,7 @@ class SemanticRetryPolicyTest {
                 Optional.empty(),
                 List.of(),
                 List.of(),
-                Optional.of(new SemanticFailure(SemanticFailureCode.FORBIDDEN, "forbidden", true)));
+                Optional.of(new SemanticFailure(SemanticFailureCode.FORBIDDEN, "forbidden", false)));
 
         assertThat(policy.shouldRetry(nonRetryableTimeout, 1, AnalysisBudget.of(2, 2))).isFalse();
         assertThat(policy.shouldRetry(forbidden, 1, AnalysisBudget.of(2, 2))).isFalse();
