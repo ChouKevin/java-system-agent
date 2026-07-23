@@ -51,8 +51,18 @@ class AnalysisExecutionResultTest {
 
     @Test
     void rejectsANonterminalFinalState() {
-        assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
-                concludedRun(), state(AnalysisStatus.EXECUTING), AnalysisTerminationReason.GOAL_COMPLETED));
+        for (AnalysisStatus nonTerminalStatus : List.of(
+                AnalysisStatus.RECEIVED,
+                AnalysisStatus.UNDERSTANDING,
+                AnalysisStatus.SCOPE_RESOLVING,
+                AnalysisStatus.REVISION_PINNING,
+                AnalysisStatus.PLANNING,
+                AnalysisStatus.EXECUTING,
+                AnalysisStatus.COMPOSING,
+                AnalysisStatus.VERIFYING)) {
+            assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
+                    concludedRun(), state(nonTerminalStatus), AnalysisTerminationReason.GOAL_COMPLETED));
+        }
     }
 
     @Test

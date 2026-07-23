@@ -26,7 +26,8 @@ public record AnalysisExecutionResult(
     private static boolean isTerminal(AnalysisStatus status) {
         return switch (status) {
             case STALE, COMPLETED, INCONCLUSIVE, FAILED, CANCELLED -> true;
-            default -> false;
+            case RECEIVED, UNDERSTANDING, SCOPE_RESOLVING, REVISION_PINNING,
+                    PLANNING, EXECUTING, COMPOSING, VERIFYING -> false;
         };
     }
 }
