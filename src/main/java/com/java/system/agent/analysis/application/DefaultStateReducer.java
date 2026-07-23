@@ -48,6 +48,8 @@ public final class DefaultStateReducer implements StateReducer {
                     currentState, needResolved);
             case AnalysisEvent.WarningRecorded warningRecorded -> applyWarningRecorded(
                     currentState, warningRecorded);
+            case AnalysisEvent.BudgetConsumed budgetConsumed -> applyBudgetConsumed(
+                    currentState, budgetConsumed);
             case AnalysisEvent.AttemptConcluded attemptConcluded -> applyAttemptConcluded(
                     currentState, attemptConcluded);
         };
@@ -235,6 +237,28 @@ public final class DefaultStateReducer implements StateReducer {
                 state.evidenceBindings(),
                 warnings,
                 state.budget());
+    }
+
+    private AnalysisState applyBudgetConsumed(
+            AnalysisState state,
+            AnalysisEvent.BudgetConsumed event) {
+        AnalysisBudget consumedBudget = state.budget().consumeStep();
+        if (event.activity().consumesSemanticCall()) {
+            consumedBudget = consumedBudget.consumeSemanticCall();
+        }
+        AnalysisStatus status = event.activity().consumesSemanticCall()
+                ? AnalysisStatus.EXECUTING
+                : state.status();
+        return next(
+                state,
+                status,
+                state.repositoryScope(),
+                state.revisionVector(),
+                state.pendingNeeds(),
+                state.resolvedNeedIds(),
+                state.evidenceBindings(),
+                state.warnings(),
+                consumedBudget);
     }
 
     private AnalysisState applyAttemptConcluded(

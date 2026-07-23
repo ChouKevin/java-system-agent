@@ -111,6 +111,18 @@ public sealed interface AnalysisEvent {
         }
     }
 
+    record BudgetConsumed(
+            AnalysisRunId runId,
+            AnalysisAttemptId attemptId,
+            long expectedStateRevision,
+            AnalysisBudgetActivity activity) implements AnalysisEvent {
+
+        public BudgetConsumed {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(activity, "analysis budget activity must not be null");
+        }
+    }
+
     record AttemptConcluded(
             AnalysisRunId runId,
             AnalysisAttemptId attemptId,

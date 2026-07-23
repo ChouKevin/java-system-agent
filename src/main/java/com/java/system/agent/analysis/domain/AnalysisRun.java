@@ -31,6 +31,27 @@ public record AnalysisRun(
         return attempts.getLast();
     }
 
+    public AnalysisRun concludeCurrentAttempt(
+            RevisionVector finalRevisionVector,
+            AnalysisBudget finalBudget,
+            AttemptOutcome terminalOutcome) {
+        Objects.requireNonNull(finalRevisionVector, "final revision vector must not be null");
+        Objects.requireNonNull(finalBudget, "final analysis budget must not be null");
+        Objects.requireNonNull(terminalOutcome, "analysis attempt outcome must not be null");
+        if (outcome.isPresent() || currentAttempt().outcome().isPresent()) {
+            throw new IllegalArgumentException("current analysis attempt is already concluded");
+        }
+        AnalysisAttempt currentAttempt = currentAttempt();
+        AnalysisAttempt concludedAttempt = new AnalysisAttempt(
+                currentAttempt.id(),
+                finalRevisionVector,
+                finalBudget,
+                Optional.of(terminalOutcome));
+        List<AnalysisAttempt> updatedAttempts = new ArrayList<>(attempts);
+        updatedAttempts.set(updatedAttempts.size() - 1, concludedAttempt);
+        return new AnalysisRun(id, updatedAttempts, outcome);
+    }
+
     public AnalysisRun replaceCurrentAttempt(
             AnalysisAttempt staleAttempt,
             AnalysisAttempt nextAttempt) {

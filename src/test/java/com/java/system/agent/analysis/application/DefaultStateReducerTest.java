@@ -237,6 +237,61 @@ class DefaultStateReducerTest {
                 .withMessageContaining("evidence");
     }
 
+    @Test
+    void consumesOnlyOneStepForRevisionProbe() {
+        AnalysisState state = initialState();
+
+        AnalysisState updated = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.REVISION_PROBE));
+
+        assertThat(updated.budget().usedSteps()).isEqualTo(1);
+        assertThat(updated.budget().usedSemanticCalls()).isZero();
+        assertThat(updated.status()).isEqualTo(AnalysisStatus.RECEIVED);
+    }
+
+    @Test
+    void consumesStepAndSemanticCallForSemanticQueryAndRetry() {
+        AnalysisState state = initialState();
+        state = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.SEMANTIC_QUERY));
+        state = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.SEMANTIC_RETRY));
+
+        assertThat(state.budget().usedSteps()).isEqualTo(2);
+        assertThat(state.budget().usedSemanticCalls()).isEqualTo(2);
+        assertThat(state.status()).isEqualTo(AnalysisStatus.EXECUTING);
+    }
+
+    @Test
+    void rejectsBudgetConsumptionAfterConfiguredBudgetIsExhausted() {
+        AnalysisState state = AnalysisState.initial(runId(), attemptId(), AnalysisBudget.of(1, 2));
+        state = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.REVISION_PROBE));
+        AnalysisState exhaustedState = state;
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> reducer.reduce(
+                        exhaustedState,
+                        new AnalysisEvent.BudgetConsumed(
+                                runId(),
+                                attemptId(),
+                                exhaustedState.stateRevision(),
+                                AnalysisBudgetActivity.SEMANTIC_QUERY)))
+                .withMessageContaining("budget");
+    }
+
     private AnalysisState apply(AnalysisState state, AnalysisEvent event) {
         return reducer.reduce(state, event).candidateState();
     }
