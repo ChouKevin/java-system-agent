@@ -5,12 +5,20 @@ import com.java.system.agent.analysis.domain.AnalysisBudget;
 import com.java.system.agent.analysis.domain.AnalysisRunId;
 import com.java.system.agent.analysis.domain.AnalysisState;
 import com.java.system.agent.analysis.domain.AnalysisWarning;
+import com.java.system.agent.analysis.domain.RepositoryDiscoverySource;
+import com.java.system.agent.analysis.domain.RepositoryId;
+import com.java.system.agent.analysis.domain.RepositoryRevision;
+import com.java.system.agent.analysis.domain.RepositoryScope;
+import com.java.system.agent.analysis.domain.RepositorySelection;
+import com.java.system.agent.analysis.domain.RevisionVector;
 import com.java.system.agent.analysis.port.out.AnalysisTransitionPort;
 import com.java.system.agent.runtime.adapter.fake.InMemoryAnalysisTransitionAdapter;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -73,8 +81,39 @@ class TransitionCommitterTest {
     void acceptsEqualButDistinctCommittedCandidateState() {
         AnalysisState currentState = initialState();
         AnalysisEvent event = warningEvent(currentState);
-        AnalysisState candidateState = currentState.withStateRevision(1);
-        AnalysisState distinctCommittedState = candidateState.withStateRevision(1);
+        RepositoryScope scope = RepositoryScope.of(List.of(new RepositorySelection(
+                new RepositoryId("order-service"),
+                "Selected for committed state rehydration",
+                true,
+                RepositoryDiscoverySource.USER)));
+        RevisionVector candidateRevisionVector = RevisionVector.empty().pin(
+                scope, new RepositoryId("order-service"), new RepositoryRevision("ord-456"));
+        AnalysisState candidateState = new AnalysisState(
+                currentState.runId(),
+                currentState.attemptId(),
+                1,
+                currentState.status(),
+                scope,
+                candidateRevisionVector,
+                Collections.emptySortedMap(),
+                Set.of(),
+                List.of(),
+                List.of(),
+                currentState.budget());
+        RevisionVector rehydratedRevisionVector = RevisionVector.empty().pin(
+                scope, new RepositoryId("order-service"), new RepositoryRevision("ord-456"));
+        AnalysisState distinctCommittedState = new AnalysisState(
+                candidateState.runId(),
+                candidateState.attemptId(),
+                candidateState.stateRevision(),
+                candidateState.status(),
+                candidateState.repositoryScope(),
+                rehydratedRevisionVector,
+                candidateState.pendingNeeds(),
+                candidateState.resolvedNeedIds(),
+                candidateState.evidenceBindings(),
+                candidateState.warnings(),
+                candidateState.budget());
         StateReducer reducer = (state, reducedEvent) -> new StateTransition(reducedEvent, candidateState);
         AnalysisTransitionPort<StateTransition> transitionPort = transition -> distinctCommittedState;
         TransitionCommitter committer = new TransitionCommitter(reducer, transitionPort);
@@ -84,6 +123,7 @@ class TransitionCommitterTest {
         assertThat(committedState).isEqualTo(candidateState);
         assertThat(committedState).isNotSameAs(candidateState);
         assertThat(committedState).isSameAs(distinctCommittedState);
+        assertThat(committedState.revisionVector()).isNotSameAs(candidateState.revisionVector());
     }
 
     @Test

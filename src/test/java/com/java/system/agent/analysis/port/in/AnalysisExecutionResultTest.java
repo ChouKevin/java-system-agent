@@ -239,14 +239,16 @@ class AnalysisExecutionResultTest {
         AnalysisRunId runId = runId();
         AnalysisAttemptId attemptId = attemptId();
         RepositoryScope scope = scope();
-        RevisionVector revisionVector = revisionVector(scope, "revision-1");
+        RevisionVector attemptRevisionVector = revisionVector(scope, "revision-1");
+        RevisionVector finalStateRevisionVector = revisionVector(scope, "revision-1");
         AnalysisBudget budget = budget();
         AnalysisRun run = AnalysisRun.start(
                 runId,
-                AnalysisAttempt.start(attemptId, revisionVector, budget).conclude(attemptOutcome))
+                AnalysisAttempt.start(attemptId, attemptRevisionVector, budget).conclude(attemptOutcome))
                 .conclude(runOutcome);
-        AnalysisState finalState = state(runId, attemptId, status, scope, revisionVector, budget);
-        return new TerminalData(run, finalState, scope, revisionVector, budget);
+        AnalysisState finalState = state(
+                runId, attemptId, status, scope, finalStateRevisionVector, budget);
+        return new TerminalData(run, finalState, scope, finalStateRevisionVector, budget);
     }
 
     private AnalysisState state(

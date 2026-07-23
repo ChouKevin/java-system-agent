@@ -57,4 +57,15 @@ public final class RevisionVector {
     public List<RepositoryId> repositoryIds() {
         return List.copyOf(revisions.keySet());
     }
+
+    @Override
+    public boolean equals(Object other) {
+        return this == other || other instanceof RevisionVector revisionVector
+                && revisions.equals(revisionVector.revisions);
+    }
+
+    @Override
+    public int hashCode() {
+        return revisions.hashCode();
+    }
 }

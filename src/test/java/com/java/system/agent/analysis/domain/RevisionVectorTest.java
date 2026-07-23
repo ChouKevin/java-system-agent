@@ -78,6 +78,29 @@ class RevisionVectorTest {
         assertThat(repinned.repositoryIds()).containsExactly(orderService, new RepositoryId("payment-service"));
     }
 
+    @Test
+    void comparesPinnedRevisionsByValueRegardlessOfPinOrder() {
+        RepositoryScope scope = scope("inventory-service", "payment-service", "order-service");
+        RevisionVector firstVector = RevisionVector.empty()
+                .pin(scope, new RepositoryId("payment-service"), new RepositoryRevision("pay-123"))
+                .pin(scope, new RepositoryId("order-service"), new RepositoryRevision("ord-456"));
+        RevisionVector equivalentVector = RevisionVector.empty()
+                .pin(scope, new RepositoryId("order-service"), new RepositoryRevision("ord-456"))
+                .pin(scope, new RepositoryId("payment-service"), new RepositoryRevision("pay-123"));
+        RevisionVector differentRevision = RevisionVector.empty()
+                .pin(scope, new RepositoryId("payment-service"), new RepositoryRevision("pay-789"))
+                .pin(scope, new RepositoryId("order-service"), new RepositoryRevision("ord-456"));
+        RevisionVector differentRepository = RevisionVector.empty()
+                .pin(scope, new RepositoryId("inventory-service"), new RepositoryRevision("inv-123"))
+                .pin(scope, new RepositoryId("order-service"), new RepositoryRevision("ord-456"));
+
+        assertThat(firstVector).isEqualTo(equivalentVector);
+        assertThat(firstVector.hashCode()).isEqualTo(equivalentVector.hashCode());
+        assertThat(firstVector).isNotEqualTo(differentRevision);
+        assertThat(firstVector).isNotEqualTo(differentRepository);
+        assertThat(RevisionVector.empty()).isEqualTo(RevisionVector.empty());
+    }
+
     private RepositoryScope scope(String... repositoryIds) {
         List<RepositorySelection> selections = Arrays.stream(repositoryIds)
                 .map(this::selection)
