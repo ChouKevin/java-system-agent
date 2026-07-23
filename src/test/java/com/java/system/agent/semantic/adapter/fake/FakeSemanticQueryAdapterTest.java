@@ -66,6 +66,31 @@ class FakeSemanticQueryAdapterTest {
     }
 
     @Test
+    void reRegisteringAQueryReplacesItsSequenceAndResetsItsPosition() {
+        SemanticQuery query = query();
+        RepositoryRevision revision = new RepositoryRevision("ord-456");
+        SemanticQueryResult notReady = failure(
+                SemanticResultStatus.NOT_READY, SemanticFailureCode.NOT_READY, true);
+        SemanticQueryResult timeout = failure(
+                SemanticResultStatus.TIMEOUT, SemanticFailureCode.TIMEOUT, true);
+        SemanticQueryResult success = new SemanticQueryResult(
+                SemanticResultStatus.SUCCESS,
+                Optional.of(revision),
+                List.of(evidence(revision)),
+                List.of(),
+                Optional.empty());
+        FakeSemanticQueryAdapter adapter = new FakeSemanticQueryAdapter()
+                .registerSequence(query, notReady, success);
+        assertThat(adapter.query(query)).isEqualTo(notReady);
+
+        adapter.registerSequence(query, timeout, success);
+
+        assertThat(adapter.query(query)).isEqualTo(timeout);
+        assertThat(adapter.query(query)).isEqualTo(success);
+        assertThat(adapter.query(query)).isEqualTo(success);
+    }
+
+    @Test
     void rejectsUnregisteredQueryInsteadOfUsingHiddenFallback() {
         FakeSemanticQueryAdapter adapter = new FakeSemanticQueryAdapter();
 
