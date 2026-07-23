@@ -7,6 +7,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 class RepositoryRevisionResultTest {
 
@@ -52,5 +53,19 @@ class RepositoryRevisionResultTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new RepositoryRevisionResult(Optional.empty(), Optional.empty()))
                 .withMessageContaining("exactly one");
+    }
+
+    @Test
+    void rejectsNullRevisionOptional() {
+        assertThatNullPointerException()
+                .isThrownBy(() -> new RepositoryRevisionResult(null, Optional.empty()))
+                .withMessageContaining("revision");
+    }
+
+    @Test
+    void rejectsNullFailureOptional() {
+        assertThatNullPointerException()
+                .isThrownBy(() -> new RepositoryRevisionResult(Optional.empty(), null))
+                .withMessageContaining("failure");
     }
 }
