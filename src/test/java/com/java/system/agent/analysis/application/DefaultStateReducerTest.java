@@ -301,10 +301,16 @@ class DefaultStateReducerTest {
                 state.stateRevision(),
                 AnalysisBudgetActivity.SEMANTIC_QUERY));
         AnalysisState semanticBudgetExhaustedState = state;
-        AnalysisState stateBeforeRejectedRetry = semanticBudgetExhaustedState;
 
         assertThat(semanticBudgetExhaustedState.budget().hasStepRemaining()).isTrue();
         assertThat(semanticBudgetExhaustedState.budget().hasSemanticCallRemaining()).isFalse();
+        long stateRevisionBeforeRejectedRetry = semanticBudgetExhaustedState.stateRevision();
+        int maxStepsBeforeRejectedRetry = semanticBudgetExhaustedState.budget().maxSteps();
+        int usedStepsBeforeRejectedRetry = semanticBudgetExhaustedState.budget().usedSteps();
+        int maxSemanticCallsBeforeRejectedRetry = semanticBudgetExhaustedState.budget().maxSemanticCalls();
+        int usedSemanticCallsBeforeRejectedRetry = semanticBudgetExhaustedState.budget().usedSemanticCalls();
+        AnalysisStatus statusBeforeRejectedRetry = semanticBudgetExhaustedState.status();
+
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> reducer.reduce(
                         semanticBudgetExhaustedState,
@@ -315,7 +321,17 @@ class DefaultStateReducerTest {
                                 AnalysisBudgetActivity.SEMANTIC_RETRY)))
                 .withMessageContaining("semantic call budget")
                 .withMessageNotContaining("step budget");
-        assertThat(semanticBudgetExhaustedState).isEqualTo(stateBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.stateRevision())
+                .isEqualTo(stateRevisionBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.budget().maxSteps())
+                .isEqualTo(maxStepsBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.budget().usedSteps())
+                .isEqualTo(usedStepsBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.budget().maxSemanticCalls())
+                .isEqualTo(maxSemanticCallsBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.budget().usedSemanticCalls())
+                .isEqualTo(usedSemanticCallsBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.status()).isEqualTo(statusBeforeRejectedRetry);
     }
 
     private AnalysisState apply(AnalysisState state, AnalysisEvent event) {
