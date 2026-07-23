@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 class FakeRepositoryRevisionAdapterTest {
@@ -28,9 +29,23 @@ class FakeRepositoryRevisionAdapterTest {
     void missingRepositoryFailsClosed() {
         FakeRepositoryRevisionAdapter adapter = new FakeRepositoryRevisionAdapter();
 
-        assertThatIllegalArgumentException()
+        assertThatIllegalStateException()
                 .isThrownBy(() -> adapter.currentRevision(new RepositoryId("missing")))
                 .withMessageContaining("scenario");
+    }
+
+    @Test
+    void rejectedRegistrationDoesNotReplaceExistingScenario() {
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevisionResult original = RepositoryRevisionResult.ready(new RepositoryRevision("r1"));
+        RepositoryRevisionResult rejected = RepositoryRevisionResult.ready(new RepositoryRevision("r2"));
+        FakeRepositoryRevisionAdapter adapter = new FakeRepositoryRevisionAdapter()
+                .register(repositoryId, original);
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> adapter.register(repositoryId, rejected, null));
+
+        assertThat(adapter.currentRevision(repositoryId)).isSameAs(original);
     }
 
     @Test

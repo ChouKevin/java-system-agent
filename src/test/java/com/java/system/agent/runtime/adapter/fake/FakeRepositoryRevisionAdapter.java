@@ -35,7 +35,7 @@ public final class FakeRepositoryRevisionAdapter implements RepositoryRevisionPo
         Objects.requireNonNull(repositoryId, "repository ID must not be null");
         Deque<RepositoryRevisionResult> registeredResults = scenarios.get(repositoryId);
         if (Objects.isNull(registeredResults)) {
-            throw new IllegalArgumentException(
+            throw new IllegalStateException(
                     "no fake repository revision scenario is registered for " + repositoryId.value());
         }
         if (registeredResults.size() == 0) {
