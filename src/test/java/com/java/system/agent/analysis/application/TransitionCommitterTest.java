@@ -51,11 +51,42 @@ class TransitionCommitterTest {
     }
 
     @Test
+    void propagatesExistingTransitionCommitExceptionWithoutWrapping() {
+        AnalysisState currentState = initialState();
+        AnalysisEvent event = warningEvent(currentState);
+        AnalysisTransitionCommitException commitException =
+                new AnalysisTransitionCommitException("pre-created transition failure");
+        AnalysisTransitionPort<StateTransition> transitionPort = transition -> {
+            throw commitException;
+        };
+        TransitionCommitter committer = new TransitionCommitter(new DefaultStateReducer(), transitionPort);
+
+        assertThatThrownBy(() -> committer.apply(currentState, event))
+                .isSameAs(commitException);
+    }
+
+    @Test
+    void propagatesExistingErrorWithoutWrapping() {
+        AnalysisState currentState = initialState();
+        AnalysisEvent event = warningEvent(currentState);
+        AssertionError error = new AssertionError("pre-created transition error");
+        AnalysisTransitionPort<StateTransition> transitionPort = transition -> {
+            throw error;
+        };
+        TransitionCommitter committer = new TransitionCommitter(
+                new DefaultStateReducer(), transitionPort);
+
+        assertThatThrownBy(() -> committer.apply(currentState, event))
+                .isSameAs(error);
+    }
+
+    @Test
     void rejectsCommittedStateThatDiffersFromReducerCandidate() {
         AnalysisState currentState = initialState();
         AnalysisEvent event = warningEvent(currentState);
         AnalysisTransitionPort<StateTransition> transitionPort = transition -> currentState;
-        TransitionCommitter committer = new TransitionCommitter(new DefaultStateReducer(), transitionPort);
+        TransitionCommitter committer = new TransitionCommitter(
+                new DefaultStateReducer(), transitionPort);
 
         assertThatThrownBy(() -> committer.apply(currentState, event))
                 .isInstanceOf(AnalysisTransitionCommitException.class)
