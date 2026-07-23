@@ -318,6 +318,122 @@ class AttemptLifecycleManagerTest {
         assertThat(fixture.transitions().events()).hasSize(eventsBeforeConclusion);
     }
 
+    @Test
+    void rejectsConcludeAndRestartBeforeSideEffectsWhenRunIsAlreadyConcluded() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
+        Fixture fixture = fixture(new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1")), attemptIds);
+        AnalysisExecutionCommand command = command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)));
+        AttemptLifecycle active = fixture.manager().start(command);
+        AttemptLifecycle terminalRunWithActiveState = new AttemptLifecycle(
+                active.run().concludeCurrentAttempt(
+                        active.state().revisionVector(),
+                        active.state().budget(),
+                        AttemptOutcome.STALE).conclude(AnalysisOutcome.INCONCLUSIVE),
+                active.state(),
+                active.revisionRestartCount());
+        int eventsBeforeRejectedOperations = fixture.transitions().events().size();
+        int generatedIdsBeforeRejectedOperations = attemptIds.calls().size();
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().conclude(
+                        terminalRunWithActiveState,
+                        AttemptOutcome.STALE,
+                        AnalysisOutcome.INCONCLUSIVE))
+                .withMessageContaining("active lifecycle");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(
+                        terminalRunWithActiveState, command))
+                .withMessageContaining("active lifecycle");
+
+        assertThat(fixture.transitions().events()).hasSize(eventsBeforeRejectedOperations);
+        assertThat(attemptIds.calls()).hasSize(generatedIdsBeforeRejectedOperations);
+    }
+
+    @Test
+    void rejectsActiveOperationsBeforeSideEffectsWhenStateIsTerminal() {
+        RepositoryId repositoryId = repository("order-service");
+        RecordingRepositoryRevisionPort revisions = new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1"));
+        RecordingAttemptIdGenerator attemptIds = new RecordingAttemptIdGenerator();
+        Fixture fixture = fixture(revisions, attemptIds);
+        AnalysisExecutionCommand command = command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId)));
+        AttemptLifecycle active = fixture.manager().start(command);
+        AnalysisEvent.AttemptConcluded terminalEvent = new AnalysisEvent.AttemptConcluded(
+                active.state().runId(),
+                active.state().attemptId(),
+                active.state().stateRevision(),
+                AttemptOutcome.STALE);
+        AttemptLifecycle activeRunWithTerminalState = new AttemptLifecycle(
+                active.run(),
+                fixture.committer().apply(active.state(), terminalEvent),
+                active.revisionRestartCount());
+        int eventsBeforeRejectedOperations = fixture.transitions().events().size();
+        int repositoryCallsBeforeRejectedOperations = revisions.calls().size();
+        int generatedIdsBeforeRejectedOperations = attemptIds.calls().size();
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().conclude(
+                        activeRunWithTerminalState,
+                        AttemptOutcome.STALE,
+                        AnalysisOutcome.INCONCLUSIVE))
+                .withMessageContaining("active lifecycle");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().restartAfterRevisionMismatch(
+                        activeRunWithTerminalState, command))
+                .withMessageContaining("active lifecycle");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> fixture.manager().pinDiscoveredRepository(
+                        activeRunWithTerminalState, repositoryId))
+                .withMessageContaining("active lifecycle");
+
+        assertThat(fixture.transitions().events()).hasSize(eventsBeforeRejectedOperations);
+        assertThat(revisions.calls()).hasSize(repositoryCallsBeforeRejectedOperations);
+        assertThat(attemptIds.calls()).hasSize(generatedIdsBeforeRejectedOperations);
+    }
+
+    @Test
+    void propagatesCommitFailureWithoutAppendingConclusionOrMutatingActiveLifecycle() {
+        RepositoryId repositoryId = repository("order-service");
+        Fixture fixture = fixture(new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1")));
+        AttemptLifecycle active = fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId))));
+        int eventsBeforeConclusion = fixture.transitions().events().size();
+        long nextCommit = fixture.transitions().commitCount() + 1;
+        fixture.transitions().failAtCommit(nextCommit);
+
+        assertThatThrownBy(() -> fixture.manager().conclude(
+                active, AttemptOutcome.STALE, AnalysisOutcome.INCONCLUSIVE))
+                .isInstanceOf(AnalysisTransitionCommitException.class);
+
+        assertThat(fixture.transitions().events()).hasSize(eventsBeforeConclusion);
+        assertThat(fixture.transitions().events())
+                .noneMatch(AnalysisEvent.AttemptConcluded.class::isInstance);
+        assertThat(active.run().outcome()).isEmpty();
+        assertThat(active.run().currentAttempt().outcome()).isEmpty();
+        assertThat(active.state().status()).isEqualTo(AnalysisStatus.PLANNING);
+    }
+
+    @Test
+    void concludesStaleAttemptWithInconclusiveRunOutcome() {
+        RepositoryId repositoryId = repository("order-service");
+        Fixture fixture = fixture(new RecordingRepositoryRevisionPort()
+                .register(repositoryId, ready("order-1")));
+        AttemptLifecycle active = fixture.manager().start(command(
+                "run-1", "attempt-1", List.of(repositoryId), List.of(need("need-1", repositoryId))));
+
+        AttemptLifecycle concluded = fixture.manager().conclude(
+                active, AttemptOutcome.STALE, AnalysisOutcome.INCONCLUSIVE);
+
+        assertThat(concluded.state().status()).isEqualTo(AnalysisStatus.STALE);
+        assertThat(concluded.run().currentAttempt().outcome()).contains(AttemptOutcome.STALE);
+        assertThat(concluded.run().outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+    }
+
     private AttemptLifecycle lifecycleWithDiscoveredScope(
             Fixture fixture,
             AttemptLifecycle lifecycle,
@@ -427,7 +543,7 @@ class AttemptLifecycleManagerTest {
     private final void assertEventOrder(
             List<AnalysisEvent> events,
             Class<? extends AnalysisEvent>... expectedTypes) {
-        List<Class<?>> actualTypes = events.stream().map(Object::getClass).toList();
+        List<Class<?>> actualTypes = events.stream().<Class<?>>map(AnalysisEvent::getClass).toList();
         List<Class<? extends AnalysisEvent>> expectedTypeList = List.of(expectedTypes);
         assertThat(actualTypes).containsExactlyElementsOf(expectedTypeList);
     }

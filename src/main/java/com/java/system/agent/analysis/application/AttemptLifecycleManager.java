@@ -6,6 +6,7 @@ import com.java.system.agent.analysis.domain.AnalysisBudget;
 import com.java.system.agent.analysis.domain.AnalysisOutcome;
 import com.java.system.agent.analysis.domain.AnalysisRun;
 import com.java.system.agent.analysis.domain.AnalysisState;
+import com.java.system.agent.analysis.domain.AnalysisStatus;
 import com.java.system.agent.analysis.domain.AttemptOutcome;
 import com.java.system.agent.analysis.domain.InformationNeed;
 import com.java.system.agent.analysis.domain.RepositoryId;
@@ -51,6 +52,7 @@ public final class AttemptLifecycleManager {
             AnalysisExecutionCommand command) {
         Objects.requireNonNull(lifecycle, "attempt lifecycle must not be null");
         Objects.requireNonNull(command, "analysis execution command must not be null");
+        validateActiveLifecycle(lifecycle);
         validateCommandRun(lifecycle, command);
         if (lifecycle.revisionRestartCount() >= 1) {
             throw new IllegalArgumentException("analysis attempt has already been restarted for a revision mismatch");
@@ -85,6 +87,7 @@ public final class AttemptLifecycleManager {
             RepositoryId repositoryId) {
         Objects.requireNonNull(lifecycle, "attempt lifecycle must not be null");
         Objects.requireNonNull(repositoryId, "repository ID must not be null");
+        validateActiveLifecycle(lifecycle);
         if (!lifecycle.state().repositoryScope().contains(repositoryId)) {
             throw new IllegalArgumentException("discovered repository must already be in the repository scope");
         }
@@ -101,6 +104,7 @@ public final class AttemptLifecycleManager {
         Objects.requireNonNull(lifecycle, "attempt lifecycle must not be null");
         Objects.requireNonNull(attemptOutcome, "analysis attempt outcome must not be null");
         Objects.requireNonNull(analysisOutcome, "analysis outcome must not be null");
+        validateActiveLifecycle(lifecycle);
         validateCompatibleOutcomes(attemptOutcome, analysisOutcome);
 
         AnalysisState concludedState = commit(lifecycle.state(), new AnalysisEvent.AttemptConcluded(
@@ -184,6 +188,23 @@ public final class AttemptLifecycleManager {
             throw new IllegalArgumentException(
                     "analysis execution command belongs to another first attempt");
         }
+    }
+
+    private void validateActiveLifecycle(AttemptLifecycle lifecycle) {
+        if (lifecycle.run().outcome().isPresent()
+                || lifecycle.run().currentAttempt().outcome().isPresent()
+                || !isActiveStatus(lifecycle.state().status())) {
+            throw new IllegalArgumentException(
+                    "analysis operation requires an active lifecycle before applying an active operation");
+        }
+    }
+
+    private boolean isActiveStatus(AnalysisStatus status) {
+        return switch (status) {
+            case RECEIVED, UNDERSTANDING, SCOPE_RESOLVING, REVISION_PINNING,
+                    PLANNING, EXECUTING, COMPOSING, VERIFYING -> true;
+            case STALE, COMPLETED, INCONCLUSIVE, FAILED, CANCELLED -> false;
+        };
     }
 
     private void validateCompatibleOutcomes(
