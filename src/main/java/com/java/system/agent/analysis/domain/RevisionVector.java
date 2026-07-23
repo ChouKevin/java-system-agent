@@ -60,7 +60,7 @@ public final class RevisionVector {
 
     @Override
     public boolean equals(Object other) {
-        return this == other || other instanceof RevisionVector revisionVector
+        return this == other || other instanceof RevisionVector revisionVector // cs-allow
                 && revisions.equals(revisionVector.revisions);
     }
 
