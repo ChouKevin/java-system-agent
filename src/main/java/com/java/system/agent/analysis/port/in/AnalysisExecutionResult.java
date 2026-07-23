@@ -88,11 +88,19 @@ public record AnalysisExecutionResult(
         return switch (reason) {
             case GOAL_COMPLETED -> outcome == AnalysisOutcome.COMPLETED
                     && status == AnalysisStatus.COMPLETED;
+            case CAPABILITY_MISSING, PREREQUISITE_MISSING, SEMANTIC_AMBIGUOUS,
+                    SEMANTIC_FORBIDDEN, BUDGET_EXHAUSTED, NO_PROGRESS -> outcome == AnalysisOutcome.INCONCLUSIVE
+                    && status == AnalysisStatus.INCONCLUSIVE;
+            case SEMANTIC_UNAVAILABLE -> (outcome == AnalysisOutcome.INCONCLUSIVE
+                    && status == AnalysisStatus.INCONCLUSIVE)
+                    || (outcome == AnalysisOutcome.FAILED
+                    && status == AnalysisStatus.FAILED);
+            case REVISION_RESTART_LIMIT -> outcome == AnalysisOutcome.INCONCLUSIVE
+                    && (status == AnalysisStatus.STALE || status == AnalysisStatus.INCONCLUSIVE);
             case CANCELLED -> outcome == AnalysisOutcome.CANCELLED
                     && status == AnalysisStatus.CANCELLED;
-            case CAPABILITY_MISSING, PREREQUISITE_MISSING, SEMANTIC_AMBIGUOUS,
-                    SEMANTIC_FORBIDDEN, SEMANTIC_UNAVAILABLE, BUDGET_EXHAUSTED,
-                    NO_PROGRESS, REVISION_RESTART_LIMIT, RUNTIME_FAILURE -> true;
+            case RUNTIME_FAILURE -> outcome == AnalysisOutcome.FAILED
+                    && status == AnalysisStatus.FAILED;
         };
     }
 }

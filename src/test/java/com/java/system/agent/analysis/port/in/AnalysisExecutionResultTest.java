@@ -40,7 +40,42 @@ class AnalysisExecutionResultTest {
                         AnalysisOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
                         AnalysisStatus.INCONCLUSIVE,
+                        AnalysisTerminationReason.CAPABILITY_MISSING),
+                new TerminalCase(
+                        AnalysisOutcome.INCONCLUSIVE,
+                        AttemptOutcome.INCONCLUSIVE,
+                        AnalysisStatus.INCONCLUSIVE,
+                        AnalysisTerminationReason.PREREQUISITE_MISSING),
+                new TerminalCase(
+                        AnalysisOutcome.INCONCLUSIVE,
+                        AttemptOutcome.INCONCLUSIVE,
+                        AnalysisStatus.INCONCLUSIVE,
+                        AnalysisTerminationReason.SEMANTIC_AMBIGUOUS),
+                new TerminalCase(
+                        AnalysisOutcome.INCONCLUSIVE,
+                        AttemptOutcome.INCONCLUSIVE,
+                        AnalysisStatus.INCONCLUSIVE,
+                        AnalysisTerminationReason.SEMANTIC_FORBIDDEN),
+                new TerminalCase(
+                        AnalysisOutcome.INCONCLUSIVE,
+                        AttemptOutcome.INCONCLUSIVE,
+                        AnalysisStatus.INCONCLUSIVE,
+                        AnalysisTerminationReason.SEMANTIC_UNAVAILABLE),
+                new TerminalCase(
+                        AnalysisOutcome.FAILED,
+                        AttemptOutcome.FAILED,
+                        AnalysisStatus.FAILED,
+                        AnalysisTerminationReason.SEMANTIC_UNAVAILABLE),
+                new TerminalCase(
+                        AnalysisOutcome.INCONCLUSIVE,
+                        AttemptOutcome.INCONCLUSIVE,
+                        AnalysisStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.BUDGET_EXHAUSTED),
+                new TerminalCase(
+                        AnalysisOutcome.INCONCLUSIVE,
+                        AttemptOutcome.INCONCLUSIVE,
+                        AnalysisStatus.INCONCLUSIVE,
+                        AnalysisTerminationReason.NO_PROGRESS),
                 new TerminalCase(
                         AnalysisOutcome.FAILED,
                         AttemptOutcome.FAILED,
@@ -55,6 +90,11 @@ class AnalysisExecutionResultTest {
                         AnalysisOutcome.INCONCLUSIVE,
                         AttemptOutcome.STALE,
                         AnalysisStatus.STALE,
+                        AnalysisTerminationReason.REVISION_RESTART_LIMIT),
+                new TerminalCase(
+                        AnalysisOutcome.INCONCLUSIVE,
+                        AttemptOutcome.INCONCLUSIVE,
+                        AnalysisStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.REVISION_RESTART_LIMIT))) {
             TerminalData terminalData = terminalData(
                     terminalCase.runOutcome(),
@@ -65,6 +105,75 @@ class AnalysisExecutionResultTest {
                     terminalData.run(), terminalData.finalState(), terminalCase.reason());
 
             assertThat(result.finalState().status()).isEqualTo(terminalCase.status());
+        }
+    }
+
+    @Test
+    void rejectsReasonIncompatibleWithAnOtherwiseAlignedTerminalResult() {
+        for (TerminalCase terminalCase : List.of(
+                new TerminalCase(
+                        AnalysisOutcome.FAILED,
+                        AttemptOutcome.FAILED,
+                        AnalysisStatus.FAILED,
+                        AnalysisTerminationReason.GOAL_COMPLETED),
+                new TerminalCase(
+                        AnalysisOutcome.COMPLETED,
+                        AttemptOutcome.COMPLETED,
+                        AnalysisStatus.COMPLETED,
+                        AnalysisTerminationReason.CAPABILITY_MISSING),
+                new TerminalCase(
+                        AnalysisOutcome.COMPLETED,
+                        AttemptOutcome.COMPLETED,
+                        AnalysisStatus.COMPLETED,
+                        AnalysisTerminationReason.PREREQUISITE_MISSING),
+                new TerminalCase(
+                        AnalysisOutcome.COMPLETED,
+                        AttemptOutcome.COMPLETED,
+                        AnalysisStatus.COMPLETED,
+                        AnalysisTerminationReason.SEMANTIC_AMBIGUOUS),
+                new TerminalCase(
+                        AnalysisOutcome.COMPLETED,
+                        AttemptOutcome.COMPLETED,
+                        AnalysisStatus.COMPLETED,
+                        AnalysisTerminationReason.SEMANTIC_FORBIDDEN),
+                new TerminalCase(
+                        AnalysisOutcome.COMPLETED,
+                        AttemptOutcome.COMPLETED,
+                        AnalysisStatus.COMPLETED,
+                        AnalysisTerminationReason.SEMANTIC_UNAVAILABLE),
+                new TerminalCase(
+                        AnalysisOutcome.FAILED,
+                        AttemptOutcome.FAILED,
+                        AnalysisStatus.FAILED,
+                        AnalysisTerminationReason.BUDGET_EXHAUSTED),
+                new TerminalCase(
+                        AnalysisOutcome.COMPLETED,
+                        AttemptOutcome.COMPLETED,
+                        AnalysisStatus.COMPLETED,
+                        AnalysisTerminationReason.NO_PROGRESS),
+                new TerminalCase(
+                        AnalysisOutcome.FAILED,
+                        AttemptOutcome.FAILED,
+                        AnalysisStatus.FAILED,
+                        AnalysisTerminationReason.REVISION_RESTART_LIMIT),
+                new TerminalCase(
+                        AnalysisOutcome.COMPLETED,
+                        AttemptOutcome.COMPLETED,
+                        AnalysisStatus.COMPLETED,
+                        AnalysisTerminationReason.CANCELLED),
+                new TerminalCase(
+                        AnalysisOutcome.COMPLETED,
+                        AttemptOutcome.COMPLETED,
+                        AnalysisStatus.COMPLETED,
+                        AnalysisTerminationReason.RUNTIME_FAILURE))) {
+            TerminalData terminalData = terminalData(
+                    terminalCase.runOutcome(),
+                    terminalCase.attemptOutcome(),
+                    terminalCase.status());
+
+            assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
+                    terminalData.run(), terminalData.finalState(), terminalCase.reason()))
+                    .withMessage("analysis termination reason must match the terminal result");
         }
     }
 
