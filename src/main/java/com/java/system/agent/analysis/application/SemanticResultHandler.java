@@ -10,6 +10,7 @@ import com.java.system.agent.analysis.domain.RepositoryRevision;
 import com.java.system.agent.analysis.port.out.RepositoryDiscovery;
 import com.java.system.agent.analysis.port.out.SemanticFailure;
 import com.java.system.agent.analysis.port.out.SemanticFailureCode;
+import com.java.system.agent.analysis.port.out.SemanticQuery;
 import com.java.system.agent.analysis.port.out.SemanticQueryResult;
 import com.java.system.agent.analysis.port.out.SemanticResultStatus;
 
@@ -31,18 +32,20 @@ public final class SemanticResultHandler {
 
     public SemanticStepResult handle(
             AnalysisState state,
-            InformationNeed pendingNeed,
+            SemanticQuery query,
             SemanticQueryResult result,
             boolean retryAllowed) {
         Objects.requireNonNull(state, "analysis state must not be null");
-        Objects.requireNonNull(pendingNeed, "pending information need must not be null");
+        Objects.requireNonNull(query, "semantic query must not be null");
         Objects.requireNonNull(result, "semantic query result must not be null");
+        InformationNeed pendingNeed = query.informationNeed();
         requireExactPendingNeed(state, pendingNeed);
+        requireQueryBoundToState(state, query);
 
         return switch (result.status()) {
-            case SUCCESS -> handleSuccess(state, pendingNeed, result);
-            case PARTIAL -> handlePartial(state, pendingNeed, result);
-            case REVISION_MISMATCH -> step(state, SemanticStepDisposition.STALE, result.failure());
+            case SUCCESS -> handleSuccess(state, query, result);
+            case PARTIAL -> handlePartial(state, query, result);
+            case REVISION_MISMATCH -> handleRevisionMismatch(state, query, result);
             case NOT_READY, TIMEOUT -> handleTransient(state, result, retryAllowed);
             case AMBIGUOUS -> block(state, result, "SEMANTIC_AMBIGUOUS_TARGET");
             case FORBIDDEN -> block(state, result, "SEMANTIC_FORBIDDEN");
@@ -53,9 +56,10 @@ public final class SemanticResultHandler {
 
     private SemanticStepResult handleSuccess(
             AnalysisState state,
-            InformationNeed pendingNeed,
+            SemanticQuery query,
             SemanticQueryResult result) {
-        EvidenceValidation validation = validateEvidenceAndDiscoveries(state, pendingNeed, result);
+        InformationNeed pendingNeed = query.informationNeed();
+        EvidenceValidation validation = validateEvidenceAndDiscoveries(state, query, result);
         if (validation.outcome() == EvidenceValidationOutcome.STALE) {
             return step(state, SemanticStepDisposition.STALE, result.failure());
         }
@@ -75,9 +79,10 @@ public final class SemanticResultHandler {
 
     private SemanticStepResult handlePartial(
             AnalysisState state,
-            InformationNeed pendingNeed,
+            SemanticQuery query,
             SemanticQueryResult result) {
-        EvidenceValidation validation = validateEvidenceAndDiscoveries(state, pendingNeed, result);
+        InformationNeed pendingNeed = query.informationNeed();
+        EvidenceValidation validation = validateEvidenceAndDiscoveries(state, query, result);
         if (validation.outcome() == EvidenceValidationOutcome.STALE) {
             return step(state, SemanticStepDisposition.STALE, result.failure());
         }
@@ -107,6 +112,17 @@ public final class SemanticResultHandler {
         return block(state, result, warningCode);
     }
 
+    private SemanticStepResult handleRevisionMismatch(
+            AnalysisState state,
+            SemanticQuery query,
+            SemanticQueryResult result) {
+        RepositoryRevision analyzedRevision = result.analyzedRevision().orElseThrow();
+        if (analyzedRevision.equals(query.expectedRevision())) {
+            return protocolFailure(state);
+        }
+        return step(state, SemanticStepDisposition.STALE, result.failure());
+    }
+
     private SemanticStepResult block(
             AnalysisState state,
             SemanticQueryResult result,
@@ -134,17 +150,19 @@ public final class SemanticResultHandler {
 
     private EvidenceValidation validateEvidenceAndDiscoveries(
             AnalysisState state,
-            InformationNeed pendingNeed,
+            SemanticQuery query,
             SemanticQueryResult result) {
+        InformationNeed pendingNeed = query.informationNeed();
         Optional<RepositoryRevision> analyzedRevision = result.analyzedRevision();
         if (analyzedRevision.isEmpty()) {
             return EvidenceValidation.protocolError();
         }
-        boolean revisionMismatch = false;
+        boolean revisionMismatch = !analyzedRevision.orElseThrow().equals(query.expectedRevision());
         Set<EvidenceRef> returnedEvidence = new LinkedHashSet<>(result.evidence());
         List<EvidenceRef> newEvidence = new ArrayList<>();
         for (EvidenceRef evidence : result.evidence()) {
             if (!evidence.repositoryRevision().equals(analyzedRevision.orElseThrow())
+                    || !evidence.repositoryId().equals(query.repositoryId())
                     || !pendingNeed.repositoryCandidates().contains(evidence.repositoryId())
                     || !state.repositoryScope().contains(evidence.repositoryId())) {
                 return EvidenceValidation.protocolError();
@@ -223,6 +241,21 @@ public final class SemanticResultHandler {
         Optional<InformationNeed> registeredNeed = Optional.ofNullable(state.pendingNeeds().get(pendingNeed.id()));
         if (registeredNeed.filter(pendingNeed::equals).isEmpty()) {
             throw new IllegalArgumentException("information need is not the exact pending need value");
+        }
+    }
+
+    private void requireQueryBoundToState(AnalysisState state, SemanticQuery query) {
+        if (!query.informationNeed().repositoryCandidates().contains(query.repositoryId())) {
+            throw new IllegalArgumentException(
+                    "semantic query repository is not a candidate for the pending need");
+        }
+        if (!state.repositoryScope().contains(query.repositoryId())) {
+            throw new IllegalArgumentException(
+                    "semantic query repository is outside the analysis scope");
+        }
+        if (!state.revisionVector().matches(query.repositoryId(), query.expectedRevision())) {
+            throw new IllegalArgumentException(
+                    "semantic query expected revision is not pinned in the analysis state");
         }
     }
 

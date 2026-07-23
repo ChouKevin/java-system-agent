@@ -20,6 +20,7 @@ import com.java.system.agent.analysis.port.out.AnalysisTransitionPort;
 import com.java.system.agent.analysis.port.out.RepositoryDiscovery;
 import com.java.system.agent.analysis.port.out.SemanticFailure;
 import com.java.system.agent.analysis.port.out.SemanticFailureCode;
+import com.java.system.agent.analysis.port.out.SemanticQuery;
 import com.java.system.agent.analysis.port.out.SemanticQueryResult;
 import com.java.system.agent.analysis.port.out.SemanticResultStatus;
 import com.java.system.agent.runtime.adapter.fake.InMemoryAnalysisTransitionAdapter;
@@ -47,7 +48,8 @@ class SemanticResultHandlerTest {
         EvidenceRef evidence = evidence(ORDER_REVISION, "sha256:success");
         RepositoryDiscovery discovery = discovery(evidence);
 
-        SemanticStepResult result = fixture.handler().handle(
+        SemanticStepResult result = handle(
+                fixture.handler(),
                 state,
                 mainNeed(),
                 success(List.of(evidence), List.of(discovery)),
@@ -78,11 +80,13 @@ class SemanticResultHandlerTest {
         EvidenceRef evidence = evidence(ORDER_REVISION, "sha256:partial");
         SemanticQueryResult partial = partial(List.of(evidence));
 
-        SemanticStepResult first = fixture.handler().handle(
+        SemanticStepResult first = handle(
+                fixture.handler(),
                 fixture.state(), mainNeed(), partial, false);
         ProgressFingerprint firstFingerprint = ProgressFingerprint.from(first.state());
         int committedAfterFirst = fixture.adapter().events().size();
-        SemanticStepResult repeated = fixture.handler().handle(
+        SemanticStepResult repeated = handle(
+                fixture.handler(),
                 first.state(), mainNeed(), partial, false);
 
         assertThat(first.disposition()).isEqualTo(SemanticStepDisposition.PARTIAL);
@@ -107,12 +111,42 @@ class SemanticResultHandlerTest {
                 Optional.of(new SemanticFailure(
                         SemanticFailureCode.REVISION_MISMATCH, "revision changed", true)));
 
-        SemanticStepResult result = fixture.handler().handle(
+        SemanticStepResult result = handle(
+                fixture.handler(),
                 fixture.state(), mainNeed(), mismatch, false);
 
         assertThat(result.disposition()).isEqualTo(SemanticStepDisposition.STALE);
         assertThat(result.state()).isSameAs(fixture.state());
         assertThat(newEvents(fixture)).isEmpty();
+    }
+
+    @Test
+    void revisionMismatchReportingThePinnedRevisionFailsAsProtocolError() {
+        Fixture fixture = fixture();
+        SemanticQueryResult incoherentMismatch = new SemanticQueryResult(
+                SemanticResultStatus.REVISION_MISMATCH,
+                Optional.of(ORDER_REVISION),
+                List.of(),
+                List.of(),
+                Optional.of(new SemanticFailure(
+                        SemanticFailureCode.REVISION_MISMATCH,
+                        "semantic service reported an unchanged revision",
+                        true)));
+
+        SemanticStepResult handled = fixture.handler().handle(
+                fixture.state(),
+                query(mainNeed(), ORDER_REPOSITORY, ORDER_REVISION),
+                incoherentMismatch,
+                false);
+
+        assertThat(handled.disposition()).isEqualTo(SemanticStepDisposition.FAILED);
+        assertThat(handled.failure()).get()
+                .extracting(SemanticFailure::code)
+                .isEqualTo(SemanticFailureCode.PROTOCOL_ERROR);
+        assertThat(handled.state().evidenceBindings()).isEmpty();
+        assertThat(handled.state().warnings()).extracting(warning -> warning.code())
+                .containsExactly("SEMANTIC_PROTOCOL_ERROR");
+        assertThat(handled.newDiscoveries()).isEmpty();
     }
 
     @ParameterizedTest
@@ -123,9 +157,11 @@ class SemanticResultHandlerTest {
         Fixture retryFixture = fixture();
         Fixture blockedFixture = fixture();
 
-        SemanticStepResult retry = retryFixture.handler().handle(
+        SemanticStepResult retry = handle(
+                retryFixture.handler(),
                 retryFixture.state(), mainNeed(), result, true);
-        SemanticStepResult blocked = blockedFixture.handler().handle(
+        SemanticStepResult blocked = handle(
+                blockedFixture.handler(),
                 blockedFixture.state(), mainNeed(), result, false);
 
         assertThat(retry.disposition()).isEqualTo(SemanticStepDisposition.RETRYABLE);
@@ -143,7 +179,8 @@ class SemanticResultHandlerTest {
             String warningCode) {
         Fixture fixture = fixture();
 
-        SemanticStepResult handled = fixture.handler().handle(
+        SemanticStepResult handled = handle(
+                fixture.handler(),
                 fixture.state(), mainNeed(), result, true);
 
         assertThat(handled.disposition()).isEqualTo(SemanticStepDisposition.BLOCKED);
@@ -159,7 +196,8 @@ class SemanticResultHandlerTest {
             String warningCode) {
         Fixture fixture = fixture();
 
-        SemanticStepResult handled = fixture.handler().handle(
+        SemanticStepResult handled = handle(
+                fixture.handler(),
                 fixture.state(), mainNeed(), result, false);
 
         assertThat(handled.disposition()).isEqualTo(SemanticStepDisposition.FAILED);
@@ -182,7 +220,8 @@ class SemanticResultHandlerTest {
                 List.of(),
                 new ArtifactRef("sha256:mismatched"));
 
-        SemanticStepResult result = fixture.handler().handle(
+        SemanticStepResult result = handle(
+                fixture.handler(),
                 fixture.state(),
                 mainNeed(),
                 new SemanticQueryResult(
@@ -224,7 +263,8 @@ class SemanticResultHandlerTest {
                 NOTIFICATION_REVISION));
         int evidenceCount = state.evidenceBindings().size();
 
-        SemanticStepResult handled = fixture.handler().handle(
+        SemanticStepResult handled = handle(
+                fixture.handler(),
                 state,
                 mainNeed(),
                 successAt(
@@ -252,7 +292,8 @@ class SemanticResultHandlerTest {
         InformationNeed need = dualRepositoryNeed();
         AnalysisState state = register(fixture, fixture.state(), need);
 
-        SemanticStepResult handled = fixture.handler().handle(
+        SemanticStepResult handled = handle(
+                fixture.handler(),
                 state,
                 need,
                 successAt(
@@ -275,7 +316,7 @@ class SemanticResultHandlerTest {
     }
 
     @Test
-    void partialResultPrevalidationRejectsLaterInvalidEvidenceWithoutAnyCommit() {
+    void partialResultPrevalidationRejectsLaterProtocolEvidenceBeforeAcceptance() {
         Fixture fixture = fixture();
         EvidenceRef scopeEvidence = evidence(ORDER_REVISION, "sha256:scope");
         TransitionCommitter setupCommitter = new TransitionCommitter(
@@ -302,26 +343,41 @@ class SemanticResultHandlerTest {
         AnalysisState state = register(fixture, withPinnedScope, dualRepositoryNeed);
         int setupEventCount = fixture.adapter().events().size();
         long setupCommitCount = fixture.adapter().commitCount();
-        EvidenceRef validEvidence = evidence(ORDER_REVISION, "sha256:prevalidation-order");
+        RepositoryRevision mismatchedRevision = new RepositoryRevision("order-other");
+        EvidenceRef staleEvidence = evidence(mismatchedRevision, "sha256:prevalidation-order");
         EvidenceRef invalidEvidence = new EvidenceRef(
                 "semantic",
                 NOTIFICATION_REPOSITORY,
-                ORDER_REVISION,
+                mismatchedRevision,
                 target(),
                 1.0,
                 List.of(),
                 new ArtifactRef("sha256:prevalidation-notification"));
-        SemanticQueryResult result = partial(List.of(validEvidence, invalidEvidence));
+        SemanticQueryResult result = new SemanticQueryResult(
+                SemanticResultStatus.PARTIAL,
+                Optional.of(mismatchedRevision),
+                List.of(staleEvidence, invalidEvidence),
+                List.of(),
+                Optional.of(new SemanticFailure(
+                        SemanticFailureCode.PARTIAL_RESULT,
+                        "partial result",
+                        false)));
 
-        SemanticStepResult handled = fixture.handler().handle(
+        SemanticStepResult handled = handle(
+                fixture.handler(),
                 state, dualRepositoryNeed, result, false);
 
-        assertThat(handled.disposition()).isEqualTo(SemanticStepDisposition.STALE);
-        assertThat(handled.state()).isSameAs(state);
-        assertThat(fixture.adapter().events()).hasSize(setupEventCount);
-        assertThat(fixture.adapter().commitCount()).isEqualTo(setupCommitCount);
+        assertThat(handled.disposition()).isEqualTo(SemanticStepDisposition.FAILED);
+        assertThat(handled.failure()).get()
+                .extracting(SemanticFailure::code)
+                .isEqualTo(SemanticFailureCode.PROTOCOL_ERROR);
+        assertThat(fixture.adapter().events()).hasSize(setupEventCount + 1);
+        assertThat(fixture.adapter().events().getLast())
+                .isInstanceOf(AnalysisEvent.WarningRecorded.class);
+        assertThat(fixture.adapter().commitCount()).isEqualTo(setupCommitCount + 1);
         assertThat(handled.state().evidenceBindings()).isEqualTo(state.evidenceBindings());
-        assertThat(handled.state().warnings()).isEqualTo(state.warnings());
+        assertThat(handled.state().warnings()).extracting(warning -> warning.code())
+                .containsExactly("SEMANTIC_PROTOCOL_ERROR");
         assertThat(handled.state().repositoryScope()).isEqualTo(state.repositoryScope());
         assertThat(handled.state().revisionVector()).isEqualTo(state.revisionVector());
     }
@@ -346,7 +402,8 @@ class SemanticResultHandlerTest {
         SemanticResultHandler handler = new SemanticResultHandler(
                 new TransitionCommitter(new DefaultStateReducer(), transitionPort));
 
-        assertThatThrownBy(() -> handler.handle(
+        assertThatThrownBy(() -> handle(
+                handler,
                 fixture.state(), mainNeed(), success(List.of(evidence), List.of(discovery)), false))
                 .isSameAs(expected);
 
@@ -371,7 +428,8 @@ class SemanticResultHandlerTest {
                 List.of(ORDER_REPOSITORY),
                 List.of(target()));
 
-        assertThatIllegalArgumentException().isThrownBy(() -> fixture.handler().handle(
+        assertThatIllegalArgumentException().isThrownBy(() -> handle(
+                fixture.handler(),
                 fixture.state(), changedNeed, success(List.of(evidence(ORDER_REVISION, "sha256:need")), List.of()), false));
         assertThat(newEvents(fixture)).isEmpty();
     }
@@ -405,7 +463,8 @@ class SemanticResultHandlerTest {
                     throw expected;
                 }));
 
-        assertThatThrownBy(() -> handler.handle(
+        assertThatThrownBy(() -> handle(
+                handler,
                 state,
                 need,
                 successAt(
@@ -428,7 +487,8 @@ class SemanticResultHandlerTest {
                 });
         SemanticResultHandler handler = new SemanticResultHandler(failingCommitter);
 
-        assertThatThrownBy(() -> handler.handle(
+        assertThatThrownBy(() -> handle(
+                handler,
                 fixture.state(),
                 mainNeed(),
                 success(List.of(evidence(ORDER_REVISION, "sha256:failure")), List.of()),
@@ -595,6 +655,31 @@ class SemanticResultHandlerTest {
 
     private static SemanticTarget target() {
         return new SemanticTarget(SemanticTargetKind.SYMBOL, "com.example.OrderController#create", Optional.empty());
+    }
+
+    private static SemanticStepResult handle(
+            SemanticResultHandler handler,
+            AnalysisState state,
+            InformationNeed informationNeed,
+            SemanticQueryResult result,
+            boolean retryAllowed) {
+        return handler.handle(
+                state,
+                query(informationNeed, ORDER_REPOSITORY, ORDER_REVISION),
+                result,
+                retryAllowed);
+    }
+
+    private static SemanticQuery query(
+            InformationNeed informationNeed,
+            RepositoryId repositoryId,
+            RepositoryRevision expectedRevision) {
+        return new SemanticQuery(
+                "test-capability",
+                informationNeed,
+                target(),
+                repositoryId,
+                expectedRevision);
     }
 
     private record Fixture(
