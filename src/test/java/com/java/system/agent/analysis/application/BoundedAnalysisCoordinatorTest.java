@@ -213,6 +213,50 @@ class BoundedAnalysisCoordinatorTest {
     }
 
     @Test
+    void discoveryCancellationCheckFailureReportsTheLatestSuccessfullyPinnedRepository() {
+        RepositoryId orders = repository("orders");
+        RepositoryId alpha = repository("alpha");
+        RepositoryId beta = repository("beta");
+        RepositoryRevision ordersRevision = revision("orders-a");
+        RepositoryRevision alphaRevision = revision("alpha-a");
+        InformationNeed ordersNeed = need("need-orders", orders);
+        EvidenceRef ordersEvidence = evidence(orders, ordersRevision, "orders-evidence");
+        RepositoryDiscovery alphaDiscovery = new RepositoryDiscovery(
+                alpha, "orders call alpha", ordersEvidence);
+        RepositoryDiscovery betaDiscovery = new RepositoryDiscovery(
+                beta, "orders call beta", ordersEvidence);
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, ordersRevision)
+                .register(alpha, alphaRevision)
+                .register(beta, revision("beta-a"));
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, ordersRevision, new SemanticQueryResult(
+                        SemanticResultStatus.SUCCESS,
+                        Optional.of(ordersRevision),
+                        List.of(ordersEvidence),
+                        List.of(betaDiscovery, alphaDiscovery),
+                        Optional.empty()));
+        IllegalStateException expected = new IllegalStateException("cancellation adapter failed");
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new FailingAtCancellationCheckPort(5, expected));
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-discovery-cancellation-check-failure",
+                List.of(orders),
+                List.of(ordersNeed))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.getCause()).hasCause(expected);
+                    assertThat(exception.lastCommittedState().revisionVector().revisionOf(alpha))
+                            .contains(alphaRevision);
+                    assertThat(exception.lastCommittedState().revisionVector().revisionOf(beta)).isEmpty();
+                });
+        assertThat(revisions.calls()).containsExactly(orders, alpha);
+    }
+
+    @Test
     void restartsWithTheNewRevisionAndKeepsOnlyReplacementAttemptEvidence() {
         RepositoryId orders = repository("orders");
         RepositoryRevision revisionA = revision("orders-a");

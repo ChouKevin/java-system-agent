@@ -293,7 +293,7 @@ public final class BoundedAnalysisCoordinator implements ExecuteAnalysisUseCase 
                 .toList();
         AttemptLifecycle current = lifecycle;
         for (RepositoryDiscovery discovery : sortedDiscoveries) {
-            if (isCancellationRequested(current)) {
+            if (isDiscoveryCancellationRequested(current)) {
                 return new DiscoveryPinResult(current, DiscoveryPinDisposition.CANCELLED);
             }
             boolean semanticDiscoveryCommitted = current.state().repositoryScope()
@@ -312,6 +312,17 @@ public final class BoundedAnalysisCoordinator implements ExecuteAnalysisUseCase 
             current = attemptLifecycleManager.pinDiscoveredRepository(current, discovery.repositoryId());
         }
         return new DiscoveryPinResult(current, DiscoveryPinDisposition.COMPLETE);
+    }
+
+    private boolean isDiscoveryCancellationRequested(AttemptLifecycle lifecycle) {
+        try {
+            return isCancellationRequested(lifecycle);
+        } catch (RuntimeException exception) {
+            throw new AttemptLifecycleExternalFailureException(
+                    "analysis cancellation check failed while pinning discoveries",
+                    lifecycle,
+                    exception);
+        }
     }
 
     private AttemptLifecycle consumeSemanticBudget(
