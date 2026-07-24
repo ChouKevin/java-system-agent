@@ -70,4 +70,15 @@ public final class RepositoryScope {
         Objects.requireNonNull(repositoryId, "repository ID must not be null");
         return Optional.ofNullable(selections.get(repositoryId));
     }
+
+    @Override
+    public boolean equals(Object other) {
+        return this == other || other instanceof RepositoryScope repositoryScope // cs-allow
+                && selections.equals(repositoryScope.selections);
+    }
+
+    @Override
+    public int hashCode() {
+        return selections.hashCode();
+    }
 }

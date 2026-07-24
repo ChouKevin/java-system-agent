@@ -1,9 +1,11 @@
 package com.java.system.agent.analysis.domain;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 public record AnalysisRun(
         AnalysisRunId id,
@@ -20,6 +22,12 @@ public record AnalysisRun(
         if (attempts.size() < 1) {
             throw new IllegalArgumentException("analysis run must contain at least one attempt");
         }
+        Set<AnalysisAttemptId> attemptIds = new HashSet<>();
+        for (AnalysisAttempt attempt : attempts) {
+            if (!attemptIds.add(attempt.id())) {
+                throw new IllegalArgumentException("analysis run attempt IDs must be unique");
+            }
+        }
     }
 
     public static AnalysisRun start(AnalysisRunId id, AnalysisAttempt firstAttempt) {
@@ -29,6 +37,28 @@ public record AnalysisRun(
 
     public AnalysisAttempt currentAttempt() {
         return attempts.getLast();
+    }
+
+    public AnalysisRun concludeCurrentAttempt(
+            RevisionVector finalRevisionVector,
+            AnalysisBudget finalBudget,
+            AttemptOutcome terminalOutcome) {
+        Objects.requireNonNull(finalRevisionVector, "final revision vector must not be null");
+        Objects.requireNonNull(finalBudget, "final analysis budget must not be null");
+        Objects.requireNonNull(terminalOutcome, "analysis attempt outcome must not be null");
+        if (outcome.isPresent() || currentAttempt().outcome().isPresent()) {
+            throw new IllegalArgumentException("current analysis attempt is already concluded");
+        }
+        AnalysisAttempt currentAttempt = currentAttempt();
+        AnalysisAttempt activeAttemptWithFinalState = new AnalysisAttempt(
+                currentAttempt.id(),
+                finalRevisionVector,
+                finalBudget,
+                Optional.empty());
+        AnalysisAttempt concludedAttempt = activeAttemptWithFinalState.conclude(terminalOutcome);
+        List<AnalysisAttempt> updatedAttempts = new ArrayList<>(attempts);
+        updatedAttempts.set(updatedAttempts.size() - 1, concludedAttempt);
+        return new AnalysisRun(id, updatedAttempts, outcome);
     }
 
     public AnalysisRun replaceCurrentAttempt(

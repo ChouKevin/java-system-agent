@@ -237,6 +237,103 @@ class DefaultStateReducerTest {
                 .withMessageContaining("evidence");
     }
 
+    @Test
+    void consumesOnlyOneStepForRevisionProbe() {
+        AnalysisState state = initialState();
+
+        AnalysisState updated = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.REVISION_PROBE));
+
+        assertThat(updated.budget().usedSteps()).isEqualTo(1);
+        assertThat(updated.budget().usedSemanticCalls()).isZero();
+        assertThat(updated.status()).isEqualTo(AnalysisStatus.RECEIVED);
+    }
+
+    @Test
+    void consumesStepAndSemanticCallForSemanticQueryAndRetry() {
+        AnalysisState state = initialState();
+        state = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.SEMANTIC_QUERY));
+        state = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.SEMANTIC_RETRY));
+
+        assertThat(state.budget().usedSteps()).isEqualTo(2);
+        assertThat(state.budget().usedSemanticCalls()).isEqualTo(2);
+        assertThat(state.status()).isEqualTo(AnalysisStatus.EXECUTING);
+    }
+
+    @Test
+    void rejectsBudgetConsumptionAfterConfiguredBudgetIsExhausted() {
+        AnalysisState state = AnalysisState.initial(runId(), attemptId(), AnalysisBudget.of(1, 2));
+        state = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.REVISION_PROBE));
+        AnalysisState exhaustedState = state;
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> reducer.reduce(
+                        exhaustedState,
+                        new AnalysisEvent.BudgetConsumed(
+                                runId(),
+                                attemptId(),
+                                exhaustedState.stateRevision(),
+                                AnalysisBudgetActivity.SEMANTIC_QUERY)))
+                .withMessageContaining("budget");
+    }
+
+    @Test
+    void rejectsSemanticRetryWhenSemanticBudgetIsExhaustedBeforeStepBudget() {
+        AnalysisState state = AnalysisState.initial(runId(), attemptId(), AnalysisBudget.of(2, 1));
+        state = apply(state, new AnalysisEvent.BudgetConsumed(
+                runId(),
+                attemptId(),
+                state.stateRevision(),
+                AnalysisBudgetActivity.SEMANTIC_QUERY));
+        AnalysisState semanticBudgetExhaustedState = state;
+
+        assertThat(semanticBudgetExhaustedState.budget().hasStepRemaining()).isTrue();
+        assertThat(semanticBudgetExhaustedState.budget().hasSemanticCallRemaining()).isFalse();
+        long stateRevisionBeforeRejectedRetry = semanticBudgetExhaustedState.stateRevision();
+        int maxStepsBeforeRejectedRetry = semanticBudgetExhaustedState.budget().maxSteps();
+        int usedStepsBeforeRejectedRetry = semanticBudgetExhaustedState.budget().usedSteps();
+        int maxSemanticCallsBeforeRejectedRetry = semanticBudgetExhaustedState.budget().maxSemanticCalls();
+        int usedSemanticCallsBeforeRejectedRetry = semanticBudgetExhaustedState.budget().usedSemanticCalls();
+        AnalysisStatus statusBeforeRejectedRetry = semanticBudgetExhaustedState.status();
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> reducer.reduce(
+                        semanticBudgetExhaustedState,
+                        new AnalysisEvent.BudgetConsumed(
+                                runId(),
+                                attemptId(),
+                                semanticBudgetExhaustedState.stateRevision(),
+                                AnalysisBudgetActivity.SEMANTIC_RETRY)))
+                .withMessageContaining("semantic call budget")
+                .withMessageNotContaining("step budget");
+        assertThat(semanticBudgetExhaustedState.stateRevision())
+                .isEqualTo(stateRevisionBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.budget().maxSteps())
+                .isEqualTo(maxStepsBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.budget().usedSteps())
+                .isEqualTo(usedStepsBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.budget().maxSemanticCalls())
+                .isEqualTo(maxSemanticCallsBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.budget().usedSemanticCalls())
+                .isEqualTo(usedSemanticCallsBeforeRejectedRetry);
+        assertThat(semanticBudgetExhaustedState.status()).isEqualTo(statusBeforeRejectedRetry);
+    }
+
     private AnalysisState apply(AnalysisState state, AnalysisEvent event) {
         return reducer.reduce(state, event).candidateState();
     }

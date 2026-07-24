@@ -49,6 +49,23 @@ class AnalysisRunTest {
     }
 
     @Test
+    void rejectsAnAttemptListContainingDuplicateAttemptIds() {
+        AnalysisAttempt first = AnalysisAttempt.start(
+                new AnalysisAttemptId("attempt-1"),
+                RevisionVector.empty(),
+                AnalysisBudget.of(10, 5));
+        AnalysisAttempt duplicate = AnalysisAttempt.start(
+                new AnalysisAttemptId("attempt-1"),
+                RevisionVector.empty(),
+                AnalysisBudget.of(10, 5));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new AnalysisRun(
+                        new AnalysisRunId("run-1"), List.of(first, duplicate), Optional.empty()))
+                .withMessageContaining("unique");
+    }
+
+    @Test
     void concludesRunSeparatelyFromAttemptOutcome() {
         AnalysisAttempt attempt = AnalysisAttempt.start(
                 new AnalysisAttemptId("attempt-1"),

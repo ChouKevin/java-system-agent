@@ -64,6 +64,33 @@ class RepositoryScopeTest {
                 .contains(discovered);
     }
 
+    @Test
+    void treatsIndependentlyReconstructedSelectionsAsEqualValueScopes() {
+        RepositoryScope first = RepositoryScope.of(List.of(
+                selection("order-service", RepositoryDiscoverySource.USER),
+                selection("notification-service", RepositoryDiscoverySource.SEMANTIC_EVIDENCE)));
+        RepositoryScope second = RepositoryScope.of(List.of(
+                selection("notification-service", RepositoryDiscoverySource.SEMANTIC_EVIDENCE),
+                selection("order-service", RepositoryDiscoverySource.USER)));
+
+        assertThat(first).isEqualTo(second);
+        assertThat(first).hasSameHashCodeAs(second);
+        assertThat(first).isNotSameAs(second);
+    }
+
+    @Test
+    void preservesValueEqualityWhenEquivalentScopesAreExpandedIndependently() {
+        RepositoryScope first = RepositoryScope.of(List.of(
+                selection("order-service", RepositoryDiscoverySource.USER)))
+                .expand(selection("notification-service", RepositoryDiscoverySource.SEMANTIC_EVIDENCE));
+        RepositoryScope second = RepositoryScope.of(List.of(
+                selection("order-service", RepositoryDiscoverySource.USER)))
+                .expand(selection("notification-service", RepositoryDiscoverySource.SEMANTIC_EVIDENCE));
+
+        assertThat(first).isEqualTo(second);
+        assertThat(first).hasSameHashCodeAs(second);
+    }
+
     private RepositorySelection selection(String repositoryId, RepositoryDiscoverySource source) {
         return new RepositorySelection(
                 new RepositoryId(repositoryId),
