@@ -713,6 +713,33 @@ class BoundedAnalysisCoordinatorTest {
     }
 
     @Test
+    void initialPreparationCancellationCheckFailureReportsTheCommittedScopeState() {
+        RepositoryId orders = repository("orders");
+        IllegalStateException expected = new IllegalStateException("cancellation adapter failed");
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .register(orders, revision("orders-a"));
+        Fixture fixture = fixture(
+                revisions,
+                new RecordingSemanticPort(),
+                new FailingAtCancellationCheckPort(1, expected));
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-initial-cancellation-check-failure",
+                List.of(orders),
+                List.of(need("need-orders", orders)))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.getCause()).hasCause(expected);
+                    assertThat(exception.lastCommittedState().stateRevision()).isEqualTo(1);
+                    assertThat(exception.lastCommittedState().attemptId())
+                            .isEqualTo(new AnalysisAttemptId("attempt-1"));
+                    assertThat(exception.lastCommittedState().repositoryScope().contains(orders)).isTrue();
+                    assertThat(exception.lastCommittedState().budget().usedSteps()).isZero();
+                });
+        assertThat(revisions.calls()).isEmpty();
+    }
+
+    @Test
     void cancellationBetweenReplacementRevisionProbesPreventsTheLaterRevisionCall() {
         RepositoryId alpha = repository("alpha");
         RepositoryId zeta = repository("zeta");
@@ -740,6 +767,37 @@ class BoundedAnalysisCoordinatorTest {
         assertThat(revisions.calls()).containsExactly(alpha, zeta, alpha);
         assertThat(semanticPort.queries()).hasSize(1);
         assertThat(result.finalState().budget().usedSemanticCalls()).isZero();
+    }
+
+    @Test
+    void replacementPreparationCancellationCheckFailureReportsTheReplacementScopeState() {
+        RepositoryId orders = repository("orders");
+        RepositoryRevision revisionA = revision("orders-a");
+        RepositoryRevision revisionB = revision("orders-b");
+        IllegalStateException expected = new IllegalStateException("cancellation adapter failed");
+        RecordingRevisionPort revisions = new RecordingRevisionPort()
+                .registerSequence(orders, revisionA, revisionB);
+        RecordingSemanticPort semanticPort = new RecordingSemanticPort()
+                .register(orders, revisionA, revisionMismatch(revisionB));
+        Fixture fixture = fixture(
+                revisions,
+                semanticPort,
+                new FailingAtCancellationCheckPort(5, expected));
+
+        assertThatThrownBy(() -> fixture.coordinator().execute(command(
+                "run-replacement-cancellation-check-failure",
+                List.of(orders),
+                List.of(need("need-orders", orders)))))
+                .isInstanceOfSatisfying(AnalysisExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo(AnalysisTerminationReason.RUNTIME_FAILURE);
+                    assertThat(exception.getCause()).hasCause(expected);
+                    assertThat(exception.lastCommittedState().stateRevision()).isEqualTo(1);
+                    assertThat(exception.lastCommittedState().attemptId())
+                            .isEqualTo(new AnalysisAttemptId("attempt-2"));
+                    assertThat(exception.lastCommittedState().repositoryScope().contains(orders)).isTrue();
+                    assertThat(exception.lastCommittedState().budget().usedSteps()).isZero();
+                });
+        assertThat(revisions.calls()).containsExactly(orders);
     }
 
     @Test
@@ -1198,6 +1256,27 @@ class BoundedAnalysisCoordinatorTest {
 
         private int checkCount() {
             return position;
+        }
+    }
+
+    private static final class FailingAtCancellationCheckPort implements AnalysisCancellationPort {
+
+        private final int failingCheck;
+        private final RuntimeException failure;
+        private int checkCount;
+
+        private FailingAtCancellationCheckPort(int failingCheck, RuntimeException failure) {
+            this.failingCheck = failingCheck;
+            this.failure = failure;
+        }
+
+        @Override
+        public boolean isCancellationRequested(AnalysisRunId runId) {
+            checkCount++;
+            if (checkCount == failingCheck) {
+                throw failure;
+            }
+            return false;
         }
     }
 }

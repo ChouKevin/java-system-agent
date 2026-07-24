@@ -286,9 +286,15 @@ public final class AttemptLifecycleManager {
     private void throwIfPreparationCancellationRequested(
             Optional<AnalysisCancellationPort> analysisCancellationPort,
             AttemptLifecycle lifecycle) {
-        boolean cancellationRequested = analysisCancellationPort
-                .map(port -> port.isCancellationRequested(lifecycle.run().id()))
-                .orElse(false);
+        boolean cancellationRequested;
+        try {
+            cancellationRequested = analysisCancellationPort
+                    .map(port -> port.isCancellationRequested(lifecycle.run().id()))
+                    .orElse(false);
+        } catch (RuntimeException exception) {
+            throw new AttemptLifecycleExternalFailureException(
+                    "analysis cancellation check failed", lifecycle, exception);
+        }
         if (cancellationRequested) {
             throw new AttemptPreparationCancelledException(lifecycle);
         }
