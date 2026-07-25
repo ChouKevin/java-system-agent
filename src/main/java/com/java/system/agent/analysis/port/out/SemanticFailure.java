@@ -1,0 +1,18 @@
+package com.java.system.agent.analysis.port.out;
+
+import java.util.Objects;
+
+public record SemanticFailure(
+        SemanticFailureCode code,
+        String message,
+        boolean retryable) {
+
+    public SemanticFailure {
+        Objects.requireNonNull(code, "semantic failure code must not be null");
+        Objects.requireNonNull(message, "semantic failure message must not be null");
+        message = message.trim();
+        if (message.isBlank()) {
+            throw new IllegalArgumentException("semantic failure message must not be blank");
+        }
+    }
+}

@@ -245,7 +245,6 @@ public class AgentAnalysisTools {
         CallGraphExpandTools expandTools = new CallGraphExpandTools(analysisService);
         ChatOptions options = ToolCallingChatOptions.builder()
                 .toolCallbacks(ToolCallbacks.from(expandTools))
-                .internalToolExecutionEnabled(false)
                 .build();
         List<Message> seed = List.of(
                 new SystemMessage(innerSystemPrompt()),

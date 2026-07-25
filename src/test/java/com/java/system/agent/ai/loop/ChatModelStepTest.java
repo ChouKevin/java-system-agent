@@ -27,7 +27,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ChatModelStepTest {
 
     private final ChatOptions options = ToolCallingChatOptions.builder()
-            .internalToolExecutionEnabled(false)
             .build();
     private final List<Message> seed = List.of(
             new SystemMessage("s"),
@@ -525,7 +524,6 @@ class ChatModelStepTest {
                 .toolCallbacks(List.of(
                         new StubToolCallback("read_service_map"),
                         new StubToolCallback("find_call_graph")))
-                .internalToolExecutionEnabled(false)
                 .build();
     }
 

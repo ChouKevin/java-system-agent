@@ -33,7 +33,7 @@ class UatTracePersistenceContextIntegrationTest {
 
     @DynamicPropertySource
     static void mongoProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.mongodb.uri",
+        registry.add("spring.mongodb.uri",
                 () -> MONGO.getConnectionString() + "/java_system_agent");
     }
 
