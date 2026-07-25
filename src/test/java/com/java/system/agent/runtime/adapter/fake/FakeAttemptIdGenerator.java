@@ -1,8 +1,8 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.analysis.domain.AnalysisAttemptId;
-import com.java.system.agent.analysis.domain.AnalysisRunId;
-import com.java.system.agent.analysis.port.out.AnalysisAttemptIdGenerator;
+import com.java.system.agent.runtime.domain.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.AnalysisRunId;
+import com.java.system.agent.runtime.port.out.AnalysisAttemptIdGenerator;
 
 import java.util.ArrayDeque;
 import java.util.Deque;

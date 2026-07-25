@@ -1,9 +1,9 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.analysis.application.AnalysisEvent;
-import com.java.system.agent.analysis.application.StateTransition;
-import com.java.system.agent.analysis.domain.AnalysisState;
-import com.java.system.agent.analysis.port.out.AnalysisTransitionPort;
+import com.java.system.agent.runtime.application.AnalysisEvent;
+import com.java.system.agent.runtime.application.StateTransition;
+import com.java.system.agent.runtime.domain.AnalysisState;
+import com.java.system.agent.runtime.port.out.AnalysisTransitionPort;
 
 import java.util.ArrayList;
 import java.util.List;

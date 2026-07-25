@@ -1,8 +1,8 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.analysis.domain.RepositoryId;
-import com.java.system.agent.analysis.port.out.RepositoryRevisionPort;
-import com.java.system.agent.analysis.port.out.RepositoryRevisionResult;
+import com.java.system.agent.runtime.domain.RepositoryId;
+import com.java.system.agent.runtime.port.out.RepositoryRevisionPort;
+import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
 
 import java.util.ArrayDeque;
 import java.util.Deque;

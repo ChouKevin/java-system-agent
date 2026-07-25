@@ -1,7 +1,7 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.analysis.domain.AnalysisAttemptId;
-import com.java.system.agent.analysis.domain.AnalysisRunId;
+import com.java.system.agent.runtime.domain.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.AnalysisRunId;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

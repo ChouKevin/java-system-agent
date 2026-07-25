@@ -1,0 +1,9 @@
+package com.java.system.agent.runtime.domain;
+
+public enum SemanticTargetKind {
+    REPOSITORY,
+    ENTRY_POINT,
+    ROUTE,
+    SYMBOL,
+    SOURCE_RANGE
+}

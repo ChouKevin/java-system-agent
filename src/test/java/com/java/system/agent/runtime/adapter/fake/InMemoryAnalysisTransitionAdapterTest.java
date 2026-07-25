@@ -1,13 +1,13 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.analysis.application.AnalysisEvent;
-import com.java.system.agent.analysis.application.StateTransition;
-import com.java.system.agent.analysis.domain.AnalysisAttemptId;
-import com.java.system.agent.analysis.domain.AnalysisBudget;
-import com.java.system.agent.analysis.domain.AnalysisRunId;
-import com.java.system.agent.analysis.domain.AnalysisState;
-import com.java.system.agent.analysis.domain.AnalysisWarning;
-import com.java.system.agent.analysis.domain.AttemptOutcome;
+import com.java.system.agent.runtime.application.AnalysisEvent;
+import com.java.system.agent.runtime.application.StateTransition;
+import com.java.system.agent.runtime.domain.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.AnalysisBudget;
+import com.java.system.agent.runtime.domain.AnalysisRunId;
+import com.java.system.agent.runtime.domain.AnalysisState;
+import com.java.system.agent.runtime.domain.AnalysisWarning;
+import com.java.system.agent.runtime.domain.AttemptOutcome;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

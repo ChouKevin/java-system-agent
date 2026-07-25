@@ -1,7 +1,7 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.analysis.domain.AnalysisRunId;
-import com.java.system.agent.analysis.port.out.AnalysisCancellationPort;
+import com.java.system.agent.runtime.domain.AnalysisRunId;
+import com.java.system.agent.runtime.port.out.AnalysisCancellationPort;
 
 import java.util.HashMap;
 import java.util.Map;

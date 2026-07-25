@@ -1,20 +1,20 @@
 package com.java.system.agent.semantic.adapter.fake;
 
-import com.java.system.agent.analysis.domain.ArtifactRef;
-import com.java.system.agent.analysis.domain.EvidenceRef;
-import com.java.system.agent.analysis.domain.InformationNeed;
-import com.java.system.agent.analysis.domain.InformationNeedId;
-import com.java.system.agent.analysis.domain.InformationNeedType;
-import com.java.system.agent.analysis.domain.RepositoryId;
-import com.java.system.agent.analysis.domain.RepositoryRevision;
-import com.java.system.agent.analysis.domain.SemanticTarget;
-import com.java.system.agent.analysis.domain.SemanticTargetKind;
-import com.java.system.agent.analysis.port.out.SemanticFailure;
-import com.java.system.agent.analysis.port.out.SemanticFailureCode;
-import com.java.system.agent.analysis.port.out.SemanticQuery;
-import com.java.system.agent.analysis.port.out.SemanticQueryResult;
-import com.java.system.agent.analysis.port.out.SemanticResultStatus;
-import com.java.system.agent.analysis.port.out.RepositoryDiscovery;
+import com.java.system.agent.runtime.domain.ArtifactRef;
+import com.java.system.agent.runtime.domain.EvidenceRef;
+import com.java.system.agent.runtime.domain.InformationNeed;
+import com.java.system.agent.runtime.domain.InformationNeedId;
+import com.java.system.agent.runtime.domain.InformationNeedType;
+import com.java.system.agent.runtime.domain.RepositoryId;
+import com.java.system.agent.runtime.domain.RepositoryRevision;
+import com.java.system.agent.runtime.domain.SemanticTarget;
+import com.java.system.agent.runtime.domain.SemanticTargetKind;
+import com.java.system.agent.runtime.port.out.SemanticFailure;
+import com.java.system.agent.runtime.port.out.SemanticFailureCode;
+import com.java.system.agent.runtime.port.out.SemanticQuery;
+import com.java.system.agent.runtime.port.out.SemanticQueryResult;
+import com.java.system.agent.runtime.port.out.SemanticResultStatus;
+import com.java.system.agent.runtime.port.out.RepositoryDiscovery;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.RecordComponent;

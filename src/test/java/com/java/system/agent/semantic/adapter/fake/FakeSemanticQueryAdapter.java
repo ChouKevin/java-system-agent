@@ -1,8 +1,8 @@
 package com.java.system.agent.semantic.adapter.fake;
 
-import com.java.system.agent.analysis.port.out.SemanticQuery;
-import com.java.system.agent.analysis.port.out.SemanticQueryPort;
-import com.java.system.agent.analysis.port.out.SemanticQueryResult;
+import com.java.system.agent.runtime.port.out.SemanticQuery;
+import com.java.system.agent.runtime.port.out.SemanticQueryPort;
+import com.java.system.agent.runtime.port.out.SemanticQueryResult;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
