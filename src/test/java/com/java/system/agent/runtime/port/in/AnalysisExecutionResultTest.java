@@ -1,20 +1,20 @@
 package com.java.system.agent.runtime.port.in;
 
-import com.java.system.agent.runtime.domain.AnalysisAttempt;
-import com.java.system.agent.runtime.domain.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.AnalysisBudget;
-import com.java.system.agent.runtime.domain.AnalysisOutcome;
-import com.java.system.agent.runtime.domain.AnalysisRun;
-import com.java.system.agent.runtime.domain.AnalysisRunId;
-import com.java.system.agent.runtime.domain.AnalysisState;
-import com.java.system.agent.runtime.domain.AnalysisStatus;
-import com.java.system.agent.runtime.domain.AttemptOutcome;
-import com.java.system.agent.runtime.domain.RepositoryDiscoverySource;
-import com.java.system.agent.runtime.domain.RepositoryId;
-import com.java.system.agent.runtime.domain.RepositoryRevision;
-import com.java.system.agent.runtime.domain.RepositoryScope;
-import com.java.system.agent.runtime.domain.RepositorySelection;
-import com.java.system.agent.runtime.domain.RevisionVector;
+import com.java.system.agent.runtime.domain.run.AnalysisAttempt;
+import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.run.AttemptBudget;
+import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.AnalysisRun;
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.runtime.domain.run.AttemptState;
+import com.java.system.agent.runtime.domain.run.AttemptStatus;
+import com.java.system.agent.runtime.domain.run.AttemptOutcome;
+import com.java.system.agent.runtime.domain.scope.RepositoryDiscoverySource;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
+import com.java.system.agent.runtime.domain.scope.RepositoryScope;
+import com.java.system.agent.runtime.domain.scope.RepositorySelection;
+import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -32,69 +32,69 @@ class AnalysisExecutionResultTest {
     void acceptsAlignedTerminalResults() {
         for (TerminalCase terminalCase : List.of(
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.GOAL_COMPLETED),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
-                        AnalysisStatus.INCONCLUSIVE,
+                        AttemptStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.CAPABILITY_MISSING),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
-                        AnalysisStatus.INCONCLUSIVE,
+                        AttemptStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.PREREQUISITE_MISSING),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
-                        AnalysisStatus.INCONCLUSIVE,
+                        AttemptStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.SEMANTIC_AMBIGUOUS),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
-                        AnalysisStatus.INCONCLUSIVE,
+                        AttemptStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.SEMANTIC_FORBIDDEN),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
-                        AnalysisStatus.INCONCLUSIVE,
+                        AttemptStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.SEMANTIC_UNAVAILABLE),
                 new TerminalCase(
-                        AnalysisOutcome.FAILED,
+                        RunOutcome.FAILED,
                         AttemptOutcome.FAILED,
-                        AnalysisStatus.FAILED,
+                        AttemptStatus.FAILED,
                         AnalysisTerminationReason.SEMANTIC_UNAVAILABLE),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
-                        AnalysisStatus.INCONCLUSIVE,
+                        AttemptStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.BUDGET_EXHAUSTED),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
-                        AnalysisStatus.INCONCLUSIVE,
+                        AttemptStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.NO_PROGRESS),
                 new TerminalCase(
-                        AnalysisOutcome.FAILED,
+                        RunOutcome.FAILED,
                         AttemptOutcome.FAILED,
-                        AnalysisStatus.FAILED,
+                        AttemptStatus.FAILED,
                         AnalysisTerminationReason.RUNTIME_FAILURE),
                 new TerminalCase(
-                        AnalysisOutcome.CANCELLED,
+                        RunOutcome.CANCELLED,
                         AttemptOutcome.CANCELLED,
-                        AnalysisStatus.CANCELLED,
+                        AttemptStatus.CANCELLED,
                         AnalysisTerminationReason.CANCELLED),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.STALE,
-                        AnalysisStatus.STALE,
+                        AttemptStatus.STALE,
                         AnalysisTerminationReason.REVISION_RESTART_LIMIT),
                 new TerminalCase(
-                        AnalysisOutcome.INCONCLUSIVE,
+                        RunOutcome.INCONCLUSIVE,
                         AttemptOutcome.INCONCLUSIVE,
-                        AnalysisStatus.INCONCLUSIVE,
+                        AttemptStatus.INCONCLUSIVE,
                         AnalysisTerminationReason.REVISION_RESTART_LIMIT))) {
             TerminalData terminalData = terminalData(
                     terminalCase.runOutcome(),
@@ -112,59 +112,59 @@ class AnalysisExecutionResultTest {
     void rejectsReasonIncompatibleWithAnOtherwiseAlignedTerminalResult() {
         for (TerminalCase terminalCase : List.of(
                 new TerminalCase(
-                        AnalysisOutcome.FAILED,
+                        RunOutcome.FAILED,
                         AttemptOutcome.FAILED,
-                        AnalysisStatus.FAILED,
+                        AttemptStatus.FAILED,
                         AnalysisTerminationReason.GOAL_COMPLETED),
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.CAPABILITY_MISSING),
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.PREREQUISITE_MISSING),
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.SEMANTIC_AMBIGUOUS),
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.SEMANTIC_FORBIDDEN),
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.SEMANTIC_UNAVAILABLE),
                 new TerminalCase(
-                        AnalysisOutcome.FAILED,
+                        RunOutcome.FAILED,
                         AttemptOutcome.FAILED,
-                        AnalysisStatus.FAILED,
+                        AttemptStatus.FAILED,
                         AnalysisTerminationReason.BUDGET_EXHAUSTED),
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.NO_PROGRESS),
                 new TerminalCase(
-                        AnalysisOutcome.FAILED,
+                        RunOutcome.FAILED,
                         AttemptOutcome.FAILED,
-                        AnalysisStatus.FAILED,
+                        AttemptStatus.FAILED,
                         AnalysisTerminationReason.REVISION_RESTART_LIMIT),
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.CANCELLED),
                 new TerminalCase(
-                        AnalysisOutcome.COMPLETED,
+                        RunOutcome.COMPLETED,
                         AttemptOutcome.COMPLETED,
-                        AnalysisStatus.COMPLETED,
+                        AttemptStatus.COMPLETED,
                         AnalysisTerminationReason.RUNTIME_FAILURE))) {
             TerminalData terminalData = terminalData(
                     terminalCase.runOutcome(),
@@ -184,7 +184,7 @@ class AnalysisExecutionResultTest {
         AnalysisRun run = AnalysisRun.start(runId(), attempt);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
-                run, state(runId(), attemptId(), AnalysisStatus.COMPLETED,
+                run, state(runId(), attemptId(), AttemptStatus.COMPLETED,
                 RepositoryScope.of(List.of()), RevisionVector.empty(), budget()),
                 AnalysisTerminationReason.GOAL_COMPLETED));
     }
@@ -194,27 +194,23 @@ class AnalysisExecutionResultTest {
         AnalysisRun run = new AnalysisRun(
                 runId(),
                 List.of(AnalysisAttempt.start(attemptId(), RevisionVector.empty(), budget())),
-                Optional.of(AnalysisOutcome.COMPLETED));
+                Optional.of(RunOutcome.COMPLETED));
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
-                run, state(runId(), attemptId(), AnalysisStatus.COMPLETED,
+                run, state(runId(), attemptId(), AttemptStatus.COMPLETED,
                 RepositoryScope.of(List.of()), RevisionVector.empty(), budget()),
                 AnalysisTerminationReason.GOAL_COMPLETED));
     }
 
     @Test
     void rejectsANonterminalFinalState() {
-        for (AnalysisStatus nonTerminalStatus : List.of(
-                AnalysisStatus.RECEIVED,
-                AnalysisStatus.UNDERSTANDING,
-                AnalysisStatus.SCOPE_RESOLVING,
-                AnalysisStatus.REVISION_PINNING,
-                AnalysisStatus.PLANNING,
-                AnalysisStatus.EXECUTING,
-                AnalysisStatus.COMPOSING,
-                AnalysisStatus.VERIFYING)) {
+        for (AttemptStatus nonTerminalStatus : List.of(
+                AttemptStatus.RECEIVED,
+                AttemptStatus.REVISION_PINNING,
+                AttemptStatus.PLANNING,
+                AttemptStatus.EXECUTING)) {
             TerminalData terminalData = terminalData(
-                    AnalysisOutcome.COMPLETED, AttemptOutcome.COMPLETED, AnalysisStatus.COMPLETED);
+                    RunOutcome.COMPLETED, AttemptOutcome.COMPLETED, AttemptStatus.COMPLETED);
 
             assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                     terminalData.run(), state(
@@ -231,7 +227,7 @@ class AnalysisExecutionResultTest {
     @Test
     void rejectsNullFields() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.COMPLETED, AttemptOutcome.COMPLETED, AnalysisStatus.COMPLETED);
+                RunOutcome.COMPLETED, AttemptOutcome.COMPLETED, AttemptStatus.COMPLETED);
 
         assertThatNullPointerException().isThrownBy(() -> new AnalysisExecutionResult(
                 null, terminalData.finalState(), AnalysisTerminationReason.GOAL_COMPLETED));
@@ -244,13 +240,13 @@ class AnalysisExecutionResultTest {
     @Test
     void rejectsAMismatchedRunId() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.COMPLETED, AttemptOutcome.COMPLETED, AnalysisStatus.COMPLETED);
+                RunOutcome.COMPLETED, AttemptOutcome.COMPLETED, AttemptStatus.COMPLETED);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                 terminalData.run(), state(
                 new AnalysisRunId("other-run"),
                 terminalData.run().currentAttempt().id(),
-                AnalysisStatus.COMPLETED,
+                AttemptStatus.COMPLETED,
                 terminalData.scope(),
                 terminalData.revisionVector(),
                 terminalData.budget()),
@@ -260,13 +256,13 @@ class AnalysisExecutionResultTest {
     @Test
     void rejectsAMismatchedAttemptId() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.COMPLETED, AttemptOutcome.COMPLETED, AnalysisStatus.COMPLETED);
+                RunOutcome.COMPLETED, AttemptOutcome.COMPLETED, AttemptStatus.COMPLETED);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                 terminalData.run(), state(
                 terminalData.run().id(),
                 new AnalysisAttemptId("other-attempt"),
-                AnalysisStatus.COMPLETED,
+                AttemptStatus.COMPLETED,
                 terminalData.scope(),
                 terminalData.revisionVector(),
                 terminalData.budget()),
@@ -276,13 +272,13 @@ class AnalysisExecutionResultTest {
     @Test
     void rejectsAMismatchedFinalRevisionVector() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.COMPLETED, AttemptOutcome.COMPLETED, AnalysisStatus.COMPLETED);
+                RunOutcome.COMPLETED, AttemptOutcome.COMPLETED, AttemptStatus.COMPLETED);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                 terminalData.run(), state(
                 terminalData.run().id(),
                 terminalData.run().currentAttempt().id(),
-                AnalysisStatus.COMPLETED,
+                AttemptStatus.COMPLETED,
                 terminalData.scope(),
                 revisionVector(terminalData.scope(), "revision-2"),
                 terminalData.budget()),
@@ -292,23 +288,23 @@ class AnalysisExecutionResultTest {
     @Test
     void rejectsAMismatchedFinalBudget() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.COMPLETED, AttemptOutcome.COMPLETED, AnalysisStatus.COMPLETED);
+                RunOutcome.COMPLETED, AttemptOutcome.COMPLETED, AttemptStatus.COMPLETED);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                 terminalData.run(), state(
                 terminalData.run().id(),
                 terminalData.run().currentAttempt().id(),
-                AnalysisStatus.COMPLETED,
+                AttemptStatus.COMPLETED,
                 terminalData.scope(),
                 terminalData.revisionVector(),
-                new AnalysisBudget(10, 1, 5, 0)),
+                new AttemptBudget(10, 1, 5, 0)),
                 AnalysisTerminationReason.GOAL_COMPLETED));
     }
 
     @Test
     void rejectsCurrentAttemptOutcomeThatDoesNotMatchTheFinalStateStatus() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.FAILED, AttemptOutcome.FAILED, AnalysisStatus.COMPLETED);
+                RunOutcome.FAILED, AttemptOutcome.FAILED, AttemptStatus.COMPLETED);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                 terminalData.run(), terminalData.finalState(), AnalysisTerminationReason.RUNTIME_FAILURE));
@@ -317,7 +313,7 @@ class AnalysisExecutionResultTest {
     @Test
     void rejectsRunOutcomeThatDoesNotMatchTheFinalStateStatus() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.FAILED, AttemptOutcome.COMPLETED, AnalysisStatus.COMPLETED);
+                RunOutcome.FAILED, AttemptOutcome.COMPLETED, AttemptStatus.COMPLETED);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                 terminalData.run(), terminalData.finalState(), AnalysisTerminationReason.RUNTIME_FAILURE));
@@ -326,7 +322,7 @@ class AnalysisExecutionResultTest {
     @Test
     void rejectsGoalCompletedReasonThatContradictsTheTerminalResult() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.FAILED, AttemptOutcome.FAILED, AnalysisStatus.FAILED);
+                RunOutcome.FAILED, AttemptOutcome.FAILED, AttemptStatus.FAILED);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                 terminalData.run(), terminalData.finalState(), AnalysisTerminationReason.GOAL_COMPLETED));
@@ -335,39 +331,39 @@ class AnalysisExecutionResultTest {
     @Test
     void rejectsCancelledReasonThatContradictsTheTerminalResult() {
         TerminalData terminalData = terminalData(
-                AnalysisOutcome.COMPLETED, AttemptOutcome.COMPLETED, AnalysisStatus.COMPLETED);
+                RunOutcome.COMPLETED, AttemptOutcome.COMPLETED, AttemptStatus.COMPLETED);
 
         assertThatIllegalArgumentException().isThrownBy(() -> new AnalysisExecutionResult(
                 terminalData.run(), terminalData.finalState(), AnalysisTerminationReason.CANCELLED));
     }
 
     private TerminalData terminalData(
-            AnalysisOutcome runOutcome,
+            RunOutcome runOutcome,
             AttemptOutcome attemptOutcome,
-            AnalysisStatus status) {
+            AttemptStatus status) {
         AnalysisRunId runId = runId();
         AnalysisAttemptId attemptId = attemptId();
         RepositoryScope scope = scope();
         RevisionVector attemptRevisionVector = revisionVector(scope, "revision-1");
         RevisionVector finalStateRevisionVector = revisionVector(scope, "revision-1");
-        AnalysisBudget budget = budget();
+        AttemptBudget budget = budget();
         AnalysisRun run = AnalysisRun.start(
                 runId,
                 AnalysisAttempt.start(attemptId, attemptRevisionVector, budget).conclude(attemptOutcome))
                 .conclude(runOutcome);
-        AnalysisState finalState = state(
+        AttemptState finalState = state(
                 runId, attemptId, status, scope, finalStateRevisionVector, budget);
         return new TerminalData(run, finalState, scope, finalStateRevisionVector, budget);
     }
 
-    private AnalysisState state(
+    private AttemptState state(
             AnalysisRunId runId,
             AnalysisAttemptId attemptId,
-            AnalysisStatus status,
+            AttemptStatus status,
             RepositoryScope scope,
             RevisionVector revisionVector,
-            AnalysisBudget budget) {
-        return new AnalysisState(
+            AttemptBudget budget) {
+        return new AttemptState(
                 runId,
                 attemptId,
                 1,
@@ -403,22 +399,22 @@ class AnalysisExecutionResultTest {
                 scope, repositoryId, new RepositoryRevision(revision));
     }
 
-    private AnalysisBudget budget() {
-        return AnalysisBudget.of(10, 5);
+    private AttemptBudget budget() {
+        return AttemptBudget.of(10, 5);
     }
 
     private record TerminalCase(
-            AnalysisOutcome runOutcome,
+            RunOutcome runOutcome,
             AttemptOutcome attemptOutcome,
-            AnalysisStatus status,
+            AttemptStatus status,
             AnalysisTerminationReason reason) {
     }
 
     private record TerminalData(
             AnalysisRun run,
-            AnalysisState finalState,
+            AttemptState finalState,
             RepositoryScope scope,
             RevisionVector revisionVector,
-            AnalysisBudget budget) {
+            AttemptBudget budget) {
     }
 }

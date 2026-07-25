@@ -1,7 +1,7 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.runtime.domain.RepositoryId;
-import com.java.system.agent.runtime.domain.RepositoryRevision;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
 

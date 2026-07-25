@@ -1,7 +1,7 @@
 package com.java.system.agent.runtime.port.out;
 
-import com.java.system.agent.runtime.domain.EvidenceRef;
-import com.java.system.agent.runtime.domain.RepositoryId;
+import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
 
 import java.util.Objects;
 

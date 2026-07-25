@@ -1,13 +1,13 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.runtime.application.AnalysisEvent;
-import com.java.system.agent.runtime.application.StateTransition;
-import com.java.system.agent.runtime.domain.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.AnalysisBudget;
-import com.java.system.agent.runtime.domain.AnalysisRunId;
-import com.java.system.agent.runtime.domain.AnalysisState;
-import com.java.system.agent.runtime.domain.AnalysisWarning;
-import com.java.system.agent.runtime.domain.AttemptOutcome;
+import com.java.system.agent.runtime.application.state.AnalysisEvent;
+import com.java.system.agent.runtime.application.state.StateTransition;
+import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.run.AttemptBudget;
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.runtime.domain.run.AttemptState;
+import com.java.system.agent.runtime.domain.run.AnalysisWarning;
+import com.java.system.agent.runtime.domain.run.AttemptOutcome;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -24,7 +24,7 @@ class InMemoryAnalysisTransitionAdapterTest {
         StateTransition transition = transition();
         InMemoryAnalysisTransitionAdapter adapter = new InMemoryAnalysisTransitionAdapter();
 
-        AnalysisState committed = adapter.commit(transition);
+        AttemptState committed = adapter.commit(transition);
 
         assertThat(committed).isSameAs(transition.candidateState());
         assertThat(adapter.events()).containsExactly(transition.event());
@@ -74,7 +74,7 @@ class InMemoryAnalysisTransitionAdapterTest {
     private StateTransition transition() {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
-        AnalysisState state = AnalysisState.initial(runId, attemptId, AnalysisBudget.of(10, 5));
+        AttemptState state = AttemptState.initial(runId, attemptId, AttemptBudget.of(10, 5));
         AnalysisEvent event = new AnalysisEvent.AttemptConcluded(
                 runId,
                 attemptId,
@@ -86,7 +86,7 @@ class InMemoryAnalysisTransitionAdapterTest {
     private StateTransition secondTransition() {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
-        AnalysisState state = AnalysisState.initial(runId, attemptId, AnalysisBudget.of(10, 5))
+        AttemptState state = AttemptState.initial(runId, attemptId, AttemptBudget.of(10, 5))
                 .withStateRevision(1);
         AnalysisEvent event = new AnalysisEvent.WarningRecorded(
                 runId,

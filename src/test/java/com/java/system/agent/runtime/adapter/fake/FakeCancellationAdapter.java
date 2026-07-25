@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.runtime.domain.AnalysisRunId;
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.port.out.AnalysisCancellationPort;
 
 import java.util.HashMap;

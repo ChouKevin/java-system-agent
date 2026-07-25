@@ -1,27 +1,44 @@
 package com.java.system.agent.runtime.application;
 
-import com.java.system.agent.runtime.domain.AnalysisAttempt;
-import com.java.system.agent.runtime.domain.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.AnalysisBudget;
-import com.java.system.agent.runtime.domain.AnalysisOutcome;
-import com.java.system.agent.runtime.domain.AnalysisRun;
-import com.java.system.agent.runtime.domain.AnalysisRunId;
-import com.java.system.agent.runtime.domain.AnalysisState;
-import com.java.system.agent.runtime.domain.AnalysisStatus;
-import com.java.system.agent.runtime.domain.ArtifactRef;
-import com.java.system.agent.runtime.domain.AttemptOutcome;
-import com.java.system.agent.runtime.domain.EvidenceRef;
-import com.java.system.agent.runtime.domain.Goal;
-import com.java.system.agent.runtime.domain.InformationNeed;
-import com.java.system.agent.runtime.domain.InformationNeedId;
-import com.java.system.agent.runtime.domain.InformationNeedType;
-import com.java.system.agent.runtime.domain.RepositoryDiscoverySource;
-import com.java.system.agent.runtime.domain.RepositoryId;
-import com.java.system.agent.runtime.domain.RepositoryRevision;
-import com.java.system.agent.runtime.domain.RepositoryScope;
-import com.java.system.agent.runtime.domain.RepositorySelection;
-import com.java.system.agent.runtime.domain.SemanticTarget;
-import com.java.system.agent.runtime.domain.SemanticTargetKind;
+import com.java.system.agent.runtime.application.goal.DefaultGoalEvaluator;
+import com.java.system.agent.runtime.application.goal.GoalBlockReason;
+import com.java.system.agent.runtime.application.goal.GoalEvaluation;
+import com.java.system.agent.runtime.application.goal.GoalEvaluator;
+import com.java.system.agent.runtime.application.goal.NoProgressEvaluation;
+import com.java.system.agent.runtime.application.goal.NoProgressPolicy;
+import com.java.system.agent.runtime.application.goal.ProgressFingerprint;
+import com.java.system.agent.runtime.application.lifecycle.RevisionMismatchException;
+import com.java.system.agent.runtime.application.planning.InformationNeedPlanner;
+import com.java.system.agent.runtime.application.planning.PlannedCapability;
+import com.java.system.agent.runtime.application.planning.PlanningResult;
+import com.java.system.agent.runtime.application.planning.PlanningStatus;
+import com.java.system.agent.runtime.application.planning.SemanticCapability;
+import com.java.system.agent.runtime.application.planning.SemanticCapabilityRegistry;
+import com.java.system.agent.runtime.application.state.AnalysisEvent;
+import com.java.system.agent.runtime.application.state.DefaultStateReducer;
+import com.java.system.agent.runtime.application.state.StateReducer;
+import com.java.system.agent.runtime.domain.run.AnalysisAttempt;
+import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.run.AttemptBudget;
+import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.AnalysisRun;
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.runtime.domain.run.AttemptState;
+import com.java.system.agent.runtime.domain.run.AttemptStatus;
+import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
+import com.java.system.agent.runtime.domain.run.AttemptOutcome;
+import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
+import com.java.system.agent.runtime.domain.need.Goal;
+import com.java.system.agent.runtime.domain.need.InformationNeed;
+import com.java.system.agent.runtime.domain.need.InformationNeedId;
+import com.java.system.agent.runtime.domain.need.InformationNeedType;
+import com.java.system.agent.runtime.domain.scope.RepositoryDiscoverySource;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
+import com.java.system.agent.runtime.domain.scope.RepositoryScope;
+import com.java.system.agent.runtime.domain.scope.RepositorySelection;
+import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
+import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.port.out.RepositoryDiscovery;
 import com.java.system.agent.runtime.port.out.SemanticFailure;
 import com.java.system.agent.runtime.port.out.SemanticFailureCode;
@@ -52,7 +69,7 @@ class DomainKernelLifecycleTest {
         RepositoryId repositoryId = new RepositoryId("order-service");
         RepositoryRevision revision = new RepositoryRevision("ord-456");
         InformationNeed need = need("need-order-entry", repositoryId, "POST /orders");
-        AnalysisState state = preparedState(runId, attemptId, List.of(repositoryId), List.of(revision));
+        AttemptState state = preparedState(runId, attemptId, List.of(repositoryId), List.of(revision));
         state = apply(state, new AnalysisEvent.NeedRegistered(
                 runId, attemptId, state.stateRevision(), need));
 
@@ -80,7 +97,7 @@ class DomainKernelLifecycleTest {
                 state,
                 Optional.empty());
 
-        assertThat(evaluation.outcome()).contains(AnalysisOutcome.COMPLETED);
+        assertThat(evaluation.outcome()).contains(RunOutcome.COMPLETED);
         assertThat(state.evidenceBindings()).singleElement()
                 .satisfies(binding -> assertThat(binding.evidenceRef()).isEqualTo(evidence));
     }
@@ -93,7 +110,7 @@ class DomainKernelLifecycleTest {
         RepositoryId notificationRepository = new RepositoryId("notification-service");
         RepositoryRevision orderRevision = new RepositoryRevision("ord-456");
         RepositoryRevision notificationRevision = new RepositoryRevision("not-123");
-        AnalysisState state = preparedState(
+        AttemptState state = preparedState(
                 runId,
                 attemptId,
                 List.of(orderRepository, notificationRepository),
@@ -113,7 +130,7 @@ class DomainKernelLifecycleTest {
                 state,
                 Optional.empty());
 
-        assertThat(evaluation.outcome()).contains(AnalysisOutcome.COMPLETED);
+        assertThat(evaluation.outcome()).contains(RunOutcome.COMPLETED);
         assertThat(state.evidenceBindings()).hasSize(2);
     }
 
@@ -123,7 +140,7 @@ class DomainKernelLifecycleTest {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         RepositoryId orderRepository = new RepositoryId("order-service");
         RepositoryRevision orderRevision = new RepositoryRevision("ord-456");
-        AnalysisState state = preparedState(
+        AttemptState state = preparedState(
                 runId, attemptId, List.of(orderRepository), List.of(orderRevision));
         EvidenceRef sourceEvidence = evidence(orderRepository, orderRevision, "sha256:cross-link");
         RepositoryDiscovery discovery = new RepositoryDiscovery(
@@ -165,7 +182,7 @@ class DomainKernelLifecycleTest {
         RepositoryRevision oldRevision = new RepositoryRevision("ord-456");
         RepositoryRevision newRevision = new RepositoryRevision("ord-789");
         InformationNeed need = need("need-refresh", repositoryId, "POST /orders");
-        AnalysisState oldState = preparedState(
+        AttemptState oldState = preparedState(
                 runId, oldAttemptId, List.of(repositoryId), List.of(oldRevision));
         oldState = apply(oldState, new AnalysisEvent.NeedRegistered(
                 runId, oldAttemptId, oldState.stateRevision(), need));
@@ -191,7 +208,7 @@ class DomainKernelLifecycleTest {
         AnalysisAttempt staleAttempt = AnalysisAttempt.start(
                         oldAttemptId, oldState.revisionVector(), oldState.budget())
                 .conclude(AttemptOutcome.STALE);
-        AnalysisState newState = preparedState(
+        AttemptState newState = preparedState(
                 runId, newAttemptId, List.of(repositoryId), List.of(newRevision));
         newState = apply(newState, new AnalysisEvent.NeedRegistered(
                 runId, newAttemptId, newState.stateRevision(), need));
@@ -200,11 +217,11 @@ class DomainKernelLifecycleTest {
         AnalysisRun refreshedRun = AnalysisRun.start(runId, AnalysisAttempt.start(
                         oldAttemptId, oldState.revisionVector(), oldState.budget()))
                 .replaceCurrentAttempt(staleAttempt, newAttempt);
-        AnalysisState pinnedNewState = newState;
+        AttemptState pinnedNewState = newState;
         EvidenceRef oldEvidence = evidence(repositoryId, oldRevision, "sha256:old-entry");
 
         assertThat(result.status()).isEqualTo(SemanticResultStatus.REVISION_MISMATCH);
-        assertThat(oldState.status()).isEqualTo(AnalysisStatus.STALE);
+        assertThat(oldState.status()).isEqualTo(AttemptStatus.STALE);
         assertThat(refreshedRun.attempts()).hasSize(2);
         assertThat(newState.revisionVector().matches(repositoryId, newRevision)).isTrue();
         assertThatThrownBy(() -> reducer.reduce(
@@ -227,7 +244,7 @@ class DomainKernelLifecycleTest {
         InformationNeed partialNeed = need("need-partial", repositoryId, "POST /orders");
         InformationNeed ambiguousNeed = need(
                 "need-ambiguous", repositoryId, "OrderCreated publisher");
-        AnalysisState state = preparedState(
+        AttemptState state = preparedState(
                 runId, attemptId, List.of(repositoryId), List.of(revision));
         SemanticQuery partialQuery = query(planner.plan(state, partialNeed, registry())
                 .plannedCapability()
@@ -258,14 +275,14 @@ class DomainKernelLifecycleTest {
         Goal goal = new Goal(
                 "Answer only with complete semantic evidence", Set.of(partialNeed.id()));
         GoalEvaluation partialEvaluation = goalEvaluator.evaluate(
-                goal, state, Optional.of(GoalBlocker.PREREQUISITE_MISSING));
+                goal, state, Optional.of(GoalBlockReason.PREREQUISITE_MISSING));
         GoalEvaluation ambiguousEvaluation = goalEvaluator.evaluate(
-                goal, state, Optional.of(GoalBlocker.PREREQUISITE_MISSING));
+                goal, state, Optional.of(GoalBlockReason.PREREQUISITE_MISSING));
 
         assertThat(partial.status()).isEqualTo(SemanticResultStatus.PARTIAL);
         assertThat(ambiguous.status()).isEqualTo(SemanticResultStatus.AMBIGUOUS);
-        assertThat(partialEvaluation.outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
-        assertThat(ambiguousEvaluation.outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(partialEvaluation.outcome()).contains(RunOutcome.INCONCLUSIVE);
+        assertThat(ambiguousEvaluation.outcome()).contains(RunOutcome.INCONCLUSIVE);
     }
 
     @Test
@@ -273,7 +290,7 @@ class DomainKernelLifecycleTest {
         RepositoryId repositoryId = new RepositoryId("order-service");
         RepositoryRevision revision = new RepositoryRevision("ord-456");
         InformationNeed need = need("need-missing", repositoryId, "POST /orders");
-        AnalysisState state = preparedState(
+        AttemptState state = preparedState(
                 new AnalysisRunId("run-no-progress"),
                 new AnalysisAttemptId("attempt-1"),
                 List.of(repositoryId),
@@ -286,22 +303,22 @@ class DomainKernelLifecycleTest {
         Goal goal = new Goal("Answer the order question", Set.of(need.id()));
 
         GoalEvaluation missingEvaluation = goalEvaluator.evaluate(
-                goal, state, Optional.of(GoalBlocker.CAPABILITY_MISSING));
+                goal, state, Optional.of(GoalBlockReason.CAPABILITY_MISSING));
         GoalEvaluation noProgressEvaluation = goalEvaluator.evaluate(
                 goal, state, noProgress.blocker());
 
         assertThat(missing.status()).isEqualTo(PlanningStatus.CAPABILITY_MISSING);
-        assertThat(missingEvaluation.outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(missingEvaluation.outcome()).contains(RunOutcome.INCONCLUSIVE);
         assertThat(noProgress.terminate()).isTrue();
-        assertThat(noProgressEvaluation.outcome()).contains(AnalysisOutcome.INCONCLUSIVE);
+        assertThat(noProgressEvaluation.outcome()).contains(RunOutcome.INCONCLUSIVE);
     }
 
-    private AnalysisState preparedState(
+    private AttemptState preparedState(
             AnalysisRunId runId,
             AnalysisAttemptId attemptId,
             List<RepositoryId> repositories,
             List<RepositoryRevision> revisions) {
-        AnalysisState state = AnalysisState.initial(runId, attemptId, AnalysisBudget.of(20, 10));
+        AttemptState state = AttemptState.initial(runId, attemptId, AttemptBudget.of(20, 10));
         List<RepositorySelection> selections = repositories.stream()
                 .map(repositoryId -> new RepositorySelection(
                         repositoryId,
@@ -325,11 +342,11 @@ class DomainKernelLifecycleTest {
         return state;
     }
 
-    private AnalysisState resolveWithEvidence(
-            AnalysisState state,
+    private AttemptState resolveWithEvidence(
+            AttemptState state,
             InformationNeed need,
             EvidenceRef evidence) {
-        AnalysisState updated = apply(state, new AnalysisEvent.NeedRegistered(
+        AttemptState updated = apply(state, new AnalysisEvent.NeedRegistered(
                 state.runId(), state.attemptId(), state.stateRevision(), need));
         updated = apply(updated, new AnalysisEvent.EvidenceAccepted(
                 updated.runId(), updated.attemptId(), updated.stateRevision(), need.id(), evidence));
@@ -337,7 +354,7 @@ class DomainKernelLifecycleTest {
                 updated.runId(), updated.attemptId(), updated.stateRevision(), need.id()));
     }
 
-    private AnalysisState apply(AnalysisState state, AnalysisEvent event) {
+    private AttemptState apply(AttemptState state, AnalysisEvent event) {
         return reducer.reduce(state, event).candidateState();
     }
 

@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.port.out;
 
-import com.java.system.agent.runtime.domain.RepositoryRevision;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;

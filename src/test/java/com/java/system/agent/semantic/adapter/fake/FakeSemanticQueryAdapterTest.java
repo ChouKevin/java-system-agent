@@ -1,14 +1,14 @@
 package com.java.system.agent.semantic.adapter.fake;
 
-import com.java.system.agent.runtime.domain.ArtifactRef;
-import com.java.system.agent.runtime.domain.EvidenceRef;
-import com.java.system.agent.runtime.domain.InformationNeed;
-import com.java.system.agent.runtime.domain.InformationNeedId;
-import com.java.system.agent.runtime.domain.InformationNeedType;
-import com.java.system.agent.runtime.domain.RepositoryId;
-import com.java.system.agent.runtime.domain.RepositoryRevision;
-import com.java.system.agent.runtime.domain.SemanticTarget;
-import com.java.system.agent.runtime.domain.SemanticTargetKind;
+import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
+import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
+import com.java.system.agent.runtime.domain.need.InformationNeed;
+import com.java.system.agent.runtime.domain.need.InformationNeedId;
+import com.java.system.agent.runtime.domain.need.InformationNeedType;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
+import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
+import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.port.out.SemanticFailure;
 import com.java.system.agent.runtime.port.out.SemanticFailureCode;
 import com.java.system.agent.runtime.port.out.SemanticQuery;

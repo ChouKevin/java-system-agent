@@ -1,12 +1,12 @@
 package com.java.system.agent.runtime.port.in;
 
-import com.java.system.agent.runtime.domain.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.AnalysisBudget;
-import com.java.system.agent.runtime.domain.AnalysisRunId;
-import com.java.system.agent.runtime.domain.AnalysisState;
-import com.java.system.agent.runtime.domain.AnalysisStatus;
-import com.java.system.agent.runtime.domain.RepositoryScope;
-import com.java.system.agent.runtime.domain.RevisionVector;
+import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.run.AttemptBudget;
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.runtime.domain.run.AttemptState;
+import com.java.system.agent.runtime.domain.run.AttemptStatus;
+import com.java.system.agent.runtime.domain.scope.RepositoryScope;
+import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -21,7 +21,7 @@ class AnalysisExecutionExceptionTest {
     @Test
     void retainsTerminationDataAndTheOriginalCause() {
         IllegalStateException cause = new IllegalStateException("transition persistence failed");
-        AnalysisState lastCommittedState = state();
+        AttemptState lastCommittedState = state();
 
         AnalysisExecutionException exception = new AnalysisExecutionException(
                 AnalysisTerminationReason.RUNTIME_FAILURE, lastCommittedState, cause);
@@ -48,18 +48,18 @@ class AnalysisExecutionExceptionTest {
                 AnalysisTerminationReason.RUNTIME_FAILURE, null, new IllegalStateException("failure")));
     }
 
-    private AnalysisState state() {
-        return new AnalysisState(
+    private AttemptState state() {
+        return new AttemptState(
                 new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"),
                 1,
-                AnalysisStatus.EXECUTING,
+                AttemptStatus.EXECUTING,
                 RepositoryScope.of(List.of()),
                 RevisionVector.empty(),
                 Collections.emptySortedMap(),
                 Set.of(),
                 List.of(),
                 List.of(),
-                AnalysisBudget.of(10, 5));
+                AttemptBudget.of(10, 5));
     }
 }

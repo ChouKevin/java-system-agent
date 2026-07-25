@@ -1,18 +1,18 @@
 package com.java.system.agent.runtime.port.in;
 
-import com.java.system.agent.runtime.domain.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.AnalysisBudget;
-import com.java.system.agent.runtime.domain.AnalysisRunId;
-import com.java.system.agent.runtime.domain.Goal;
-import com.java.system.agent.runtime.domain.InformationNeed;
-import com.java.system.agent.runtime.domain.InformationNeedId;
-import com.java.system.agent.runtime.domain.InformationNeedType;
-import com.java.system.agent.runtime.domain.RepositoryDiscoverySource;
-import com.java.system.agent.runtime.domain.RepositoryId;
-import com.java.system.agent.runtime.domain.RepositoryScope;
-import com.java.system.agent.runtime.domain.RepositorySelection;
-import com.java.system.agent.runtime.domain.SemanticTarget;
-import com.java.system.agent.runtime.domain.SemanticTargetKind;
+import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.run.AttemptBudget;
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.runtime.domain.need.Goal;
+import com.java.system.agent.runtime.domain.need.InformationNeed;
+import com.java.system.agent.runtime.domain.need.InformationNeedId;
+import com.java.system.agent.runtime.domain.need.InformationNeedType;
+import com.java.system.agent.runtime.domain.scope.RepositoryDiscoverySource;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryScope;
+import com.java.system.agent.runtime.domain.scope.RepositorySelection;
+import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
+import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -147,7 +147,7 @@ class AnalysisExecutionCommandTest {
         return new Goal("Resolve " + requiredNeedId, Set.of(new InformationNeedId(requiredNeedId)));
     }
 
-    private AnalysisBudget budget() {
-        return AnalysisBudget.of(10, 5);
+    private AttemptBudget budget() {
+        return AttemptBudget.of(10, 5);
     }
 }

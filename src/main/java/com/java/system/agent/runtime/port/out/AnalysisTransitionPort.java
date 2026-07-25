@@ -1,8 +1,8 @@
 package com.java.system.agent.runtime.port.out;
 
-import com.java.system.agent.runtime.domain.AnalysisState;
+import com.java.system.agent.runtime.domain.run.AttemptState;
 
 public interface AnalysisTransitionPort<T> {
 
-    AnalysisState commit(T transition);
+    AttemptState commit(T transition);
 }

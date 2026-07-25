@@ -1,9 +1,9 @@
 package com.java.system.agent.runtime.port.out;
 
-import com.java.system.agent.runtime.domain.InformationNeed;
-import com.java.system.agent.runtime.domain.RepositoryId;
-import com.java.system.agent.runtime.domain.RepositoryRevision;
-import com.java.system.agent.runtime.domain.SemanticTarget;
+import com.java.system.agent.runtime.domain.need.InformationNeed;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
+import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 
 import java.util.Objects;
 

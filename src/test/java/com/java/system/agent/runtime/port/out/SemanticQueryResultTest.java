@@ -1,11 +1,11 @@
 package com.java.system.agent.runtime.port.out;
 
-import com.java.system.agent.runtime.domain.ArtifactRef;
-import com.java.system.agent.runtime.domain.EvidenceRef;
-import com.java.system.agent.runtime.domain.RepositoryId;
-import com.java.system.agent.runtime.domain.RepositoryRevision;
-import com.java.system.agent.runtime.domain.SemanticTarget;
-import com.java.system.agent.runtime.domain.SemanticTargetKind;
+import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
+import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
+import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
+import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;

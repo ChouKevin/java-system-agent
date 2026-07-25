@@ -1,8 +1,8 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.runtime.application.AnalysisEvent;
-import com.java.system.agent.runtime.application.StateTransition;
-import com.java.system.agent.runtime.domain.AnalysisState;
+import com.java.system.agent.runtime.application.state.AnalysisEvent;
+import com.java.system.agent.runtime.application.state.StateTransition;
+import com.java.system.agent.runtime.domain.run.AttemptState;
 import com.java.system.agent.runtime.port.out.AnalysisTransitionPort;
 
 import java.util.ArrayList;
@@ -25,7 +25,7 @@ public final class InMemoryAnalysisTransitionAdapter implements AnalysisTransiti
     }
 
     @Override
-    public synchronized AnalysisState commit(StateTransition transition) {
+    public synchronized AttemptState commit(StateTransition transition) {
         Objects.requireNonNull(transition, "state transition must not be null");
         commitCount++;
         if (failingCommitNumber.filter(number -> number == commitCount).isPresent()) {

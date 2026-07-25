@@ -1,16 +1,16 @@
 package com.java.system.agent.runtime.port.in;
 
-import com.java.system.agent.runtime.domain.AnalysisRun;
-import com.java.system.agent.runtime.domain.AnalysisState;
-import com.java.system.agent.runtime.domain.AnalysisStatus;
-import com.java.system.agent.runtime.domain.AnalysisOutcome;
-import com.java.system.agent.runtime.domain.AttemptOutcome;
+import com.java.system.agent.runtime.domain.run.AnalysisRun;
+import com.java.system.agent.runtime.domain.run.AttemptState;
+import com.java.system.agent.runtime.domain.run.AttemptStatus;
+import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.AttemptOutcome;
 
 import java.util.Objects;
 
 public record AnalysisExecutionResult(
         AnalysisRun run,
-        AnalysisState finalState,
+        AttemptState finalState,
         AnalysisTerminationReason reason) {
 
     public AnalysisExecutionResult {
@@ -40,7 +40,7 @@ public record AnalysisExecutionResult(
         if (!isAttemptOutcomeCompatibleWithStatus(attemptOutcome, finalState.status())) {
             throw new IllegalArgumentException("current analysis attempt outcome must match the final state status");
         }
-        AnalysisOutcome runOutcome = run.outcome()
+        RunOutcome runOutcome = run.outcome()
                 .orElseThrow(() -> new IllegalArgumentException("analysis run must be concluded"));
         if (!isRunOutcomeCompatibleWithStatus(runOutcome, finalState.status())) {
             throw new IllegalArgumentException("analysis run outcome must match the final state status");
@@ -50,57 +50,56 @@ public record AnalysisExecutionResult(
         }
     }
 
-    private static boolean isTerminal(AnalysisStatus status) {
+    private static boolean isTerminal(AttemptStatus status) {
         return switch (status) {
             case STALE, COMPLETED, INCONCLUSIVE, FAILED, CANCELLED -> true;
-            case RECEIVED, UNDERSTANDING, SCOPE_RESOLVING, REVISION_PINNING,
-                    PLANNING, EXECUTING, COMPOSING, VERIFYING -> false;
+            case RECEIVED, REVISION_PINNING, PLANNING, EXECUTING -> false;
         };
     }
 
     private static boolean isAttemptOutcomeCompatibleWithStatus(
             AttemptOutcome outcome,
-            AnalysisStatus status) {
+            AttemptStatus status) {
         return switch (outcome) {
-            case COMPLETED -> status == AnalysisStatus.COMPLETED;
-            case STALE -> status == AnalysisStatus.STALE;
-            case INCONCLUSIVE -> status == AnalysisStatus.INCONCLUSIVE;
-            case FAILED -> status == AnalysisStatus.FAILED;
-            case CANCELLED -> status == AnalysisStatus.CANCELLED;
+            case COMPLETED -> status == AttemptStatus.COMPLETED;
+            case STALE -> status == AttemptStatus.STALE;
+            case INCONCLUSIVE -> status == AttemptStatus.INCONCLUSIVE;
+            case FAILED -> status == AttemptStatus.FAILED;
+            case CANCELLED -> status == AttemptStatus.CANCELLED;
         };
     }
 
     private static boolean isRunOutcomeCompatibleWithStatus(
-            AnalysisOutcome outcome,
-            AnalysisStatus status) {
+            RunOutcome outcome,
+            AttemptStatus status) {
         return switch (outcome) {
-            case COMPLETED -> status == AnalysisStatus.COMPLETED;
-            case INCONCLUSIVE -> status == AnalysisStatus.INCONCLUSIVE || status == AnalysisStatus.STALE;
-            case FAILED -> status == AnalysisStatus.FAILED;
-            case CANCELLED -> status == AnalysisStatus.CANCELLED;
+            case COMPLETED -> status == AttemptStatus.COMPLETED;
+            case INCONCLUSIVE -> status == AttemptStatus.INCONCLUSIVE || status == AttemptStatus.STALE;
+            case FAILED -> status == AttemptStatus.FAILED;
+            case CANCELLED -> status == AttemptStatus.CANCELLED;
         };
     }
 
     private static boolean isReasonCompatibleWithResult(
             AnalysisTerminationReason reason,
-            AnalysisOutcome outcome,
-            AnalysisStatus status) {
+            RunOutcome outcome,
+            AttemptStatus status) {
         return switch (reason) {
-            case GOAL_COMPLETED -> outcome == AnalysisOutcome.COMPLETED
-                    && status == AnalysisStatus.COMPLETED;
+            case GOAL_COMPLETED -> outcome == RunOutcome.COMPLETED
+                    && status == AttemptStatus.COMPLETED;
             case CAPABILITY_MISSING, PREREQUISITE_MISSING, SEMANTIC_AMBIGUOUS,
-                    SEMANTIC_FORBIDDEN, BUDGET_EXHAUSTED, NO_PROGRESS -> outcome == AnalysisOutcome.INCONCLUSIVE
-                    && status == AnalysisStatus.INCONCLUSIVE;
-            case SEMANTIC_UNAVAILABLE -> (outcome == AnalysisOutcome.INCONCLUSIVE
-                    && status == AnalysisStatus.INCONCLUSIVE)
-                    || (outcome == AnalysisOutcome.FAILED
-                    && status == AnalysisStatus.FAILED);
-            case REVISION_RESTART_LIMIT -> outcome == AnalysisOutcome.INCONCLUSIVE
-                    && (status == AnalysisStatus.STALE || status == AnalysisStatus.INCONCLUSIVE);
-            case CANCELLED -> outcome == AnalysisOutcome.CANCELLED
-                    && status == AnalysisStatus.CANCELLED;
-            case RUNTIME_FAILURE -> outcome == AnalysisOutcome.FAILED
-                    && status == AnalysisStatus.FAILED;
+                    SEMANTIC_FORBIDDEN, BUDGET_EXHAUSTED, NO_PROGRESS -> outcome == RunOutcome.INCONCLUSIVE
+                    && status == AttemptStatus.INCONCLUSIVE;
+            case SEMANTIC_UNAVAILABLE -> (outcome == RunOutcome.INCONCLUSIVE
+                    && status == AttemptStatus.INCONCLUSIVE)
+                    || (outcome == RunOutcome.FAILED
+                    && status == AttemptStatus.FAILED);
+            case REVISION_RESTART_LIMIT -> outcome == RunOutcome.INCONCLUSIVE
+                    && (status == AttemptStatus.STALE || status == AttemptStatus.INCONCLUSIVE);
+            case CANCELLED -> outcome == RunOutcome.CANCELLED
+                    && status == AttemptStatus.CANCELLED;
+            case RUNTIME_FAILURE -> outcome == RunOutcome.FAILED
+                    && status == AttemptStatus.FAILED;
         };
     }
 }
