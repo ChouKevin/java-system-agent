@@ -2,10 +2,13 @@ package com.java.system.agent.runtime.domain.scope;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * 一次 Attempt 內，每個 repository 各自釘選的 revision 集合
@@ -65,6 +68,26 @@ public final class RevisionVector {
 
     public List<RepositoryId> repositoryIds() {
         return List.copyOf(revisions.keySet());
+    }
+
+    /**
+     * 找出相對於 {@code previous} 發生 revision 變動的 repository
+     *
+     * <p>只有同時存在於兩個 vector 的 repository 才可能被判定為 drift——只存在於
+     * 這一份、previous 沒有的 repository，代表它是這一輪才新加入 scope，屬於範圍
+     * 擴張而非變動；只存在於 previous、這一份沒有的 repository，代表它這一輪不在
+     * scope 內，同樣不算變動</p>
+     */
+    public Set<RepositoryId> driftedFrom(RevisionVector previous) {
+        Objects.requireNonNull(previous, "previous revision vector must not be null");
+        Set<RepositoryId> drifted = new TreeSet<>();
+        for (Map.Entry<RepositoryId, RepositoryRevision> pinned : revisions.entrySet()) {
+            Optional<RepositoryRevision> previousRevision = previous.revisionOf(pinned.getKey());
+            if (previousRevision.isPresent() && !previousRevision.orElseThrow().equals(pinned.getValue())) {
+                drifted.add(pinned.getKey());
+            }
+        }
+        return Collections.unmodifiableSet(drifted);
     }
 
     @Override
