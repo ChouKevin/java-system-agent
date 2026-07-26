@@ -1,5 +1,8 @@
 package com.java.system.agent.runtime.port.out;
 
+/**
+ * Agent semantic 與 repository revision 邊界可辨識的失敗代碼
+ */
 public enum SemanticFailureCode {
     PARTIAL_RESULT,
     AMBIGUOUS_TARGET,

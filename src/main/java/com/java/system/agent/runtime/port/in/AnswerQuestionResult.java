@@ -1,42 +1,41 @@
 package com.java.system.agent.runtime.port.in;
 
-import com.java.system.agent.runtime.domain.answer.Answer;
-import com.java.system.agent.runtime.domain.run.AnalysisRun;
-import com.java.system.agent.runtime.domain.run.AttemptState;
+import com.java.system.agent.runtime.domain.answer.AnswerDocument;
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
-import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 
 import java.util.Objects;
-import java.util.Set;
+import java.util.Optional;
 
 /**
- * {@link AnswerQuestionUseCase} 的輸出：組合並驗證完成的回答，連同其分析過程結果
- *
- * <p>與 {@code AnalysisExecutionResult} 的關係——後者是 kernel 的執行結果，
- * 這裡在其外再包一層 {@link Answer}，是回答離開 runtime 的唯一出口</p>
- *
- * <p>{@code revisionVector} 一律取自 kernel 結束後的 {@code AttemptState}，由 runtime
- * 蓋章、不是模型陳述的字串；{@code driftedRepositories} 是相對於這個 thread 上一輪
- * 記憶的 revision 發生變動的 repository，沒有上一輪可比對時為空集合</p>
+ * {@link AnswerQuestionUseCase} 的輸出：唯一驗證 action loop 的最終結果
  */
 public record AnswerQuestionResult(
-        AnalysisRun run,
-        AttemptState finalState,
-        Answer answer,
+        AnalysisRunId runId,
         RunOutcome outcome,
-        AnalysisTerminationReason reason,
-        RevisionVector revisionVector,
-        Set<RepositoryId> driftedRepositories) {
+        String responseText,
+        Optional<AnswerDocument> answerDocument,
+        RevisionVector finalRevisions) {
 
     public AnswerQuestionResult {
-        Objects.requireNonNull(run, "analysis run must not be null");
-        Objects.requireNonNull(finalState, "final analysis state must not be null");
-        Objects.requireNonNull(answer, "answer must not be null");
+        Objects.requireNonNull(runId, "analysis run ID must not be null");
         Objects.requireNonNull(outcome, "analysis run outcome must not be null");
-        Objects.requireNonNull(reason, "analysis termination reason must not be null");
-        Objects.requireNonNull(revisionVector, "revision vector must not be null");
-        Objects.requireNonNull(driftedRepositories, "drifted repositories must not be null");
-        driftedRepositories = Set.copyOf(driftedRepositories);
+        Objects.requireNonNull(responseText, "answer response text must not be null");
+        Objects.requireNonNull(answerDocument, "answer document must not be null");
+        Objects.requireNonNull(finalRevisions, "final revisions must not be null");
+        if (responseText.isBlank()) {
+            throw new IllegalArgumentException("answer response text must not be blank");
+        }
+        if (outcome == RunOutcome.COMPLETED && answerDocument.isEmpty()) {
+            throw new IllegalArgumentException("completed answer result must contain an answer document");
+        }
+        if ((outcome == RunOutcome.FAILED || outcome == RunOutcome.CANCELLED) && answerDocument.isPresent()) {
+            throw new IllegalArgumentException("failed or cancelled answer result must not contain an answer document");
+        }
+        if (answerDocument.isPresent()
+                && !responseText.equals(answerDocument.orElseThrow().renderParagraphs())) {
+            throw new IllegalArgumentException("answer response text must render the answer document exactly");
+        }
     }
 }

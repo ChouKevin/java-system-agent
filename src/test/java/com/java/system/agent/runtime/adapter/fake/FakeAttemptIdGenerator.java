@@ -27,9 +27,9 @@ public final class FakeAttemptIdGenerator implements AnalysisAttemptIdGenerator 
     }
 
     @Override
-    public AnalysisAttemptId nextAttemptId(AnalysisRunId runId, int attemptNumber) {
+    public AnalysisAttemptId nextAttemptId(AnalysisRunId runId, int attemptSequence) {
         Objects.requireNonNull(runId, "analysis run ID must not be null");
-        if (attemptNumber < 1) {
+        if (attemptSequence < 1) {
             throw new IllegalArgumentException("attempt number must be positive");
         }
         AnalysisAttemptId attemptId = registeredAttemptIds.pollFirst();

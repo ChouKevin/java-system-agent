@@ -1,23 +1,25 @@
 package com.java.system.agent.runtime.domain.conversation;
 
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+
 import java.util.Objects;
-import java.util.Optional;
 
 /**
- * 一輪對話：使用者的問題、Agent 的回答摘要，以及是否曾要求釐清
- *
- * <p>{@code clarificationAsked} 有值時代表這一輪 Agent 沒有給出最終答案，
- * 而是回問使用者；{@link ConversationContext#hasPendingClarification()} 依此判斷
- * 是否還在等待使用者回覆釐清問題</p>
+ * 已驗證且可 append 到對話歷史的不可變回應
  */
 public record ConversationTurn(
-        String question,
-        String answerSummary,
-        Optional<String> clarificationAsked) {
+        AnalysisRunId runId,
+        String userMessage,
+        String assistantMessage,
+        ConversationTurnType type) {
 
     public ConversationTurn {
-        Objects.requireNonNull(question, "question must not be null");
-        Objects.requireNonNull(answerSummary, "answer summary must not be null");
-        Objects.requireNonNull(clarificationAsked, "clarification asked must not be null");
+        Objects.requireNonNull(runId, "analysis run ID must not be null");
+        Objects.requireNonNull(userMessage, "conversation user message must not be null");
+        Objects.requireNonNull(assistantMessage, "conversation assistant message must not be null");
+        Objects.requireNonNull(type, "conversation turn type must not be null");
+        if (userMessage.isBlank() || assistantMessage.isBlank()) {
+            throw new IllegalArgumentException("conversation messages must not be blank");
+        }
     }
 }

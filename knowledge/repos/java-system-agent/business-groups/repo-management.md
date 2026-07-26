@@ -1,48 +1,34 @@
-# Repo 管理
+# Repo 管理邊界
 
 ## Business Purpose
 
-This group manages the lifecycle of every repository the agent analyzes: registering a clone, pulling updates, switching branches, and querying current state. Any git mutation must reload the per-repo analysis caches so later analysis reads the new source.
+Root Agent 只需要知道可查詢的 opaque repository candidates 與執行查詢時的 exact
+revision。Clone、pull、checkout、workspace 與 JDT LS lifecycle 屬於獨立
+`java-semantic-service`，不在 root runtime 內。
 
-## Entry Points
+## Current External Entry Points
 
-| Package | Class | Method | When to inspect |
-|---------|-------|--------|-----------------|
-| `com.java.system.agent.api` | `RepoController` | `listRepos` | User asks which repositories are registered. |
-| `com.java.system.agent.api` | `RepoController` | `cloneRepo` | User asks how a repository is first downloaded. |
-| `com.java.system.agent.api` | `RepoController` | `pullRepo` | User asks how source updates reach the analyzer. |
-| `com.java.system.agent.api` | `RepoController` | `checkoutRepo` | User asks how a branch or revision is switched. |
-| `com.java.system.agent.api` | `RepoController` | `currentBranch` | User asks which revision is being analyzed. |
+None. 舊的 root `RepoController`、Git write endpoints 與 startup cache warmer 已不存在。
 
-## Required Input Data
+## Implemented Root Contracts
 
-| Field | Meaning |
-|-------|---------|
-| `repo` | Repository identifier registered in configuration. |
-| `branch` | Target branch when checking out. |
-| `X-Api-Token` header | Shared secret required by all mutating git endpoints. |
+| Contract | Responsibility | Production status |
+|----------|----------------|-------------------|
+| `RepositoryCatalogPort` | 提供 runtime-issued repository handles 與描述 | Test fake only |
+| `RepositoryRevisionPort` | 在查詢前解析 exact revision，偵測 context drift | Test fake only |
+| `RepositoryId` / `RepositoryRevision` | 跨邊界使用的 immutable opaque values | Implemented |
 
-## System Behavior
+## Runtime Behavior
 
-1. Reject mutating requests without a valid API token (fail-closed).
-2. Clone or update the repository working copy under the runtime `repos/` directory.
-3. After any mutation, invalidate and rebuild the per-repo analysis caches.
-4. On startup, warm caches for every registered repository.
+1. Context issuer 只把 catalog 回傳的 repository candidates 配成 opaque handles。
+2. LLM 可選一個、多個或不選候選，並以文字說明範圍疑問。
+3. Runtime 驗證選到的 handle 是否真的由本次 context 發出；不替 LLM 增刪、重排或打分。
+4. 執行 `QUERY` 前解析 selected repositories 的 exact revision。
+5. Revision drift 使舊 attempt 失效；有預算時建立新 attempt，沒有預算時以明確 observation
+   結束，不使用過期證據。
 
-## Related Dependencies
+## Ownership Boundary
 
-| Dependency | Role |
-|------------|------|
-| `GitRepoService` | Executes clone, pull, and checkout through JGit. |
-| `CacheWarmerService` | Preloads analysis caches at startup. |
-| `AnalysisService` | Owns the per-repo caches that reloads must refresh. |
-
-## Source Lookup
-
-Use `find_call_graph` with:
-
-| repoId | packageName | className | methodSignature |
-|--------|-------------|-----------|-----------------|
-| `java-system-agent` | `com.java.system.agent.api` | `RepoController` | `listRepos` |
-| `java-system-agent` | `com.java.system.agent.api` | `RepoController` | `pullRepo` |
-| `java-system-agent` | `com.java.system.agent.api` | `RepoController` | `checkoutRepo` |
+實際 repository lifecycle、source locks 與 semantic snapshot publication 由
+`java-semantic-service` 擁有。Root M1 尚無 catalog/revision HTTP adapter，也不會直接讀寫
+`repos/` clone。

@@ -4,17 +4,29 @@
 
 This repository holds **two independent Maven projects** that share only versioned HTTP contracts and an opaque `repoId`. There is deliberately no `<modules>` aggregation and no parent POM: without aggregation, introducing a shared library would require a dependency visible in a pom diff. Build them separately.
 
-**Root project — the Agent.** A Spring Boot 4 / Java 21 Spring Modulith application. `src/main/java/com/java/system/agent/` contains exactly `Application.java` and `runtime/`, which is the Agent V2 kernel:
+**Root project — the Agent.** A Spring Boot 4 / Java 21 Spring Modulith application.
+`src/main/java/com/java/system/agent/` contains `Application.java` and three modules:
 
 ```
 runtime/
-  domain/       run/ scope/ need/ evidence/ answer/ conversation/
-  application/  lifecycle/ state/ planning/ semantic/ goal/ understanding/ answer/
-                + BoundedAnalysisLoop and AnalysisApplicationService at the root
+  domain/       action/ answer/ candidate/ capability/ conversation/ evidence/ handle/
+                observation/ run/ scope/
+  application/  state/ validation/ + ValidatedAgentLoop and AnalysisApplicationService
   port/         in/ out/
+inbox/
+  domain/       immutable inbox message, source identity, status, and failure values
+  application/  enqueue boundary, processor, and bounded retry policy
+  port/         in/ out/
+persistence/
+  document/     versioned Agent state/event JSON codecs
+  jdbc/         PostgreSQL inbox, transition, cancellation, and session adapters
 ```
 
-`domain` groups by aggregate; its dependencies form a chain, `scope ← evidence ← need ← run`, with `answer → need` and `conversation → evidence, scope`. Nothing may import `answer` or `conversation`. `application` groups by flow stage, and the two orchestrators sit at its root because they are the only classes that span every stage.
+`runtime.domain` groups immutable action-loop values. `ValidatedAgentLoop` is the only lifecycle
+orchestrator; `AnalysisApplicationService` is only the public request/result mapping boundary.
+Session history is read once and append-only, while the append-only Agent event trace and atomic
+current-state snapshot are persisted separately. `inbox` serializes work by opaque session;
+`persistence` implements infrastructure ports without becoming a named interface.
 
 **`java-semantic-service/`** is a standalone Java 21 / Spring Boot service that owns repository lifecycle, JDT LS integration, and call-graph construction. It has its own `AGENTS.md`; read that before working in it.
 
@@ -22,13 +34,47 @@ runtime/
 
 ## Current State
 
-The agent **does not run yet**, and this is expected rather than broken. The original agent was retired at `47fab8c`, and V2's adapters have not been built:
+The root Agent **does not run yet**, and this is expected rather than broken. The original agent was
+retired at `47fab8c`; M1 now has durable inbox and PostgreSQL persistence, but no composition root:
 
-- All ten outbound ports are satisfied only by test fakes. There is no production implementation of `SemanticQueryPort`, `AnalysisTransitionPort`, `ConversationContextPort`, `RepositoryCatalogPort`, `QuestionUnderstandingPort`, `AnswerCompositionPort`, `ClaimVerificationPort`, `RepositoryRevisionPort`, `AnalysisCancellationPort`, or `AnalysisAttemptIdGenerator`.
-- There is no composition root. `runtime` is deliberately framework-free — a grep for `@Component`, `@Service`, `@Configuration`, `@Bean`, and `@Repository` across it returns nothing — so no Spring wiring constructs `AnalysisApplicationService`, and nothing calls it.
-- The Spring context therefore starts with no beans.
+- Production adapters exist for session inbox, Agent transition/event/current-state persistence,
+  session history, cancellation, and inbox UUID identity generation.
+- Agent action, semantic query, answer verification, repository/capability catalogs, repository
+  revision, and attempt-ID ports still have no production adapters.
+- Slack ingestion, scheduling/worker execution, response delivery, datasource configuration, and
+  the composition root remain absent. `runtime`, `inbox`, and production persistence classes carry
+  no Spring stereotypes, so nothing constructs or calls `AnalysisApplicationService`.
+- The Spring context therefore starts without an Agent workflow or persistence adapter beans.
 
-`docs/superpowers/reviews/2026-07-26-agent-v2-current-state.md` records the open findings and the order they should be addressed.
+The validated action-loop cutover is current:
+
+- The model proposes exactly one `QUERY`, `ANSWER`, or `CLARIFY` action and chooses any subset and order of runtime-issued capability and candidate handles.
+- Deterministic validation rejects unknown, stale, out-of-scope, schema-incompatible, over-budget, uncited, or unsupported output before execution or persistence.
+- The runtime never adds, removes, replaces, or semantically ranks the model candidate list.
+- Session history is append-only and trace is separate; the runtime never truncates, summarizes,
+  deletes, reorders, or rewrites conversation.
+- There is no confidence, route score, or ranking. Uncertainty is expressed through typed observations, evidence, warnings, candidates, and descriptions.
+
+The durable session lifecycle is also current:
+
+- A source thread maps to one opaque `SessionId`; each accepted source message keeps one stable
+  `AnalysisRunId` across retries and restart recovery.
+- The inbox preserves exact questions and source-message deduplication. Same-session messages execute
+  in sequence; different sessions remain independently claimable.
+- Startup recovery returns interrupted `PROCESSING` rows to `PENDING` without changing identity or
+  attempt count. Infrastructure failures use bounded retry; after three failed attempts the message
+  becomes `FAILED` and later session work is released.
+- Inbox attempt one is `INITIAL`; attempts within the retry ceiling are `RETRY` and may restart a
+  nonterminal Agent attempt only through reducer events. Before bootstrap is persisted, the inbox
+  attempt seeds the initial Agent attempt sequence. After bootstrap, the sequence is persisted in
+  `AgentRunState` and advances only through reducer events. A recovered claim beyond the ceiling is
+  `TERMINAL_RECONCILIATION`: it may finish a durable terminal response but must not call model,
+  semantic, or verifier ports for a nonterminal run.
+- Agent event append and current-state replacement are one transaction. State/event JSON is
+  versioned and decoded fail-closed. Accepted session turns are immutable and idempotent by
+  `(sessionId, runId)`.
+- These guarantees target one machine. Do not infer distributed ownership, leases, or cross-machine
+  coordination from the PostgreSQL locking implementation.
 
 ## Build, Test, and Development Commands
 
@@ -37,10 +83,13 @@ Run from the repository root:
 ```bash
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml clean test
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml test -Dtest=ApplicationModularityTests
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml -Ppostgres-it verify
 mvn -f java-semantic-service/pom.xml clean test
 ```
 
-The root suite requires no Docker and no external service. `ApplicationModularityTests` is the only test that exercises the Modulith contract; `RuntimeKernelArchitectureTest` holds the ArchUnit rules for kernel layering.
+The normal root suite requires no Docker or external service. The `postgres-it` profile uses
+Testcontainers and requires Docker. `ApplicationModularityTests` exercises the Modulith contract;
+the runtime, inbox, and persistence architecture tests enforce their detailed package boundaries.
 
 ## Architecture Rules
 
@@ -49,8 +98,22 @@ These are enforced by tests, not convention:
 - **`runtime` depends on no other module.** Its `package-info.java` declares `@ApplicationModule(allowedDependencies = {})`, and `ApplicationModularityTests` asserts it has no direct dependencies.
 - **`runtime` exposes exactly three named interfaces**: `domain`, `port-in`, `port-out`, via `@NamedInterface(value = "domain", propagate = true)` and the two port packages. `application` and everything else stays module-internal.
 - **`domain` classes depend only on the JDK and their own packages**; inbound and outbound ports depend only on the JDK and domain. `RuntimeKernelArchitectureTest` enforces all four rules.
-- **`DefaultStateReducer` is the only component that transitions an `AttemptState`.** Its `reduce` is an exhaustive pattern `switch` over a sealed `AnalysisEvent` with no `default`, so a new event type breaks compilation until it is handled, and `next()` is the only place `stateRevision` is incremented. `AttemptState.initial(...)` is the one documented exception, used at attempt preparation. Do not split this class; its size is concentration of invariants, not a smell.
-- **The LLM proposes, the runtime disposes.** Every model output passes a deterministic gate before it can affect anything: candidate repositories must exist in the catalog, claims cite runtime-issued evidence handles and an unknown handle counts as no citation, and a verdict missing for a claim means `UNSUPPORTED`. The model never selects a capability, changes state, decides termination, compares revisions, or produces an identifier the runtime did not supply.
+- **`inbox` depends only on `runtime :: domain` and `runtime :: port-in`.** It exposes `domain`,
+  `port-in`, and `port-out`; its application code remains internal and framework-free.
+- **`persistence` depends only on exposed runtime and inbox contracts.** It exposes no named
+  interface and never imports runtime/inbox application internals.
+- **The model chooses semantic action; validators enforce the contract.** The model chooses action,
+  candidate subset/order, capability, and uncertainty wording from runtime-issued opaque handles.
+  Runtime validation accepts or rejects catalog membership, schemas, revisions, budgets,
+  cancellation, evidence citations, and verdicts.
+- **`AgentStateReducer` makes no semantic choice.** It is the only type that deterministically turns
+  an accepted event into the next `AgentRunState`. `AgentTransitionCommitter` persists that event
+  and exactly its candidate state through one atomic port boundary. Runtime lifecycle policy, not
+  the LLM, owns termination, revisions, and IDs.
+- **Future read operations extend `QUERY`; mutations require a new contract.** Java analysis, API
+  reads, and log queries can use capability schemas. Any future external-state change requires an
+  explicit `EXECUTE` action with authorization, approval, idempotency, audit, and reconciliation;
+  do not overload `QUERY`.
 
 ## Coding Style & Naming Conventions
 
@@ -60,7 +123,7 @@ Four-space indentation and explicit Java types; **never use `var`**. Prefer reco
 
 Class names state their stage and role. The suffix vocabulary is fixed: `…Manager` owns a lifecycle, `…Evaluator` judges whether to stop, `…Planner` chooses the next action, `…Interpreter` translates an external response, `…Reducer` turns an event into state, `…Committer` persists, `…Policy` is a pure rule, `…Validator` asserts invariants.
 
-Types are named by the lifecycle they belong to: `AnalysisRun` and `RunOutcome` are run-scoped; `AttemptState`, `AttemptStatus`, `AttemptBudget`, and `AttemptOutcome` are attempt-scoped.
+Types are named by the lifecycle they belong to: `AnalysisRunId` and `RunOutcome` are run-scoped; `AgentRunState`, `RunAttempt`, and `AttemptBudget` are attempt-scoped.
 
 **Do not create a Java package named `target`.** `.gitignore` carries a bare `target/` for Maven output, which silently ignores a package directory of that name at any depth.
 
@@ -68,7 +131,7 @@ Types are named by the lifecycle they belong to: `AnalysisRun` and `RunOutcome` 
 
 JUnit 5, AssertJ, and ArchUnit. Name tests `*Test`; every test class's declared name must match its file name.
 
-Test behavior at domain-model boundaries rather than through scripted end-to-end walkthroughs. Where a rule lives in a pure function — `AnswerAcceptancePolicy`, `RepositoryScopeResolver`, `RevisionVector.driftedFrom` — test it there and thoroughly. Orchestrators get only the tests that a pure function cannot express: call counts, argument passing between rounds, and short-circuits. A record whose constructor only calls `Objects.requireNonNull` does not need its own test class.
+Test behavior at domain-model boundaries rather than through scripted end-to-end walkthroughs. Where a rule lives in a pure function — `AgentActionValidator`, `AnswerDocumentValidator`, `RevisionVector.driftedFrom` — test it there and thoroughly. The loop gets only tests for observable port, persistence, revision, citation, and cancellation boundaries. A record whose constructor only calls `Objects.requireNonNull` does not need its own test class.
 
 For adequately covered refactors, keep the relevant tests green rather than inventing a failing test. Use RED-GREEN for new observable behavior and public contract changes.
 

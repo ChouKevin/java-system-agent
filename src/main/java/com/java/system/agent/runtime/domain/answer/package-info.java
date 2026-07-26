@@ -1,7 +1,5 @@
 /**
- * 組合後的回答、其主張，以及主張與證據的引用關係
- *
- * <p>依賴 need 取得 EvidenceBinding，沒有任何 package 依賴此處
- * 回答經由 port/in 離開，不掛在 AnalysisRun 上</p>
+ * 可逐段驗證、以 runtime-issued evidence handles 引用的回答文件
  */
+@org.springframework.modulith.NamedInterface(value = "domain", propagate = true)
 package com.java.system.agent.runtime.domain.answer;

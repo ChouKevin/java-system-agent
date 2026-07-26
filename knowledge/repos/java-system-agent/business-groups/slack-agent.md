@@ -1,44 +1,60 @@
-# Slack 助理
+# Session Agent 核心
 
 ## Business Purpose
 
-This group handles a Slack @mention from arrival to streamed reply: deduplicate the event, rate-limit the user, run the LLM agent loop with document and analysis tools, verify the answer fail-closed, and stream the reply back into the thread.
+此群組實作來源訊息進入 durable inbox 後的 session ordering、validated Agent loop、
+terminal persistence 與 restart recovery。來源可以是未來的 Slack adapter，也可以是其他
+transport；runtime 不知道 Slack thread 格式，只接收 opaque source reference 與
+`SessionId`。
 
-## Entry Points
+## Current External Entry Points
 
-| Package | Class | Method | When to inspect |
-|---------|-------|--------|-----------------|
-| `com.java.system.agent.slack.listener` | `SlackEventListener` | `processAppMention` | User asks what happens after the bot is mentioned. |
+None. 舊的 `SlackEventListener`、event deduplicator、stream client 與 chat-memory endpoints
+已不存在。M1 只有 Java use-case/port 與 PostgreSQL adapters，尚無 scheduler、worker 或
+composition root。
 
-## Required Input Data
+## Required Input
 
-| Field | Meaning |
+| Value | Meaning |
 |-------|---------|
-| `event` | Slack app-mention event containing the user question. |
-| `threadTs` | Thread identifier; keys the per-thread conversation memory. |
-| `eventId` | Used to deduplicate redelivered Slack events. |
+| `SessionSourceRef` | Transport type 與來源 thread key；持久層將它解析成 opaque session |
+| `SourceMessageId` | 來源訊息去重 identity |
+| `exactQuestion` | 不截斷、不摘要、不改寫的使用者問題 |
+| `AttemptBudget` | 每個 run 可消耗的 action/query/revision 等上限 |
 
-## System Behavior
+## Implemented Flow
 
-1. Drop duplicate events and rate-limited users before any LLM call.
-2. Run the outer business-analyst loop: read service map and business documents, pick a repo and entry point.
-3. Call the analysis tools; an inner translator loop renders the call graph in business language.
-4. Verify the answer fail-closed; unverified answers are flagged instead of silently returned.
-5. Stream the reply into the Slack thread and record the decision trace.
+1. `enqueue` 原子解析或建立 session、依 source message 去重，並配發 session sequence、inbox
+   ID 與 stable run ID。
+2. `claimNext` 只認領到期 session head；同 session 後續訊息不能越過較早的 `PENDING` 或
+   `PROCESSING`，不同 session 可獨立認領。
+3. `ValidatedAgentLoop` 讀取累積 session history，讓 LLM 提出一個 action，再以 deterministic
+   validators 接受或拒絕。
+4. Reducer 只依 accepted event 計算下一 state；transition adapter 在一個 transaction 內
+   append event 並 CAS current snapshot。
+5. Terminal answer/clarification 通過 cancellation arbitration 後，append 一筆 immutable
+   session turn，再完成 inbox。
+6. 若在 durable terminal/turn 後、inbox completion 前中斷，startup recovery 將
+   `PROCESSING` 退回 `PENDING`。相同 run retry 讀到 terminal state，不再呼叫 LLM；相同 turn
+   append 是 no-op。
+7. 基礎設施失敗採 exponential backoff，預設最多三次。第 2、3 次可透過 reducer event
+   重啟 nonterminal attempt 並重新配發 context。若 bootstrap 尚未持久化，inbox attempt
+   會作為初始 Agent attempt 序號；之後序號保存在 run state，只由 reducer event 推進。
+   超過上限的 recovered claim 只能
+   reconcile 已 durable 的 terminal response，不能再呼叫 LLM、semantic provider 或
+   verifier。若 run 仍 nonterminal，訊息轉為 `FAILED`，同 session 下一筆才可繼續。
 
-## Related Dependencies
+## Durable Data
 
-| Dependency | Role |
-|------------|------|
-| `SlackEventDeduplicator` | Drops redelivered events. |
-| `AgentLoopRunner` | Shared loop machinery for both LLM layers. |
-| `DocumentTools` / `AgentAnalysisTools` | Tools the LLM uses to read documents and run analysis. |
-| `SlackStreamClient` | Streams partial replies into the thread. |
+| Data | Rule |
+|------|------|
+| `session_inbox` | Source-message dedup、stable run identity、per-session sequence 與 retry state |
+| `agent_run_event` | Append-only、按 state revision 排序的事件 trace |
+| `agent_run.current_state` | 與事件原子提交的 versioned current snapshot |
+| `session_turn` | Accepted user/assistant turn；以 `(sessionId, runId)` immutable/idempotent |
 
-## Source Lookup
+## Current Limitation
 
-Use `find_call_graph` with:
-
-| repoId | packageName | className | methodSignature |
-|--------|-------------|-----------|-----------------|
-| `java-system-agent` | `com.java.system.agent.slack.listener` | `SlackEventListener` | `processAppMention` |
+保證範圍是單一機器 lifecycle。PostgreSQL transaction/locks 維護已實作的原子性與 session
+ordering，但沒有 distributed worker lease、跨機 owner election 或 exactly-once response
+delivery。

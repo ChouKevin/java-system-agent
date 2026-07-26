@@ -1,6 +1,7 @@
 /**
- * Deterministic Agent V2 application policies.
+ * 唯一 validated action loop 的流程協作者
  *
- * <p>This package depends only on the JDK, the V2 domain model, and declared outbound ports.</p>
+ * <p>此 package 驗證模型選出的 opaque handles 與回答契約，並透過 append-only
+ * transition 提交 runtime 決定的狀態與事件</p>
  */
 package com.java.system.agent.runtime.application;

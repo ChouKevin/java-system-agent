@@ -1,0 +1,191 @@
+package com.java.system.agent.runtime.domain.run;
+
+import com.java.system.agent.runtime.domain.action.AgentAction;
+import com.java.system.agent.runtime.domain.action.ClarifyAction;
+import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
+import com.java.system.agent.runtime.domain.answer.AnswerDocument;
+import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
+import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
+import com.java.system.agent.runtime.domain.conversation.SessionId;
+import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
+import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
+import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
+import com.java.system.agent.runtime.domain.handle.CandidateHandle;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.observation.AgentObservation;
+import com.java.system.agent.runtime.domain.observation.ObservationId;
+import com.java.system.agent.runtime.domain.scope.RevisionVector;
+
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * Agent Run append-only lifecycle 可以接受的事件
+ */
+public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.AttemptStarted,
+        AgentEvent.ContextIssued, AgentEvent.ActionAccepted, AgentEvent.ActionRejected,
+        AgentEvent.QueryBudgetConsumed, AgentEvent.ObservationRecorded, AgentEvent.AttemptInvalidated,
+        AgentEvent.AnswerAccepted, AgentEvent.ClarificationAccepted, AgentEvent.RunConcluded {
+
+    AnalysisRunId runId();
+
+    AnalysisAttemptId attemptId();
+
+    long expectedStateRevision();
+
+    record RunStarted(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                      long expectedStateRevision) implements AgentEvent {
+        public RunStarted {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+        }
+    }
+
+    record AttemptStarted(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                          long expectedStateRevision, RunAttempt newAttempt) implements AgentEvent {
+        public AttemptStarted {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(newAttempt, "new run attempt must not be null");
+        }
+    }
+
+    record ContextIssued(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                         RevisionVector revisions,
+                         Map<CapabilityHandle, CapabilityDescriptor> capabilities,
+                         Map<CandidateHandle, IssuedCandidate> candidates,
+                         Map<EvidenceHandle, IssuedEvidence> evidence,
+                         Map<ObservationId, AgentObservation> observations) implements AgentEvent {
+        public ContextIssued {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(revisions, "issued context revisions must not be null");
+            capabilities = immutableMap(capabilities, "issued capabilities");
+            candidates = immutableMap(candidates, "issued candidates");
+            evidence = immutableMap(evidence, "issued evidence");
+            observations = immutableMap(observations, "issued observations");
+        }
+    }
+
+    record ActionAccepted(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                          AgentAction action) implements AgentEvent {
+        public ActionAccepted {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(action, "accepted agent action must not be null");
+        }
+    }
+
+    record ActionRejected(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                          Optional<AgentAction> originalAction, String description,
+                          boolean finalResponseMode) implements AgentEvent {
+        public ActionRejected {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(originalAction, "rejected original action must not be null");
+            Objects.requireNonNull(description, "action rejection description must not be null");
+            if (description.isBlank()) {
+                throw new IllegalArgumentException("action rejection description must not be blank");
+            }
+        }
+    }
+
+    record QueryBudgetConsumed(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                               long expectedStateRevision) implements AgentEvent {
+        public QueryBudgetConsumed {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+        }
+    }
+
+    record ObservationRecorded(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                               long expectedStateRevision, AgentObservation observation) implements AgentEvent {
+        public ObservationRecorded {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(observation, "recorded observation must not be null");
+        }
+    }
+
+    record AttemptInvalidated(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                              long expectedStateRevision, String reason,
+                              boolean consumeRevisionRestart) implements AgentEvent {
+        public AttemptInvalidated {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(reason, "attempt invalidation reason must not be null");
+            if (reason.isBlank()) {
+                throw new IllegalArgumentException("attempt invalidation reason must not be blank");
+            }
+        }
+    }
+
+    record AnswerAccepted(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                          AnswerDocument document, AnswerVerdict verdict,
+                          SessionId sessionId, ConversationTurn turn,
+                          boolean finalResponseMode) implements AgentEvent {
+        public AnswerAccepted {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(document, "accepted answer document must not be null");
+            Objects.requireNonNull(verdict, "accepted answer verdict must not be null");
+            Objects.requireNonNull(sessionId, "accepted answer session ID must not be null");
+            Objects.requireNonNull(turn, "accepted answer conversation turn must not be null");
+            if (verdict.disposition() == AnswerDisposition.REJECTED) {
+                throw new IllegalArgumentException("accepted answer requires an accepted verdict");
+            }
+            if (!runId.equals(turn.runId()) || turn.type() != ConversationTurnType.ANSWER
+                    || !turn.assistantMessage().equals(document.renderParagraphs())) {
+                throw new IllegalArgumentException("accepted answer turn must render the document for the same run");
+            }
+        }
+    }
+
+    record ClarificationAccepted(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                                 long expectedStateRevision, ClarifyAction action,
+                                 SessionId sessionId, ConversationTurn turn,
+                                 boolean finalResponseMode) implements AgentEvent {
+        public ClarificationAccepted {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(action, "accepted clarification action must not be null");
+            Objects.requireNonNull(sessionId, "accepted clarification session ID must not be null");
+            Objects.requireNonNull(turn, "accepted clarification conversation turn must not be null");
+            if (!runId.equals(turn.runId()) || turn.type() != ConversationTurnType.CLARIFICATION
+                    || !turn.assistantMessage().equals(action.question())) {
+                throw new IllegalArgumentException("accepted clarification turn must match the action for the same run");
+            }
+        }
+    }
+
+    record RunConcluded(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                        RunOutcome outcome, boolean runtimeFixedResponse) implements AgentEvent {
+        public RunConcluded(
+                AnalysisRunId runId,
+                AnalysisAttemptId attemptId,
+                long expectedStateRevision,
+                RunOutcome outcome) {
+            this(runId, attemptId, expectedStateRevision, outcome, false);
+        }
+
+        public RunConcluded {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(outcome, "run outcome must not be null");
+            if (outcome == RunOutcome.COMPLETED && runtimeFixedResponse) {
+                throw new IllegalArgumentException("completed run cannot use a runtime fixed response");
+            }
+        }
+    }
+
+    private static void validateEnvelope(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                                         long expectedStateRevision) {
+        Objects.requireNonNull(runId, "analysis run ID must not be null");
+        Objects.requireNonNull(attemptId, "analysis attempt ID must not be null");
+        if (expectedStateRevision < 0) {
+            throw new IllegalArgumentException("expected state revision must not be negative");
+        }
+    }
+
+    private static <K, V> Map<K, V> immutableMap(Map<K, V> values, String description) {
+        Objects.requireNonNull(values, description + " must not be null");
+        Map<K, V> copied = new LinkedHashMap<>();
+        values.forEach((key, value) -> copied.put(Objects.requireNonNull(key, description + " key must not be null"),
+                Objects.requireNonNull(value, description + " value must not be null")));
+        return Collections.unmodifiableMap(copied);
+    }
+}

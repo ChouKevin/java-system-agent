@@ -5,7 +5,7 @@ import java.util.Objects;
 /**
  * repository 的識別碼
  *
- * <p>可排序，用於 {@link RepositoryScope} 與 {@link RevisionVector} 內部維持穩定順序</p>
+ * <p>可排序，供 {@link RevisionVector} 內部維持穩定順序</p>
  */
 public record RepositoryId(String value) implements Comparable<RepositoryId> {
 

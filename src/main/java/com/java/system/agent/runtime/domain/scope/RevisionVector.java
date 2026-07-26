@@ -13,11 +13,11 @@ import java.util.TreeSet;
 /**
  * 一次 Attempt 內，每個 repository 各自釘選的 revision 集合
  *
- * <p>由 lifecycle 在準備 attempt 與 scope 擴張時逐一釘選，供全程比對是否過期</p>
+ * <p>runtime 只會為已驗證、由模型選定的 repository 直接釘選 revision，供全程比對是否過期</p>
  *
- * <p>{@link #pin(RepositoryScope, RepositoryId, RepositoryRevision)} 只允許為尚未釘選的
- * repository 第一次釘選；已釘選過的 repository 若傳入不同 revision 會直接丟例外——
- * 同一 Attempt 內既有 repository 的 revision 不可被取代，只有新發現的 repository 才可能被釘選</p>
+ * <p>{@link #pin(RepositoryId, RepositoryRevision)} 只允許為尚未釘選的 repository 第一次釘選；
+ * 已釘選過的 repository 若傳入不同 revision 會直接丟例外，同一 Attempt 內既有 repository 的
+ * revision 不可被取代</p>
  */
 public final class RevisionVector {
 
@@ -31,17 +31,9 @@ public final class RevisionVector {
         return new RevisionVector(new TreeMap<>());
     }
 
-    public RevisionVector pin(
-            RepositoryScope scope,
-            RepositoryId repositoryId,
-            RepositoryRevision revision) {
-        Objects.requireNonNull(scope, "repository scope must not be null");
+    public RevisionVector pin(RepositoryId repositoryId, RepositoryRevision revision) {
         Objects.requireNonNull(repositoryId, "repository ID must not be null");
         Objects.requireNonNull(revision, "repository revision must not be null");
-        if (!scope.contains(repositoryId)) {
-            throw new IllegalArgumentException(
-                    "repository is outside the analysis scope: " + repositoryId.value());
-        }
         RepositoryRevision pinnedRevision = revisions.get(repositoryId);
         if (Objects.nonNull(pinnedRevision) && !pinnedRevision.equals(revision)) {
             throw new IllegalArgumentException(
@@ -74,9 +66,8 @@ public final class RevisionVector {
      * 找出相對於 {@code previous} 發生 revision 變動的 repository
      *
      * <p>只有同時存在於兩個 vector 的 repository 才可能被判定為 drift——只存在於
-     * 這一份、previous 沒有的 repository，代表它是這一輪才新加入 scope，屬於範圍
-     * 擴張而非變動；只存在於 previous、這一份沒有的 repository，代表它這一輪不在
-     * scope 內，同樣不算變動</p>
+     * 這一份、previous 沒有的 repository，代表它是這一輪才首次釘選，並非變動；只存在於
+     * previous、這一份沒有的 repository，代表它這一輪未被選用，同樣不算變動</p>
      */
     public Set<RepositoryId> driftedFrom(RevisionVector previous) {
         Objects.requireNonNull(previous, "previous revision vector must not be null");

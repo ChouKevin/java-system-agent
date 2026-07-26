@@ -5,5 +5,5 @@ import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 
 public interface AnalysisAttemptIdGenerator {
 
-    AnalysisAttemptId nextAttemptId(AnalysisRunId runId, int attemptNumber);
+    AnalysisAttemptId nextAttemptId(AnalysisRunId runId, int attemptSequence);
 }

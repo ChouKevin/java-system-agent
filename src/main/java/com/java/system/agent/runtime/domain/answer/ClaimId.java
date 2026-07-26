@@ -3,7 +3,7 @@ package com.java.system.agent.runtime.domain.answer;
 import java.util.Objects;
 
 /**
- * {@link Claim} 的識別碼
+ * 回答文件中可驗證事實段落的宣稱識別碼
  */
 public record ClaimId(String value) {
 

@@ -3,9 +3,9 @@ package com.java.system.agent.runtime.domain.run;
 import java.util.Objects;
 
 /**
- * {@link AnalysisRun} 的識別碼
+ * 一次 validated action loop run 的識別碼
  *
- * <p>由呼叫端（Slack 事件或其他觸發來源）配發，貫穿一次使用者問題的所有 Attempt</p>
+ * <p>由呼叫端配發，貫穿一次使用者問題的所有 attempt</p>
  */
 public record AnalysisRunId(String value) {
 

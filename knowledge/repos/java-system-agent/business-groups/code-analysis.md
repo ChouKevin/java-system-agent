@@ -1,46 +1,37 @@
-# 程式碼分析
+# 程式碼查詢邊界
 
 ## Business Purpose
 
-This group produces call graphs from Java source. A caller supplies either method coordinates (package, class, method) or an API path; the analyzer traverses calls up to a configured depth and returns a graph with per-call confidence and evidence, ready for business translation.
+Root runtime 提供 generic `QUERY` action contract，讓 model 選擇 runtime-issued capability
+與任意 candidate subset/order。它驗證合約並接收 typed observations/evidence，但不實作
+Java call graph、API lookup 或 log query。
 
-## Entry Points
+## Current External Entry Points
 
-| Package | Class | Method | When to inspect |
-|---------|-------|--------|-----------------|
-| `com.java.system.agent.api` | `CallGraphController` | `getCallGraph` | User asks how a specific method's call chain is produced. |
-| `com.java.system.agent.api` | `CallGraphController` | `getCallGraphFlatten` | User asks about the flattened graph format. |
-| `com.java.system.agent.api` | `AnalysisController` | `getApiCallGraph` | User asks how an API path is resolved to an entry point. |
+None. 舊的 root `CallGraphController`、`AnalysisController` 與內建分析服務已不存在。
+Java semantic HTTP endpoints 位於獨立 `java-semantic-service`；root 尚未有 production
+client adapter。
 
-## Required Input Data
+## Implemented Query Flow
 
-| Field | Meaning |
-|-------|---------|
-| `repo` | Repository identifier to analyze. |
-| `packageName` / `className` / `methodSignature` | Method coordinates for direct analysis. |
-| `apiPath` / `httpMethod` | Route used for API-path lookup; only a unique candidate proceeds. |
+1. Runtime 發出 capability descriptors、query schema、candidate handles 與當前 context。
+2. LLM 提出一個 `QueryAction`，自行選擇 capability、候選數量與順序，並描述未確定事項。
+3. `AgentActionValidator` 驗證 handle membership、schema、scope 與 budget，不做候選推薦或
+   semantic ranking。
+4. `RepositoryRevisionPort` 綁定 selected repositories 的 exact revision。
+5. `AgentSemanticQueryPort` 回傳 typed observations、evidence、warnings 與新 candidates。
+6. Runtime 驗證回傳 evidence/revision，配發新的 opaque handles，將完整疑問與證據放入
+   後續 model context。
+7. `ANSWER` 必須引用已發出的 evidence，且通過 statement-level verification 才能被接受。
 
-## System Behavior
+## Confidence and Uncertainty
 
-1. Resolve the entry point, by coordinates or through the API route trie.
-2. Traverse calls depth-first up to the configured depth; deeper nodes are marked `TRAVERSAL_CUTOFF`.
-3. Attach confidence, resolution strategy, and evidence to every edge.
-4. Return the graph; ambiguous or missing routes return `AMBIGUOUS` / `NOT_FOUND` instead of a graph.
+此流程沒有 confidence 欄位、route score 或 ranking。若 route、target、implementation 或
+evidence 不確定，adapter/model 必須用 observation、warning、candidate description 與自然
+語言表達，不能把疑問壓縮成一個分數。
 
-## Related Dependencies
+## Extension Boundary
 
-| Dependency | Role |
-|------------|------|
-| `AnalysisService` | Facade guarding per-repo caches with read/write locks. |
-| `CallGraphBuilder` | Performs the depth-first traversal. |
-| `ApiTrieService` | Matches API paths to controller methods. |
-| `MapperXmlSqlExtractor` | Supplies MyBatis SQL for data-access nodes. |
-
-## Source Lookup
-
-Use `find_call_graph` with:
-
-| repoId | packageName | className | methodSignature |
-|--------|-------------|-----------|-----------------|
-| `java-system-agent` | `com.java.system.agent.api` | `CallGraphController` | `getCallGraph` |
-| `java-system-agent` | `com.java.system.agent.api` | `AnalysisController` | `getApiCallGraph` |
+Java code query、read-only API call 與 log query 可新增 capability/schema 並沿用 `QUERY`。
+會修改外部狀態的操作必須使用未來獨立 `EXECUTE` contract，明確處理 authorization、
+approval、idempotency、audit 與 reconciliation。

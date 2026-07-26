@@ -21,6 +21,13 @@ class RuntimeKernelArchitectureTest {
             .resideInAnyPackage("java..", "..runtime.domain..");
 
     @ArchTest
+    static final ArchRule DOMAIN_DOES_NOT_DEPEND_ON_APPLICATION_OR_PORTS = noClasses()
+            .that().resideInAPackage("..runtime.domain..")
+            .and().doNotHaveSimpleName("package-info")
+            .should().dependOnClassesThat()
+            .resideInAnyPackage("..runtime.application..", "..runtime.port..");
+
+    @ArchTest
     static final ArchRule APPLICATION_DEPENDS_ONLY_ON_KERNEL = classes()
             .that().resideInAPackage("..runtime.application..")
             .and().doNotHaveSimpleName("package-info")
