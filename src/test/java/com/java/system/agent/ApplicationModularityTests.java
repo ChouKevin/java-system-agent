@@ -23,34 +23,16 @@ class ApplicationModularityTests {
     }
 
     @Test
-    @DisplayName("expected application modules should exist")
-    void expectedModulesShouldExist() {
-        assertModuleExists("api");
-        assertModuleExists("analysis");
-        assertModuleExists("runtime");
-        assertModuleExists("ai");
-        assertModuleExists("git");
-        assertModuleExists("slack");
-        assertModuleExists("ratelimit");
-        assertModuleExists("common");
-    }
-
-    @Test
-    @DisplayName("key module dependency directions should stay stable")
-    void keyDependencyDirectionsShouldStayStable() {
-        assertDirectDependency("api", "analysis");
-        assertDirectDependency("api", "git");
-        assertDirectDependency("ai", "analysis");
-        assertDirectDependency("git", "analysis");
-        assertDirectDependency("slack", "ai");
-        assertDirectDependency("slack", "ratelimit");
+    @DisplayName("the agent v2 runtime module should exist")
+    void runtimeModuleShouldExist() {
+        assertTrue(modules.getModuleByName("runtime").isPresent(),
+                "Expected modulith module to exist: runtime");
     }
 
     @Test
     @DisplayName("agent v2 runtime kernel should depend on no other module")
     void runtimeKernelShouldHaveNoModuleDependencies() {
-        ApplicationModule runtime = modules.getModuleByName("runtime")
-                .orElseThrow(() -> new IllegalStateException("Missing module: runtime"));
+        ApplicationModule runtime = requireRuntime();
 
         assertTrue(runtime.getDirectDependencies(modules).isEmpty(),
                 () -> "Expected runtime kernel to have no module dependencies, but found: "
@@ -60,10 +42,7 @@ class ApplicationModularityTests {
     @Test
     @DisplayName("runtime kernel should expose only its contract packages")
     void runtimeKernelShouldExposeOnlyContractPackages() {
-        ApplicationModule runtime = modules.getModuleByName("runtime")
-                .orElseThrow(() -> new IllegalStateException("Missing module: runtime"));
-
-        Set<String> exposed = runtime.getNamedInterfaces().stream()
+        Set<String> exposed = requireRuntime().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
                 .map(NamedInterface::getName)
                 .collect(Collectors.toSet());
@@ -72,16 +51,8 @@ class ApplicationModularityTests {
                 "Runtime kernel must expose exactly its domain and port packages");
     }
 
-    private void assertModuleExists(String name) {
-        assertTrue(modules.getModuleByName(name).isPresent(),
-                () -> "Expected modulith module to exist: " + name);
-    }
-
-    private void assertDirectDependency(String moduleName, String dependencyName) {
-        ApplicationModule module = modules.getModuleByName(moduleName)
-                .orElseThrow(() -> new IllegalStateException("Missing module: " + moduleName));
-
-        boolean present = module.getDirectDependencies(modules).containsModuleNamed(dependencyName);
-        assertTrue(present, () -> "Expected direct dependency " + moduleName + " -> " + dependencyName);
+    private ApplicationModule requireRuntime() {
+        return modules.getModuleByName("runtime")
+                .orElseThrow(() -> new IllegalStateException("Missing module: runtime"));
     }
 }

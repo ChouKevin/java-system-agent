@@ -1,82 +1,13 @@
 spring:
-  main:
-    allow-bean-definition-overriding: true
   profiles:
     active: dev
   application:
     name: java-system-agent
-  mongodb:
-    uri: ${MONGO_URI:mongodb://agent:agent@127.0.0.1:27017/java_system_agent?authSource=admin}
-  ai:
-    openai:
-      api-key: ${OPENAI_API_KEY:}
-    google:
-      genai:
-        api-key: ${GOOGLE_GENAI_API_KEY:}
-        chat:
-          options:
-            model: ${GOOGLE_GENAI_MODEL:gemini-3.1-flash-lite}
   http:
     client:
       connect-timeout: 10s
       read-timeout: 180s
 
-slack:
-  app-token: ${SLACK_APP_TOKEN:}
-  bot-token: ${SLACK_BOT_TOKEN:}
-  signing-secret: ${SLACK_SIGNING_SECRET:}
-
-api:
-  write-token: ${API_WRITE_TOKEN:}
-
-entry-point:
-  call-graph-depth: 3
-
-agent:
-  memory:
-    max-conversations: 500
-  loop:
-    analyst:
-      max-turns: 12
-      max-wall-ms: 120000
-      no-progress-limit: 2
-    translator:
-      max-turns: 6
-      max-wall-ms: 60000
-    overall:
-      max-wall-ms: 300000
-    rate-limit:
-      enabled: ${GOOGLE_GENAI_RATE_LIMIT_ENABLED:true}
-      requests-per-minute: ${GOOGLE_GENAI_RPM:30}
-      tokens-per-minute: ${GOOGLE_GENAI_TPM:1000000}
-      requests-per-day: ${GOOGLE_GENAI_RPD:1500}
-      max-wait-millis: ${GOOGLE_GENAI_MAX_WAIT_MILLIS:300000}
-    trace:
-      enabled: true
-      retain: 20
-      max-conversations: 200
-  trace:
-    persistence-enabled: ${TRACE_PERSISTENCE_ENABLED:false}
-
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    operationsSorter: alpha
-    tagsSorter: alpha
-    displayRequestDuration: true
-
 logging:
   level:
     '[com.java.system.agent]': INFO
-    '[org.springframework.ai]': INFO
-
-git:
-  username: ${GIT_USERNAME:}
-  token: ${GIT_TOKEN:}
-  repos:
-    java-system-agent:
-      url: ${REPO_JAVA_SYSTEM_AGENT_URL:}
-      api-host: ${REPO_JAVA_SYSTEM_AGENT_API_HOST:}
-      default-branch: ${REPO_JAVA_SYSTEM_AGENT_DEFAULT_BRANCH:master}

@@ -1,16 +1,3 @@
-spring:
-  ai:
-    model:
-      chat: openai
-    openai:
-      api-key: ${OPENAI_API_KEY:fake}
-      chat:
-        base-url: ${OPENAI_BASE_URL:}
-        options:
-          model: ${OPENAI_MODEL:gpt-3.5-turbo}
-          temperature: 0.1
-
 logging:
   level:
     '[com.java.system.agent]': DEBUG
-    '[org.springframework.ai]': DEBUG
