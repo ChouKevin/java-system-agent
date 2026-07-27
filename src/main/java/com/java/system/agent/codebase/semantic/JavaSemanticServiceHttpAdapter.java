@@ -84,8 +84,14 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             SemanticDtos.RepositoryStatusResponse response = restClient.get()
                     .uri("/v1/repositories/{repoId}", repositoryId.value()).retrieve()
                     .body(SemanticDtos.RepositoryStatusResponse.class);
-            return new RepositoryRevisionResult.Ready(resultMapper.repositoryRevision(requiredResponse(response,
-                    "repository status")));
+            SemanticDtos.RepositoryStatusResponse status = resultMapper.repositoryStatus(requiredResponse(response,
+                    "repository status"));
+            if (Objects.isNull(status.currentRevision())) {
+                return new RepositoryRevisionResult.Failed(new RepositoryRevisionFailure(
+                        RepositoryRevisionFailureCode.DEPENDENCY_NOT_READY,
+                        "Java Semantic Service repository is not ready", REPOSITORY_OPERATION));
+            }
+            return new RepositoryRevisionResult.Ready(resultMapper.repositoryRevision(status));
         } catch (RestClientResponseException exception) {
             return errorMapper.revision(errorResponse(exception), REPOSITORY_OPERATION);
         } catch (ResourceAccessException exception) {
@@ -204,9 +210,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         try {
             SemanticDtos.ApiErrorResponse response = objectMapper.readValue(exception.getResponseBodyAsString(),
                     SemanticDtos.ApiErrorResponse.class);
-            Objects.requireNonNull(response, "API error response must not be null");
-            Objects.requireNonNull(response.candidates(), "API error candidates must not be null");
-            return response;
+            return requiredResponse(response, "API error");
         } catch (JsonProcessingException | IllegalArgumentException exceptionCause) {
             throw contract("Java Semantic Service error response violated its contract");
         }

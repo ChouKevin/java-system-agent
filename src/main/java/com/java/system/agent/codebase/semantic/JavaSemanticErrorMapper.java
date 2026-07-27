@@ -30,15 +30,16 @@ public final class JavaSemanticErrorMapper {
     private static final String SOURCE_SERVICE = "java-semantic-service";
 
     private final JavaSemanticResultMapper resultMapper;
+    private final JavaSemanticProviderSchemaValidator schemaValidator = new JavaSemanticProviderSchemaValidator();
 
     public JavaSemanticErrorMapper(JavaSemanticResultMapper resultMapper) {
         this.resultMapper = Objects.requireNonNull(resultMapper, "Java semantic result mapper must not be null");
     }
 
     public CapabilityExecutionResult capability(SemanticDtos.ApiErrorResponse error, String operationSource) {
-        Objects.requireNonNull(error, "API error response must not be null");
-        String code = required(error.errorCode(), "API error code");
-        String description = JavaSemanticResultMapper.singleLine(error.message());
+        schemaValidator.error(error);
+        String code = error.errorCode();
+        String description = failureDescription(error.message(), code);
         return switch (code) {
             case "REPOSITORY_REVISION_MISMATCH" -> failed(CapabilityExecutionFailureCode.REVISION_CONFLICT,
                     description, operationSource);
@@ -65,9 +66,13 @@ public final class JavaSemanticErrorMapper {
     }
 
     public RepositoryRevisionResult revision(SemanticDtos.ApiErrorResponse error, String operationSource) {
-        Objects.requireNonNull(error, "API error response must not be null");
-        String code = required(error.errorCode(), "API error code");
-        String description = JavaSemanticResultMapper.singleLine(error.message());
+        try {
+            schemaValidator.error(error);
+        } catch (CapabilityExecutionContractException exception) {
+            throw new RepositoryRevisionContractException(exception.getMessage());
+        }
+        String code = error.errorCode();
+        String description = failureDescription(error.message(), code);
         return switch (code) {
             case "REPOSITORY_NOT_READY" -> revisionFailed(RepositoryRevisionFailureCode.DEPENDENCY_NOT_READY,
                     description, operationSource);
@@ -102,11 +107,11 @@ public final class JavaSemanticErrorMapper {
         if (repositoryId.isEmpty() || revision.isEmpty()) {
             return List.of();
         }
-        List<SemanticDtos.MethodTarget> targets = Objects.requireNonNullElse(error.candidates(), List.of());
+        List<SemanticDtos.MethodTarget> targets = error.candidates();
         List<AnalysisCandidate> candidates = new ArrayList<>();
         for (SemanticDtos.MethodTarget target : targets) {
             candidates.add(new SemanticTargetCandidate(repositoryId.orElseThrow(), revision.orElseThrow(),
-                    resultMapper.semanticTarget(Objects.requireNonNull(target, "error target must not be null")),
+                    resultMapper.semanticTarget(target),
                     description));
         }
         return List.copyOf(candidates);
@@ -136,9 +141,14 @@ public final class JavaSemanticErrorMapper {
                 required(operationSource, "operation source")));
     }
 
+    private String failureDescription(String value, String code) {
+        String sanitized = JavaSemanticResultMapper.failureDescription(value);
+        return StringUtils.hasText(sanitized) ? sanitized : "Java Semantic Service reported " + code;
+    }
+
     private static String required(String value, String description) {
         if (!StringUtils.hasText(value)) {
-            throw new IllegalArgumentException(description + " must be nonblank");
+            throw new CapabilityExecutionContractException(description + " must be nonblank");
         }
         return value.trim();
     }

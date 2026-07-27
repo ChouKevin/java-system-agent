@@ -29,11 +29,19 @@ final class JavaSemanticServiceHttpAdapterTestHelper {
     }
 
     static CapabilityInvocation targetInvocation() {
+        SemanticTarget target = new JavaSemanticResultMapper().semanticTarget(new SemanticDtos.MethodTarget(
+                "src/OrderService.java", "com.example", "OrderService", "find", List.of("java.lang.String")));
+        return targetInvocation(target);
+    }
+
+    static CapabilityInvocation targetInvocation(SemanticDtos.MethodTarget target) {
+        return targetInvocation(new JavaSemanticResultMapper().semanticTarget(target));
+    }
+
+    private static CapabilityInvocation targetInvocation(SemanticTarget target) {
         RepositoryId repositoryId = new RepositoryId("orders");
         RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
-        SemanticTarget target = new JavaSemanticResultMapper().semanticTarget(new SemanticDtos.MethodTarget(
-                "src/OrderService.java", "com.example", "OrderService", "find", List.of("java.lang.String")));
         IssuedCandidate candidate = new IssuedCandidate(
                 new CandidateHandle("candidate-2", new HandleBinding(new AnalysisRunId("run-1"),
                         new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.SEMANTIC_TARGET),

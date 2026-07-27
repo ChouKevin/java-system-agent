@@ -4,6 +4,8 @@ import com.java.system.agent.codebase.semantic.dto.SemanticDtos;
 import com.java.system.agent.runtime.domain.candidate.RouteCandidate;
 import com.java.system.agent.runtime.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
+import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
+import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionFailureCode;
@@ -57,8 +59,9 @@ class JavaSemanticResultMapperTest {
                 JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
 
         EvidenceRef evidence = result.evidence().getFirst();
-        assertThat(evidence.content()).isEqualTo(
-                "root=root; traversal=1/1/3/NODE_BUDGET; node=root:FULL_SOURCE:EXPANDED; warning=NODE_BUDGET_REACHED:limit reached");
+        assertThat(evidence.content()).contains(
+                "root=root; traversal=1/1/3/true/NODE_BUDGET; node=root:FULL_SOURCE:EXPANDED:SYNCHRONOUS")
+                .contains("warning=NODE_BUDGET_REACHED:limit reached");
         assertThat(evidence.artifactRef()).isEqualTo(JavaSemanticArtifactDigest.fromContent(evidence.content()));
         assertThat(evidence.artifactRef().digest()).matches("[0-9a-f]{64}");
         assertThat(result.observations()).extracting(observation -> observation.code())
@@ -101,6 +104,90 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.MethodTarget actual = mapper.methodTarget(mapper.semanticTarget(expected));
 
         assertThat(actual).isEqualTo(expected);
+    }
+
+    @Test
+    void rejectsMalformedNestedProviderValuesAsContractViolations() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.ApiRouteCandidatesResponse response = new SemanticDtos.ApiRouteCandidatesResponse(List.of(
+                new SemanticDtos.ApiRouteCandidateResponse("orders", REVISION, "GET", "/orders", "com.example",
+                        "OrderController", "get", new SemanticDtos.MethodTargetResolutionResponse("RESOLVED", null,
+                        List.of(), "resolved"), List.of("TEMPLATE_MATCH"))), List.of());
+        JavaSemanticErrorMapper errorMapper = new JavaSemanticErrorMapper(mapper);
+        SemanticDtos.ApiErrorResponse malformedError = new SemanticDtos.ApiErrorResponse("SEMANTIC_REQUEST_TIMEOUT",
+                "timeout", "orders", REVISION, null, null, null, "request");
+
+        assertThatThrownBy(() -> mapper.apiRoutes(response))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> errorMapper.capability(malformedError, "operation"))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
+    void usesTheUniqueResponseRootTargetAndPreservesCompleteGraphEvidence() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTarget requested = methodTarget("RequestedService", "find");
+        SemanticDtos.MethodTarget responseRoot = methodTarget("ResponseService", "load");
+        String longMessage = "x".repeat(1_001);
+        SemanticDtos.OutgoingCallGraphResponse response = new SemanticDtos.OutgoingCallGraphResponse("PARTIAL", REVISION,
+                "root", new SemanticDtos.GraphTraversal(1, 0, 0, true, "NONE"), List.of(
+                new SemanticDtos.GraphNode("root", responseRoot, null, "FULL_SOURCE", "EXPANDED", "SYNCHRONOUS", null,
+                        null)), List.of(new SemanticDtos.GraphEdge("root", "opaque", sourceRange(), "opaque call",
+                "MYBATIS_MAPPER", "RESOLVED_OPAQUE", List.of("proof"))), List.of(
+                new SemanticDtos.GraphWarning("NODE_BUDGET_REACHED", longMessage, "root", null, null, List.of())), List.of(
+                new SemanticDtos.GraphError("CHILD_SEMANTIC_QUERY_FAILED", "tail error", "root")));
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
+                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(requested), response);
+
+        EvidenceRef evidence = result.evidence().getFirst();
+        assertThat(evidence.semanticTarget()).isEqualTo(mapper.semanticTarget(responseRoot));
+        assertThat(evidence.content()).contains("warning=NODE_BUDGET_REACHED:")
+                .contains("error=CHILD_SEMANTIC_QUERY_FAILED:tail error").hasSizeGreaterThan(1_000);
+        assertThat(evidence.artifactRef()).isEqualTo(JavaSemanticArtifactDigest.fromContent(evidence.content()));
+        assertThat(result.observations()).extracting(observation -> observation.code())
+                .contains(ObservationCode.OPAQUE_EXTERNAL_CALL);
+    }
+
+    @Test
+    void preservesEveryLegalMethodTargetComponentAndRejectsNonCanonicalKeys() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTarget expected = new SemanticDtos.MethodTarget(" src/模組: a|b.java", " 包.名 ",
+                "服務", "查詢", List.of(" int "));
+        SemanticTarget encoded = mapper.semanticTarget(expected);
+        SemanticTarget zeroParameters = mapper.semanticTarget(new SemanticDtos.MethodTarget("src/Zero.java", "",
+                "Zero", "zero", List.of()));
+
+        assertThat(mapper.methodTarget(encoded)).isEqualTo(expected);
+        assertThat(mapper.methodTarget(zeroParameters).parameterTypes()).isEmpty();
+        assertThatThrownBy(() -> mapper.methodTarget(new SemanticTarget(SemanticTargetKind.SYMBOL,
+                "mt1:05:0:0:0:0:!", java.util.Optional.empty())))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.methodTarget(new SemanticTarget(SemanticTargetKind.SYMBOL,
+                encoded.key() + "x", java.util.Optional.empty())))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.methodTarget(new SemanticTarget(SemanticTargetKind.SYMBOL,
+                "mt1:4:2147483648:", java.util.Optional.empty())))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.semanticTarget(new SemanticDtos.MethodTarget("src/Trailing.java ", "",
+                "Trailing", "trailing", List.of())))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
+    void mapsLongWellFormedFailureDescriptionsWithinRuntimeBound() {
+        JavaSemanticErrorMapper mapper = new JavaSemanticErrorMapper(new JavaSemanticResultMapper());
+        SemanticDtos.ApiErrorResponse timeout = new SemanticDtos.ApiErrorResponse("SEMANTIC_REQUEST_TIMEOUT",
+                "x".repeat(501), "orders", REVISION, null, null, List.of(), "request");
+
+        CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed) mapper.capability(timeout, "operation");
+
+        assertThat(result.failure().code()).isEqualTo(CapabilityExecutionFailureCode.TIMEOUT);
+        assertThat(result.failure().description()).hasSize(500);
+    }
+
+    private static SemanticDtos.SourceRange sourceRange() {
+        return new SemanticDtos.SourceRange("src/ResponseService.java", new SemanticDtos.Position(0, 0),
+                new SemanticDtos.Position(0, 1));
     }
 
     private static SemanticDtos.MethodTarget methodTarget(String className, String methodName) {

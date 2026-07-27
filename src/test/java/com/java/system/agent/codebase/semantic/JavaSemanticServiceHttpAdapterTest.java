@@ -19,6 +19,7 @@ import com.java.system.agent.runtime.port.out.CapabilityExecutionContractExcepti
 import com.java.system.agent.runtime.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.runtime.port.out.CapabilityInvocation;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
+import com.java.system.agent.runtime.port.out.RepositoryRevisionFailureCode;
 import com.java.system.agent.codebase.semantic.dto.SemanticDtos;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -134,9 +135,45 @@ class JavaSemanticServiceHttpAdapterTest {
         client.server().verify();
     }
 
+    @Test
+    void mapsUnclonedOrRevisionlessRepositoryStatusToNotReadyAndRejectsInvalidProviderSchema() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders"))
+                .andRespond(withSuccess("""
+                        {"repoId":"orders","mode":"REMOTE","displayName":"Orders","currentBranch":null,"currentRevision":null,"cloned":true}
+                        """, MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories"))
+                .andRespond(withSuccess("""
+                        [{"repoId":"orders","mode":"BROKEN","displayName":"Orders","currentBranch":null,"currentRevision":null,"cloned":false}]
+                        """, MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThat(adapter.currentRevision(new RepositoryId("orders"))).isEqualTo(new RepositoryRevisionResult.Failed(
+                new com.java.system.agent.runtime.port.out.RepositoryRevisionFailure(
+                        RepositoryRevisionFailureCode.DEPENDENCY_NOT_READY,
+                        "Java Semantic Service repository is not ready", "java-semantic-service:GET /v1/repositories/{repoId}")));
+        assertThatThrownBy(adapter::availableRepositories)
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsAResponseGraphWithoutExactlyOneRootTarget() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
+                .andRespond(withSuccess("""
+                        {"status":"SUCCESS","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rootNodeId":"missing","traversal":{"requestedDepth":1,"expandedNodeCount":0,"nodeBudget":0,"rootDirectCallsComplete":true,"limitReason":"NONE"},"nodes":[],"edges":[],"warnings":[],"errors":[]}
+                        """, MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetInvocation("codebase.outgoing-call-graph")))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        client.server().verify();
+    }
+
     private static String graphResponse() {
         return """
-                {"status":"SUCCESS","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rootNodeId":"root","traversal":{"requestedDepth":1,"expandedNodeCount":0,"nodeBudget":0,"rootDirectCallsComplete":true,"limitReason":"NONE"},"nodes":[],"edges":[],"warnings":[],"errors":[]}
+                {"status":"SUCCESS","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rootNodeId":"root","traversal":{"requestedDepth":1,"expandedNodeCount":0,"nodeBudget":0,"rootDirectCallsComplete":true,"limitReason":"NONE"},"nodes":[{"nodeId":"root","target":{"sourceFile":"src/OrderService.java","packageName":"com.example","className":"OrderService","methodName":"find","parameterTypes":["java.lang.String"]},"externalSymbol":null,"contentState":"FULL_SOURCE","traversalState":"EXPANDED","dispatchKind":"SYNCHRONOUS","methodBody":null,"declarationRange":null}],"edges":[],"warnings":[],"errors":[]}
                 """;
     }
 
