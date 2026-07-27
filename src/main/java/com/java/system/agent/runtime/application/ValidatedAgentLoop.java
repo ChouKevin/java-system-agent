@@ -108,6 +108,7 @@ public final class ValidatedAgentLoop {
     private static final String TYPED_FAILURE_RESULT_CATEGORY = "TYPED_FAILURE";
     private static final String CONTRACT_EXCEPTION_RESULT_CATEGORY = "CONTRACT_EXCEPTION";
     private static final String UNEXPECTED_EXCEPTION_RESULT_CATEGORY = "UNEXPECTED_EXCEPTION";
+    private static final String INCOMPATIBLE_RESULT_CATEGORY = "INCOMPATIBLE_RESULT";
     private static final Logger LOGGER = Logger.getLogger(ValidatedAgentLoop.class.getName());
 
     private final AgentActionPort actionPort;
@@ -761,7 +762,7 @@ public final class ValidatedAgentLoop {
             verificationResult = Objects.requireNonNull(
                     verificationPort.verify(pending.verificationMode(), verificationContext),
                     "answer verification port must return a result");
-            verificationResultCategory = verificationResultCategory(verificationResult);
+            verificationResultCategory = verificationResultCategory(pending.verificationMode(), verificationResult);
         } catch (AnswerVerificationUnavailableException exception) {
             verificationResultCategory = "VERIFIER_UNAVAILABLE";
             throw new AnswerExecutionUnavailableException("answer verification is unavailable", exception);
@@ -1273,11 +1274,17 @@ public final class ValidatedAgentLoop {
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }
 
-    private static String verificationResultCategory(AnswerVerificationResult result) {
-        if (result instanceof AnswerVerificationResult.LlmVerdict) {
+    private static String verificationResultCategory(
+            AnswerVerificationMode mode,
+            AnswerVerificationResult result) {
+        if (mode == AnswerVerificationMode.LLM && result instanceof AnswerVerificationResult.LlmVerdict) {
             return "LLM_VERDICT";
         }
-        return "CONTRACT_ACCEPTED";
+        if (mode == AnswerVerificationMode.CONTRACT_ONLY
+                && result instanceof AnswerVerificationResult.ContractAccepted) {
+            return "CONTRACT_ACCEPTED";
+        }
+        return INCOMPATIBLE_RESULT_CATEGORY;
     }
 
     private static void logVerificationOperation(
