@@ -69,7 +69,7 @@ class SessionInboxProcessorTest {
     }
 
     @Test
-    void retriesUnexpectedFailuresWithExponentialDelayThenFailsWhilePreservingTheClaimedMessage() {
+    void schedulesTerminalReconciliationAfterTheFinalOrdinaryFailure() {
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
                 inbox, command -> {
@@ -89,9 +89,20 @@ class SessionInboxProcessorTest {
         assertThat(inbox.retriedAvailableAt).isEqualTo(NOW.plusSeconds(2));
         assertThat(inbox.retried).isEqualTo(secondAttempt);
 
-        assertThat(processor.process(thirdAttempt, NOW)).isEqualTo(InboxProcessingOutcome.FAILED);
-        assertThat(inbox.failed).isEqualTo(thirdAttempt);
-        assertThat(inbox.failedAt).isEqualTo(NOW);
+        assertThat(processor.process(thirdAttempt, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        assertThat(inbox.retried).isEqualTo(thirdAttempt);
+        assertThat(inbox.retriedAvailableAt).isEqualTo(NOW);
+        assertThat(inbox.failed).isNull();
+
+        RecordingAnswerQuestionUseCase terminalReconciliation =
+                new RecordingAnswerQuestionUseCase(result(RunOutcome.FAILED));
+        SessionInboxProcessor reconciliationProcessor = new SessionInboxProcessor(
+                inbox, terminalReconciliation, BUDGET, InboxRetryPolicy.defaults());
+
+        assertThat(reconciliationProcessor.process(claimed(4), NOW)).isEqualTo(InboxProcessingOutcome.COMPLETED);
+        assertThat(terminalReconciliation.command.executionMode())
+                .isEqualTo(AnswerExecutionMode.TERMINAL_RECONCILIATION);
+        assertThat(terminalReconciliation.invocationCount).isOne();
     }
 
     @Test
@@ -142,6 +153,25 @@ class SessionInboxProcessorTest {
         assertThat(outcome).isEqualTo(InboxProcessingOutcome.COMPLETED);
         assertThat(inbox.completed).isEqualTo(terminalClaim);
         assertThat(answerQuestion.command.executionMode()).isEqualTo(AnswerExecutionMode.TERMINAL_RECONCILIATION);
+    }
+
+    @Test
+    void failsTerminalReconciliationWhenAnswerExecutionIsUnavailable() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, command -> {
+                    throw new AnswerExecutionUnavailableException(
+                            "provider payload must not persist", new IllegalStateException("connection refused"));
+                }, BUDGET, InboxRetryPolicy.defaults());
+        InboxMessage terminalClaim = claimed(4);
+
+        InboxProcessingOutcome outcome = processor.process(terminalClaim, NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(inbox.failed).isEqualTo(terminalClaim);
+        assertThat(inbox.failedAt).isEqualTo(NOW);
+        assertThat(inbox.retried).isNull();
+        assertThat(inbox.transitionCount).isOne();
     }
 
     @Test
@@ -227,7 +257,7 @@ class SessionInboxProcessorTest {
         inbox.failingTransition = failingTransition;
         SessionInboxProcessor processor = new SessionInboxProcessor(
                 inbox, answerUseCaseFor(failingTransition), BUDGET, InboxRetryPolicy.defaults());
-        InboxMessage claimed = failingTransition == FailingTransition.FAIL ? claimed(3) : claimed(1);
+        InboxMessage claimed = failingTransition == FailingTransition.FAIL ? claimed(4) : claimed(1);
 
         assertThatThrownBy(() -> processor.process(claimed, NOW))
                 .isInstanceOf(IllegalStateException.class)

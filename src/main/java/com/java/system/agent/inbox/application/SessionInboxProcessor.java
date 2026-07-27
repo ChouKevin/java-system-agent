@@ -80,6 +80,10 @@ public final class SessionInboxProcessor {
     }
 
     private InboxProcessingOutcome retryOrFail(InboxMessage claimedMessage, InboxFailure failure, Instant now) {
+        if (claimedMessage.attemptCount() == retryPolicy.maxAttempts()) {
+            sessionInboxPort.retry(claimedMessage, failure, now);
+            return InboxProcessingOutcome.RETRY_SCHEDULED;
+        }
         Optional<Instant> retryAt = retryPolicy.retryAvailableAt(claimedMessage.attemptCount(), now);
         if (retryAt.isPresent()) {
             sessionInboxPort.retry(claimedMessage, failure, retryAt.orElseThrow());

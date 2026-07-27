@@ -109,7 +109,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    void retriesTerminalAppendFailuresWithTheSameRunThenFailsAndReleasesTheFollower() {
+    void retriesTerminalAppendFailuresWithTheSameRunThenReconcilesAndReleasesTheFollower() {
         InboxMessage enqueued = inbox.enqueue(new InboxEnqueueRequest(
                 new SessionSourceRef("slack", "channel-1:thread-1"),
                 new SourceMessageId("message-1"),
@@ -134,13 +134,19 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         InboxMessage secondClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
         assertThat(processor.process(secondClaim, NOW.plusSeconds(1))).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
         InboxMessage thirdClaim = inbox.claimNext(NOW.plusSeconds(3)).orElseThrow();
-        assertThat(processor.process(thirdClaim, NOW.plusSeconds(3))).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(processor.process(thirdClaim, NOW.plusSeconds(3)))
+                .isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        InboxMessage reconciliationClaim = inbox.claimNext(NOW.plusSeconds(3)).orElseThrow();
+        assertThat(reconciliationClaim.attemptCount()).isEqualTo(4);
+        assertThat(processor.process(reconciliationClaim, NOW.plusSeconds(3)))
+                .isEqualTo(InboxProcessingOutcome.COMPLETED);
 
         assertThat(actionCalls).hasValue(1);
-        assertThat(eventCount(enqueued.runId())).isEqualTo(4L);
+        assertThat(eventCount(enqueued.runId())).isEqualTo(5L);
         assertThat(eventCount(enqueued.runId(), "CLARIFICATION_ACCEPTED")).isEqualTo(1L);
-        assertThat(sessions.read(enqueued.sessionId()).turns()).isEmpty();
-        assertThat(inboxStatus(enqueued.inboxMessageId())).isEqualTo(InboxMessageStatus.FAILED.name());
+        assertThat(eventCount(enqueued.runId(), "RUN_CONCLUDED")).isEqualTo(1L);
+        assertThat(sessions.read(enqueued.sessionId()).turns()).hasSize(1);
+        assertThat(inboxStatus(enqueued.inboxMessageId())).isEqualTo(InboxMessageStatus.COMPLETED.name());
         assertThat(inbox.claimNext(NOW.plusSeconds(3)).orElseThrow().inboxMessageId())
                 .isEqualTo(follower.inboxMessageId());
     }
@@ -379,9 +385,11 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThat(eventCount(enqueued.runId(), "ANSWER_PROPOSED")).isEqualTo(1L);
 
         InboxMessage secondClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
-        assertThat(inbox.recoverInterrupted(NOW.plusSeconds(2))).isEqualTo(1);
-        InboxMessage thirdClaim = inbox.claimNext(NOW.plusSeconds(2)).orElseThrow();
-        assertThat(inbox.recoverInterrupted(NOW.plusSeconds(3))).isEqualTo(1);
+        assertThat(unavailableProcessor.process(secondClaim, NOW.plusSeconds(1)))
+                .isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        InboxMessage thirdClaim = inbox.claimNext(NOW.plusSeconds(3)).orElseThrow();
+        assertThat(unavailableProcessor.process(thirdClaim, NOW.plusSeconds(3)))
+                .isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
         InboxMessage reconciliationClaim = inbox.claimNext(NOW.plusSeconds(3)).orElseThrow();
         AnalysisApplicationService reconciliationService = service(
                 context -> {
@@ -401,7 +409,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThat(reconciliationProcessor.process(reconciliationClaim, NOW.plusSeconds(3)))
                 .isEqualTo(InboxProcessingOutcome.COMPLETED);
         assertThat(actionCalls).hasValue(1);
-        assertThat(verifierCalls).hasValue(1);
+        assertThat(verifierCalls).hasValue(3);
         assertThat(eventCount(enqueued.runId(), "ANSWER_VERIFICATION_ABANDONED")).isEqualTo(1L);
         assertThat(eventPayload(enqueued.runId(), "ANSWER_VERIFICATION_ABANDONED"))
                 .contains("RETRY_EXHAUSTED");
