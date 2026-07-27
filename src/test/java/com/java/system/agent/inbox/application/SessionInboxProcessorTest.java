@@ -174,7 +174,9 @@ class SessionInboxProcessorTest {
             assertThat(diagnostic.getCause()).isNotNull();
             assertThat(diagnostic.getCause().getCause()).isNotNull();
             assertThat(diagnostic.getCause().getCause().getMessage())
-                    .contains("diagnostic cause chain truncated");
+                    .contains("diagnostic cause chain truncated")
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
             assertThat(diagnostic.getMessage())
                     .doesNotContain(failure.getMessage())
                     .doesNotContain(cause.getMessage());
