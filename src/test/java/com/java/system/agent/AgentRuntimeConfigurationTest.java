@@ -45,10 +45,7 @@ class AgentRuntimeConfigurationTest {
                     "agent.codebase.base-url=http://localhost:8081",
                     "agent.codebase.api-token=test-token",
                     "agent.codebase.connect-timeout=2s",
-                    "agent.codebase.read-timeout=15s",
-                    "spring.datasource.url=jdbc:postgresql://localhost:5432/agent",
-                    "spring.datasource.username=agent",
-                    "spring.datasource.password=test-password");
+                    "agent.codebase.read-timeout=15s");
 
     @Test
     @DisplayName("inactive profile leaves every production Agent boundary absent")
@@ -64,8 +61,8 @@ class AgentRuntimeConfigurationTest {
     }
 
     @Test
-    @DisplayName("runtime profile composes exactly one use case and processor through replaceable boundaries")
-    void shouldComposeRuntimeThroughReplaceableBoundaries() {
+    @DisplayName("runtime profile composes exactly one use case and processor through early replacement persistence boundaries")
+    void shouldComposeRuntimeThroughEarlyReplacementPersistenceBoundaries() {
         contextRunner.withPropertyValues("spring.profiles.active=agent-runtime,test-infrastructure").run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBeansOfType(AnswerQuestionUseCase.class)).hasSize(1);
@@ -109,11 +106,17 @@ class AgentRuntimeConfigurationTest {
     @Test
     @DisplayName("runtime profile rejects missing database configuration before constructing persistence infrastructure")
     void shouldRejectMissingDatabaseConfiguration() {
-        contextRunner.withPropertyValues(
-                "spring.profiles.active=agent-runtime,test-infrastructure",
-                "spring.datasource.url=",
-                "spring.datasource.username=",
-                "spring.datasource.password=").run(context -> {
+        new ApplicationContextRunner()
+                .withUserConfiguration(Application.class, TestInfrastructureConfiguration.class)
+                .withPropertyValues(
+                        "spring.profiles.active=agent-runtime,test-infrastructure",
+                        "spring.ai.model.chat=none",
+                        "agent.answer-verification.mode=llm",
+                        "agent.codebase.base-url=http://localhost:8081",
+                        "agent.codebase.api-token=test-token",
+                        "agent.codebase.connect-timeout=2s",
+                        "agent.codebase.read-timeout=15s")
+                .run(context -> {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure()).hasMessageContaining("spring.datasource");
         });
@@ -135,10 +138,7 @@ class AgentRuntimeConfigurationTest {
                         "agent.codebase.base-url=http://localhost:8081",
                         "agent.codebase.api-token=test-token",
                         "agent.codebase.connect-timeout=2s",
-                        "agent.codebase.read-timeout=15s",
-                        "spring.datasource.url=jdbc:postgresql://localhost:5432/agent",
-                        "spring.datasource.username=agent",
-                        "spring.datasource.password=test-password")
+                        "agent.codebase.read-timeout=15s")
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure()).hasMessageContaining("ChatModel");

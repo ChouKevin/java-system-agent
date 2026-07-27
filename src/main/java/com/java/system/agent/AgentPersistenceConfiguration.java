@@ -1,6 +1,11 @@
 package com.java.system.agent;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
+
 import javax.sql.DataSource;
+
+import java.util.Set;
 
 import org.flywaydb.core.Flyway;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -12,6 +17,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.CollectionUtils;
 
 /**
  * 在 agent-runtime profile 中建立 PostgreSQL persistence 基礎設施的根設定
@@ -23,7 +29,13 @@ public final class AgentPersistenceConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(DataSource.class)
-    DataSource dataSource(AgentDatabaseProperties properties) {
+    DataSource dataSource(AgentDatabaseProperties properties, Validator validator) {
+        Set<ConstraintViolation<AgentDatabaseProperties>> validationFailures = validator.validate(properties);
+        if (!CollectionUtils.isEmpty(validationFailures)) {
+            throw new IllegalStateException(
+                    "spring.datasource.url, spring.datasource.username, and spring.datasource.password "
+                            + "must be configured when the agent runtime creates the default DataSource");
+        }
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
         dataSource.setDriverClassName("org.postgresql.Driver");
         dataSource.setUrl(properties.url());
