@@ -4,6 +4,8 @@ import com.java.system.agent.AgentCapabilityConfiguration;
 import com.java.system.agent.AgentCodebaseConfiguration;
 import com.java.system.agent.AgentCodebaseProperties;
 import com.java.system.agent.AgentModelConfiguration;
+import com.java.system.agent.AgentDatabaseProperties;
+import com.java.system.agent.AgentPersistenceConfiguration;
 import com.java.system.agent.AgentRuntimeConfiguration;
 import com.java.system.agent.AgentRuntimeProperties;
 import com.java.system.agent.Application;
@@ -41,6 +43,8 @@ class PersistenceModuleArchitectureTest {
             AgentCodebaseConfiguration.class.getName(),
             AgentCodebaseProperties.class.getName(),
             AgentModelConfiguration.class.getName(),
+            AgentPersistenceConfiguration.class.getName(),
+            AgentDatabaseProperties.class.getName(),
             AgentRuntimeConfiguration.class.getName(),
             AgentRuntimeProperties.class.getName());
 

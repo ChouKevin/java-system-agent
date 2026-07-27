@@ -33,18 +33,22 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.List;
+
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -65,8 +69,7 @@ import static org.springframework.http.HttpMethod.GET;
         "agent.codebase.base-url=http://semantic.test",
         "agent.codebase.api-token=m2-token",
         "agent.codebase.connect-timeout=2s",
-        "agent.codebase.read-timeout=15s",
-        "spring.flyway.clean-disabled=false"
+        "agent.codebase.read-timeout=15s"
 })
 @ActiveProfiles({"agent-runtime", "m2-flow-it"})
 @Import(M2IntegrationTestConfiguration.class)
@@ -79,6 +82,12 @@ class M2ProductionFlowIT {
 
     @Autowired
     private org.flywaydb.core.Flyway flyway;
+
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @Autowired
     private SessionInboxApplicationService enqueueService;
@@ -121,15 +130,17 @@ class M2ProductionFlowIT {
     }
 
     @BeforeEach
-    void resetDatabase() {
+    void resetFlowState() {
         server.reset();
         callTimeline.clear();
-        flyway.clean();
-        flyway.migrate();
     }
 
     @Test
     void processesOneClaimedMessageThroughTheProductionDurableAnswerFlow() {
+        assertThat(dataSource).isInstanceOf(DriverManagerDataSource.class);
+        assertThat(transactionTemplate).isNotNull();
+        assertThat(flyway.info().current()).isNotNull();
+
         InboxMessage enqueued = enqueueService.enqueue(new EnqueueSessionMessageCommand(
                 new SessionSourceRef("slack", "channel-1:thread-1"),
                 new SourceMessageId("message-1"),

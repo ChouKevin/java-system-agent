@@ -33,6 +33,8 @@ class ApplicationModularityTests {
                     AgentCodebaseConfiguration.class,
                     AgentCodebaseProperties.class,
                     AgentModelConfiguration.class,
+                    AgentPersistenceConfiguration.class,
+                    AgentDatabaseProperties.class,
                     AgentRuntimeConfiguration.class,
                     AgentRuntimeProperties.class);
 

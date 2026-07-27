@@ -12,6 +12,11 @@ import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.flywaydb.core.Flyway;
+
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -33,5 +38,9 @@ class ApplicationStartupTest {
         assertThat(applicationContext.getBeansOfType(AgentActionPort.class)).isEmpty();
         assertThat(applicationContext.getBeansOfType(AnswerVerificationPort.class)).isEmpty();
         assertThat(applicationContext.getBeansOfType(JavaSemanticServiceHttpAdapter.class)).isEmpty();
+        assertThat(applicationContext.getBeansOfType(DataSource.class)).isEmpty();
+        assertThat(applicationContext.getBeansOfType(Flyway.class)).isEmpty();
+        assertThat(applicationContext.getBeansOfType(JdbcClient.class)).isEmpty();
+        assertThat(applicationContext.getBeansOfType(TransactionTemplate.class)).isEmpty();
     }
 }
