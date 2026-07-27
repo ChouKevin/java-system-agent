@@ -326,7 +326,7 @@ public final class ContextIssuer {
         }
     }
 
-    private void validateCapabilityRepositories(
+    void validateCapabilityRepositories(
             CapabilityExecutionResult.Succeeded result,
             Set<RepositoryId> catalogRepositoryIds) {
         Set<RepositoryId> validatedCatalogIds = new LinkedHashSet<>();

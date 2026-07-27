@@ -23,11 +23,13 @@ import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementVerdict;
 import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
+import com.java.system.agent.runtime.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
 import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
+import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
 import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
@@ -80,6 +82,7 @@ import com.java.system.agent.runtime.port.out.TerminalAcceptanceCancelledExcepti
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -674,10 +677,69 @@ public final class ValidatedAgentLoop {
                     failed.failure().description(), Set.of(), Set.of(), failed.failure().operationSource());
             return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
         }
+        CapabilityExecutionResult.Succeeded succeeded = (CapabilityExecutionResult.Succeeded) result;
+        SuccessfulCapabilityResultValidation validation;
+        try {
+            contextIssuer.validateCapabilityRepositories(succeeded, catalogRepositoryIds);
+            validation = validateSuccessfulCapabilityResult(capabilityInvocation, succeeded);
+        } catch (CapabilityExecutionContractException exception) {
+            return integrationContractFailure(request, state, attemptSequence, exception);
+        }
+        if (validation.revisionConflict().isPresent()) {
+            state = recordRuntimeObservation(
+                    state,
+                    ObservationCode.CONFLICTING_EVIDENCE,
+                    validation.revisionConflict().orElseThrow(),
+                    Set.of(),
+                    Set.of(),
+                    "capability-result-validator");
+            return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
+        }
+        RunAttempt resultContext = state.currentAttempt();
+        if (capabilityInvocation.candidates().isEmpty()) {
+            PostResultRevisionResolution resolution;
+            try {
+                resolution = resolveUnscopedResultRevisions(
+                        state,
+                        state.currentAttempt().revisionVector(),
+                        validation.declaredRevisions());
+            } catch (RepositoryRevisionContractException exception) {
+                return integrationContractFailure(request, state, attemptSequence, exception);
+            }
+            if (resolution.revisionConflict().isPresent()) {
+                state = recordRuntimeObservation(
+                        state,
+                        ObservationCode.CONFLICTING_EVIDENCE,
+                        resolution.revisionConflict().orElseThrow(),
+                        Set.of(),
+                        Set.of(),
+                        "capability-result-validator");
+                return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
+            }
+            if (resolution.failure().isPresent()) {
+                RepositoryRevisionFailure failure = resolution.failure().orElseThrow();
+                state = recordRuntimeObservation(
+                        state,
+                        ObservationCode.BLOCKING_UNCERTAINTY,
+                        failure.description(),
+                        Set.of(),
+                        Set.of(),
+                        failure.operationSource());
+                return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
+            }
+            if (!resolution.revisions().equals(state.currentAttempt().revisionVector())) {
+                try {
+                    resultContext = contextIssuer.reissue(
+                            state.runId(), state.currentAttempt(), resolution.revisions());
+                } catch (CapabilityExecutionContractException exception) {
+                    return integrationContractFailure(request, state, attemptSequence, exception);
+                }
+            }
+        }
         ContextIssuer.CapabilityIssue issued;
         try {
             issued = contextIssuer.issueCapabilityResult(
-                    state.runId(), state.currentAttempt(), (CapabilityExecutionResult.Succeeded) result,
+                    state.runId(), resultContext, succeeded,
                     catalogRepositoryIds);
         } catch (CapabilityExecutionContractException exception) {
             return integrationContractFailure(request, state, attemptSequence, exception);
@@ -691,6 +753,102 @@ public final class ValidatedAgentLoop {
                     observation));
         }
         return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
+    }
+
+    private SuccessfulCapabilityResultValidation validateSuccessfulCapabilityResult(
+            CapabilityInvocation invocation,
+            CapabilityExecutionResult.Succeeded result) {
+        Set<RepositoryId> selectedRepositories = new LinkedHashSet<>();
+        for (IssuedCandidate selected : invocation.candidates()) {
+            selectedRepositories.add(selected.candidate().repositoryId());
+        }
+        Map<RepositoryId, RepositoryRevision> declaredRevisions = declaredResultRevisions(result);
+        if (!selectedRepositories.isEmpty()) {
+            validateSelectedResultRepositories(result, selectedRepositories);
+        }
+        for (Map.Entry<RepositoryId, RepositoryRevision> entry : declaredRevisions.entrySet()) {
+            Optional<RepositoryRevision> expected = invocation.expectedRevisions().revisionOf(entry.getKey());
+            if (expected.isPresent() && !expected.orElseThrow().equals(entry.getValue())) {
+                return new SuccessfulCapabilityResultValidation(
+                        declaredRevisions,
+                        Optional.of("capability result revision conflicts with the pinned repository revision"));
+            }
+        }
+        return new SuccessfulCapabilityResultValidation(declaredRevisions, Optional.empty());
+    }
+
+    private void validateSelectedResultRepositories(
+            CapabilityExecutionResult.Succeeded result,
+            Set<RepositoryId> selectedRepositories) {
+        for (AnalysisCandidate candidate : result.discoveredCandidates()) {
+            if (!selectedRepositories.contains(candidate.repositoryId())) {
+                throw new CapabilityExecutionContractException(
+                        "capability result candidate repository is outside the selected repository scope");
+            }
+        }
+        for (EvidenceRef evidence : result.evidence()) {
+            if (!selectedRepositories.contains(evidence.repositoryId())) {
+                throw new CapabilityExecutionContractException(
+                        "capability result evidence repository is outside the selected repository scope");
+            }
+        }
+    }
+
+    private Map<RepositoryId, RepositoryRevision> declaredResultRevisions(
+            CapabilityExecutionResult.Succeeded result) {
+        Map<RepositoryId, RepositoryRevision> declared = new LinkedHashMap<>();
+        for (AnalysisCandidate candidate : result.discoveredCandidates()) {
+            Optional<RepositoryRevision> revision = candidate.repositoryRevision();
+            if (revision.isPresent()) {
+                registerDeclaredRevision(declared, candidate.repositoryId(), revision.orElseThrow());
+            }
+        }
+        for (EvidenceRef evidence : result.evidence()) {
+            registerDeclaredRevision(declared, evidence.repositoryId(), evidence.repositoryRevision());
+        }
+        return Collections.unmodifiableMap(new LinkedHashMap<>(declared));
+    }
+
+    private void registerDeclaredRevision(
+            Map<RepositoryId, RepositoryRevision> declared,
+            RepositoryId repositoryId,
+            RepositoryRevision revision) {
+        RepositoryRevision previous = declared.putIfAbsent(repositoryId, revision);
+        if (Objects.nonNull(previous) && !previous.equals(revision)) {
+            throw new CapabilityExecutionContractException(
+                    "capability result declares conflicting revisions for the same repository");
+        }
+    }
+
+    private PostResultRevisionResolution resolveUnscopedResultRevisions(
+            AgentRunState state,
+            RevisionVector current,
+            Map<RepositoryId, RepositoryRevision> declaredRevisions) {
+        RevisionVector resolved = current;
+        Optional<RepositoryRevisionFailure> failure = Optional.empty();
+        boolean revisionConflict = false;
+        for (Map.Entry<RepositoryId, RepositoryRevision> declared : declaredRevisions.entrySet()) {
+            if (current.revisionOf(declared.getKey()).isPresent()) {
+                continue;
+            }
+            RepositoryRevisionResult result = resolveRepositoryRevision(state, declared.getKey());
+            if (result instanceof RepositoryRevisionResult.Failed failed) {
+                if (failure.isEmpty()) {
+                    failure = Optional.of(failed.failure());
+                }
+                continue;
+            }
+            RepositoryRevision actual = ((RepositoryRevisionResult.Ready) result).revision();
+            if (!actual.equals(declared.getValue())) {
+                revisionConflict = true;
+                continue;
+            }
+            resolved = resolved.pin(declared.getKey(), actual);
+        }
+        Optional<String> conflict = revisionConflict
+                ? Optional.of("capability result revision conflicts with the current repository revision")
+                : Optional.empty();
+        return new PostResultRevisionResolution(resolved, failure, conflict);
     }
 
     private QueryExecution integrationContractFailure(
@@ -1308,6 +1466,17 @@ public final class ValidatedAgentLoop {
             RevisionVector revisions,
             boolean drifted,
             Optional<RepositoryRevisionFailure> failure) {
+    }
+
+    private record SuccessfulCapabilityResultValidation(
+            Map<RepositoryId, RepositoryRevision> declaredRevisions,
+            Optional<String> revisionConflict) {
+    }
+
+    private record PostResultRevisionResolution(
+            RevisionVector revisions,
+            Optional<RepositoryRevisionFailure> failure,
+            Optional<String> revisionConflict) {
     }
 
     private record InitialClaim(

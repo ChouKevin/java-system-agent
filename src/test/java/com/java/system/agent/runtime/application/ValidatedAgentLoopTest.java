@@ -24,6 +24,8 @@ import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.answer.StatementVerdict;
 import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
+import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
+import com.java.system.agent.runtime.domain.candidate.RouteCandidate;
 import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
 import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
@@ -59,6 +61,7 @@ import com.java.system.agent.runtime.port.out.AnalysisAttemptIdGenerator;
 import com.java.system.agent.runtime.port.out.AgentTransitionPort;
 import com.java.system.agent.runtime.port.out.AgentTransitionConflictException;
 import com.java.system.agent.runtime.port.out.AnswerVerificationPort;
+import com.java.system.agent.runtime.port.out.AnswerVerificationResult.LlmVerdict;
 import com.java.system.agent.runtime.port.out.RepositoryDescriptor;
 import com.java.system.agent.runtime.port.out.RepositoryCatalogPort;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionPort;
@@ -428,6 +431,314 @@ class ValidatedAgentLoopTest {
         assertThat(capabilityCalls).hasValue(1);
         assertThat(transitions.events()).filteredOn(AgentEvent.ObservationRecorded.class::isInstance).isEmpty();
         assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance).hasSize(1);
+    }
+
+    @Test
+    void concludesWhenSelectedRepositoryQueryReturnsAResultForAnotherRepository() {
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                this::query,
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(
+                            List.of(new RouteCandidate(
+                                    new RepositoryId("repo-2"),
+                                    new RepositoryRevision("revision-repo-2"),
+                                    "GET /orders",
+                                    "Orders route")),
+                            List.of(),
+                            List.of());
+                },
+                transitions);
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.FAILED);
+        assertThat(capabilityCalls).hasValue(1);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ContextIssued.class::isInstance)
+                .hasSize(2);
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow()
+                .currentAttempt().issuedCandidates().values())
+                .noneMatch(issued -> issued.candidate() instanceof RouteCandidate);
+    }
+
+    @Test
+    void recordsConflictWithoutASecondRevisionLookupWhenSelectedResultRevisionDiffersFromPinnedRevision() {
+        AtomicInteger actionNumber = new AtomicInteger();
+        AtomicInteger revisionCalls = new AtomicInteger();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        AgentActionPort actionPort = context -> {
+            prompts.add(context);
+            if (actionNumber.getAndIncrement() == 0) {
+                return query(context);
+            }
+            assertThat(context.issuedEvidence()).isEmpty();
+            assertThat(context.observations().values())
+                    .extracting(observation -> observation.code() + ":" + observation.source())
+                    .containsExactly(ObservationCode.CONFLICTING_EVIDENCE + ":" + ObservationSource.RUNTIME);
+            return new AgentActionProposal.Proposed(
+                    new ClarifyAction("Should I query the repository again?", List.of(), "Fresh evidence is needed"));
+        };
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                actionPort,
+                invocation -> new CapabilityExecutionResult.Succeeded(
+                        List.of(),
+                        List.of(evidence("different-revision")),
+                        List.of()),
+                transitions,
+                repositoryId -> {
+                    revisionCalls.incrementAndGet();
+                    return RepositoryRevisionResult.ready(new RepositoryRevision("revision-" + repositoryId.value()));
+                },
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")));
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(revisionCalls).hasValue(1);
+        assertThat(prompts).hasSize(2);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ContextIssued.class::isInstance)
+                .hasSize(2);
+    }
+
+    @Test
+    void concludesWhenOneCapabilityResultDeclaresConflictingRevisionsForTheSameRepository() {
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                this::query,
+                invocation -> new CapabilityExecutionResult.Succeeded(
+                        List.of(new RouteCandidate(
+                                new RepositoryId("repo-1"),
+                                new RepositoryRevision("revision-repo-1"),
+                                "GET /orders",
+                                "Orders route")),
+                        List.of(evidence("different-revision")),
+                        List.of()),
+                transitions);
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.FAILED);
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow()
+                .currentAttempt().issuedEvidence())
+                .isEmpty();
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.RunConcluded.class::isInstance)
+                .hasSize(1);
+    }
+
+    @Test
+    void pinsAndRebindsUnscopedRevisionBearingCandidateBeforeSelectingItInTheNextQuery() {
+        AtomicInteger actionNumber = new AtomicInteger();
+        AtomicInteger revisionCalls = new AtomicInteger();
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        AgentActionPort actionPort = context -> {
+            prompts.add(context);
+            if (actionNumber.getAndIncrement() == 0) {
+                return new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().iterator().next(),
+                        List.of(),
+                        "Discover routes",
+                        Map.of(),
+                        "No repository has been selected"));
+            }
+            CandidateHandle routeHandle = context.issuedCandidates().entrySet().stream()
+                    .filter(entry -> entry.getValue().candidate() instanceof RouteCandidate)
+                    .map(Map.Entry::getKey)
+                    .findFirst()
+                    .orElseThrow();
+            RouteCandidate route = (RouteCandidate) context.issuedCandidates().get(routeHandle).candidate();
+            assertThat(route.analyzedRevision()).isEqualTo(new RepositoryRevision("revision-repo-1"));
+            assertThat(context.issuedCandidates().get(routeHandle)
+                    .handle()
+                    .binding()
+                    .revisionVector()
+                    .matches(route.repositoryId(), route.analyzedRevision())).isTrue();
+            assertThat(context.latestRejection()).isEmpty();
+            if (actionNumber.get() == 2) {
+                return new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().iterator().next(),
+                        List.of(routeHandle),
+                        "Trace discovered route",
+                        Map.of(),
+                        "The discovered route is now revision-pinned"));
+            }
+            return new AgentActionProposal.Proposed(
+                    new ClarifyAction("Which route should I investigate?", List.of(), "Route scope is now available"));
+        };
+        CapabilityDescriptor routeDiscovery = new CapabilityDescriptor(
+                "discover-routes",
+                "v1",
+                Set.of(CandidateKind.REPOSITORY, CandidateKind.ROUTE),
+                0,
+                10,
+                new CapabilityQuerySchema(List.of()));
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loopWithCapability(
+                actionPort,
+                invocation -> {
+                    int capabilityCall = capabilityCalls.getAndIncrement();
+                    if (capabilityCall == 0) {
+                        return new CapabilityExecutionResult.Succeeded(
+                                List.of(new RouteCandidate(
+                                        new RepositoryId("repo-1"),
+                                        new RepositoryRevision("revision-repo-1"),
+                                        "GET /orders",
+                                        "Orders route")),
+                                List.of(),
+                                List.of());
+                    }
+                    assertThat(invocation.candidates()).singleElement().satisfies(candidate -> {
+                        assertThat(candidate.candidate()).isInstanceOf(RouteCandidate.class);
+                        assertThat(candidate.handle().binding().revisionVector().matches(
+                                new RepositoryId("repo-1"), new RepositoryRevision("revision-repo-1"))).isTrue();
+                    });
+                    assertThat(invocation.expectedRevisions().matches(
+                            new RepositoryId("repo-1"), new RepositoryRevision("revision-repo-1"))).isTrue();
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+                },
+                transitions,
+                repositoryId -> {
+                    revisionCalls.incrementAndGet();
+                    return RepositoryRevisionResult.ready(new RepositoryRevision("revision-" + repositoryId.value()));
+                },
+                routeDiscovery);
+
+        AgentLoopRequest request = new AgentLoopRequest(
+                new AnalysisRunId("run-1"),
+                new SessionId("session-1"),
+                "How does this flow work?",
+                new AttemptBudget(2, 0, 2, 0, 2, 0, 1, 0, 1, 0));
+
+        AgentLoopResult result = loop.execute(request);
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(capabilityCalls).hasValue(2);
+        assertThat(revisionCalls).hasValue(2);
+        assertThat(prompts).hasSize(3);
+        assertThat(result.finalRevisions().matches(new RepositoryId("repo-1"), new RepositoryRevision("revision-repo-1")))
+                .isTrue();
+    }
+
+    @Test
+    void doesNotPersistUnscopedRebindWhenResultRepeatsPreviouslyIssuedCandidate() {
+        AtomicInteger revisionCalls = new AtomicInteger();
+        CapabilityDescriptor routeDiscovery = new CapabilityDescriptor(
+                "discover-routes",
+                "v1",
+                Set.of(CandidateKind.REPOSITORY, CandidateKind.ROUTE),
+                0,
+                10,
+                new CapabilityQuerySchema(List.of()));
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loopWithCapability(
+                context -> new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().iterator().next(),
+                        List.of(),
+                        "Discover routes",
+                        Map.of(),
+                        "No repository has been selected")),
+                invocation -> new CapabilityExecutionResult.Succeeded(
+                        List.of(
+                                new RouteCandidate(
+                                        new RepositoryId("repo-1"),
+                                        new RepositoryRevision("revision-repo-1"),
+                                        "GET /orders",
+                                        "Orders route"),
+                                new RepositoryCandidate(new RepositoryId("repo-1"), "Repository one")),
+                        List.of(),
+                        List.of()),
+                transitions,
+                repositoryId -> {
+                    revisionCalls.incrementAndGet();
+                    return RepositoryRevisionResult.ready(new RepositoryRevision("revision-" + repositoryId.value()));
+                },
+                routeDiscovery);
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.FAILED);
+        assertThat(revisionCalls).hasValue(1);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ContextIssued.class::isInstance)
+                .hasSize(1);
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow()
+                .currentAttempt().revisionVector())
+                .isEqualTo(RevisionVector.empty());
+    }
+
+    @Test
+    void unscopedMultiRepositoryResultPrefersRevisionConflictOverFailureWithoutPersistingResults() {
+        AtomicInteger actionNumber = new AtomicInteger();
+        List<RepositoryId> revisionLookups = new ArrayList<>();
+        CapabilityDescriptor routeDiscovery = new CapabilityDescriptor(
+                "discover-routes",
+                "v1",
+                Set.of(CandidateKind.REPOSITORY, CandidateKind.ROUTE),
+                0,
+                10,
+                new CapabilityQuerySchema(List.of()));
+        AgentActionPort actionPort = context -> {
+            if (actionNumber.getAndIncrement() == 0) {
+                return new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().iterator().next(),
+                        List.of(),
+                        "Discover routes",
+                        Map.of(),
+                        "No repository has been selected"));
+            }
+            return new AgentActionProposal.Proposed(
+                    new ClarifyAction("Which route should I investigate?", List.of(), "Revision evidence conflicts"));
+        };
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loopWithCapability(
+                actionPort,
+                invocation -> new CapabilityExecutionResult.Succeeded(
+                        List.of(
+                                new RouteCandidate(
+                                        new RepositoryId("repo-1"),
+                                        new RepositoryRevision("revision-repo-1"),
+                                        "GET /orders",
+                                        "Orders route"),
+                                new RouteCandidate(
+                                        new RepositoryId("repo-2"),
+                                        new RepositoryRevision("revision-repo-2"),
+                                        "GET /payments",
+                                        "Payments route")),
+                        List.of(),
+                        List.of()),
+                transitions,
+                repositoryId -> {
+                    revisionLookups.add(repositoryId);
+                    if (repositoryId.equals(new RepositoryId("repo-1"))) {
+                        return RepositoryRevisionResult.ready(new RepositoryRevision("different-revision"));
+                    }
+                    return RepositoryRevisionResult.failed(new RepositoryRevisionFailure(
+                            RepositoryRevisionFailureCode.DEPENDENCY_UNAVAILABLE,
+                            "repository revision service is temporarily unavailable",
+                            "repository-revision-service"));
+                },
+                routeDiscovery);
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(revisionLookups).containsExactly(new RepositoryId("repo-1"), new RepositoryId("repo-2"));
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ContextIssued.class::isInstance)
+                .hasSize(1);
+        AgentRunState finalState = transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow();
+        assertThat(finalState.currentAttempt().revisionVector()).isEqualTo(RevisionVector.empty());
+        assertThat(finalState.currentAttempt().issuedCandidates().values())
+                .noneMatch(issued -> issued.candidate() instanceof RouteCandidate);
+        assertThat(finalState.currentAttempt().observations().values())
+                .extracting(observation -> observation.code() + ":" + observation.source())
+                .containsExactly(ObservationCode.CONFLICTING_EVIDENCE + ":" + ObservationSource.RUNTIME);
     }
 
     @Test
@@ -962,6 +1273,39 @@ class ValidatedAgentLoopTest {
                 revisionPort,
                 cancellationPort,
                 attemptIdGenerator,
+                new AgentActionValidator(),
+                new AnswerDocumentValidator(),
+                new AnswerVerdictValidator(),
+                new AgentTransitionCommitter(new AgentStateReducer(), transitionPort),
+                new ContextIssuer());
+    }
+
+    private ValidatedAgentLoop loopWithCapability(
+            AgentActionPort actionPort,
+            CapabilityExecutionPort capabilityExecutionPort,
+            AgentTransitionPort transitionPort,
+            RepositoryRevisionPort revisionPort,
+            CapabilityDescriptor capability) {
+        FakeRepositoryCatalogAdapter repositories = new FakeRepositoryCatalogAdapter(
+                new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one"),
+                new RepositoryDescriptor(new RepositoryId("repo-2"), "Repository two"));
+        return new ValidatedAgentLoop(
+                actionPort,
+                capabilityExecutionPort,
+                (mode, context) -> new LlmVerdict(
+                        new AnswerVerdict(
+                                AnswerDisposition.ACCEPTED_COMPLETE,
+                                List.of(),
+                                List.of(),
+                                List.of(),
+                                List.of())),
+                AnswerVerificationMode.LLM,
+                new FakeSessionAdapter(),
+                repositories,
+                new FakeCapabilityCatalogAdapter(capability),
+                revisionPort,
+                new FakeCancellationAdapter(),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
                 new AgentActionValidator(),
                 new AnswerDocumentValidator(),
                 new AnswerVerdictValidator(),
