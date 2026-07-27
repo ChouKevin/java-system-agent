@@ -38,14 +38,17 @@ Slack response delivery。
 6. 若在 durable terminal/turn 後、inbox completion 前中斷，startup recovery 將
    `PROCESSING` 退回 `PENDING`。相同 run retry 讀到 terminal state，不再呼叫 LLM；相同 turn
    append 是 no-op。
-7. 基礎設施失敗採 exponential backoff，預設最多三次。第 2、3 次可透過 reducer event
+7. 基礎設施失敗採 exponential backoff，預設三次外部嘗試後安排第四次
+   terminal-reconciliation claim。第 2、3 次可透過 reducer event
    重啟 nonterminal attempt 並重新配發 context。若 bootstrap 尚未持久化，inbox attempt
    會作為初始 Agent attempt 序號；之後序號保存在 run state，只由 reducer event 推進。
    若 answer 已持久化為 pending verification，recovery 只重試 verifier，不會再次 plan 或
    查詢 capability。
-   超過上限的 recovered claim 只能
+   第四次 terminal-reconciliation claim 只能
    reconcile 已 durable 的 terminal response，不能再呼叫 LLM、semantic provider 或
-   verifier。若 run 仍 nonterminal，訊息轉為 `FAILED`，同 session 下一筆才可繼續。
+   verifier。若 run 已安全持久化但仍 nonterminal，Agent 以 `FAILED` 結束且 inbox 為
+   `COMPLETED`；只有狀態缺失、不安全或 reconciliation 失敗時 inbox 才為 `FAILED`，同 session
+   下一筆才可繼續。
 
 `AnswerQuestionResult` 以 typed response kind 區分 answer、clarification 與 runtime notice；
 answer 另帶 verification basis。`CONTRACT_ONLY` 是完成回答的明示合約依據，並非虛構 LLM verdict。

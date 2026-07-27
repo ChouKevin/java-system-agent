@@ -55,8 +55,8 @@ source message
 ```
 
 Messages in the same session cannot pass an earlier `PENDING` or `PROCESSING` message. A failed
-infrastructure attempt returns the same message to `PENDING` with backoff; after the third failed
-attempt it becomes `FAILED`, allowing the next message in that session to proceed. On startup,
+infrastructure attempt returns the same message to `PENDING` with backoff. After three external
+attempts, the inbox schedules a fourth terminal-reconciliation claim. On startup,
 interrupted `PROCESSING` rows can be returned to `PENDING` without changing their session, run ID,
 question, sequence, or attempt count. Attempts two and three may restart a nonterminal Agent attempt
 through reducer events and freshly issued context. If no run state was persisted yet, the inbox
@@ -64,7 +64,9 @@ attempt seeds the initial Agent attempt sequence. After bootstrap, that sequence
 state and advances only through reducer events, including revision-driven restarts.
 A recovered claim beyond the configured ceiling
 is terminal-reconciliation-only: it may finish an already durable terminal result, but it cannot
-call the model, semantic provider, or verifier again; a nonterminal run becomes `FAILED`.
+call the model, semantic provider, or verifier again. A safely persisted nonterminal run concludes
+with Agent outcome `FAILED` while the inbox becomes `COMPLETED`; inbox `FAILED` is reserved for
+absent or unsafe state, or reconciliation failure.
 
 Inbox completion is deliberately separate from terminal Agent persistence and session-turn append.
 If the process stops between those boundaries, retry uses the same run ID: persisted terminal state

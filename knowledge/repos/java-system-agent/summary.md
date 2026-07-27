@@ -18,8 +18,9 @@ Semantic Service 查詢程式碼，並將流程可靠保存至 PostgreSQL。但�
 
 同一個來源討論串會累積為一段持續的 session。訊息即使遇到程序重啟也不會遺失；同一
 session 會依提問順序處理，不同 session 則可各自等待執行。暫時性基礎設施失敗會有限度
-重試。超過三次後只允許完成已保存的最終結果，不會再次呼叫 AI 或查詢服務；若尚無
-最終結果，才將該訊息標記失敗並讓 session 的下一個問題繼續。
+重試；三次外部嘗試後，inbox 會安排第四次 terminal-reconciliation claim，不再呼叫 AI 或查詢
+服務。已安全保存但尚未結束的 run 會以 Agent `FAILED` 結束，而 inbox 為 `COMPLETED`；只有
+狀態缺失、不安全或 reconciliation 失敗時，inbox 才是 `FAILED`，讓 session 的下一個問題繼續。
 
 ### 可驗證的回答流程
 

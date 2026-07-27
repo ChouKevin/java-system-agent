@@ -75,14 +75,16 @@ The durable session lifecycle is also current:
 - The inbox preserves exact questions and source-message deduplication. Same-session messages execute
   in sequence; different sessions remain independently claimable.
 - Startup recovery returns interrupted `PROCESSING` rows to `PENDING` without changing identity or
-  attempt count. Infrastructure failures use bounded retry; after three failed attempts the message
-  becomes `FAILED` and later session work is released.
+  attempt count. Infrastructure failures use bounded retry; after three external attempts the inbox
+  schedules a fourth terminal-reconciliation claim.
 - Inbox attempt one is `INITIAL`; attempts within the retry ceiling are `RETRY` and may restart a
   nonterminal Agent attempt only through reducer events. Before bootstrap is persisted, the inbox
   attempt seeds the initial Agent attempt sequence. After bootstrap, the sequence is persisted in
   `AgentRunState` and advances only through reducer events. A recovered claim beyond the ceiling is
   `TERMINAL_RECONCILIATION`: it may finish a durable terminal response but must not call model,
-  semantic, or verifier ports for a nonterminal run.
+  semantic, or verifier ports. A safely persisted nonterminal run concludes Agent outcome `FAILED`
+  while its inbox message becomes `COMPLETED`; inbox `FAILED` is reserved for absent or unsafe state,
+  or reconciliation failure.
 - A persisted pending answer-verification checkpoint resumes by calling only the verifier; it does
   not re-plan or re-execute a capability. Verifier unavailability is an inbox retry/backoff failure.
 - Agent event append and current-state replacement are one transaction. State/event JSON is
