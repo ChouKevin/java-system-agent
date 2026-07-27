@@ -32,12 +32,14 @@ import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentActionTransportException;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -74,6 +76,19 @@ class SpringAiAgentActionAdapterTest {
     void mapsImpossibleEnvelopeToSanitizedMalformedWithoutAnotherCall() {
         CountingChatModel model = new CountingChatModel("""
                 {"type":"QUERY","query":null,"answer":null,"clarify":null}
+                """);
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build());
+
+        AgentActionProposal proposal = adapter.nextAction(context());
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsContradictoryMultiPayloadEnvelopeWithoutAnotherCall() {
+        CountingChatModel model = new CountingChatModel("""
+                {"type":"QUERY","query":{"capabilityHandle":"cap-1","candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","arguments":{"depth":"2"},"rationale":"Trace callers"},"answer":null,"clarify":{"question":"Which repository?","candidateHandles":["candidate-1"],"reason":"Ambiguous"}}
                 """);
         SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build());
 
@@ -153,6 +168,17 @@ class SpringAiAgentActionAdapterTest {
     @Test
     void classifiesRateLimitTransportFailureWithoutAnotherCall() {
         CountingChatModel model = new CountingChatModel(new ResourceExhaustedException());
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build());
+
+        assertThatThrownBy(() -> adapter.nextAction(context()))
+                .isInstanceOf(AgentActionTransportException.class)
+                .hasMessage("RATE_LIMITED");
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void classifiesHttp429TransportMetadataWithoutAnotherCall() {
+        CountingChatModel model = new CountingChatModel(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
         SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build());
 
         assertThatThrownBy(() -> adapter.nextAction(context()))

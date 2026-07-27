@@ -1,12 +1,32 @@
 package com.java.system.agent.model.verification;
 
+import com.java.system.agent.model.verification.dto.AnswerVerdictResponse;
+import com.java.system.agent.model.verification.dto.StatementVerdictResponse;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
+import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
+import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
+import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
+import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
+import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
+import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
+import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.handle.HandleBinding;
+import com.java.system.agent.runtime.domain.observation.AgentObservation;
+import com.java.system.agent.runtime.domain.observation.ObservationCode;
+import com.java.system.agent.runtime.domain.observation.ObservationId;
+import com.java.system.agent.runtime.domain.observation.ObservationSource;
+import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
+import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
+import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
 import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
 import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
@@ -20,6 +40,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -139,6 +160,20 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
+    void rendersStatementReferencesAndGlobalVerifierContextInDeterministicOrder() {
+        String prompt = new AnswerVerificationPromptRenderer().render(richContext(), "response-schema");
+
+        assertThat(prompt).contains("user: Earlier question", "assistant: Earlier answer");
+        assertThat(prompt).contains("statement-b [FACT]: Second fact", "claimId: claim-b",
+                "citationHandles: evidence-a, evidence-b", "observationIds: observation-a, observation-b");
+        assertThat(prompt).contains("statement-a [FACT]: First fact", "claimId: claim-a",
+                "citationHandles: evidence-a", "observationIds: observation-a");
+        assertThat(prompt.indexOf("- evidence-a: Evidence A")).isLessThan(prompt.indexOf("- evidence-b: Evidence B"));
+        assertThat(prompt.indexOf("- observation-a: Observation A"))
+                .isLessThan(prompt.indexOf("- observation-b: Observation B"));
+    }
+
+    @Test
     void dispatcherRejectsDuplicateMissingExtraAndNullStrategies() {
         AnswerVerificationStrategy llm = new FixedStrategy(AnswerVerificationMode.LLM);
         AnswerVerificationStrategy contractOnly = new FixedStrategy(AnswerVerificationMode.CONTRACT_ONLY);
@@ -150,11 +185,66 @@ class AnswerVerificationAdapterTest {
         assertThatThrownBy(() -> new AnswerVerificationDispatcher(llm, null)).isInstanceOf(NullPointerException.class);
     }
 
+    @Test
+    void rejectsDuplicateMissingAndUnknownStatementVerdictShapes() {
+        AnswerVerdictResponseInterpreter interpreter = new AnswerVerdictResponseInterpreter();
+        AnswerVerdictResponse duplicate = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(
+                new StatementVerdictResponse("statement-1", "SUPPORTED", "Supported"),
+                new StatementVerdictResponse("statement-1", "SUPPORTED", "Supported twice")), List.of(), List.of(), List.of());
+        AnswerVerdictResponse missing = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(), List.of(), List.of(), List.of());
+        AnswerVerdictResponse unknownStatus = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(
+                new StatementVerdictResponse("statement-1", "UNDECIDED", "Unknown")), List.of(), List.of(), List.of());
+
+        assertThatThrownBy(() -> interpreter.interpret(duplicate, context())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> interpreter.interpret(missing, context())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> interpreter.interpret(unknownStatus, context())).isInstanceOf(IllegalArgumentException.class);
+    }
+
     private AnswerVerificationContext context() {
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
                 StatementType.UNCERTAINTY, "The implementation may differ", Optional.empty(), java.util.Set.of(), java.util.Set.of())));
         return new AnswerVerificationContext("What is known?", SessionHistory.empty(), document,
                 List.of(), List.of(), List.of(), List.of());
+    }
+
+    private AnswerVerificationContext richContext() {
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        RepositoryId repositoryId = new RepositoryId("repo-1");
+        RepositoryRevision revision = new RepositoryRevision("rev-1");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(runId, attemptId, revisions);
+        EvidenceHandle evidenceB = new EvidenceHandle("evidence-b", binding);
+        EvidenceHandle evidenceA = new EvidenceHandle("evidence-a", binding);
+        ObservationId observationB = new ObservationId("observation-b");
+        ObservationId observationA = new ObservationId("observation-a");
+        AnswerDocument document = new AnswerDocument(List.of(
+                new AnswerStatement(new StatementId("statement-b"), StatementType.FACT, "Second fact",
+                        Optional.of(new com.java.system.agent.runtime.domain.answer.ClaimId("claim-b")),
+                        Set.of(evidenceB, evidenceA), Set.of(observationB, observationA)),
+                new AnswerStatement(new StatementId("statement-a"), StatementType.FACT, "First fact",
+                        Optional.of(new com.java.system.agent.runtime.domain.answer.ClaimId("claim-a")),
+                        Set.of(evidenceA), Set.of(observationA))));
+        IssuedEvidence issuedEvidenceB = new IssuedEvidence(evidenceB, evidence(repositoryId, revision, "Evidence B", "digest-b"));
+        IssuedEvidence issuedEvidenceA = new IssuedEvidence(evidenceA, evidence(repositoryId, revision, "Evidence A", "digest-a"));
+        AgentObservation observationValueB = observation(observationB, evidenceB, "Observation B");
+        AgentObservation observationValueA = observation(observationA, evidenceA, "Observation A");
+        SessionHistory history = new SessionHistory(List.of(new ConversationTurn(runId, "Earlier question", "Earlier answer",
+                ConversationTurnType.ANSWER)));
+        return new AnswerVerificationContext("What is known?", history, document,
+                List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA),
+                List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA));
+    }
+
+    private EvidenceRef evidence(RepositoryId repositoryId, RepositoryRevision revision, String content, String digest) {
+        return new EvidenceRef("semantic", repositoryId, revision,
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Checkout#call", Optional.empty()), content, List.of(),
+                new ArtifactRef(digest));
+    }
+
+    private AgentObservation observation(ObservationId observationId, EvidenceHandle evidenceHandle, String description) {
+        return new AgentObservation(observationId, ObservationSource.RUNTIME, ObservationCode.PARTIAL_GRAPH,
+                description, Set.of(), Set.of(evidenceHandle), "runtime");
     }
 
     private static final class CountingChatModel implements ChatModel {
