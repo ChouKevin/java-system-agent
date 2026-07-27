@@ -61,6 +61,21 @@ class AgentRuntimeConfigurationTest {
     }
 
     @Test
+    @DisplayName("inactive profile starts without persistence infrastructure")
+    void shouldLeavePersistenceInfrastructureAbsentWithoutRuntimeProfile() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(Application.class)
+                .withPropertyValues("spring.ai.model.chat=none")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBeansOfType(DataSource.class)).isEmpty();
+                    assertThat(context.getBeansOfType(Flyway.class)).isEmpty();
+                    assertThat(context.getBeansOfType(JdbcClient.class)).isEmpty();
+                    assertThat(context.getBeansOfType(TransactionTemplate.class)).isEmpty();
+                });
+    }
+
+    @Test
     @DisplayName("runtime profile composes exactly one use case and processor through early replacement persistence boundaries")
     void shouldComposeRuntimeThroughEarlyReplacementPersistenceBoundaries() {
         contextRunner.withPropertyValues("spring.profiles.active=agent-runtime,test-infrastructure").run(context -> {
