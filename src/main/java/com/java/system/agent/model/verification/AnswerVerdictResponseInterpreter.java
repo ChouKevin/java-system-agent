@@ -5,6 +5,7 @@ import com.java.system.agent.model.verification.dto.StatementVerdictResponse;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
 import com.java.system.agent.runtime.domain.answer.StatementId;
+import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.answer.StatementVerdict;
 import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
@@ -37,10 +38,12 @@ public final class AnswerVerdictResponseInterpreter {
             statementVerdicts.add(new StatementVerdict(statementId, StatementVerdictStatus.valueOf(statement.status()),
                     statement.description()));
         }
-        Set<StatementId> documentIds = new LinkedHashSet<>();
-        context.document().statements().forEach(statement -> documentIds.add(statement.statementId()));
-        if (!documentIds.equals(responseIds)) {
-            throw new IllegalArgumentException("statement verdict IDs must exactly match document");
+        Set<StatementId> factStatementIds = new LinkedHashSet<>();
+        context.document().statements().stream()
+                .filter(statement -> statement.type() == StatementType.FACT)
+                .forEach(statement -> factStatementIds.add(statement.statementId()));
+        if (!factStatementIds.equals(responseIds)) {
+            throw new IllegalArgumentException("statement verdict IDs must exactly match fact statements");
         }
         return new AnswerVerdict(AnswerDisposition.valueOf(response.disposition()), statementVerdicts,
                 requiredList(response.unaddressedParts(), "unaddressed parts"),

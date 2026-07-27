@@ -80,7 +80,7 @@ class JavaSemanticServiceHttpAdapterTest {
         client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders/entry-points?types=API"))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("""
-                        {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","entryPoints":[]}
+                        {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","entryPoints":[{"className":"OrderController","packageName":"com.example.web","packagePath":"com/example/web","description":"Order entry points","basePaths":["/orders"],"methods":[{"type":"API","name":"list","description":"List orders","apiUrl":"/orders","httpMethods":["GET"],"swaggerDescriptions":["Lists orders"],"analysisTarget":{"status":"UNRESOLVED","target":null,"candidates":[],"reasonCode":"TARGET_NOT_FOUND"}}]}]}
                         """, MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/api-routes/lookup"))
                 .andExpect(method(POST))

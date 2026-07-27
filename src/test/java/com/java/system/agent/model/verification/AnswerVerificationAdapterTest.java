@@ -52,9 +52,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AnswerVerificationAdapterTest {
 
     @Test
-    void mapsLlmAcceptedCompleteWithEveryStatementVerdict() {
+    void mapsLlmAcceptedCompleteWithoutVerdictsForNonFactDocument() {
         CountingChatModel model = new CountingChatModel("""
-                {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
+                {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """);
         SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
 
@@ -63,19 +63,18 @@ class AnswerVerificationAdapterTest {
         assertThat(result).isInstanceOf(AnswerVerificationResult.LlmVerdict.class);
         AnswerVerificationResult.LlmVerdict verdict = (AnswerVerificationResult.LlmVerdict) result;
         assertThat(verdict.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE);
-        assertThat(verdict.verdict().statementVerdicts()).extracting(item -> item.statementId().value())
-                .containsExactly("statement-1");
+        assertThat(verdict.verdict().statementVerdicts()).isEmpty();
         assertThat(model.calls()).isEqualTo(1);
     }
 
     @Test
     void mapsInconclusiveAndRejectedDispositionsWithoutChangingTheirDetails() {
         CountingChatModel inconclusiveModel = new CountingChatModel("""
-                {"disposition":"ACCEPTED_INCONCLUSIVE","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":["Missing detail"],"blockingUncertainties":["Unknown implementation"],"rejectionReasons":[]}
+                {"disposition":"ACCEPTED_INCONCLUSIVE","statementVerdicts":[],"unaddressedParts":["Missing detail"],"blockingUncertainties":["Unknown implementation"],"rejectionReasons":[]}
                 """);
         SpringAiAnswerVerificationAdapter inconclusive = new SpringAiAnswerVerificationAdapter(ChatClient.builder(inconclusiveModel).build());
         CountingChatModel rejectedModel = new CountingChatModel("""
-                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-1","status":"UNSUPPORTED","description":"Unsupported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":["Citation is absent"]}
+                {"disposition":"REJECTED","statementVerdicts":[],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":["Citation is absent"]}
                 """);
         SpringAiAnswerVerificationAdapter rejected = new SpringAiAnswerVerificationAdapter(ChatClient.builder(rejectedModel).build());
 
@@ -91,9 +90,23 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
+    void acceptsAnEmptyVerdictSetForALimitationOnlyDocument() {
+        CountingChatModel model = new CountingChatModel("""
+                {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
+                """);
+        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+
+        AnswerVerificationResult.LlmVerdict result = (AnswerVerificationResult.LlmVerdict) adapter.verify(
+                AnswerVerificationMode.LLM, limitationContext());
+
+        assertThat(result.verdict().statementVerdicts()).isEmpty();
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
     void treatsMalformedVerifierOutputAsUnavailableNotRejected() {
         CountingChatModel model = new CountingChatModel("""
-                {"disposition":"REJECTED","statementVerdicts":[],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
+                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"unknown","status":"UNSUPPORTED","description":"Unsupported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """);
         SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
 
@@ -189,20 +202,27 @@ class AnswerVerificationAdapterTest {
     void rejectsDuplicateMissingAndUnknownStatementVerdictShapes() {
         AnswerVerdictResponseInterpreter interpreter = new AnswerVerdictResponseInterpreter();
         AnswerVerdictResponse duplicate = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(
-                new StatementVerdictResponse("statement-1", "SUPPORTED", "Supported"),
-                new StatementVerdictResponse("statement-1", "SUPPORTED", "Supported twice")), List.of(), List.of(), List.of());
+                new StatementVerdictResponse("statement-a", "SUPPORTED", "Supported"),
+                new StatementVerdictResponse("statement-a", "SUPPORTED", "Supported twice")), List.of(), List.of(), List.of());
         AnswerVerdictResponse missing = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(), List.of(), List.of(), List.of());
         AnswerVerdictResponse unknownStatus = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(
-                new StatementVerdictResponse("statement-1", "UNDECIDED", "Unknown")), List.of(), List.of(), List.of());
+                new StatementVerdictResponse("statement-a", "UNDECIDED", "Unknown")), List.of(), List.of(), List.of());
 
-        assertThatThrownBy(() -> interpreter.interpret(duplicate, context())).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> interpreter.interpret(missing, context())).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> interpreter.interpret(unknownStatus, context())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> interpreter.interpret(duplicate, richContext())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> interpreter.interpret(missing, richContext())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> interpreter.interpret(unknownStatus, richContext())).isInstanceOf(IllegalArgumentException.class);
     }
 
     private AnswerVerificationContext context() {
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
-                StatementType.UNCERTAINTY, "The implementation may differ", Optional.empty(), java.util.Set.of(), java.util.Set.of())));
+                StatementType.UNCERTAINTY, "The implementation may differ", Optional.empty(), Set.of(), Set.of())));
+        return new AnswerVerificationContext("What is known?", SessionHistory.empty(), document,
+                List.of(), List.of(), List.of(), List.of());
+    }
+
+    private AnswerVerificationContext limitationContext() {
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("limitation-1"),
+                StatementType.LIMITATION, "The target remains unresolved", Optional.empty(), Set.of(), Set.of())));
         return new AnswerVerificationContext("What is known?", SessionHistory.empty(), document,
                 List.of(), List.of(), List.of(), List.of());
     }

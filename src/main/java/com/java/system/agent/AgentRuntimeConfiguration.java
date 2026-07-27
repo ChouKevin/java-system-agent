@@ -38,8 +38,6 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.util.UUID;
-
 /**
  * 在 agent-runtime profile 中組裝唯一 production Agent graph 的 privileged bootstrap
  */
@@ -92,7 +90,7 @@ public final class AgentRuntimeConfiguration {
 
     @Bean
     AnalysisAttemptIdGenerator analysisAttemptIdGenerator() {
-        return (runId, attemptSequence) -> new AnalysisAttemptId(UUID.randomUUID().toString());
+        return (runId, attemptSequence) -> new AnalysisAttemptId(runId.value() + ":A" + attemptSequence);
     }
 
     @Bean

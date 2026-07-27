@@ -26,7 +26,7 @@ public final class SemanticDtos {
                                           List<EntryPointMethodResponse> methods) {
     }
 
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", visible = true)
     @JsonSubTypes({
             @JsonSubTypes.Type(value = ApiEntryPointMethodResponse.class, name = "API"),
             @JsonSubTypes.Type(value = MqEntryPointMethodResponse.class, name = "MQ"),
