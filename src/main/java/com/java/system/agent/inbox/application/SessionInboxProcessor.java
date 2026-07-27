@@ -13,6 +13,7 @@ import com.java.system.agent.runtime.port.in.AnswerExecutionUnavailableException
 import com.java.system.agent.runtime.port.in.AnswerQuestionUseCase;
 
 import java.time.Instant;
+import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.logging.Level;
@@ -24,6 +25,7 @@ import java.util.logging.Logger;
  */
 public final class SessionInboxProcessor {
 
+    private static final int MAX_DIAGNOSTIC_CAUSE_DEPTH = 16;
     private static final Logger LOGGER = Logger.getLogger(SessionInboxProcessor.class.getName());
 
     private final SessionInboxPort sessionInboxPort;
@@ -103,7 +105,37 @@ public final class SessionInboxProcessor {
                 claimedMessage.runId().value(),
                 claimedMessage.inboxMessageId().value(),
                 claimedMessage.attemptCount()});
-        record.setThrown(exception);
+        record.setThrown(sanitizedDiagnostic(exception));
         LOGGER.log(record);
+    }
+
+    private static Throwable sanitizedDiagnostic(Throwable exception) {
+        return sanitizedDiagnostic(exception, new IdentityHashMap<>(), 0);
+    }
+
+    private static Throwable sanitizedDiagnostic(
+            Throwable exception,
+            IdentityHashMap<Throwable, Boolean> visited,
+            int depth) {
+        if (depth >= MAX_DIAGNOSTIC_CAUSE_DEPTH || visited.containsKey(exception)) {
+            return new SanitizedDiagnosticException("diagnostic cause chain truncated");
+        }
+        visited.put(exception, Boolean.TRUE);
+        SanitizedDiagnosticException diagnostic = new SanitizedDiagnosticException(exception.getClass().getName());
+        diagnostic.setStackTrace(exception.getStackTrace());
+        Optional.ofNullable(exception.getCause())
+                .map(cause -> sanitizedDiagnostic(cause, visited, Math.incrementExact(depth)))
+                .ifPresent(diagnostic::initCause);
+        return diagnostic;
+    }
+
+    /**
+     * 承載已移除原始訊息的 inbox failure 診斷鏈節點
+     */
+    private static final class SanitizedDiagnosticException extends RuntimeException {
+
+        private SanitizedDiagnosticException(String exceptionType) {
+            super("exception type=" + exceptionType);
+        }
     }
 }

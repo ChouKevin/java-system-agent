@@ -112,7 +112,8 @@ class SessionInboxProcessorTest {
     void logsTheUnexpectedFailureThrowableWithoutPersistingItsMessage() {
         Logger logger = Logger.getLogger(SessionInboxProcessor.class.getName());
         CapturingHandler handler = new CapturingHandler();
-        IllegalStateException failure = new IllegalStateException("provider payload must not persist");
+        IllegalArgumentException cause = new IllegalArgumentException("provider cause payload must not persist");
+        IllegalStateException failure = new IllegalStateException("provider payload must not persist", cause);
         logger.addHandler(handler);
         try {
             RecordingInboxPort inbox = new RecordingInboxPort();
@@ -125,7 +126,23 @@ class SessionInboxProcessorTest {
 
             assertThat(outcome).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
             assertThat(inbox.failure.description()).doesNotContain("provider payload");
-            assertThat(handler.record().getThrown()).isSameAs(failure);
+            LogRecord record = handler.record();
+            Throwable diagnostic = record.getThrown();
+            assertThat(diagnostic).isNotNull();
+            assertThat(diagnostic.getMessage())
+                    .contains(failure.getClass().getName())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(diagnostic.getStackTrace()).containsExactly(failure.getStackTrace());
+            assertThat(diagnostic.getCause()).isNotNull();
+            assertThat(diagnostic.getCause().getMessage())
+                    .contains(cause.getClass().getName())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(diagnostic.getCause().getStackTrace()).containsExactly(cause.getStackTrace());
+            assertThat(record.getMessage())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
         } finally {
             logger.removeHandler(handler);
             handler.close();
