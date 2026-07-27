@@ -87,6 +87,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -97,6 +100,7 @@ public final class ValidatedAgentLoop {
     public static final String INCONCLUSIVE_RESPONSE = "目前資訊不足以產生可驗證的回答";
     public static final String FAILED_RESPONSE = "分析流程發生錯誤，未回傳未驗證內容";
     public static final String CANCELLED_RESPONSE = "分析已取消";
+    private static final Logger LOGGER = Logger.getLogger(ValidatedAgentLoop.class.getName());
 
     private final AgentActionPort actionPort;
     private final CapabilityExecutionPort capabilityExecutionPort;
@@ -739,14 +743,20 @@ public final class ValidatedAgentLoop {
                 List.copyOf(documentValidation.citedEvidence().values()),
                 List.copyOf(documentValidation.referencedObservations().values()));
         AnswerVerificationResult verificationResult;
+        long verificationStartedNanos = System.nanoTime();
+        String verificationResultCategory = "CONTRACT_EXCEPTION";
         try {
             verificationResult = Objects.requireNonNull(
                     verificationPort.verify(pending.verificationMode(), verificationContext),
                     "answer verification port must return a result");
+            verificationResultCategory = verificationResultCategory(verificationResult);
         } catch (AnswerVerificationUnavailableException exception) {
+            verificationResultCategory = "VERIFIER_UNAVAILABLE";
             throw new AnswerExecutionUnavailableException("answer verification is unavailable", exception);
         } catch (AnswerVerificationContractException exception) {
             return integrationContractTerminalFailure(state, request, exception);
+        } finally {
+            logVerificationOperation(state, pending.verificationMode(), verificationResultCategory, verificationStartedNanos);
         }
         if (cancellationPort.isCancellationRequested(request.runId())) {
             state = abandonAnswerVerification(state, AnswerVerificationAbandonReason.CANCELLED);
@@ -1158,6 +1168,30 @@ public final class ValidatedAgentLoop {
         return !budget.hasAgentStepRemaining()
                 || !budget.hasQueryExecutionRemaining()
                 || !budget.hasActionRejectionRemaining();
+    }
+
+    private static String verificationResultCategory(AnswerVerificationResult result) {
+        if (result instanceof AnswerVerificationResult.LlmVerdict) {
+            return "LLM_VERDICT";
+        }
+        return "CONTRACT_ACCEPTED";
+    }
+
+    private static void logVerificationOperation(
+            AgentRunState state,
+            AnswerVerificationMode mode,
+            String resultCategory,
+            long startedNanos) {
+        Level level = "LLM_VERDICT".equals(resultCategory) || "CONTRACT_ACCEPTED".equals(resultCategory)
+                ? Level.INFO : Level.WARNING;
+        LOGGER.log(level,
+                "answer verification operation=VERIFY runId={0} attemptId={1} mode={2} resultCategory={3} elapsedMs={4}",
+                new Object[]{
+                        state.runId().value(),
+                        state.currentAttempt().attemptId().value(),
+                        mode.name(),
+                        resultCategory,
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }
 
     private record RevisionResolution(

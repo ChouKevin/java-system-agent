@@ -32,6 +32,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * 以已設定的 immutable RestClient 呼叫 Java Semantic Service 七個 read-only v1 endpoint
@@ -45,6 +49,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private static final String SUGGEST_OPERATION = "java-semantic-service:POST /v1/api-routes/suggest";
     private static final String OUTGOING_OPERATION = "java-semantic-service:POST /v1/analyses/call-graphs/outgoing";
     private static final String INCOMING_OPERATION = "java-semantic-service:POST /v1/analyses/call-graphs/incoming";
+    private static final Logger LOGGER = Logger.getLogger(JavaSemanticServiceHttpAdapter.class.getName());
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -65,21 +70,34 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     @Override
     public List<RepositoryDescriptor> availableRepositories() {
+        long startedNanos = System.nanoTime();
+        String resultCategory = "CONTRACT_EXCEPTION";
         try {
             List<SemanticDtos.RepositoryStatusResponse> response = restClient.get().uri("/v1/repositories")
                     .retrieve().body(new ParameterizedTypeReference<>() {
                     });
-            return resultMapper.repositories(requiredResponse(response, "repository catalog"));
+            List<RepositoryDescriptor> repositories = resultMapper.repositories(
+                    requiredResponse(response, "repository catalog"));
+            resultCategory = "SUCCEEDED";
+            return repositories;
         } catch (RestClientResponseException exception) {
+            resultCategory = "DEPENDENCY_REQUEST_FAILED";
             throw new IllegalStateException("Java Semantic Service repository catalog request failed", exception);
         } catch (RestClientException exception) {
+            resultCategory = "DEPENDENCY_UNAVAILABLE";
             throw new IllegalStateException("Java Semantic Service repository catalog is unavailable", exception);
+        } finally {
+            logOperation(REPOSITORIES_OPERATION, resultCategory, startedNanos);
         }
     }
 
     @Override
     public RepositoryRevisionResult currentRevision(RepositoryId repositoryId) {
         Objects.requireNonNull(repositoryId, "repository ID must not be null");
+        return observeRevisionOperation(REPOSITORY_OPERATION, () -> currentRevisionInternal(repositoryId));
+    }
+
+    private RepositoryRevisionResult currentRevisionInternal(RepositoryId repositoryId) {
         try {
             SemanticDtos.RepositoryStatusResponse response = restClient.get()
                     .uri("/v1/repositories/{repoId}", repositoryId.value()).retrieve()
@@ -104,6 +122,10 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     }
 
     public CapabilityExecutionResult listEntryPoints(CapabilityInvocation invocation) {
+        return observeCapabilityOperation(ENTRY_POINTS_OPERATION, () -> listEntryPointsInternal(invocation));
+    }
+
+    private CapabilityExecutionResult listEntryPointsInternal(CapabilityInvocation invocation) {
         RepositoryCandidate repository = selectedRepository(invocation);
         try {
             String type = invocation.arguments().get("type");
@@ -125,14 +147,18 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     }
 
     public CapabilityExecutionResult lookupApiRoute(CapabilityInvocation invocation) {
-        return apiRoute(invocation, LOOKUP_OPERATION, false);
+        return observeCapabilityOperation(LOOKUP_OPERATION, () -> apiRoute(invocation, LOOKUP_OPERATION, false));
     }
 
     public CapabilityExecutionResult suggestApiRoute(CapabilityInvocation invocation) {
-        return apiRoute(invocation, SUGGEST_OPERATION, true);
+        return observeCapabilityOperation(SUGGEST_OPERATION, () -> apiRoute(invocation, SUGGEST_OPERATION, true));
     }
 
     public CapabilityExecutionResult outgoingCallGraph(CapabilityInvocation invocation) {
+        return observeCapabilityOperation(OUTGOING_OPERATION, () -> outgoingCallGraphInternal(invocation));
+    }
+
+    private CapabilityExecutionResult outgoingCallGraphInternal(CapabilityInvocation invocation) {
         SemanticTargetCandidate target = selectedTarget(invocation);
         try {
             SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
@@ -154,6 +180,10 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     }
 
     public CapabilityExecutionResult incomingCallGraph(CapabilityInvocation invocation) {
+        return observeCapabilityOperation(INCOMING_OPERATION, () -> incomingCallGraphInternal(invocation));
+    }
+
+    private CapabilityExecutionResult incomingCallGraphInternal(CapabilityInvocation invocation) {
         SemanticTargetCandidate target = selectedTarget(invocation);
         try {
             SemanticDtos.AnalyzeIncomingCallGraphRequest request = new SemanticDtos.AnalyzeIncomingCallGraphRequest(
@@ -204,6 +234,57 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         } catch (RestClientException exception) {
             throw contract("Java Semantic Service API route response violated its contract");
         }
+    }
+
+    private RepositoryRevisionResult observeRevisionOperation(
+            String operation,
+            Supplier<RepositoryRevisionResult> request) {
+        long startedNanos = System.nanoTime();
+        String resultCategory = "CONTRACT_EXCEPTION";
+        try {
+            RepositoryRevisionResult result = request.get();
+            resultCategory = revisionResultCategory(result);
+            return result;
+        } finally {
+            logOperation(operation, resultCategory, startedNanos);
+        }
+    }
+
+    private CapabilityExecutionResult observeCapabilityOperation(
+            String operation,
+            Supplier<CapabilityExecutionResult> request) {
+        long startedNanos = System.nanoTime();
+        String resultCategory = "CONTRACT_EXCEPTION";
+        try {
+            CapabilityExecutionResult result = request.get();
+            resultCategory = capabilityResultCategory(result);
+            return result;
+        } finally {
+            logOperation(operation, resultCategory, startedNanos);
+        }
+    }
+
+    private static String revisionResultCategory(RepositoryRevisionResult result) {
+        if (result instanceof RepositoryRevisionResult.Ready) {
+            return "SUCCEEDED";
+        }
+        return ((RepositoryRevisionResult.Failed) result).failure().code().name();
+    }
+
+    private static String capabilityResultCategory(CapabilityExecutionResult result) {
+        if (result instanceof CapabilityExecutionResult.Succeeded) {
+            return "SUCCEEDED";
+        }
+        return ((CapabilityExecutionResult.Failed) result).failure().code().name();
+    }
+
+    private static void logOperation(String operation, String resultCategory, long startedNanos) {
+        Level level = "SUCCEEDED".equals(resultCategory) ? Level.INFO : Level.WARNING;
+        LOGGER.log(level, "java semantic operation={0} resultCategory={1} elapsedMs={2}",
+                new Object[]{
+                        operation,
+                        resultCategory,
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }
 
     private SemanticDtos.ApiErrorResponse errorResponse(RestClientResponseException exception) {

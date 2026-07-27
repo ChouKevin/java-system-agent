@@ -10,6 +10,9 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.converter.BeanOutputConverter;
 
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * 以無狀態 Spring AI client 執行獨立回答驗證的 LLM verifier 策略
@@ -18,6 +21,7 @@ public final class SpringAiAnswerVerificationAdapter implements AnswerVerificati
 
     private static final String RATE_LIMITED = "RATE_LIMITED";
     private static final String UNAVAILABLE = "ANSWER_VERIFIER_UNAVAILABLE";
+    private static final Logger LOGGER = Logger.getLogger(SpringAiAnswerVerificationAdapter.class.getName());
 
     private final ChatClient chatClient;
     private final BeanOutputConverter<AnswerVerdictResponse> converter;
@@ -48,18 +52,35 @@ public final class SpringAiAnswerVerificationAdapter implements AnswerVerificati
         if (mode != AnswerVerificationMode.LLM) {
             throw new IllegalArgumentException("LLM verifier received a different mode");
         }
+        long startedNanos = System.nanoTime();
+        String resultCategory = "CONTRACT_EXCEPTION";
         String content;
         try {
-            content = chatClient.prompt().system(AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION)
-                    .user(promptRenderer.render(context, converter.getFormat())).call().content();
-        } catch (RuntimeException exception) {
-            throw new AnswerVerificationUnavailableException(category(exception), exception);
+            try {
+                content = chatClient.prompt().system(AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION)
+                        .user(promptRenderer.render(context, converter.getFormat())).call().content();
+            } catch (RuntimeException exception) {
+                resultCategory = category(exception);
+                throw new AnswerVerificationUnavailableException(resultCategory, exception);
+            }
+            try {
+                AnswerVerificationResult result = new AnswerVerificationResult.LlmVerdict(
+                        interpreter.interpret(converter.convert(content), context));
+                resultCategory = "LLM_VERDICT";
+                return result;
+            } catch (RuntimeException exception) {
+                resultCategory = UNAVAILABLE;
+                throw new AnswerVerificationUnavailableException(UNAVAILABLE, exception);
+            }
+        } finally {
+            logOperation(resultCategory, startedNanos);
         }
-        try {
-            return new AnswerVerificationResult.LlmVerdict(interpreter.interpret(converter.convert(content), context));
-        } catch (RuntimeException exception) {
-            throw new AnswerVerificationUnavailableException(UNAVAILABLE, exception);
-        }
+    }
+
+    private static void logOperation(String resultCategory, long startedNanos) {
+        Level level = "LLM_VERDICT".equals(resultCategory) ? Level.INFO : Level.WARNING;
+        LOGGER.log(level, "answer verifier operation=VERIFY resultCategory={0} elapsedMs={1}",
+                new Object[]{resultCategory, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }
 
     private static String category(RuntimeException exception) {
