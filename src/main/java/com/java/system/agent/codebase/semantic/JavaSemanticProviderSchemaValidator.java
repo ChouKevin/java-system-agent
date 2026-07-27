@@ -52,10 +52,8 @@ final class JavaSemanticProviderSchemaValidator {
         repositoryId(required.repoId(), "repository ID");
         enumValue(required.mode(), REPOSITORY_MODES, "repository mode");
         requiredString(required.displayName(), "repository display name");
+        requiredBoolean(required.cloned(), "repository cloned");
         optionalRevision(required.currentRevision(), "repository current revision");
-        if (!required.cloned() && Objects.nonNull(required.currentRevision())) {
-            throw contract("uncloned repository status must not contain a current revision");
-        }
         return required;
     }
 
@@ -197,9 +195,11 @@ final class JavaSemanticProviderSchemaValidator {
 
     private void graphTraversal(SemanticDtos.GraphTraversal traversal) {
         SemanticDtos.GraphTraversal required = requiredObject(traversal, "graph traversal");
-        range(required.requestedDepth(), 1, 2, "graph requested depth");
-        minimum(required.expandedNodeCount(), 0, "graph expanded node count");
-        minimum(required.nodeBudget(), 0, "graph node budget");
+        range(requiredInteger(required.requestedDepth(), "graph requested depth"), 1, 2, "graph requested depth");
+        minimum(requiredInteger(required.expandedNodeCount(), "graph expanded node count"), 0,
+                "graph expanded node count");
+        minimum(requiredInteger(required.nodeBudget(), "graph node budget"), 0, "graph node budget");
+        requiredBoolean(required.rootDirectCallsComplete(), "graph root direct calls complete");
         enumValue(required.limitReason(), LIMIT_REASONS, "graph limit reason");
     }
 
@@ -255,12 +255,13 @@ final class JavaSemanticProviderSchemaValidator {
 
     private void position(SemanticDtos.Position position, String description) {
         SemanticDtos.Position required = requiredObject(position, description);
-        minimum(required.line(), 0, description + " line");
-        minimum(required.character(), 0, description + " character");
+        minimum(requiredInteger(required.line(), description + " line"), 0, description + " line");
+        minimum(requiredInteger(required.character(), description + " character"), 0, description + " character");
     }
 
     private void sourceFile(String value) {
         String required = requiredString(value, "method target source file");
+        nonblank(required, "method target source file");
         if (required.length() > 1_024 || hasControlCharacter(required) || endsWithTerminalWhitespace(required)
                 || !normalizedRelativePath(required)) {
             throw contract("method target source file has an invalid format");
@@ -383,6 +384,14 @@ final class JavaSemanticProviderSchemaValidator {
         if (value < minimum) {
             throw contract(description + " is outside its supported range");
         }
+    }
+
+    private int requiredInteger(Integer value, String description) {
+        return requiredObject(value, description);
+    }
+
+    private boolean requiredBoolean(Boolean value, String description) {
+        return requiredObject(value, description);
     }
 
     private <T> T requiredObject(T value, String description) {

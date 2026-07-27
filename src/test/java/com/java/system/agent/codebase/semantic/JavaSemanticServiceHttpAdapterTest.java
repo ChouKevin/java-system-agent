@@ -136,11 +136,15 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
-    void mapsUnclonedOrRevisionlessRepositoryStatusToNotReadyAndRejectsInvalidProviderSchema() {
+    void mapsRevisionlessRepositoryToNotReadyAndAllowsOpenApiValidUnclonedRevision() {
         TestClient client = testClient();
         client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders"))
                 .andRespond(withSuccess("""
                         {"repoId":"orders","mode":"REMOTE","displayName":"Orders","currentBranch":null,"currentRevision":null,"cloned":true}
+                        """, MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/fixture"))
+                .andRespond(withSuccess("""
+                        {"repoId":"fixture","mode":"LOCAL_FIXTURE","displayName":"Fixture","currentBranch":null,"currentRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","cloned":false}
                         """, MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/repositories"))
                 .andRespond(withSuccess("""
@@ -152,6 +156,8 @@ class JavaSemanticServiceHttpAdapterTest {
                 new com.java.system.agent.runtime.port.out.RepositoryRevisionFailure(
                         RepositoryRevisionFailureCode.DEPENDENCY_NOT_READY,
                         "Java Semantic Service repository is not ready", "java-semantic-service:GET /v1/repositories/{repoId}")));
+        assertThat(adapter.currentRevision(new RepositoryId("fixture"))).isEqualTo(new RepositoryRevisionResult.Ready(
+                new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")));
         assertThatThrownBy(adapter::availableRepositories)
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
@@ -166,6 +172,25 @@ class JavaSemanticServiceHttpAdapterTest {
                         """, MediaType.APPLICATION_JSON));
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetInvocation("codebase.outgoing-call-graph")))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsMissingRequiredJsonPrimitiveFieldsInsteadOfAcceptingDefaultValues() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories"))
+                .andRespond(withSuccess("""
+                        [{"repoId":"orders","mode":"REMOTE","displayName":"Orders","currentBranch":null,"currentRevision":null}]
+                        """, MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
+                .andRespond(withSuccess("""
+                        {"status":"SUCCESS","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rootNodeId":"root","traversal":{"requestedDepth":1,"expandedNodeCount":0,"nodeBudget":0,"limitReason":"NONE"},"nodes":[{"nodeId":"root","target":{"sourceFile":"src/OrderService.java","packageName":"com.example","className":"OrderService","methodName":"find","parameterTypes":[]},"externalSymbol":null,"contentState":"FULL_SOURCE","traversalState":"EXPANDED","dispatchKind":"SYNCHRONOUS","methodBody":null,"declarationRange":null}],"edges":[],"warnings":[],"errors":[]}
+                        """, MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(adapter::availableRepositories).isInstanceOf(CapabilityExecutionContractException.class);
         assertThatThrownBy(() -> adapter.outgoingCallGraph(targetInvocation("codebase.outgoing-call-graph")))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();

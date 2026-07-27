@@ -14,7 +14,7 @@ public final class SemanticDtos {
     }
 
     public record RepositoryStatusResponse(String repoId, String mode, String displayName,
-                                           String currentBranch, String currentRevision, boolean cloned) {
+                                           String currentBranch, String currentRevision, Boolean cloned) {
     }
 
     public record EntryPointsResponse(String repoId, String analyzedRevision,
@@ -109,8 +109,8 @@ public final class SemanticDtos {
                                             List<GraphError> errors) {
     }
 
-    public record GraphTraversal(int requestedDepth, int expandedNodeCount, int nodeBudget,
-                                 boolean rootDirectCallsComplete, String limitReason) {
+    public record GraphTraversal(Integer requestedDepth, Integer expandedNodeCount, Integer nodeBudget,
+                                 Boolean rootDirectCallsComplete, String limitReason) {
     }
 
     public record GraphNode(String nodeId, MethodTarget target, String externalSymbol, String contentState,
@@ -133,7 +133,7 @@ public final class SemanticDtos {
     public record SourceRange(String sourceFile, Position start, Position end) {
     }
 
-    public record Position(int line, int character) {
+    public record Position(Integer line, Integer character) {
     }
 
     public record ApiErrorResponse(String errorCode, String message, String repoId, String expectedRevision,

@@ -295,7 +295,8 @@ public final class JavaSemanticResultMapper {
         for (SemanticDtos.GraphNode node : nodes) {
             parts.add("node=" + node.nodeId() + ":" + node.contentState() + ":" + node.traversalState() + ":"
                     + node.dispatchKind() + ":target=" + targetSummary(node.target()) + ":external="
-                    + providerText(node.externalSymbol()) + ":range=" + sourceRangeSummary(node.declarationRange()));
+                    + providerText(node.externalSymbol()) + ":body=" + providerText(node.methodBody()) + ":range="
+                    + sourceRangeSummary(node.declarationRange()));
         }
         for (SemanticDtos.GraphEdge edge : edges) {
             parts.add("edge=" + edge.callerNodeId() + ">" + edge.calleeNodeId() + ":" + edge.category() + ":"
