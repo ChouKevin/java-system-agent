@@ -16,10 +16,14 @@ import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
+import com.java.system.agent.runtime.domain.answer.AnswerAcceptance;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementVerdict;
 import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
+import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
@@ -38,7 +42,10 @@ import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.run.PendingTerminalResponse;
+import com.java.system.agent.runtime.domain.run.PendingAnswerVerification;
+import com.java.system.agent.runtime.domain.run.AnswerVerificationAbandonReason;
 import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
@@ -47,19 +54,27 @@ import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
 import com.java.system.agent.runtime.port.out.AgentActionPort;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
-import com.java.system.agent.runtime.port.out.AgentSemanticQuery;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryPort;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryResult;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionPort;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
+import com.java.system.agent.runtime.port.out.CapabilityInvocation;
 import com.java.system.agent.runtime.port.out.AnalysisAttemptIdGenerator;
 import com.java.system.agent.runtime.port.out.AnalysisCancellationPort;
 import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
 import com.java.system.agent.runtime.port.out.AnswerVerificationPort;
+import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
+import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.runtime.port.out.AnswerVerificationContractException;
+import com.java.system.agent.runtime.port.in.AnswerExecutionUnavailableException;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
 import com.java.system.agent.runtime.port.out.CapabilityCatalogPort;
 import com.java.system.agent.runtime.port.out.SessionPort;
 import com.java.system.agent.runtime.port.out.RepositoryCatalogPort;
 import com.java.system.agent.runtime.port.out.RepositoryDescriptor;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionPort;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
+import com.java.system.agent.runtime.port.out.RepositoryRevisionFailure;
+import com.java.system.agent.runtime.port.out.RepositoryRevisionContractException;
 import com.java.system.agent.runtime.port.out.AgentTransitionConflictException;
 import com.java.system.agent.runtime.port.out.TerminalAcceptanceCancelledException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
@@ -75,7 +90,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 唯一推進 bounded action、semantic query、verification 與 terminal persistence 的 orchestrator
+ * 唯一推進 bounded action、capability execution、verification 與 terminal persistence 的 orchestrator
  */
 public final class ValidatedAgentLoop {
 
@@ -84,8 +99,9 @@ public final class ValidatedAgentLoop {
     public static final String CANCELLED_RESPONSE = "分析已取消";
 
     private final AgentActionPort actionPort;
-    private final AgentSemanticQueryPort semanticQueryPort;
+    private final CapabilityExecutionPort capabilityExecutionPort;
     private final AnswerVerificationPort verificationPort;
+    private final AnswerVerificationMode answerVerificationMode;
     private final SessionPort sessionPort;
     private final RepositoryCatalogPort repositoryCatalogPort;
     private final CapabilityCatalogPort capabilityCatalogPort;
@@ -100,8 +116,9 @@ public final class ValidatedAgentLoop {
 
     public ValidatedAgentLoop(
             AgentActionPort actionPort,
-            AgentSemanticQueryPort semanticQueryPort,
+            CapabilityExecutionPort capabilityExecutionPort,
             AnswerVerificationPort verificationPort,
+            AnswerVerificationMode answerVerificationMode,
             SessionPort sessionPort,
             RepositoryCatalogPort repositoryCatalogPort,
             CapabilityCatalogPort capabilityCatalogPort,
@@ -114,10 +131,12 @@ public final class ValidatedAgentLoop {
             AgentTransitionCommitter transitionCommitter,
             ContextIssuer contextIssuer) {
         this.actionPort = Objects.requireNonNull(actionPort, "agent action port must not be null");
-        this.semanticQueryPort = Objects.requireNonNull(
-                semanticQueryPort, "agent semantic query port must not be null");
+        this.capabilityExecutionPort = Objects.requireNonNull(
+                capabilityExecutionPort, "capability execution port must not be null");
         this.verificationPort = Objects.requireNonNull(
                 verificationPort, "answer verification port must not be null");
+        this.answerVerificationMode = Objects.requireNonNull(
+                answerVerificationMode, "answer verification mode must not be null");
         this.sessionPort = Objects.requireNonNull(sessionPort, "session port must not be null");
         this.repositoryCatalogPort = Objects.requireNonNull(
                 repositoryCatalogPort, "repository catalog port must not be null");
@@ -142,45 +161,60 @@ public final class ValidatedAgentLoop {
     public AgentLoopResult execute(AgentLoopRequest request) {
         Objects.requireNonNull(request, "agent loop request must not be null");
         Optional<AgentRunState> persisted = findPersistedState(request);
+        if (request.executionMode() == AnswerExecutionMode.TERMINAL_RECONCILIATION) {
+            return reconcileTerminal(request, persisted);
+        }
         ActiveExecution execution;
         if (persisted.isPresent()) {
             AgentRunState persistedState = persisted.orElseThrow();
-            if (persistedState.pendingTerminalResponse().isPresent()
-                    || persistedState.status() == AgentRunStatus.CONCLUDED) {
-                return resumePersistedState(request, persistedState);
+            PersistedDispatch dispatch = dispatchPersistedState(request, persistedState);
+            if (dispatch.result().isPresent()) {
+                return dispatch.result().orElseThrow();
             }
-            validateRequestIdentity(request, persistedState);
-            if (request.executionMode() == AnswerExecutionMode.INITIAL) {
-                throw new AgentRunInProgressException("agent run is already in progress: " + request.runId().value());
-            }
-            if (request.executionMode() == AnswerExecutionMode.TERMINAL_RECONCILIATION) {
-                throw new AgentRunTerminalReconciliationException(
-                        "terminal reconciliation requires a terminal agent run: " + request.runId().value());
-            }
-            try {
-                execution = prepareRetryExecution(request, persistedState);
-            } catch (AgentTransitionConflictException exception) {
-                return resolveRetryConflict(request, exception);
+            if (dispatch.execution().isPresent()) {
+                execution = dispatch.execution().orElseThrow();
+            } else {
+                if (request.executionMode() == AnswerExecutionMode.INITIAL) {
+                    throw new AgentRunInProgressException("agent run is already in progress: " + request.runId().value());
+                }
+                try {
+                    execution = prepareRetryExecution(request, persistedState);
+                } catch (ActiveIntegrationContractException exception) {
+                    return concludeIntegrationFailure(exception.state(), request, exception);
+                } catch (AgentTransitionConflictException exception) {
+                    PersistedDispatch conflict = resolveRetryConflict(request, exception);
+                    if (conflict.result().isPresent()) {
+                        return conflict.result().orElseThrow();
+                    }
+                    if (conflict.execution().isPresent()) {
+                        execution = conflict.execution().orElseThrow();
+                    } else {
+                        throw new AgentRunInProgressException(
+                                "agent run is already in progress: " + request.runId().value());
+                    }
+                }
             }
         } else {
-            if (request.executionMode() == AnswerExecutionMode.TERMINAL_RECONCILIATION) {
-                throw new AgentRunTerminalReconciliationException(
-                        "terminal reconciliation requires a persisted terminal agent run: "
-                                + request.runId().value());
-            }
             int attemptSequence = request.executionAttempt();
-            BootstrapPreparation preparation = prepareBootstrap(request, attemptSequence);
+            BootstrapPreparation preparation;
+            try {
+                preparation = prepareBootstrap(request, attemptSequence);
+            } catch (CapabilityExecutionContractException exception) {
+                throw new AnswerExecutionContractException("runtime context issuance violated its contract", exception);
+            }
             InitialClaim initialClaim = claimInitialRun(request, preparation.initialState(), preparation.initialContext());
             if (initialClaim.result().isPresent()) {
                 return initialClaim.result().orElseThrow();
             }
-            execution = new ActiveExecution(
+            execution = initialClaim.execution().orElseGet(() -> new ActiveExecution(
                     initialClaim.state().orElseThrow(),
                     preparation.sessionHistory(),
                     preparation.capabilityCatalog(),
                     preparation.repositoryCatalog(),
                     preparation.catalogRepositoryIds(),
-                    attemptSequence);
+                    attemptSequence,
+                    Optional.empty(),
+                    false));
         }
         AgentRunState state = execution.state();
         SessionHistory sessionHistory = execution.sessionHistory();
@@ -189,8 +223,8 @@ public final class ValidatedAgentLoop {
         Set<RepositoryId> catalogRepositoryIds = execution.catalogRepositoryIds();
         int attemptSequence = execution.attemptSequence();
 
-        Optional<String> latestRejection = Optional.empty();
-        boolean forcedFinalResponse = false;
+        Optional<String> latestRejection = execution.latestRejection();
+        boolean forcedFinalResponse = execution.forcedFinalResponse();
         while (true) {
             if (cancellationPort.isCancellationRequested(request.runId())) {
                 return conclude(state, request, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty());
@@ -247,7 +281,7 @@ public final class ValidatedAgentLoop {
             }
             if (action instanceof AnswerAction answerAction) {
                 TerminalExecution terminal = executeAnswer(
-                        request, state, answerAction, finalResponseMode);
+                        request, sessionHistory, state, answerAction, finalResponseMode);
                 if (terminal.result().isPresent()) {
                     return terminal.result().orElseThrow();
                 }
@@ -263,6 +297,36 @@ public final class ValidatedAgentLoop {
 
     private Optional<AgentRunState> findPersistedState(AgentLoopRequest request) {
         return transitionCommitter.findByRunId(request.runId());
+    }
+
+    private AgentLoopResult reconcileTerminal(AgentLoopRequest request, Optional<AgentRunState> persisted) {
+        if (persisted.isEmpty()) {
+            throw new AnswerExecutionContractException(
+                    "terminal reconciliation requires a persisted agent run");
+        }
+        AgentRunState state = persisted.orElseThrow();
+        validateRequestIdentity(request, state);
+        try {
+            if (state.status() == AgentRunStatus.CONCLUDED) {
+                return concludedResult(state);
+            }
+            if (state.status() == AgentRunStatus.RUNNING && state.pendingTerminalResponse().isPresent()) {
+                PendingTerminalResponse pending = state.pendingTerminalResponse().orElseThrow();
+                sessionPort.append(pending.sessionId(), pending.turn());
+                return concludePersistedTerminal(state, request, pending);
+            }
+            if (state.status() == AgentRunStatus.RUNNING && state.pendingAnswerVerification().isPresent()) {
+                AgentRunState abandoned = abandonAnswerVerification(
+                        state, AnswerVerificationAbandonReason.RETRY_EXHAUSTED);
+                return conclude(abandoned, request, RunOutcome.FAILED, FAILED_RESPONSE, Optional.empty());
+            }
+            if (state.status() == AgentRunStatus.RUNNING || state.status() == AgentRunStatus.RESTARTING) {
+                return conclude(state, request, RunOutcome.FAILED, FAILED_RESPONSE, Optional.empty());
+            }
+        } catch (AgentTransitionConflictException | AgentLoopException | AgentRunInProgressException exception) {
+            throw new AnswerExecutionContractException("terminal reconciliation could not be committed", exception);
+        }
+        throw new AnswerExecutionContractException("terminal reconciliation requires a safely recoverable agent run");
     }
 
     private BootstrapPreparation prepareBootstrap(AgentLoopRequest request, int attemptSequence) {
@@ -295,15 +359,15 @@ public final class ValidatedAgentLoop {
             AgentRunState initialState,
             RunAttempt initialContext) {
         try {
-            return new InitialClaim(Optional.of(bootstrap(initialState, initialContext)), Optional.empty());
+            return new InitialClaim(Optional.of(bootstrap(initialState, initialContext)), Optional.empty(), Optional.empty());
         } catch (AgentTransitionConflictException exception) {
             AgentRunState authoritative = transitionCommitter.findByRunId(request.runId())
                     .orElseThrow(() -> exception);
-            if (authoritative.pendingTerminalResponse().isPresent()
-                    || authoritative.status() == AgentRunStatus.CONCLUDED) {
-                return new InitialClaim(Optional.empty(), Optional.of(resumePersistedState(request, authoritative)));
+            PersistedDispatch dispatch = dispatchPersistedState(request, authoritative);
+            if (dispatch.execution().isEmpty() && dispatch.result().isEmpty()) {
+                throw new AgentRunInProgressException("agent run is already in progress: " + request.runId().value());
             }
-            throw new AgentRunInProgressException("agent run is already in progress: " + request.runId().value());
+            return new InitialClaim(Optional.empty(), dispatch.execution(), dispatch.result());
         }
     }
 
@@ -320,12 +384,17 @@ public final class ValidatedAgentLoop {
                 .map(RepositoryDescriptor::repositoryId)
                 .collect(Collectors.toUnmodifiableSet());
         AgentRunState restarted = restartPersistedAttempt(request, persistedState);
-        RunAttempt restartedContext = contextIssuer.issueInitial(
-                request.runId(),
-                restarted.currentAttempt().attemptId(),
-                RevisionVector.empty(),
-                capabilityCatalog,
-                repositoryCatalog);
+        RunAttempt restartedContext;
+        try {
+            restartedContext = contextIssuer.issueInitial(
+                    request.runId(),
+                    restarted.currentAttempt().attemptId(),
+                    RevisionVector.empty(),
+                    capabilityCatalog,
+                    repositoryCatalog);
+        } catch (CapabilityExecutionContractException exception) {
+            throw new ActiveIntegrationContractException(restarted, exception);
+        }
         AgentRunState contextualized = commitContext(restarted, restartedContext);
         return new ActiveExecution(
                 contextualized,
@@ -333,7 +402,36 @@ public final class ValidatedAgentLoop {
                 capabilityCatalog,
                 repositoryCatalog,
                 catalogRepositoryIds,
-                contextualized.attemptSequence());
+                contextualized.attemptSequence(),
+                Optional.empty(),
+                false);
+    }
+
+    private PendingVerificationResume resumePendingVerification(AgentLoopRequest request, AgentRunState persisted) {
+        validateRequestIdentity(request, persisted);
+        SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
+                "session port must return session history");
+        TerminalExecution terminal = verifyPendingAnswer(request, sessionHistory, persisted);
+        if (terminal.result().isPresent()) {
+            return new PendingVerificationResume(Optional.empty(), terminal.result());
+        }
+        List<CapabilityDescriptor> capabilities = List.copyOf(persisted.currentAttempt().issuedCapabilities().values());
+        Map<RepositoryId, RepositoryDescriptor> repositories = new LinkedHashMap<>();
+        for (IssuedCandidate issued : persisted.currentAttempt().issuedCandidates().values()) {
+            if (issued.candidate() instanceof RepositoryCandidate repository) {
+                repositories.putIfAbsent(repository.repositoryId(),
+                        new RepositoryDescriptor(repository.repositoryId(), repository.description()));
+            }
+        }
+        return new PendingVerificationResume(Optional.of(new ActiveExecution(
+                terminal.state(),
+                sessionHistory,
+                capabilities,
+                List.copyOf(repositories.values()),
+                Set.copyOf(repositories.keySet()),
+                terminal.state().attemptSequence(),
+                terminal.latestRejection(),
+                terminal.forceFinalResponse())), Optional.empty());
     }
 
     private AgentRunState restartPersistedAttempt(AgentLoopRequest request, AgentRunState persistedState) {
@@ -358,28 +456,27 @@ public final class ValidatedAgentLoop {
                 RunAttempt.empty(nextAttemptId)));
     }
 
-    private AgentLoopResult resolveRetryConflict(AgentLoopRequest request, AgentTransitionConflictException exception) {
+    private PersistedDispatch resolveRetryConflict(AgentLoopRequest request, AgentTransitionConflictException exception) {
         AgentRunState authoritative = transitionCommitter.findByRunId(request.runId())
                 .orElseThrow(() -> exception);
-        validateRequestIdentity(request, authoritative);
-        if (authoritative.pendingTerminalResponse().isPresent()
-                || authoritative.status() == AgentRunStatus.CONCLUDED) {
-            return resumePersistedState(request, authoritative);
-        }
-        throw new AgentRunInProgressException("agent run is already in progress: " + request.runId().value());
+        return dispatchPersistedState(request, authoritative);
     }
 
-    private AgentLoopResult resumePersistedState(AgentLoopRequest request, AgentRunState persisted) {
+    private PersistedDispatch dispatchPersistedState(AgentLoopRequest request, AgentRunState persisted) {
         validateRequestIdentity(request, persisted);
         if (persisted.status() == AgentRunStatus.CONCLUDED) {
-            return concludedResult(persisted);
+            return new PersistedDispatch(Optional.empty(), Optional.of(concludedResult(persisted)));
+        }
+        if (persisted.status() == AgentRunStatus.RUNNING && persisted.pendingAnswerVerification().isPresent()) {
+            PendingVerificationResume resumed = resumePendingVerification(request, persisted);
+            return new PersistedDispatch(resumed.execution(), resumed.result());
         }
         if (persisted.status() == AgentRunStatus.RUNNING && persisted.pendingTerminalResponse().isPresent()) {
             PendingTerminalResponse pending = persisted.pendingTerminalResponse().orElseThrow();
             sessionPort.append(pending.sessionId(), pending.turn());
-            return concludePersistedTerminal(persisted, request, pending);
+            return new PersistedDispatch(Optional.empty(), Optional.of(concludePersistedTerminal(persisted, request, pending)));
         }
-        throw new IllegalStateException("persisted agent run cannot be safely resumed without a terminal response");
+        return new PersistedDispatch(Optional.empty(), Optional.empty());
     }
 
     private AgentLoopResult concludePersistedTerminal(
@@ -415,13 +512,9 @@ public final class ValidatedAgentLoop {
         RunOutcome outcome = state.finalOutcome().orElseThrow();
         if (state.pendingTerminalResponse().isPresent()) {
             PendingTerminalResponse pending = state.pendingTerminalResponse().orElseThrow();
-            return new AgentLoopResult(
-                    state.runId(), outcome, pending.turn().assistantMessage(), pendingAnswerDocument(pending),
-                    state.currentAttempt().revisionVector());
+            return loopResult(state, pending.turn().assistantMessage(), pendingAnswerDocument(pending));
         }
-        return new AgentLoopResult(
-                state.runId(), outcome, runtimeFixedResponse(outcome), Optional.empty(),
-                state.currentAttempt().revisionVector());
+        return loopResult(state, runtimeFixedResponse(outcome), Optional.empty());
     }
 
     private Optional<AnswerDocument> pendingAnswerDocument(PendingTerminalResponse pending) {
@@ -455,7 +548,12 @@ public final class ValidatedAgentLoop {
         List<IssuedCandidate> selectedValues = action.candidates().stream()
                 .map(handle -> currentState.currentAttempt().issuedCandidates().get(handle))
                 .toList();
-        RevisionResolution revisionResolution = resolveRevisions(state.currentAttempt().revisionVector(), selectedValues);
+        RevisionResolution revisionResolution;
+        try {
+            revisionResolution = resolveRevisions(state.currentAttempt().revisionVector(), selectedValues);
+        } catch (RepositoryRevisionContractException exception) {
+            return integrationContractFailure(request, state, attemptSequence, exception);
+        }
         if (revisionResolution.drifted()) {
             boolean restartAllowed = state.budget().hasRevisionRestartRemaining();
             state = commit(state, new AgentEvent.AttemptInvalidated(
@@ -466,12 +564,17 @@ public final class ValidatedAgentLoop {
                     restartAllowed));
             int nextAttemptSequence = Math.incrementExact(state.attemptSequence());
             AnalysisAttemptId nextAttemptId = attemptIdGenerator.nextAttemptId(state.runId(), nextAttemptSequence);
-            RunAttempt restartedContext = contextIssuer.issueInitial(
-                    state.runId(),
-                    nextAttemptId,
-                    RevisionVector.empty(),
-                    capabilityCatalog,
-                    repositoryCatalog);
+            RunAttempt restartedContext;
+            try {
+                restartedContext = contextIssuer.issueInitial(
+                        state.runId(),
+                        nextAttemptId,
+                        RevisionVector.empty(),
+                        capabilityCatalog,
+                        repositoryCatalog);
+            } catch (CapabilityExecutionContractException exception) {
+                return integrationContractFailure(request, state, nextAttemptSequence, exception);
+            }
             AnalysisAttemptId invalidatedAttemptId = state.currentAttempt().attemptId();
             state = commit(state, new AgentEvent.AttemptStarted(
                     state.runId(),
@@ -502,13 +605,28 @@ public final class ValidatedAgentLoop {
                     Optional.of("repository revision changed; a new attempt was started"),
                     Optional.empty());
         }
+        if (revisionResolution.failure().isPresent()) {
+            RepositoryRevisionFailure failure = revisionResolution.failure().orElseThrow();
+            state = commit(state, new AgentEvent.ActionAccepted(
+                    state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), action));
+            state = commit(state, new AgentEvent.QueryBudgetConsumed(
+                    state.runId(), state.currentAttempt().attemptId(), state.stateRevision()));
+            state = recordRuntimeObservation(state, ObservationCode.BLOCKING_UNCERTAINTY,
+                    failure.description(), Set.of(), Set.of(), failure.operationSource());
+            return new QueryExecution(state, attemptSequence, false, Optional.of(failure.description()), Optional.empty());
+        }
         state = commit(state, new AgentEvent.ActionAccepted(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), action));
         state = commit(state, new AgentEvent.QueryBudgetConsumed(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision()));
         if (!revisionResolution.revisions().equals(state.currentAttempt().revisionVector())) {
-            RunAttempt rebound = contextIssuer.reissue(
-                    state.runId(), state.currentAttempt(), revisionResolution.revisions());
+            RunAttempt rebound;
+            try {
+                rebound = contextIssuer.reissue(
+                        state.runId(), state.currentAttempt(), revisionResolution.revisions());
+            } catch (CapabilityExecutionContractException exception) {
+                return integrationContractFailure(request, state, attemptSequence, exception);
+            }
             state = commitContext(state, rebound);
         }
         if (cancellationPort.isCancellationRequested(request.runId())) {
@@ -520,17 +638,33 @@ public final class ValidatedAgentLoop {
         List<IssuedCandidate> reboundSelection = selectedHandleValues.stream()
                 .map(handleValue -> findIssuedCandidate(queryContext, handleValue))
                 .toList();
-        AgentSemanticQuery semanticQuery = new AgentSemanticQuery(
+        CapabilityInvocation capabilityInvocation = new CapabilityInvocation(
                 findCapability(queryContext, action),
                 reboundSelection,
                 action.questionToResolve(),
                 action.arguments(),
                 queryContext.revisionVector());
-        AgentSemanticQueryResult result = Objects.requireNonNull(
-                semanticQueryPort.query(semanticQuery),
-                "agent semantic query port must return a result");
-        ContextIssuer.SemanticIssue issued = contextIssuer.issueSemanticResult(
-                state.runId(), state.currentAttempt(), result, catalogRepositoryIds);
+        CapabilityExecutionResult result;
+        try {
+            result = Objects.requireNonNull(
+                    capabilityExecutionPort.execute(capabilityInvocation),
+                    "capability execution port must return a result");
+        } catch (CapabilityExecutionContractException exception) {
+            return integrationContractFailure(request, state, attemptSequence, exception);
+        }
+        if (result instanceof CapabilityExecutionResult.Failed failed) {
+            state = recordCapabilityFailureObservation(state, ObservationCode.BLOCKING_UNCERTAINTY,
+                    failed.failure().description(), Set.of(), Set.of(), failed.failure().operationSource());
+            return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
+        }
+        ContextIssuer.CapabilityIssue issued;
+        try {
+            issued = contextIssuer.issueCapabilityResult(
+                    state.runId(), state.currentAttempt(), (CapabilityExecutionResult.Succeeded) result,
+                    catalogRepositoryIds);
+        } catch (CapabilityExecutionContractException exception) {
+            return integrationContractFailure(request, state, attemptSequence, exception);
+        }
         state = commitContext(state, issued.context());
         for (AgentObservation observation : issued.observations()) {
             state = commit(state, new AgentEvent.ObservationRecorded(
@@ -542,8 +676,18 @@ public final class ValidatedAgentLoop {
         return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
     }
 
+    private QueryExecution integrationContractFailure(
+            AgentLoopRequest request,
+            AgentRunState state,
+            int attemptSequence,
+            RuntimeException exception) {
+        AgentLoopResult result = concludeIntegrationFailure(state, request, exception);
+        return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.of(result));
+    }
+
     private TerminalExecution executeAnswer(
             AgentLoopRequest request,
+            SessionHistory sessionHistory,
             AgentRunState currentState,
             AnswerAction action,
             boolean finalResponseMode) {
@@ -559,50 +703,136 @@ public final class ValidatedAgentLoop {
                 state.currentAttempt().issuedEvidence(),
                 state.currentAttempt().observations(),
                 binding);
-        AnswerVerificationContext verificationContext = new AnswerVerificationContext(
-                request.question(),
-                action.document(),
-                List.copyOf(documentValidation.citedEvidence().values()),
-                List.copyOf(documentValidation.referencedObservations().values()));
-        AnswerVerdict verdict = Objects.requireNonNull(
-                verificationPort.verify(verificationContext),
-                "answer verification port must return a verdict");
-        verdictValidator.validate(documentValidation, verdict);
+        PendingAnswerVerification pendingVerification = new PendingAnswerVerification(
+                state.currentAttempt().attemptId(), state.currentAttempt().revisionVector(), action.document(),
+                finalResponseMode, answerVerificationMode);
+        state = commit(state, new AgentEvent.AnswerProposed(state.runId(), state.currentAttempt().attemptId(),
+                state.stateRevision(), pendingVerification));
+        return verifyPendingAnswer(request, sessionHistory, state);
+    }
+
+    private TerminalExecution verifyPendingAnswer(
+            AgentLoopRequest request,
+            SessionHistory sessionHistory,
+            AgentRunState currentState) {
+        PendingAnswerVerification pending = currentState.pendingAnswerVerification().orElseThrow(
+                () -> new IllegalStateException("answer verification checkpoint is required"));
+        AgentRunState state = currentState;
         if (cancellationPort.isCancellationRequested(request.runId())) {
+            state = abandonAnswerVerification(state, AnswerVerificationAbandonReason.CANCELLED);
             AgentLoopResult result = conclude(
                     state, request, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty());
             return new TerminalExecution(state, Optional.empty(), false, Optional.of(result));
         }
-        if (verdict.disposition() == AnswerDisposition.REJECTED) {
-            String rejection = rejectionDescription(verdict);
-            state = reject(state, Optional.of(action), rejection, finalResponseMode);
-            state = recordAnswerRejectionObservations(state, action.document(), verdict);
-            if (finalResponseMode) {
-                AgentLoopResult result = conclude(
-                        state, request, RunOutcome.INCONCLUSIVE, INCONCLUSIVE_RESPONSE, Optional.empty());
-                return new TerminalExecution(state, Optional.empty(), true, Optional.of(result));
-            }
-            return new TerminalExecution(state, Optional.of(rejection), false, Optional.empty());
+        HandleBinding binding = currentBinding(state);
+        AnswerDocumentValidation documentValidation = documentValidator.validate(
+                pending.document(),
+                state.currentAttempt().issuedEvidence(),
+                state.currentAttempt().observations(),
+                binding);
+        AnswerVerificationContext verificationContext = new AnswerVerificationContext(
+                request.question(),
+                sessionHistory,
+                pending.document(),
+                List.copyOf(state.currentAttempt().issuedEvidence().values()),
+                List.copyOf(state.currentAttempt().observations().values()),
+                List.copyOf(documentValidation.citedEvidence().values()),
+                List.copyOf(documentValidation.referencedObservations().values()));
+        AnswerVerificationResult verificationResult;
+        try {
+            verificationResult = Objects.requireNonNull(
+                    verificationPort.verify(pending.verificationMode(), verificationContext),
+                    "answer verification port must return a result");
+        } catch (AnswerVerificationUnavailableException exception) {
+            throw new AnswerExecutionUnavailableException("answer verification is unavailable", exception);
+        } catch (AnswerVerificationContractException exception) {
+            return integrationContractTerminalFailure(state, request, exception);
         }
-        RunOutcome outcome = verdict.disposition() == AnswerDisposition.ACCEPTED_COMPLETE
-                ? RunOutcome.COMPLETED
-                : RunOutcome.INCONCLUSIVE;
-        String rendered = action.document().renderParagraphs();
+        if (cancellationPort.isCancellationRequested(request.runId())) {
+            state = abandonAnswerVerification(state, AnswerVerificationAbandonReason.CANCELLED);
+            AgentLoopResult result = conclude(
+                    state, request, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty());
+            return new TerminalExecution(state, Optional.empty(), false, Optional.of(result));
+        }
+        AnswerAcceptance acceptance;
+        if (pending.verificationMode() == AnswerVerificationMode.LLM
+                && verificationResult instanceof AnswerVerificationResult.LlmVerdict llmVerdict) {
+            AnswerVerdict verdict = llmVerdict.verdict();
+            try {
+                verdictValidator.validate(documentValidation, verdict);
+            } catch (IllegalArgumentException exception) {
+                return integrationContractTerminalFailure(state, request, exception);
+            }
+            if (verdict.disposition() == AnswerDisposition.REJECTED) {
+                String rejection = rejectionDescription(verdict);
+                state = commit(state, new AgentEvent.AnswerRejected(
+                        state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), verdict));
+                state = recordAnswerRejectionObservations(state, pending.document(), verdict);
+                if (pending.finalResponseMode()) {
+                    AgentLoopResult result = conclude(
+                            state, request, RunOutcome.INCONCLUSIVE, INCONCLUSIVE_RESPONSE, Optional.empty());
+                    return new TerminalExecution(state, Optional.empty(), true, Optional.of(result));
+                }
+                return new TerminalExecution(state, Optional.of(rejection), false, Optional.empty());
+            }
+            acceptance = AnswerAcceptance.llm(verdict);
+        } else if (pending.verificationMode() == AnswerVerificationMode.CONTRACT_ONLY
+                && verificationResult instanceof AnswerVerificationResult.ContractAccepted) {
+            acceptance = AnswerAcceptance.contractOnly();
+        } else {
+            return integrationContractTerminalFailure(state, request,
+                    new AnswerVerificationContractException("answer verification returned an incompatible result"));
+        }
+        String rendered = pending.document().renderParagraphs();
         ConversationTurn turn = new ConversationTurn(
                 request.runId(), request.question(), rendered, ConversationTurnType.ANSWER);
         try {
             state = commitTerminalAcceptance(state, new AgentEvent.AnswerAccepted(
-                    state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), action.document(), verdict,
-                    request.sessionId(), turn, finalResponseMode));
+                    state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), pending.document(),
+                    acceptance, request.sessionId(), turn, pending.finalResponseMode()));
         } catch (TerminalAcceptanceCancelledException exception) {
+            AgentRunState abandoned = abandonAnswerVerification(
+                    currentState, AnswerVerificationAbandonReason.CANCELLED);
             AgentLoopResult result = conclude(
-                    currentState, request, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty());
-            return new TerminalExecution(currentState, Optional.empty(), false, Optional.of(result));
+                    abandoned, request, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty());
+            return new TerminalExecution(abandoned, Optional.empty(), false, Optional.of(result));
         }
         sessionPort.append(request.sessionId(), turn);
         AgentLoopResult result = conclude(
-                state, request, outcome, rendered, Optional.of(action.document()));
+                state, request, acceptance.expectedOutcome(), rendered, Optional.of(pending.document()));
         return new TerminalExecution(state, Optional.empty(), false, Optional.of(result));
+    }
+
+    private AgentRunState abandonAnswerVerification(
+            AgentRunState state,
+            AnswerVerificationAbandonReason reason) {
+        return commit(state, new AgentEvent.AnswerVerificationAbandoned(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), reason));
+    }
+
+    private TerminalExecution integrationContractTerminalFailure(
+            AgentRunState state,
+            AgentLoopRequest request,
+            RuntimeException exception) {
+        AgentLoopResult result = concludeIntegrationFailure(state, request, exception);
+        return new TerminalExecution(state, Optional.empty(), false, Optional.of(result));
+    }
+
+    private AgentLoopResult concludeIntegrationFailure(
+            AgentRunState state,
+            AgentLoopRequest request,
+            RuntimeException exception) {
+        try {
+            AgentRunState abandoned = state.pendingAnswerVerification().isPresent()
+                    ? abandonAnswerVerification(state, AnswerVerificationAbandonReason.INTEGRATION_CONTRACT_FAILURE)
+                    : state;
+            return conclude(abandoned, request, RunOutcome.FAILED, FAILED_RESPONSE, Optional.empty());
+        } catch (AgentTransitionConflictException | AgentLoopException | AgentRunInProgressException commitFailure) {
+            AnswerExecutionContractException contractFailure = new AnswerExecutionContractException(
+                    "integration contract failure could not be concluded", commitFailure);
+            contractFailure.addSuppressed(exception);
+            throw contractFailure;
+        }
     }
 
     private AgentLoopResult acceptClarification(
@@ -638,14 +868,18 @@ public final class ValidatedAgentLoop {
         }
         RevisionVector revisions = current;
         boolean drifted = false;
+        Optional<RepositoryRevisionFailure> unavailable = Optional.empty();
         for (RepositoryId repositoryId : selectedRepositories) {
             RepositoryRevisionResult result = Objects.requireNonNull(
                     repositoryRevisionPort.currentRevision(repositoryId),
                     "repository revision port must return a result");
-            RepositoryRevision revision = result.revision()
-                    .orElseThrow(() -> new IllegalStateException(
-                            "repository revision is unavailable: "
-                                    + result.failure().orElseThrow().message()));
+            if (result instanceof RepositoryRevisionResult.Failed failed) {
+                if (unavailable.isEmpty()) {
+                    unavailable = Optional.of(failed.failure());
+                }
+                continue;
+            }
+            RepositoryRevision revision = ((RepositoryRevisionResult.Ready) result).revision();
             Optional<RepositoryRevision> pinned = current.revisionOf(repositoryId);
             if (pinned.isPresent() && !pinned.orElseThrow().equals(revision)) {
                 drifted = true;
@@ -653,7 +887,7 @@ public final class ValidatedAgentLoop {
                 revisions = revisions.pin(repositoryId, revision);
             }
         }
-        return new RevisionResolution(revisions, drifted);
+        return new RevisionResolution(revisions, drifted, drifted ? Optional.empty() : unavailable);
     }
 
     private AgentRunState reject(
@@ -681,6 +915,29 @@ public final class ValidatedAgentLoop {
         AgentObservation observation = new AgentObservation(
                 id,
                 ObservationSource.RUNTIME,
+                code,
+                description,
+                candidates,
+                evidence,
+                provenance);
+        return commit(state, new AgentEvent.ObservationRecorded(
+                state.runId(),
+                state.currentAttempt().attemptId(),
+                state.stateRevision(),
+                observation));
+    }
+
+    private AgentRunState recordCapabilityFailureObservation(
+            AgentRunState state,
+            ObservationCode code,
+            String description,
+            Set<CandidateHandle> candidates,
+            Set<EvidenceHandle> evidence,
+            String provenance) {
+        ObservationId id = nextObservationId(state);
+        AgentObservation observation = new AgentObservation(
+                id,
+                ObservationSource.CAPABILITY_EXECUTOR,
                 code,
                 description,
                 candidates,
@@ -742,12 +999,32 @@ public final class ValidatedAgentLoop {
                 state.stateRevision(),
                 outcome,
                 state.pendingTerminalResponse().isEmpty()));
+        return loopResult(concluded, responseText, document);
+    }
+
+    private AgentLoopResult loopResult(
+            AgentRunState state,
+            String responseText,
+            Optional<AnswerDocument> document) {
+        RunResponseKind responseKind = RunResponseKind.RUNTIME_NOTICE;
+        Optional<AnswerVerificationBasis> verificationBasis = Optional.empty();
+        if (state.pendingTerminalResponse().isPresent()) {
+            PendingTerminalResponse pending = state.pendingTerminalResponse().orElseThrow();
+            if (pending instanceof PendingTerminalResponse.Answer answer) {
+                responseKind = RunResponseKind.ANSWER;
+                verificationBasis = Optional.of(answer.acceptance().verificationBasis());
+            } else {
+                responseKind = RunResponseKind.CLARIFICATION;
+            }
+        }
         return new AgentLoopResult(
-                request.runId(),
-                outcome,
+                state.runId(),
+                state.finalOutcome().orElseThrow(),
                 responseText,
                 document,
-                concluded.currentAttempt().revisionVector());
+                responseKind,
+                verificationBasis,
+                state.currentAttempt().revisionVector());
     }
 
     private AgentRunState commitContext(AgentRunState state, RunAttempt context) {
@@ -879,14 +1156,23 @@ public final class ValidatedAgentLoop {
 
     private boolean normalBudgetExhausted(AttemptBudget budget) {
         return !budget.hasAgentStepRemaining()
-                || !budget.hasSemanticQueryRemaining()
+                || !budget.hasQueryExecutionRemaining()
                 || !budget.hasActionRejectionRemaining();
     }
 
-    private record RevisionResolution(RevisionVector revisions, boolean drifted) {
+    private record RevisionResolution(
+            RevisionVector revisions,
+            boolean drifted,
+            Optional<RepositoryRevisionFailure> failure) {
     }
 
-    private record InitialClaim(Optional<AgentRunState> state, Optional<AgentLoopResult> result) {
+    private record InitialClaim(
+            Optional<AgentRunState> state,
+            Optional<ActiveExecution> execution,
+            Optional<AgentLoopResult> result) {
+    }
+
+    private record PersistedDispatch(Optional<ActiveExecution> execution, Optional<AgentLoopResult> result) {
     }
 
     private record BootstrapPreparation(
@@ -904,7 +1190,29 @@ public final class ValidatedAgentLoop {
             List<CapabilityDescriptor> capabilityCatalog,
             List<RepositoryDescriptor> repositoryCatalog,
             Set<RepositoryId> catalogRepositoryIds,
-            int attemptSequence) {
+            int attemptSequence,
+            Optional<String> latestRejection,
+            boolean forcedFinalResponse) {
+    }
+
+    private record PendingVerificationResume(Optional<ActiveExecution> execution, Optional<AgentLoopResult> result) {
+    }
+
+    /**
+     * 在已持久化 attempt 中保留可安全終結 state 的整合契約失敗
+     */
+    private static final class ActiveIntegrationContractException extends IllegalStateException {
+
+        private final AgentRunState state;
+
+        private ActiveIntegrationContractException(AgentRunState state, RuntimeException cause) {
+            super("active runtime integration contract failure", cause);
+            this.state = Objects.requireNonNull(state, "active agent state must not be null");
+        }
+
+        private AgentRunState state() {
+            return state;
+        }
     }
 
     private record QueryExecution(

@@ -6,7 +6,10 @@ import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
+import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
+import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,10 +25,11 @@ class FakeAnswerVerificationAdapterTest {
         AnswerVerdict verdict = new AnswerVerdict(AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(),
                 List.of(), List.of());
         FakeAnswerVerificationAdapter adapter = new FakeAnswerVerificationAdapter(verdict);
-        AnswerVerificationContext context = new AnswerVerificationContext("question", document(),
-                List.of(), List.of());
+        AnswerVerificationContext context = new AnswerVerificationContext("question", SessionHistory.empty(), document(),
+                List.of(), List.of(), List.of(), List.of());
 
-        assertThat(adapter.verify(context)).isSameAs(verdict);
+        assertThat(adapter.verify(AnswerVerificationMode.LLM, context))
+                .isEqualTo(new AnswerVerificationResult.LlmVerdict(verdict));
         assertThat(adapter.contexts()).containsExactly(context);
     }
 

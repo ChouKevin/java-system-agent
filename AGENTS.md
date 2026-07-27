@@ -135,7 +135,7 @@ Test behavior at domain-model boundaries rather than through scripted end-to-end
 
 For adequately covered refactors, keep the relevant tests green rather than inventing a failing test. Use RED-GREEN for new observable behavior and public contract changes.
 
-**Two V2 test fixtures live outside `runtime/`**, at `src/test/java/com/java/system/agent/semantic/adapter/fake/`. Any scoped command written as "everything except `runtime`" will miss or destroy them; they have already been missed twice.
+**Two V2 test fixtures live in `runtime/`**, at `src/test/java/com/java/system/agent/runtime/adapter/fake/`. Scoped test commands must include this directory.
 
 ## Commit & Pull Request Guidelines
 

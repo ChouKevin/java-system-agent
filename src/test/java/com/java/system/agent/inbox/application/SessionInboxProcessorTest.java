@@ -11,6 +11,7 @@ import com.java.system.agent.inbox.domain.SourceMessageId;
 import com.java.system.agent.inbox.port.in.EnqueueSessionMessageCommand;
 import com.java.system.agent.inbox.port.out.SessionInboxPort;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
@@ -18,6 +19,7 @@ import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
@@ -249,8 +251,15 @@ class SessionInboxProcessorTest {
                         new StatementId("statement-1"), StatementType.QUESTION, "Completed", Optional.empty(),
                         Set.of(), Set.of()))))
                 : Optional.empty();
+        RunResponseKind responseKind = answerDocument.isPresent()
+                ? RunResponseKind.ANSWER
+                : RunResponseKind.RUNTIME_NOTICE;
+        Optional<AnswerVerificationBasis> verificationBasis = answerDocument.isPresent()
+                ? Optional.of(AnswerVerificationBasis.LLM)
+                : Optional.empty();
         return new AnswerQuestionResult(
-                new AnalysisRunId("run-1"), outcome, "Completed", answerDocument, RevisionVector.empty());
+                new AnalysisRunId("run-1"), outcome, "Completed", answerDocument, responseKind, verificationBasis,
+                RevisionVector.empty());
     }
 
     private static AnswerQuestionUseCase answerUseCaseFor(FailingTransition failingTransition) {

@@ -7,8 +7,7 @@ import java.util.Optional;
  * 向語意服務重新提問時使用的查詢座標
  *
  * <p>是 query coordinate，不是 Agent 端的 artifact 識別碼——{@link ArtifactRef} 才定址
- * Agent 自己的儲存；{@code SemanticTarget} 會被放進 {@code AgentSemanticQuery}，交給
- * {@code AgentSemanticQueryPort} 執行</p>
+ * Agent 自己的儲存；{@code SemanticTarget} 會被 capability invocation 交給外部執行器</p>
  *
  * <p>可排序，依 {@code kind}、{@code key}、{@code sourceRange} 依序比較</p>
  */

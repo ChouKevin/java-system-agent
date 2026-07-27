@@ -1,11 +1,13 @@
 package com.java.system.agent.runtime.application;
 
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import org.junit.jupiter.api.Test;
 
@@ -34,12 +36,22 @@ class AgentLoopResultTest {
         assertThatIllegalArgumentException().isThrownBy(() -> result(RunOutcome.CANCELLED, Optional.of(document())));
         assertThatIllegalArgumentException().isThrownBy(() -> new AgentLoopResult(
                 new AnalysisRunId("run-1"), RunOutcome.INCONCLUSIVE, "different", Optional.of(document()),
-                RevisionVector.empty()));
+                RunResponseKind.ANSWER, Optional.of(AnswerVerificationBasis.LLM), RevisionVector.empty()));
+        assertThatIllegalArgumentException().isThrownBy(() -> new AgentLoopResult(
+                new AnalysisRunId("run-1"), RunOutcome.INCONCLUSIVE, document().renderParagraphs(), Optional.of(document()),
+                RunResponseKind.ANSWER, Optional.of(AnswerVerificationBasis.CONTRACT_ONLY), RevisionVector.empty()));
     }
 
     private static AgentLoopResult result(RunOutcome outcome, Optional<AnswerDocument> answerDocument) {
         String response = answerDocument.map(AnswerDocument::renderParagraphs).orElse("response");
-        return new AgentLoopResult(new AnalysisRunId("run-1"), outcome, response, answerDocument, RevisionVector.empty());
+        RunResponseKind kind = answerDocument.isPresent()
+                ? RunResponseKind.ANSWER
+                : RunResponseKind.RUNTIME_NOTICE;
+        Optional<AnswerVerificationBasis> basis = answerDocument.isPresent()
+                ? Optional.of(AnswerVerificationBasis.LLM)
+                : Optional.empty();
+        return new AgentLoopResult(new AnalysisRunId("run-1"), outcome, response, answerDocument, kind, basis,
+                RevisionVector.empty());
     }
 
     private static AnswerDocument document() {

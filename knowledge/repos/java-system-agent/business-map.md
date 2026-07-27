@@ -40,5 +40,5 @@ delivery.
 |------------|----------|--------|
 | `slack-agent` | `EnqueueSessionMessageUseCase.enqueue` | Inbound Java contract; no Slack adapter or caller |
 | `slack-agent` | `AnswerQuestionUseCase.answer` | Inbound validated-loop contract; no worker wiring |
-| `code-analysis` | `AgentSemanticQueryPort.query` | Outbound contract; test fake only |
+| `code-analysis` | `CapabilityExecutionPort.execute` | Provider-neutral outbound capability execution contract; test fake only |
 | `repo-management` | `RepositoryCatalogPort` / `RepositoryRevisionPort` | Outbound contracts; test fakes only |

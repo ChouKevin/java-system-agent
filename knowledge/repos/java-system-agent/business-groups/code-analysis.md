@@ -19,7 +19,7 @@ client adapter。
 3. `AgentActionValidator` 驗證 handle membership、schema、scope 與 budget，不做候選推薦或
    semantic ranking。
 4. `RepositoryRevisionPort` 綁定 selected repositories 的 exact revision。
-5. `AgentSemanticQueryPort` 回傳 typed observations、evidence、warnings 與新 candidates。
+5. `CapabilityExecutionPort.execute` 以 provider-neutral capability execution 語意回傳 typed observations、evidence、warnings 與新 candidates。
 6. Runtime 驗證回傳 evidence/revision，配發新的 opaque handles，將完整疑問與證據放入
    後續 model context。
 7. `ANSWER` 必須引用已發出的 evidence，且通過 statement-level verification 才能被接受。

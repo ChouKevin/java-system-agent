@@ -31,6 +31,7 @@ import com.java.system.agent.runtime.application.validation.AnswerVerdictValidat
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
 import com.java.system.agent.runtime.domain.action.QueryAction;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
 import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
@@ -49,8 +50,8 @@ import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
 import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 import com.java.system.agent.runtime.port.out.AgentActionPort;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryResult;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryPort;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionPort;
 import com.java.system.agent.runtime.port.out.RepositoryDescriptor;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
 import com.java.system.agent.runtime.port.out.SessionPort;
@@ -280,7 +281,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThat(eventCount(enqueued.runId(), "ACTION_ACCEPTED")).isEqualTo(2L);
         assertThat(eventCount(enqueued.runId(), "QUERY_BUDGET_CONSUMED")).isEqualTo(2L);
         assertThat(state.budget().usedAgentSteps()).isEqualTo(2);
-        assertThat(state.budget().usedSemanticQueries()).isEqualTo(2);
+        assertThat(state.budget().usedQueryExecutions()).isEqualTo(2);
         assertThat(state.budget().usedFinalAnswers()).isEqualTo(1);
         assertThat(sessions.read(enqueued.sessionId()).turns()).hasSize(1);
     }
@@ -349,10 +350,11 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                     semanticCalls.incrementAndGet();
                     throw new AssertionError("terminal reconciliation must not query semantics");
                 },
-                context -> {
+                (mode, context) -> {
                     verifierCalls.incrementAndGet();
                     throw new AssertionError("terminal reconciliation must not verify an answer");
                 },
+                AnswerVerificationMode.LLM,
                 sessions,
                 new FakeRepositoryCatalogAdapter(),
                 new FakeCapabilityCatalogAdapter(),
@@ -394,15 +396,16 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
 
     private AnalysisApplicationService service(
             AgentActionPort actionPort,
-            AgentSemanticQueryPort semanticQueryPort,
+            CapabilityExecutionPort semanticQueryPort,
             SessionPort sessionPort,
             AnalysisAttemptId... attemptIds) {
         ValidatedAgentLoop loop = new ValidatedAgentLoop(
                 actionPort,
                 semanticQueryPort,
-                context -> {
+                (mode, context) -> {
                     throw new AssertionError("clarification must not verify an answer");
                 },
+                AnswerVerificationMode.LLM,
                 sessionPort,
                 new FakeRepositoryCatalogAdapter(),
                 new FakeCapabilityCatalogAdapter(),
@@ -444,18 +447,19 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
             return new AgentActionProposal.Proposed(
                     new ClarifyAction("Which behavior should I trace next?", List.of(), "Query budget is exhausted"));
         };
-        AgentSemanticQueryPort semanticQueryPort = query -> {
+        CapabilityExecutionPort semanticQueryPort = query -> {
             if (semanticCalls.getAndIncrement() == 0) {
                 throw new IllegalStateException("simulated semantic provider interruption");
             }
-            return new AgentSemanticQueryResult(List.of(), List.of(), List.of());
+            return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
         };
         ValidatedAgentLoop loop = new ValidatedAgentLoop(
                 actionPort,
                 semanticQueryPort,
-                context -> {
+                (mode, context) -> {
                     throw new AssertionError("clarification must not verify an answer");
                 },
+                AnswerVerificationMode.LLM,
                 sessions,
                 new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(repositoryId, "repository one")),
                 new FakeCapabilityCatalogAdapter(capability),

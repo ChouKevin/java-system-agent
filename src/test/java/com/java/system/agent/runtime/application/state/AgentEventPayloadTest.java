@@ -1,6 +1,7 @@
 package com.java.system.agent.runtime.application.state;
 
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
+import com.java.system.agent.runtime.domain.answer.AnswerAcceptance;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
@@ -48,7 +49,7 @@ class AgentEventPayloadTest {
                 List.of("verification rejected the answer"));
 
         assertThatThrownBy(() -> new AgentEvent.AnswerAccepted(runId, attemptId, 0,
-                document(), rejected, new SessionId("session-1"),
+                document(), AnswerAcceptance.llm(rejected), new SessionId("session-1"),
                 new ConversationTurn(runId, "question", "answer", ConversationTurnType.ANSWER), true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("accepted");

@@ -1,8 +1,10 @@
 package com.java.system.agent.runtime.adapter.fake;
 
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
 import com.java.system.agent.runtime.port.out.AnswerVerificationPort;
+import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -27,12 +29,16 @@ public final class FakeAnswerVerificationAdapter implements AnswerVerificationPo
     }
 
     @Override
-    public synchronized AnswerVerdict verify(AnswerVerificationContext context) {
+    public synchronized AnswerVerificationResult verify(AnswerVerificationMode mode, AnswerVerificationContext context) {
         contexts.add(Objects.requireNonNull(context, "answer verification context must not be null"));
+        Objects.requireNonNull(mode, "answer verification mode must not be null");
+        if (mode == AnswerVerificationMode.CONTRACT_ONLY) {
+            return new AnswerVerificationResult.ContractAccepted();
+        }
         if (scriptedVerdicts.isEmpty()) {
             throw new IllegalStateException("no scripted answer verdict remains");
         }
-        return scriptedVerdicts.removeFirst();
+        return new AnswerVerificationResult.LlmVerdict(scriptedVerdicts.removeFirst());
     }
 
     public synchronized List<AnswerVerificationContext> contexts() {

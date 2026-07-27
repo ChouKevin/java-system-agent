@@ -14,6 +14,7 @@ import com.java.system.agent.runtime.domain.action.AnswerAction;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
 import com.java.system.agent.runtime.domain.action.QueryAction;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
@@ -32,6 +33,7 @@ import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
+import com.java.system.agent.runtime.domain.observation.ObservationSource;
 import com.java.system.agent.runtime.domain.run.AgentEvent;
 import com.java.system.agent.runtime.domain.run.AgentBootstrap;
 import com.java.system.agent.runtime.domain.run.AgentRunState;
@@ -46,9 +48,12 @@ import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.out.AgentActionPort;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
-import com.java.system.agent.runtime.port.out.AgentSemanticQuery;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryPort;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryResult;
+import com.java.system.agent.runtime.port.out.CapabilityInvocation;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionPort;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionFailure;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.runtime.port.out.AnalysisCancellationPort;
 import com.java.system.agent.runtime.port.out.AnalysisAttemptIdGenerator;
 import com.java.system.agent.runtime.port.out.AgentTransitionPort;
@@ -58,6 +63,9 @@ import com.java.system.agent.runtime.port.out.RepositoryDescriptor;
 import com.java.system.agent.runtime.port.out.RepositoryCatalogPort;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionPort;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
+import com.java.system.agent.runtime.port.out.RepositoryRevisionFailure;
+import com.java.system.agent.runtime.port.out.RepositoryRevisionFailureCode;
+import com.java.system.agent.runtime.port.out.RepositoryRevisionContractException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
 import org.junit.jupiter.api.Test;
 
@@ -113,7 +121,7 @@ class ValidatedAgentLoopTest {
     void cancellationAfterNextQueryActionPreventsAcceptanceAndSemanticExecution() {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         FakeCancellationAdapter cancellation = new FakeCancellationAdapter().requestCancellationAfter(runId, 1);
-        AtomicInteger semanticCalls = new AtomicInteger();
+        AtomicInteger capabilityCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(
                 context -> new AgentActionProposal.Proposed(new QueryAction(
@@ -123,7 +131,7 @@ class ValidatedAgentLoopTest {
                         Map.of(),
                         "Repository may contain the answer")),
                 query -> {
-                    semanticCalls.incrementAndGet();
+                    capabilityCalls.incrementAndGet();
                     throw new AssertionError("cancelled query must not execute semantic query");
                 },
                 transitions,
@@ -132,7 +140,7 @@ class ValidatedAgentLoopTest {
         AgentLoopResult result = loop.execute(request());
 
         assertCancelled(result, transitions);
-        assertThat(semanticCalls).hasValue(0);
+        assertThat(capabilityCalls).hasValue(0);
         assertThat(transitions.events())
                 .filteredOn(AgentEvent.ActionAccepted.class::isInstance)
                 .isEmpty();
@@ -154,7 +162,7 @@ class ValidatedAgentLoopTest {
                 },
                 transitions,
                 cancellation,
-                context -> {
+                (mode, context) -> {
                     verificationCalls.incrementAndGet();
                     throw new AssertionError("cancelled answer must not be verified");
                 });
@@ -168,7 +176,7 @@ class ValidatedAgentLoopTest {
     @Test
     void cancellationDuringNextActionPreventsTerminalAcceptanceAndAllDownstreamWork() {
         AtomicBoolean cancelled = new AtomicBoolean();
-        AtomicInteger semanticCalls = new AtomicInteger();
+        AtomicInteger capabilityCalls = new AtomicInteger();
         AtomicInteger verificationCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(
@@ -178,12 +186,12 @@ class ValidatedAgentLoopTest {
                             new ClarifyAction("Which repository?", List.of(), "Need scope"));
                 },
                 query -> {
-                    semanticCalls.incrementAndGet();
+                    capabilityCalls.incrementAndGet();
                     throw new AssertionError("cancelled loop must not execute semantic query");
                 },
                 transitions,
-                runId -> cancelled.get(),
-                context -> {
+                (AnalysisCancellationPort) (runId -> cancelled.get()),
+                (mode, context) -> {
                     verificationCalls.incrementAndGet();
                     throw new AssertionError("cancelled loop must not verify an answer");
                 });
@@ -191,7 +199,7 @@ class ValidatedAgentLoopTest {
         AgentLoopResult result = loop.execute(request());
 
         assertCancelled(result, transitions);
-        assertThat(semanticCalls).hasValue(0);
+        assertThat(capabilityCalls).hasValue(0);
         assertThat(verificationCalls).hasValue(0);
         assertThat(transitions.events())
                 .filteredOn(event -> event instanceof AgentEvent.AnswerAccepted
@@ -261,9 +269,10 @@ class ValidatedAgentLoopTest {
                 query -> {
                     throw new AssertionError("initialization failure must not execute a semantic query");
                 },
-                context -> {
+                (mode, context) -> {
                     throw new AssertionError("initialization failure must not verify an answer");
                 },
+                AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
                 new RepositoryCatalogPort() {
                     @Override
@@ -343,6 +352,154 @@ class ValidatedAgentLoopTest {
     }
 
     @Test
+    void concludesFailedWhenRevisionLookupViolatesItsContract() {
+        AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                context -> {
+                    actionCalls.incrementAndGet();
+                    return query(context);
+                },
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    throw new AssertionError("revision contract failure must stop before capability execution");
+                },
+                transitions,
+                repositoryId -> {
+                    throw new RepositoryRevisionContractException("revision response is malformed");
+                },
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")));
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.FAILED);
+        assertThat(actionCalls).hasValue(1);
+        assertThat(capabilityCalls).hasValue(0);
+        assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance).hasSize(1);
+    }
+
+    @Test
+    void concludesFailedWhenCapabilityExecutionViolatesItsContract() {
+        AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                context -> {
+                    actionCalls.incrementAndGet();
+                    return query(context);
+                },
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    throw new CapabilityExecutionContractException("capability response is malformed");
+                },
+                transitions);
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.FAILED);
+        assertThat(actionCalls).hasValue(1);
+        assertThat(capabilityCalls).hasValue(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.ObservationRecorded.class::isInstance).isEmpty();
+        assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance).hasSize(1);
+    }
+
+    @Test
+    void concludesFailedWhenCapabilityResultCannotBeIssuedIntoRuntimeContext() {
+        AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        EvidenceRef duplicate = evidence("revision-repo-1");
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                context -> {
+                    actionCalls.incrementAndGet();
+                    return query(context);
+                },
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(duplicate, duplicate), List.of());
+                },
+                transitions);
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.FAILED);
+        assertThat(actionCalls).hasValue(1);
+        assertThat(capabilityCalls).hasValue(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.ObservationRecorded.class::isInstance).isEmpty();
+        assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance).hasSize(1);
+    }
+
+    @Test
+    void prioritizesRevisionDriftOverAnotherSelectedRepositoryBeingUnavailable() {
+        AtomicInteger actionNumber = new AtomicInteger();
+        AgentActionPort actionPort = context -> {
+            int actionIndex = actionNumber.getAndIncrement();
+            if (actionIndex < 2) {
+                List<CandidateHandle> candidates = new ArrayList<>(context.issuedCandidates().keySet());
+                return new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().iterator().next(),
+                        candidates,
+                        "Trace both repositories",
+                        Map.of(),
+                        "Both repositories may contain the answer"));
+            }
+            assertThat(context.attemptId()).isEqualTo(new AnalysisAttemptId("attempt-2"));
+            return new AgentActionProposal.Proposed(
+                    new ClarifyAction("Which repository should I retry?", List.of(), "Fresh evidence is needed"));
+        };
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        CapabilityExecutionPort capabilityExecutionPort = invocation -> {
+            capabilityCalls.incrementAndGet();
+            return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+        };
+        Map<RepositoryId, AtomicInteger> revisionCalls = Map.of(
+                new RepositoryId("repo-1"), new AtomicInteger(),
+                new RepositoryId("repo-2"), new AtomicInteger());
+        RepositoryRevisionPort revisionPort = repositoryId -> {
+            int call = revisionCalls.get(repositoryId).getAndIncrement();
+            if (repositoryId.equals(new RepositoryId("repo-1")) && call == 1) {
+                return RepositoryRevisionResult.failed(new RepositoryRevisionFailure(
+                        RepositoryRevisionFailureCode.DEPENDENCY_UNAVAILABLE,
+                        "repository revision service is temporarily unavailable",
+                        "repository-revision-service"));
+            }
+            if (repositoryId.equals(new RepositoryId("repo-2")) && call == 1) {
+                return RepositoryRevisionResult.ready(new RepositoryRevision("rev-2"));
+            }
+            return RepositoryRevisionResult.ready(new RepositoryRevision("rev-1"));
+        };
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                actionPort,
+                capabilityExecutionPort,
+                transitions,
+                revisionPort,
+                new FakeAttemptIdGenerator().register(
+                        new AnalysisAttemptId("attempt-1"),
+                        new AnalysisAttemptId("attempt-2")));
+        AgentLoopRequest request = new AgentLoopRequest(
+                new AnalysisRunId("run-1"),
+                new SessionId("session-1"),
+                "How does this flow work?",
+                new AttemptBudget(4, 0, 3, 0, 2, 0, 1, 1, 1, 0));
+
+        AgentLoopResult result = loop.execute(request);
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(capabilityCalls).hasValue(1);
+        assertThat(revisionCalls.values()).allSatisfy(calls -> assertThat(calls).hasValue(2));
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ActionAccepted.class::isInstance)
+                .hasSize(1);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.AttemptInvalidated.class::isInstance)
+                .singleElement()
+                .satisfies(event -> assertThat(((AgentEvent.AttemptInvalidated) event).reason())
+                        .contains("selected repository revision changed"));
+    }
+
+    @Test
     void retryBeforeBootstrapSeedsThePersistedAgentAttemptSequenceFromTheInboxAttempt() {
         List<Integer> generatedAttemptSequences = new ArrayList<>();
         AnalysisAttemptIdGenerator attemptIdGenerator = (runId, attemptSequence) -> {
@@ -405,7 +562,7 @@ class ValidatedAgentLoopTest {
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(
                 actionPort,
-                query -> new AgentSemanticQueryResult(List.of(), List.of(evidence("rev-1")), List.of()),
+                query -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(evidence("rev-1")), List.of()),
                 transitions,
                 revisionPort,
                 attemptIdGenerator);
@@ -433,7 +590,7 @@ class ValidatedAgentLoopTest {
 
     @Test
     void preservesLlmCandidateOrderAndUsesFinalReserveAfterQueryBudget() {
-        List<AgentSemanticQuery> queries = new ArrayList<>();
+        List<CapabilityInvocation> queries = new ArrayList<>();
         AtomicInteger actionNumber = new AtomicInteger();
         AgentActionPort actionPort = context -> {
             if (actionNumber.getAndIncrement() == 0) {
@@ -449,12 +606,12 @@ class ValidatedAgentLoopTest {
             return new AgentActionProposal.Proposed(
                     new ClarifyAction("Which behavior matters most?", List.of(), "Need a narrower question"));
         };
-        AgentSemanticQueryPort semanticPort = query -> {
+        CapabilityExecutionPort capabilityExecutionPort = query -> {
             queries.add(query);
-            return new AgentSemanticQueryResult(List.of(), List.of(), List.of());
+            return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
         };
         RecordingTransitionPort transitions = new RecordingTransitionPort();
-        ValidatedAgentLoop loop = loop(actionPort, semanticPort, transitions);
+        ValidatedAgentLoop loop = loop(actionPort, capabilityExecutionPort, transitions);
 
         AgentLoopResult result = loop.execute(request());
 
@@ -488,7 +645,7 @@ class ValidatedAgentLoopTest {
 
     @Test
     void unknownCandidateIsRejectedWithoutCallingSemanticPortAndReachesNextPrompt() {
-        AtomicInteger semanticCalls = new AtomicInteger();
+        AtomicInteger capabilityCalls = new AtomicInteger();
         List<AgentPromptContext> prompts = new ArrayList<>();
         AtomicInteger actionNumber = new AtomicInteger();
         AgentActionPort actionPort = context -> {
@@ -509,15 +666,15 @@ class ValidatedAgentLoopTest {
             return new AgentActionProposal.Proposed(
                     new ClarifyAction("Please identify the repository", List.of(), "Unknown repository"));
         };
-        AgentSemanticQueryPort semanticPort = query -> {
-            semanticCalls.incrementAndGet();
-            return new AgentSemanticQueryResult(List.of(), List.of(), List.of());
+        CapabilityExecutionPort capabilityExecutionPort = query -> {
+            capabilityCalls.incrementAndGet();
+            return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
         };
 
-        AgentLoopResult result = loop(actionPort, semanticPort, new RecordingTransitionPort()).execute(request());
+        AgentLoopResult result = loop(actionPort, capabilityExecutionPort, new RecordingTransitionPort()).execute(request());
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
-        assertThat(semanticCalls).hasValue(0);
+        assertThat(capabilityCalls).hasValue(0);
         assertThat(prompts).hasSize(2);
         assertThat(prompts.get(1).latestRejection()).contains("UNKNOWN_CANDIDATE");
     }
@@ -543,19 +700,19 @@ class ValidatedAgentLoopTest {
             return new AgentActionProposal.Proposed(
                     new ClarifyAction("What part should I investigate?", List.of(), "Need a narrower scope"));
         };
-        AnswerVerificationPort verifier = context -> new AnswerVerdict(
+        AnswerVerificationPort verifier = (mode, context) -> new com.java.system.agent.runtime.port.out.AnswerVerificationResult.LlmVerdict(new AnswerVerdict(
                 AnswerDisposition.REJECTED,
                 List.of(new StatementVerdict(new StatementId("statement-1"), StatementVerdictStatus.UNSUPPORTED,
                         "unsupported claim text")),
                 List.of("unaddressed part text"),
                 List.of("blocking uncertainty text"),
-                List.of("explicit rejection text"));
+                List.of("explicit rejection text")));
         AgentLoopRequest request = new AgentLoopRequest(
                 new AnalysisRunId("run-1"), new SessionId("session-1"), "How does this flow work?",
                 new AttemptBudget(3, 0, 2, 0, 2, 0, 1, 0, 1, 0));
         ValidatedAgentLoop verifiedLoop = loop(
                 actionPort,
-                query -> new AgentSemanticQueryResult(List.of(), List.of(evidence("revision-repo-1")), List.of()),
+                query -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(evidence("revision-repo-1")), List.of()),
                 new RecordingTransitionPort(),
                 new FakeCancellationAdapter(),
                 verifier);
@@ -599,10 +756,10 @@ class ValidatedAgentLoopTest {
             return new AgentActionProposal.Proposed(
                     new ClarifyAction("The repository changed; should I retry?", List.of(), "Fresh evidence is needed"));
         };
-        AtomicInteger semanticCalls = new AtomicInteger();
-        AgentSemanticQueryPort semanticPort = query -> {
-            semanticCalls.incrementAndGet();
-            return new AgentSemanticQueryResult(
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        CapabilityExecutionPort capabilityExecutionPort = query -> {
+            capabilityCalls.incrementAndGet();
+            return new CapabilityExecutionResult.Succeeded(
                     List.of(),
                     List.of(evidence("rev-1")),
                     List.of());
@@ -613,7 +770,7 @@ class ValidatedAgentLoopTest {
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(
                 actionPort,
-                semanticPort,
+                capabilityExecutionPort,
                 transitions,
                 revisionPort,
                 new FakeAttemptIdGenerator().register(
@@ -628,8 +785,86 @@ class ValidatedAgentLoopTest {
         AgentLoopResult result = loop.execute(request);
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
-        assertThat(semanticCalls).hasValue(1);
+        assertThat(capabilityCalls).hasValue(1);
         assertThat(prompts).hasSize(3);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.AttemptStarted.class::isInstance)
+                .hasSize(2);
+    }
+
+    @Test
+    void waitsForAuthoritativeRevisionDriftBeforeRestartingAfterCapabilityRevisionConflict() {
+        AtomicInteger actionNumber = new AtomicInteger();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        AgentActionPort actionPort = context -> {
+            prompts.add(context);
+            int actionIndex = actionNumber.getAndIncrement();
+            if (actionIndex == 0 || actionIndex == 1) {
+                if (actionIndex == 1) {
+                    assertThat(context.attemptId()).isEqualTo(new AnalysisAttemptId("attempt-1"));
+                    assertThat(context.issuedEvidence()).isEmpty();
+                    assertThat(context.observations().values())
+                            .extracting(observation -> observation.code() + ":" + observation.source())
+                            .containsExactly(ObservationCode.BLOCKING_UNCERTAINTY + ":"
+                                    + ObservationSource.CAPABILITY_EXECUTOR);
+                }
+                return new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().iterator().next(),
+                        List.of(context.issuedCandidates().keySet().iterator().next()),
+                        "Trace repository", Map.of(), "Repository may contain the answer"));
+            }
+            assertThat(context.attemptId()).isEqualTo(new AnalysisAttemptId("attempt-2"));
+            assertThat(context.issuedEvidence()).isEmpty();
+            return new AgentActionProposal.Proposed(
+                    new ClarifyAction("The repository changed; should I retry?", List.of(), "Fresh evidence is needed"));
+        };
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        CapabilityExecutionPort capabilityExecutionPort = invocation -> {
+            capabilityCalls.incrementAndGet();
+            return new CapabilityExecutionResult.Failed(new CapabilityExecutionFailure(
+                    CapabilityExecutionFailureCode.REVISION_CONFLICT,
+                    "repository revision changed while the capability was executing",
+                    "capability-executor"));
+        };
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                actionPort,
+                capabilityExecutionPort,
+                transitions,
+                new RepositoryRevisionPort() {
+                    private final AtomicInteger revisionCalls = new AtomicInteger();
+
+                    @Override
+                    public RepositoryRevisionResult currentRevision(RepositoryId repositoryId) {
+                        return RepositoryRevisionResult.ready(new RepositoryRevision(
+                                revisionCalls.getAndIncrement() == 0 ? "rev-1" : "rev-2"));
+                    }
+                },
+                new FakeAttemptIdGenerator().register(
+                        new AnalysisAttemptId("attempt-1"),
+                        new AnalysisAttemptId("attempt-2")));
+        AgentLoopRequest request = new AgentLoopRequest(
+                new AnalysisRunId("run-1"),
+                new SessionId("session-1"),
+                "How does this flow work?",
+                new AttemptBudget(3, 0, 2, 0, 2, 0, 1, 1, 1, 0));
+
+        AgentLoopResult result = loop.execute(request);
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(capabilityCalls).hasValue(1);
+        assertThat(prompts).hasSize(3);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ActionAccepted.class::isInstance)
+                .hasSize(1);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance)
+                .hasSize(1);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.AttemptInvalidated.class::isInstance)
+                .singleElement()
+                .satisfies(event -> assertThat(((AgentEvent.AttemptInvalidated) event).reason())
+                        .contains("selected repository revision changed"));
         assertThat(transitions.events())
                 .filteredOn(AgentEvent.AttemptStarted.class::isInstance)
                 .hasSize(2);
@@ -637,38 +872,38 @@ class ValidatedAgentLoopTest {
 
     private ValidatedAgentLoop loop(
             AgentActionPort actionPort,
-            AgentSemanticQueryPort semanticPort,
+            CapabilityExecutionPort capabilityExecutionPort,
             AgentTransitionPort transitionPort) {
-        return loop(actionPort, semanticPort, transitionPort, new FakeCancellationAdapter());
+        return loop(actionPort, capabilityExecutionPort, transitionPort, new FakeCancellationAdapter());
     }
 
     private ValidatedAgentLoop loop(
             AgentActionPort actionPort,
-            AgentSemanticQueryPort semanticPort,
+            CapabilityExecutionPort capabilityExecutionPort,
             AgentTransitionPort transitionPort,
             AnalysisCancellationPort cancellationPort) {
         return loop(
                 actionPort,
-                semanticPort,
+                capabilityExecutionPort,
                 transitionPort,
                 cancellationPort,
-                context -> new AnswerVerdict(
+                (mode, context) -> new com.java.system.agent.runtime.port.out.AnswerVerificationResult.LlmVerdict(new AnswerVerdict(
                         AnswerDisposition.ACCEPTED_COMPLETE,
                         List.of(),
                         List.of(),
                         List.of(),
-                        List.of()));
+                        List.of())));
     }
 
     private ValidatedAgentLoop loop(
             AgentActionPort actionPort,
-            AgentSemanticQueryPort semanticPort,
+            CapabilityExecutionPort capabilityExecutionPort,
             AgentTransitionPort transitionPort,
             AnalysisCancellationPort cancellationPort,
             AnswerVerificationPort verifier) {
         return loop(
                 actionPort,
-                semanticPort,
+                capabilityExecutionPort,
                 transitionPort,
                 repositoryId -> RepositoryRevisionResult.ready(
                         new RepositoryRevision("revision-" + repositoryId.value())),
@@ -679,28 +914,28 @@ class ValidatedAgentLoopTest {
 
     private ValidatedAgentLoop loop(
             AgentActionPort actionPort,
-            AgentSemanticQueryPort semanticPort,
+            CapabilityExecutionPort capabilityExecutionPort,
             AgentTransitionPort transitionPort,
             RepositoryRevisionPort revisionPort,
             AnalysisAttemptIdGenerator attemptIdGenerator) {
         return loop(
                 actionPort,
-                semanticPort,
+                capabilityExecutionPort,
                 transitionPort,
                 revisionPort,
                 attemptIdGenerator,
                 new FakeCancellationAdapter(),
-                context -> new AnswerVerdict(
+                (mode, context) -> new com.java.system.agent.runtime.port.out.AnswerVerificationResult.LlmVerdict(new AnswerVerdict(
                         AnswerDisposition.ACCEPTED_COMPLETE,
                         List.of(),
                         List.of(),
                         List.of(),
-                        List.of()));
+                        List.of())));
     }
 
     private ValidatedAgentLoop loop(
             AgentActionPort actionPort,
-            AgentSemanticQueryPort semanticPort,
+            CapabilityExecutionPort capabilityExecutionPort,
             AgentTransitionPort transitionPort,
             RepositoryRevisionPort revisionPort,
             AnalysisAttemptIdGenerator attemptIdGenerator,
@@ -718,8 +953,9 @@ class ValidatedAgentLoopTest {
                 new RepositoryDescriptor(new RepositoryId("repo-2"), "Repository two"));
         return new ValidatedAgentLoop(
                 actionPort,
-                semanticPort,
+                capabilityExecutionPort,
                 verifier,
+                AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
                 repositories,
                 new FakeCapabilityCatalogAdapter(capability),
@@ -750,6 +986,15 @@ class ValidatedAgentLoopTest {
                 "Evidence",
                 List.of(),
                 new ArtifactRef("digest-" + revision));
+    }
+
+    private AgentActionProposal query(AgentPromptContext context) {
+        return new AgentActionProposal.Proposed(new QueryAction(
+                context.issuedCapabilities().keySet().iterator().next(),
+                List.of(context.issuedCandidates().keySet().iterator().next()),
+                "Trace repository",
+                Map.of(),
+                "Repository may contain the answer"));
     }
 
     private AnswerDocument document(String text) {

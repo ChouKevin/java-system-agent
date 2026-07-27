@@ -3,8 +3,6 @@ package com.java.system.agent.runtime.port.out;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
@@ -12,60 +10,38 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 class RepositoryRevisionResultTest {
 
     @Test
-    void readyContainsRevisionWithoutFailure() {
+    void readyContainsTheResolvedRevision() {
         RepositoryRevision revision = new RepositoryRevision("orders-42");
 
         RepositoryRevisionResult result = RepositoryRevisionResult.ready(revision);
 
-        assertThat(result.revision()).contains(revision);
-        assertThat(result.failure()).isEmpty();
+        assertThat(result).isEqualTo(new RepositoryRevisionResult.Ready(revision));
     }
 
     @Test
-    void unavailableContainsFailureWithoutInventedRevision() {
-        SemanticFailure failure = new SemanticFailure(
-                SemanticFailureCode.REPOSITORY_NOT_FOUND,
+    void failedContainsTheProviderNeutralFailure() {
+        RepositoryRevisionFailure failure = new RepositoryRevisionFailure(
+                RepositoryRevisionFailureCode.REPOSITORY_NOT_FOUND,
                 "Repository does not exist",
-                false);
+                "revision-provider");
 
-        RepositoryRevisionResult result = RepositoryRevisionResult.unavailable(failure);
+        RepositoryRevisionResult result = RepositoryRevisionResult.failed(failure);
 
-        assertThat(result.revision()).isEmpty();
-        assertThat(result.failure()).contains(failure);
+        assertThat(result).isEqualTo(new RepositoryRevisionResult.Failed(failure));
     }
 
     @Test
-    void rejectsBothRevisionAndFailure() {
-        RepositoryRevision revision = new RepositoryRevision("orders-42");
-        SemanticFailure failure = new SemanticFailure(
-                SemanticFailureCode.ENGINE_UNAVAILABLE,
-                "Revision provider is unavailable",
-                true);
-
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> new RepositoryRevisionResult(
-                        Optional.of(revision), Optional.of(failure)))
-                .withMessageContaining("exactly one");
-    }
-
-    @Test
-    void rejectsMissingRevisionAndFailure() {
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> new RepositoryRevisionResult(Optional.empty(), Optional.empty()))
-                .withMessageContaining("exactly one");
-    }
-
-    @Test
-    void rejectsNullRevisionOptional() {
+    void failedRejectsMissingFailure() {
         assertThatNullPointerException()
-                .isThrownBy(() -> new RepositoryRevisionResult(null, Optional.empty()))
-                .withMessageContaining("revision");
-    }
-
-    @Test
-    void rejectsNullFailureOptional() {
-        assertThatNullPointerException()
-                .isThrownBy(() -> new RepositoryRevisionResult(Optional.empty(), null))
+                .isThrownBy(() -> new RepositoryRevisionResult.Failed(null))
                 .withMessageContaining("failure");
+    }
+
+    @Test
+    void failureRejectsBlankDescription() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new RepositoryRevisionFailure(
+                        RepositoryRevisionFailureCode.TIMEOUT, " ", "revision-provider"))
+                .withMessageContaining("description");
     }
 }

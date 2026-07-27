@@ -14,13 +14,14 @@ import com.java.system.agent.runtime.domain.handle.HandleBinding;
 import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationId;
 import com.java.system.agent.runtime.domain.observation.ObservationSource;
-import com.java.system.agent.runtime.domain.observation.SemanticObservation;
+import com.java.system.agent.runtime.domain.observation.CapabilityObservation;
 import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryResult;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.runtime.port.out.RepositoryDescriptor;
 
 import java.util.ArrayList;
@@ -35,7 +36,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 將 runtime 接受的 catalog 與 semantic values 配發成 attempt-local opaque handles
+ * 將 runtime 接受的 catalog 與 capability values 配發成 attempt-local opaque handles
  */
 public final class ContextIssuer {
 
@@ -109,15 +110,15 @@ public final class ContextIssuer {
         return new RunAttempt(currentAttempt.attemptId(), revisions, capabilities, candidates, evidence, observations);
     }
 
-    public SemanticIssue issueSemanticResult(
+    public CapabilityIssue issueCapabilityResult(
             AnalysisRunId runId,
             RunAttempt currentAttempt,
-            AgentSemanticQueryResult result,
+            CapabilityExecutionResult.Succeeded result,
             Set<RepositoryId> catalogRepositoryIds) {
         Objects.requireNonNull(currentAttempt, "current run attempt must not be null");
-        Objects.requireNonNull(result, "agent semantic query result must not be null");
+        Objects.requireNonNull(result, "capability execution result must not be null");
         Objects.requireNonNull(catalogRepositoryIds, "catalog repository IDs must not be null");
-        validateSemanticRepositories(result, catalogRepositoryIds);
+        validateCapabilityRepositories(result, catalogRepositoryIds);
         rejectPreviouslyIssuedCandidates(currentAttempt, result.discoveredCandidates());
         rejectPreviouslyIssuedEvidence(currentAttempt, result.evidence());
         HandleBinding binding = binding(runId, currentAttempt.attemptId(), currentAttempt.revisionVector());
@@ -144,7 +145,7 @@ public final class ContextIssuer {
                 candidates,
                 evidence,
                 currentAttempt.observations());
-        return new SemanticIssue(context, observations);
+        return new CapabilityIssue(context, observations);
     }
 
     private Map<CapabilityHandle, CapabilityDescriptor> issueCapabilities(
@@ -187,7 +188,7 @@ public final class ContextIssuer {
             AnalysisCandidate candidate = Objects.requireNonNull(
                     value, "analysis candidates must not contain null");
             if (!distinctValues.add(candidate)) {
-                throw protocolFailure("semantic result contains a duplicate candidate");
+                throw protocolFailure("capability result contains a duplicate candidate");
             }
             boolean repository = candidate.kind() == CandidateKind.REPOSITORY;
             String valuePrefix = repository ? "R" : "T";
@@ -205,14 +206,14 @@ public final class ContextIssuer {
             HandleBinding binding,
             List<EvidenceRef> values,
             int firstOrdinal) {
-        Objects.requireNonNull(values, "semantic evidence must not be null");
+        Objects.requireNonNull(values, "capability evidence must not be null");
         Map<EvidenceHandle, IssuedEvidence> issued = new LinkedHashMap<>();
         Set<EvidenceRef> distinctValues = new LinkedHashSet<>();
         int ordinal = firstOrdinal;
         for (EvidenceRef value : values) {
-            EvidenceRef evidence = Objects.requireNonNull(value, "semantic evidence must not contain null");
+            EvidenceRef evidence = Objects.requireNonNull(value, "capability evidence must not contain null");
             if (!distinctValues.add(evidence)) {
-                throw protocolFailure("semantic result contains duplicate evidence");
+                throw protocolFailure("capability result contains duplicate evidence");
             }
             EvidenceHandle handle = new EvidenceHandle(prefix(binding) + "E" + ordinal, binding);
             issued.put(handle, new IssuedEvidence(handle, evidence));
@@ -223,19 +224,19 @@ public final class ContextIssuer {
 
     private List<AgentObservation> issueObservations(
             RunAttempt currentAttempt,
-            List<SemanticObservation> rawObservations,
+            List<CapabilityObservation> rawObservations,
             Map<CandidateHandle, IssuedCandidate> newCandidates,
             Map<EvidenceHandle, IssuedEvidence> newEvidence) {
         List<AgentObservation> issued = new ArrayList<>();
         int ordinal = currentAttempt.observations().size() + 1;
-        for (SemanticObservation raw : rawObservations) {
+        for (CapabilityObservation raw : rawObservations) {
             Set<CandidateHandle> candidateHandles = resolveCandidates(raw.candidates(), newCandidates);
             Set<EvidenceHandle> evidenceHandles = resolveEvidence(raw.evidence(), newEvidence);
             ObservationId id = new ObservationId(
                     currentAttempt.attemptId().value() + ":O" + ordinal);
             issued.add(new AgentObservation(
                     id,
-                    ObservationSource.SEMANTIC_SERVICE,
+                    ObservationSource.CAPABILITY_EXECUTOR,
                     raw.code(),
                     raw.description(),
                     candidateHandles,
@@ -256,7 +257,7 @@ public final class ContextIssuer {
                     .map(IssuedCandidate::handle)
                     .findFirst()
                     .orElseThrow(() -> protocolFailure(
-                            "semantic observation references a candidate outside the same result"));
+                            "capability observation references a candidate outside the same result"));
             handles.add(handle);
         }
         return Set.copyOf(handles);
@@ -272,7 +273,7 @@ public final class ContextIssuer {
                     .map(IssuedEvidence::handle)
                     .findFirst()
                     .orElseThrow(() -> protocolFailure(
-                            "semantic observation references evidence outside the same result"));
+                            "capability observation references evidence outside the same result"));
             handles.add(handle);
         }
         return Set.copyOf(handles);
@@ -325,8 +326,8 @@ public final class ContextIssuer {
         }
     }
 
-    private void validateSemanticRepositories(
-            AgentSemanticQueryResult result,
+    private void validateCapabilityRepositories(
+            CapabilityExecutionResult.Succeeded result,
             Set<RepositoryId> catalogRepositoryIds) {
         Set<RepositoryId> validatedCatalogIds = new LinkedHashSet<>();
         for (RepositoryId repositoryId : catalogRepositoryIds) {
@@ -335,12 +336,12 @@ public final class ContextIssuer {
         }
         for (AnalysisCandidate candidate : result.discoveredCandidates()) {
             if (!validatedCatalogIds.contains(candidate.repositoryId())) {
-                throw protocolFailure("semantic result candidate repository is absent from the catalog");
+                throw protocolFailure("capability result candidate repository is absent from the catalog");
             }
         }
         for (EvidenceRef evidence : result.evidence()) {
             if (!validatedCatalogIds.contains(evidence.repositoryId())) {
-                throw protocolFailure("semantic result evidence repository is absent from the catalog");
+                throw protocolFailure("capability result evidence repository is absent from the catalog");
             }
         }
     }
@@ -353,7 +354,7 @@ public final class ContextIssuer {
                 .collect(Collectors.toSet());
         for (AnalysisCandidate candidate : candidates) {
             if (previouslyIssued.contains(candidate)) {
-                throw protocolFailure("semantic result repeats a previously issued candidate");
+                throw protocolFailure("capability result repeats a previously issued candidate");
             }
         }
     }
@@ -366,7 +367,7 @@ public final class ContextIssuer {
                 .collect(Collectors.toSet());
         for (EvidenceRef value : evidence) {
             if (previouslyIssued.contains(value)) {
-                throw protocolFailure("semantic result repeats previously issued evidence");
+                throw protocolFailure("capability result repeats previously issued evidence");
             }
         }
     }
@@ -398,17 +399,17 @@ public final class ContextIssuer {
         return binding.attemptId().value() + ":";
     }
 
-    private AgentSemanticProtocolException protocolFailure(String message) {
-        return new AgentSemanticProtocolException(message, new IllegalArgumentException(message));
+    private CapabilityExecutionContractException protocolFailure(String message) {
+        return new CapabilityExecutionContractException(message);
     }
 
     /**
-     * 一次 semantic response 配發後的完整 context 與待追加 observations
+     * 一次 capability response 配發後的完整 context 與待追加 observations
      */
-    public record SemanticIssue(RunAttempt context, List<AgentObservation> observations) {
-        public SemanticIssue {
-            Objects.requireNonNull(context, "issued semantic context must not be null");
-            Objects.requireNonNull(observations, "issued semantic observations must not be null");
+    public record CapabilityIssue(RunAttempt context, List<AgentObservation> observations) {
+        public CapabilityIssue {
+            Objects.requireNonNull(context, "issued capability context must not be null");
+            Objects.requireNonNull(observations, "issued capability observations must not be null");
             observations = List.copyOf(observations);
         }
     }
