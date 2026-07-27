@@ -23,6 +23,7 @@ import com.java.system.agent.runtime.domain.run.RunOutcome;
 import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 import com.java.system.agent.runtime.port.in.AnswerQuestionUseCase;
+import com.java.system.agent.support.CallTimeline;
 import com.java.system.agent.support.ControllableChatModel;
 import com.java.system.agent.support.M2IntegrationTestConfiguration;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,6 +102,9 @@ class M2ProductionFlowIT {
     private ControllableChatModel chatModel;
 
     @Autowired
+    private CallTimeline callTimeline;
+
+    @Autowired
     private MockRestServiceServer server;
 
     @Autowired
@@ -119,6 +123,7 @@ class M2ProductionFlowIT {
     @BeforeEach
     void resetDatabase() {
         server.reset();
+        callTimeline.clear();
         flyway.clean();
         flyway.migrate();
     }
@@ -134,19 +139,22 @@ class M2ProductionFlowIT {
         server.expect(requestTo("http://semantic.test/v1/repositories"))
                 .andExpect(method(GET))
                 .andExpect(header("X-Api-Token", "m2-token"))
+                .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_CATALOG))
                 .andRespond(withSuccess(repositoryCatalogJson(), APPLICATION_JSON));
         server.expect(requestTo("http://semantic.test/v1/repositories/demo"))
                 .andExpect(method(GET))
                 .andExpect(header("X-Api-Token", "m2-token"))
+                .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_REVISION))
                 .andRespond(withSuccess(repositoryStatusJson(), APPLICATION_JSON));
         server.expect(requestTo("http://semantic.test/v1/repositories/demo/entry-points"))
                 .andExpect(method(GET))
                 .andExpect(header("X-Api-Token", "m2-token"))
+                .andExpect(request -> callTimeline.record(CallTimeline.HTTP_LIST_ENTRY_POINTS))
                 .andRespond(withSuccess(entryPointsJson(), APPLICATION_JSON));
 
-        chatModel.enqueue(queryJson(attemptId));
-        chatModel.enqueue(answerJson(attemptId));
-        chatModel.enqueue(verdictJson());
+        chatModel.enqueue(CallTimeline.LLM_QUERY_ACTION, queryJson(attemptId));
+        chatModel.enqueue(CallTimeline.LLM_ANSWER_ACTION, answerJson(attemptId));
+        chatModel.enqueue(CallTimeline.LLM_VERIFIER, verdictJson());
 
         InboxMessage claimed = inbox.claimNext(NOW).orElseThrow();
         InboxProcessingOutcome outcome = processor.process(claimed, NOW);
@@ -156,6 +164,8 @@ class M2ProductionFlowIT {
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(2);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(2);
         assertThat(state.pendingTerminalResponse()).hasValueSatisfying(response -> {
             assertThat(response).isInstanceOf(PendingTerminalResponse.Answer.class);
             PendingTerminalResponse.Answer answer = (PendingTerminalResponse.Answer) response;
@@ -180,6 +190,13 @@ class M2ProductionFlowIT {
         assertThat(reconciled.responseKind()).isEqualTo(RunResponseKind.ANSWER);
         assertThat(reconciled.verificationBasis()).contains(AnswerVerificationBasis.LLM);
         assertThat(chatModel.prompts()).hasSize(3);
+        assertThat(callTimeline.calls()).containsExactly(
+                CallTimeline.HTTP_REPOSITORY_CATALOG,
+                CallTimeline.LLM_QUERY_ACTION,
+                CallTimeline.HTTP_REPOSITORY_REVISION,
+                CallTimeline.HTTP_LIST_ENTRY_POINTS,
+                CallTimeline.LLM_ANSWER_ACTION,
+                CallTimeline.LLM_VERIFIER);
         assertThat(environment.getProperty("spring.ai.google.genai.api-key")).isEmpty();
         server.verify();
     }
@@ -204,6 +221,29 @@ class M2ProductionFlowIT {
                 """)
                 .param("runId", message.runId().value())
                 .query(String.class)
+                .list();
+    }
+
+    private int agentRunStateSchemaVersion(InboxMessage message) {
+        return jdbcClient.sql("""
+                SELECT state_schema_version
+                FROM agent_run
+                WHERE run_id = :runId
+                """)
+                .param("runId", message.runId().value())
+                .query(Integer.class)
+                .single();
+    }
+
+    private List<Integer> eventSchemaVersions(InboxMessage message) {
+        return jdbcClient.sql("""
+                SELECT event_schema_version
+                FROM agent_run_event
+                WHERE run_id = :runId
+                ORDER BY state_revision
+                """)
+                .param("runId", message.runId().value())
+                .query(Integer.class)
                 .list();
     }
 

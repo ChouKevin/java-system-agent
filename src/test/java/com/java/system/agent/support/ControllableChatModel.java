@@ -17,15 +17,32 @@ import java.util.Queue;
  */
 public final class ControllableChatModel implements ChatModel {
 
-    private final Queue<String> responses = new ArrayDeque<>();
+    private final Queue<ScriptedResponse> responses = new ArrayDeque<>();
     private final List<Prompt> prompts = new ArrayList<>();
+    private final CallTimeline callTimeline;
+
+    public ControllableChatModel() {
+        this(new CallTimeline());
+    }
+
+    public ControllableChatModel(CallTimeline callTimeline) {
+        this.callTimeline = Objects.requireNonNull(callTimeline, "call timeline must not be null");
+    }
 
     public synchronized void enqueue(String response) {
+        enqueue("LLM response", response);
+    }
+
+    public synchronized void enqueue(String label, String response) {
+        Objects.requireNonNull(label, "chat response label must not be null");
         Objects.requireNonNull(response, "chat response must not be null");
+        if (label.isBlank()) {
+            throw new IllegalArgumentException("chat response label must not be blank");
+        }
         if (response.isBlank()) {
             throw new IllegalArgumentException("chat response must not be blank");
         }
-        responses.add(response);
+        responses.add(new ScriptedResponse(label, response));
     }
 
     public synchronized List<Prompt> prompts() {
@@ -39,7 +56,11 @@ public final class ControllableChatModel implements ChatModel {
             throw new IllegalStateException("controllable chat model response queue is empty");
         }
         prompts.add(prompt);
-        String response = responses.remove();
-        return new ChatResponse(List.of(new Generation(new AssistantMessage(response))));
+        ScriptedResponse response = responses.remove();
+        callTimeline.record(response.label());
+        return new ChatResponse(List.of(new Generation(new AssistantMessage(response.content()))));
+    }
+
+    private record ScriptedResponse(String label, String content) {
     }
 }

@@ -106,7 +106,7 @@ class AnswerVerificationAdapterTest {
     @Test
     void treatsMalformedVerifierOutputAsUnavailableNotRejected() {
         CountingChatModel model = new CountingChatModel("""
-                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"unknown","status":"UNSUPPORTED","description":"Unsupported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
+                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-1","status":"UNSUPPORTED","description":"Unsupported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """);
         SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
 

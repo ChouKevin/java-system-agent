@@ -53,8 +53,13 @@ public class M2IntegrationTestConfiguration {
 
     @Bean
     @Primary
-    ControllableChatModel controllableChatModel() {
-        return new ControllableChatModel();
+    ControllableChatModel controllableChatModel(CallTimeline callTimeline) {
+        return new ControllableChatModel(callTimeline);
+    }
+
+    @Bean
+    CallTimeline callTimeline() {
+        return new CallTimeline();
     }
 
     @Bean
