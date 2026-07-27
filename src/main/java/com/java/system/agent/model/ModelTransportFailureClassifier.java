@@ -1,5 +1,6 @@
 package com.java.system.agent.model;
 
+import com.google.genai.errors.ApiException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -32,6 +33,9 @@ public final class ModelTransportFailureClassifier {
     }
 
     private static boolean isRateLimited(Throwable exception) {
+        if (exception instanceof ApiException apiException && apiException.code() == 429) {
+            return true;
+        }
         if (exception instanceof RestClientResponseException responseException
                 && responseException.getStatusCode().value() == 429) {
             return true;

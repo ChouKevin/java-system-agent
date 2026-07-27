@@ -1,5 +1,6 @@
 package com.java.system.agent.model.action;
 
+import com.google.genai.errors.ClientException;
 import com.java.system.agent.runtime.domain.action.QueryAction;
 import com.java.system.agent.runtime.domain.action.AnswerAction;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
@@ -168,6 +169,18 @@ class SpringAiAgentActionAdapterTest {
     @Test
     void classifiesRateLimitTransportFailureWithoutAnotherCall() {
         CountingChatModel model = new CountingChatModel(new ResourceExhaustedException());
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build());
+
+        assertThatThrownBy(() -> adapter.nextAction(context()))
+                .isInstanceOf(AgentActionTransportException.class)
+                .hasMessage("RATE_LIMITED");
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void classifiesWrappedGoogleGenAi429WithoutAnotherCall() {
+        CountingChatModel model = new CountingChatModel(new IllegalStateException(
+                new ClientException(429, "RESOURCE_EXHAUSTED", "secret provider body")));
         SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build());
 
         assertThatThrownBy(() -> adapter.nextAction(context()))
