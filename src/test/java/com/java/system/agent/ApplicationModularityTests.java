@@ -11,6 +11,8 @@ import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.core.ApplicationModule;
@@ -25,7 +27,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ApplicationModularityTests {
 
-    private final ApplicationModules modules = ApplicationModules.of(Application.class);
+    private static final DescribedPredicate<JavaClass> PRIVILEGED_BOOTSTRAP_TYPES =
+            JavaClass.Predicates.belongToAnyOf(
+                    AgentCapabilityConfiguration.class,
+                    AgentCodebaseConfiguration.class,
+                    AgentCodebaseProperties.class,
+                    AgentModelConfiguration.class,
+                    AgentRuntimeConfiguration.class,
+                    AgentRuntimeProperties.class);
+
+    private final ApplicationModules modules = ApplicationModules.of(Application.class, PRIVILEGED_BOOTSTRAP_TYPES);
 
     @Test
     @DisplayName("modulith constraints should pass")
@@ -138,6 +149,8 @@ class ApplicationModularityTests {
     void capabilityShouldDeclareOnlyIntendedModuleDependencies() {
         assertEquals(Set.of("runtime :: domain", "runtime :: port-out"), allowedDependenciesOf(requireCapability()),
                 "Capability module must depend only on runtime domain and outbound contracts");
+        assertEquals(Set.of("runtime"), directDependenciesOf(requireCapability()),
+                "Capability module must directly depend only on runtime");
     }
 
     @Test
@@ -145,6 +158,8 @@ class ApplicationModularityTests {
     void modelShouldDeclareOnlyIntendedModuleDependencies() {
         assertEquals(Set.of("runtime :: domain", "runtime :: port-out"), allowedDependenciesOf(requireModel()),
                 "Model module must depend only on runtime domain and outbound contracts");
+        assertEquals(Set.of("runtime"), directDependenciesOf(requireModel()),
+                "Model module must directly depend only on runtime");
     }
 
     @Test
@@ -153,6 +168,8 @@ class ApplicationModularityTests {
         assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: executor-spi"),
                 allowedDependenciesOf(requireCodebase()),
                 "Codebase module must depend only on runtime contracts and capability executor SPI");
+        assertEquals(Set.of("runtime", "capability"), directDependenciesOf(requireCodebase()),
+                "Codebase module must directly depend only on runtime and capability");
     }
 
     @Test
@@ -171,6 +188,12 @@ class ApplicationModularityTests {
         return module.getAllowedDependencies(modules).stream()
                 .map(dependency -> dependency.getTargetModule().getIdentifier().toString()
                         + " :: " + dependency.getTargetNamedInterface().getName())
+                .collect(Collectors.toSet());
+    }
+
+    private Set<String> directDependenciesOf(ApplicationModule module) {
+        return module.getDirectDependencies(modules).uniqueModules()
+                .map(dependency -> dependency.getIdentifier().toString())
                 .collect(Collectors.toSet());
     }
 
