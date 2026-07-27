@@ -619,9 +619,9 @@ public final class ValidatedAgentLoop {
                     state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), action));
             state = commit(state, new AgentEvent.QueryBudgetConsumed(
                     state.runId(), state.currentAttempt().attemptId(), state.stateRevision()));
-            state = recordRuntimeObservation(state, ObservationCode.BLOCKING_UNCERTAINTY,
+            state = recordRuntimeObservation(state, ObservationCode.EXECUTION_FAILED,
                     failure.description(), Set.of(), Set.of(), failure.operationSource());
-            return new QueryExecution(state, attemptSequence, false, Optional.of(failure.description()), Optional.empty());
+            return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
         }
         state = commit(state, new AgentEvent.ActionAccepted(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), action));
@@ -673,7 +673,7 @@ public final class ValidatedAgentLoop {
                     capabilityExecutionStartedNanos);
         }
         if (result instanceof CapabilityExecutionResult.Failed failed) {
-            state = recordCapabilityFailureObservation(state, ObservationCode.BLOCKING_UNCERTAINTY,
+            state = recordCapabilityFailureObservation(state, ObservationCode.EXECUTION_FAILED,
                     failed.failure().description(), Set.of(), Set.of(), failed.failure().operationSource());
             return new QueryExecution(state, attemptSequence, false, Optional.empty(), Optional.empty());
         }
@@ -720,7 +720,7 @@ public final class ValidatedAgentLoop {
                 RepositoryRevisionFailure failure = resolution.failure().orElseThrow();
                 state = recordRuntimeObservation(
                         state,
-                        ObservationCode.BLOCKING_UNCERTAINTY,
+                        ObservationCode.EXECUTION_FAILED,
                         failure.description(),
                         Set.of(),
                         Set.of(),

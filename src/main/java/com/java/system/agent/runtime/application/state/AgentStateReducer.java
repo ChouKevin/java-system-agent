@@ -206,6 +206,10 @@ public final class AgentStateReducer {
     private AgentRunState applyAnswerProposed(AgentRunState state, AgentEvent.AnswerProposed event) {
         requireRunning(state);
         requireInitialAttemptStarted(state);
+        if (!event.proposal().revisions().equals(state.currentAttempt().revisionVector())) {
+            throw new IllegalArgumentException(
+                    "pending answer verification revisions must match the current attempt revisions");
+        }
         if (state.pendingAnswerVerification().isPresent() || state.pendingTerminalResponse().isPresent()) {
             throw new IllegalArgumentException("agent run already has a pending terminal operation");
         }

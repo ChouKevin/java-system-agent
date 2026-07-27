@@ -742,6 +742,102 @@ class ValidatedAgentLoopTest {
     }
 
     @Test
+    void recordsExecutionFailureWithoutRejectingTheNextPromptWhenSelectedRevisionIsUnavailable() {
+        AtomicInteger actionNumber = new AtomicInteger();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        AgentActionPort actionPort = context -> {
+            prompts.add(context);
+            if (actionNumber.getAndIncrement() == 0) {
+                return new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().iterator().next(),
+                        List.of(context.issuedCandidates().keySet().iterator().next()),
+                        "Trace repository", Map.of(), "Repository evidence is required"));
+            }
+            assertThat(context.latestRejection()).isEmpty();
+            assertThat(context.observations().values())
+                    .extracting(observation -> observation.code() + ":" + observation.source())
+                    .containsExactly(ObservationCode.EXECUTION_FAILED + ":" + ObservationSource.RUNTIME);
+            return new AgentActionProposal.Proposed(
+                    new ClarifyAction("Which repository should I retry?", List.of(), "Revision is unavailable"));
+        };
+        CapabilityExecutionPort capabilityExecutionPort = invocation -> {
+            throw new AssertionError("unavailable selected revision must prevent capability execution");
+        };
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                actionPort,
+                capabilityExecutionPort,
+                transitions,
+                repositoryId -> RepositoryRevisionResult.failed(new RepositoryRevisionFailure(
+                            RepositoryRevisionFailureCode.DEPENDENCY_UNAVAILABLE,
+                            "repository revision service is temporarily unavailable",
+                            "repository-revision-service")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")));
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(prompts).hasSize(2);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ActionAccepted.class::isInstance)
+                .hasSize(1);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance)
+                .hasSize(1);
+    }
+
+    @Test
+    void recordsExecutionFailureWhenAnUnscopedResultRevisionIsUnavailable() {
+        AtomicInteger actionNumber = new AtomicInteger();
+        CapabilityDescriptor routeDiscovery = new CapabilityDescriptor(
+                "discover-routes",
+                "v1",
+                Set.of(CandidateKind.REPOSITORY, CandidateKind.ROUTE),
+                0,
+                10,
+                new CapabilityQuerySchema(List.of()));
+        AgentActionPort actionPort = context -> {
+            if (actionNumber.getAndIncrement() == 0) {
+                return new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().iterator().next(),
+                        List.of(),
+                        "Discover routes",
+                        Map.of(),
+                        "No repository has been selected"));
+            }
+            assertThat(context.observations().values())
+                    .extracting(observation -> observation.code() + ":" + observation.source())
+                    .containsExactly(ObservationCode.EXECUTION_FAILED + ":" + ObservationSource.RUNTIME);
+            return new AgentActionProposal.Proposed(
+                    new ClarifyAction("Which route should I investigate?", List.of(), "Revision is unavailable"));
+        };
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loopWithCapability(
+                actionPort,
+                invocation -> new CapabilityExecutionResult.Succeeded(
+                        List.of(new RouteCandidate(
+                                new RepositoryId("repo-1"),
+                                new RepositoryRevision("revision-repo-1"),
+                                "GET /orders",
+                                "Orders route")),
+                        List.of(),
+                        List.of()),
+                transitions,
+                repositoryId -> RepositoryRevisionResult.failed(new RepositoryRevisionFailure(
+                        RepositoryRevisionFailureCode.DEPENDENCY_UNAVAILABLE,
+                        "repository revision service is temporarily unavailable",
+                        "repository-revision-service")),
+                routeDiscovery);
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow()
+                .currentAttempt().issuedCandidates().values())
+                .noneMatch(issued -> issued.candidate() instanceof RouteCandidate);
+    }
+
+    @Test
     void prioritizesRevisionDriftOverAnotherSelectedRepositoryBeingUnavailable() {
         AtomicInteger actionNumber = new AtomicInteger();
         AgentActionPort actionPort = context -> {
@@ -1116,7 +1212,7 @@ class ValidatedAgentLoopTest {
                     assertThat(context.issuedEvidence()).isEmpty();
                     assertThat(context.observations().values())
                             .extracting(observation -> observation.code() + ":" + observation.source())
-                            .containsExactly(ObservationCode.BLOCKING_UNCERTAINTY + ":"
+                            .containsExactly(ObservationCode.EXECUTION_FAILED + ":"
                                     + ObservationSource.CAPABILITY_EXECUTOR);
                 }
                 return new AgentActionProposal.Proposed(new QueryAction(

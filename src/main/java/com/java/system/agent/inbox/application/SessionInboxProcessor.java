@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.logging.Level;
+import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
 /**
@@ -94,13 +95,15 @@ public final class SessionInboxProcessor {
     }
 
     private static void logFailure(String category, InboxMessage claimedMessage, Exception exception) {
-        LOGGER.log(Level.WARNING,
-                "answer execution category={0} runId={1} inboxId={2} attempt={3} exception={4}",
-                new Object[]{
-                        category,
-                        claimedMessage.runId().value(),
-                        claimedMessage.inboxMessageId().value(),
-                        claimedMessage.attemptCount(),
-                        exception.getClass().getName()});
+        LogRecord record = new LogRecord(
+                Level.WARNING,
+                "answer execution category={0} runId={1} inboxId={2} attempt={3}");
+        record.setParameters(new Object[]{
+                category,
+                claimedMessage.runId().value(),
+                claimedMessage.inboxMessageId().value(),
+                claimedMessage.attemptCount()});
+        record.setThrown(exception);
+        LOGGER.log(record);
     }
 }

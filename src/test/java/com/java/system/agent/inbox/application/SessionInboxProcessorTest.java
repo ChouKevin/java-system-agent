@@ -35,6 +35,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,6 +106,30 @@ class SessionInboxProcessorTest {
         assertThat(terminalReconciliation.command.executionMode())
                 .isEqualTo(AnswerExecutionMode.TERMINAL_RECONCILIATION);
         assertThat(terminalReconciliation.invocationCount).isOne();
+    }
+
+    @Test
+    void logsTheUnexpectedFailureThrowableWithoutPersistingItsMessage() {
+        Logger logger = Logger.getLogger(SessionInboxProcessor.class.getName());
+        CapturingHandler handler = new CapturingHandler();
+        IllegalStateException failure = new IllegalStateException("provider payload must not persist");
+        logger.addHandler(handler);
+        try {
+            RecordingInboxPort inbox = new RecordingInboxPort();
+            SessionInboxProcessor processor = new SessionInboxProcessor(
+                    inbox, command -> {
+                        throw failure;
+                    }, BUDGET, InboxRetryPolicy.defaults());
+
+            InboxProcessingOutcome outcome = processor.process(claimed(1), NOW);
+
+            assertThat(outcome).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+            assertThat(inbox.failure.description()).doesNotContain("provider payload");
+            assertThat(handler.record().getThrown()).isSameAs(failure);
+        } finally {
+            logger.removeHandler(handler);
+            handler.close();
+        }
     }
 
     @Test
@@ -357,6 +384,31 @@ class SessionInboxProcessorTest {
         COMPLETE,
         RETRY,
         FAIL
+    }
+
+    /**
+     * 擷取 processor JUL 紀錄以驗證可診斷的 failure cause
+     */
+    private static final class CapturingHandler extends Handler {
+
+        private Optional<LogRecord> record = Optional.empty();
+
+        @Override
+        public void publish(LogRecord logRecord) {
+            record = Optional.of(logRecord);
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+
+        private LogRecord record() {
+            return record.orElseThrow();
+        }
     }
 
     private static final class RecordingAnswerQuestionUseCase implements AnswerQuestionUseCase {

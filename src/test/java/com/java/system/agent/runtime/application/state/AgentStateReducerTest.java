@@ -29,6 +29,8 @@ import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
 import com.java.system.agent.runtime.domain.observation.ObservationId;
 import com.java.system.agent.runtime.domain.observation.ObservationSource;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
@@ -166,6 +168,25 @@ class AgentStateReducerTest {
         assertThatThrownBy(() -> conclude(restarting, RunOutcome.INCONCLUSIVE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("terminal response");
+    }
+
+    @Test
+    void should_reject_an_answer_proposal_with_revisions_different_from_the_current_attempt() {
+        AgentRunState state = startedState();
+        PendingAnswerVerification proposal = new PendingAnswerVerification(
+                state.currentAttempt().attemptId(),
+                RevisionVector.empty().pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1")),
+                document(),
+                true,
+                AnswerVerificationMode.LLM);
+        AgentEvent.AnswerProposed event = new AgentEvent.AnswerProposed(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), proposal);
+
+        assertThatThrownBy(() -> reducer.reduce(state, event))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("pending answer verification revisions must match the current attempt revisions");
+
+        assertThat(state.pendingAnswerVerification()).isEmpty();
     }
 
     @Test
