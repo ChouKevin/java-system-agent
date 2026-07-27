@@ -40,8 +40,8 @@ class ApplicationModularityTests {
                 .map(module -> module.getIdentifier().toString())
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("runtime", "inbox", "persistence"), moduleNames,
-                "Expected exactly the runtime, inbox, and persistence modules");
+        assertEquals(Set.of("runtime", "inbox", "persistence", "capability", "model", "codebase"), moduleNames,
+                "Expected exactly the runtime, inbox, persistence, capability, model, and codebase modules");
     }
 
     @Test
@@ -133,6 +133,47 @@ class ApplicationModularityTests {
         assertTrue(exposed.isEmpty(), "Persistence implementation packages must remain internal");
     }
 
+    @Test
+    @DisplayName("capability module should declare only runtime domain and outbound dependencies")
+    void capabilityShouldDeclareOnlyIntendedModuleDependencies() {
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out"), allowedDependenciesOf(requireCapability()),
+                "Capability module must depend only on runtime domain and outbound contracts");
+    }
+
+    @Test
+    @DisplayName("model module should declare only runtime domain and outbound dependencies")
+    void modelShouldDeclareOnlyIntendedModuleDependencies() {
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out"), allowedDependenciesOf(requireModel()),
+                "Model module must depend only on runtime domain and outbound contracts");
+    }
+
+    @Test
+    @DisplayName("codebase module should declare only runtime and capability executor dependencies")
+    void codebaseShouldDeclareOnlyIntendedModuleDependencies() {
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: executor-spi"),
+                allowedDependenciesOf(requireCodebase()),
+                "Codebase module must depend only on runtime contracts and capability executor SPI");
+    }
+
+    @Test
+    @DisplayName("capability module should expose its executor SPI")
+    void capabilityShouldExposeExecutorSpi() {
+        Set<String> exposed = requireCapability().getNamedInterfaces().stream()
+                .filter(namedInterface -> !namedInterface.isUnnamed())
+                .map(NamedInterface::getName)
+                .collect(Collectors.toSet());
+
+        assertEquals(Set.of("executor-spi"), exposed,
+                "Capability module must expose exactly its executor SPI");
+    }
+
+    private Set<String> allowedDependenciesOf(ApplicationModule module) {
+        return module.getAllowedDependencies(modules).stream()
+                .map(dependency -> dependency.getTargetModule().getIdentifier().toString()
+                        + " :: " + dependency.getTargetNamedInterface().getName())
+                .collect(Collectors.toSet());
+    }
+
     private ApplicationModule requireRuntime() {
         return modules.getModuleByName("runtime")
                 .orElseThrow(() -> new IllegalStateException("Missing module: runtime"));
@@ -146,5 +187,20 @@ class ApplicationModularityTests {
     private ApplicationModule requirePersistence() {
         return modules.getModuleByName("persistence")
                 .orElseThrow(() -> new IllegalStateException("Missing module: persistence"));
+    }
+
+    private ApplicationModule requireCapability() {
+        return modules.getModuleByName("capability")
+                .orElseThrow(() -> new IllegalStateException("Missing module: capability"));
+    }
+
+    private ApplicationModule requireModel() {
+        return modules.getModuleByName("model")
+                .orElseThrow(() -> new IllegalStateException("Missing module: model"));
+    }
+
+    private ApplicationModule requireCodebase() {
+        return modules.getModuleByName("codebase")
+                .orElseThrow(() -> new IllegalStateException("Missing module: codebase"));
     }
 }
