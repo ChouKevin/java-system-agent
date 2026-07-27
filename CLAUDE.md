@@ -34,8 +34,19 @@ These are recorded because each one cost real work:
 - **Test sources cross module boundaries freely.** A dependency check that greps only `src/main/java` will miss them, and "leaf-first deletion keeps the tree compiling" does not hold for tests.
 - **Documentation that states a false invariant is a defect.** Several Javadoc claims in this repository have been withdrawn after review disproved them. Verify a claim against the code before writing it, and if the code contradicts a brief, report rather than document the brief.
 
-## Deferred decisions
+## Current composition traps
 
-Spring Modulith `2.x`, Spring AI `2.0.0`, and springdoc `3.x` were once listed as deliberately deferred major upgrades. That note is obsolete — all three landed together with Spring Boot `4.1.0` in the merge at `74c17c5`. **Still deferred:** JGit `7.x` (the tree carries no JGit today) and Tyrus `2.x`, which moves off the `javax.websocket` line.
+The root production graph is enabled only by `agent-runtime`. The default `dev` profile must not
+create Agent persistence, `AgentActionPort`, `AnswerVerificationPort`, Java Semantic HTTP, or
+inbox-processing beans. This does not promise the absence of independently auto-configured Spring
+AI provider beans. With the profile active, tests may replace the persistence infrastructure beans;
+production otherwise uses the project-owned `DriverManagerDataSource` and Flyway setup.
 
-Check the resolved version in `pom.xml` before trusting any statement about a library here, including this one.
+The graph has Spring AI and Spring Web HTTP client integration. It still has no controller, Slack
+ingress, scheduler, worker, or response-delivery adapter, so do not describe it as a self-running
+service. Keep the root and `java-semantic-service/` builds separate, and include the two V2 test
+fixture directories explicitly when using scoped commands:
+`src/test/java/com/java/system/agent/runtime/adapter/fake/` and
+`src/test/java/com/java/system/agent/support/`.
+
+Check resolved versions in `pom.xml` before recording library-version claims.

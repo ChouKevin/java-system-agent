@@ -3,28 +3,30 @@ package com.java.system.agent.runtime.port.out;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 
 import java.util.Objects;
-import java.util.Optional;
 
-public record RepositoryRevisionResult(
-        Optional<RepositoryRevision> revision,
-        Optional<SemanticFailure> failure) {
+/**
+ * Repository revision 外部查詢的成功或 provider-neutral 失敗
+ */
+public sealed interface RepositoryRevisionResult permits RepositoryRevisionResult.Ready,
+        RepositoryRevisionResult.Failed {
 
-    public RepositoryRevisionResult {
-        Objects.requireNonNull(revision, "repository revision result revision must not be null");
-        Objects.requireNonNull(failure, "repository revision result failure must not be null");
-        if (revision.isPresent() == failure.isPresent()) {
-            throw new IllegalArgumentException(
-                    "repository revision result must contain exactly one of revision or failure");
+    record Ready(RepositoryRevision revision) implements RepositoryRevisionResult {
+        public Ready {
+            Objects.requireNonNull(revision, "repository revision must not be null");
         }
     }
 
-    public static RepositoryRevisionResult ready(RepositoryRevision revision) {
-        Objects.requireNonNull(revision, "repository revision must not be null");
-        return new RepositoryRevisionResult(Optional.of(revision), Optional.empty());
+    record Failed(RepositoryRevisionFailure failure) implements RepositoryRevisionResult {
+        public Failed {
+            Objects.requireNonNull(failure, "repository revision failure must not be null");
+        }
     }
 
-    public static RepositoryRevisionResult unavailable(SemanticFailure failure) {
-        Objects.requireNonNull(failure, "repository revision failure must not be null");
-        return new RepositoryRevisionResult(Optional.empty(), Optional.of(failure));
+    static Ready ready(RepositoryRevision revision) {
+        return new Ready(revision);
+    }
+
+    static Failed failed(RepositoryRevisionFailure failure) {
+        return new Failed(failure);
     }
 }

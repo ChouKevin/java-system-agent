@@ -1,6 +1,7 @@
 package com.java.system.agent.runtime.application;
 
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
@@ -8,6 +9,7 @@ import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
@@ -32,6 +34,8 @@ class AnalysisApplicationServiceTest {
                 RunOutcome.COMPLETED,
                 "Verified answer",
                 Optional.of(document("Verified answer")),
+                RunResponseKind.ANSWER,
+                Optional.of(AnswerVerificationBasis.LLM),
                 RevisionVector.empty());
         ValidatedAgentLoop loop = mock(ValidatedAgentLoop.class);
         AnalysisApplicationService service = new AnalysisApplicationService(loop);
@@ -53,6 +57,8 @@ class AnalysisApplicationServiceTest {
                 loopResult.outcome(),
                 loopResult.responseText(),
                 loopResult.answerDocument(),
+                loopResult.responseKind(),
+                loopResult.verificationBasis(),
                 loopResult.finalRevisions()));
     }
 
@@ -72,6 +78,8 @@ class AnalysisApplicationServiceTest {
                 RunOutcome.COMPLETED,
                 "Verified answer",
                 Optional.of(document("Verified answer")),
+                RunResponseKind.ANSWER,
+                Optional.of(AnswerVerificationBasis.LLM),
                 RevisionVector.empty());
         when(loop.execute(expectedRequest)).thenReturn(mismatchedResult);
 

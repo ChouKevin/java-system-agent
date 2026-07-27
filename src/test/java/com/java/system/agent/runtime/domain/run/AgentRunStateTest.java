@@ -2,6 +2,7 @@ package com.java.system.agent.runtime.domain.run;
 
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
+import com.java.system.agent.runtime.domain.answer.AnswerAcceptance;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
@@ -43,18 +44,18 @@ class AgentRunStateTest {
         PendingTerminalResponse pending = new PendingTerminalResponse.Answer(
                 new SessionId("session-1"),
                 new ConversationTurn(new AnalysisRunId("run-1"), "question", "answer", ConversationTurnType.ANSWER),
-                document(), acceptedCompleteVerdict(), RunOutcome.COMPLETED);
+                document(), AnswerAcceptance.llm(acceptedCompleteVerdict()));
 
         assertThatThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.CONCLUDED, attempt,
-                1, budget, 0, 0, 1, Optional.of(RunOutcome.FAILED), Optional.of(pending), requestIdentity()))
+                1, budget, 0, 0, 1, Optional.of(RunOutcome.FAILED), Optional.of(pending), Optional.empty(), requestIdentity()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("pending");
         assertThatThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.STARTING, attempt,
-                1, budget, 0, 0, 0, Optional.empty(), Optional.of(pending), requestIdentity()))
+                1, budget, 0, 0, 0, Optional.empty(), Optional.of(pending), Optional.empty(), requestIdentity()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("pending");
         assertThatThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.RESTARTING, attempt,
-                1, budget, 0, 0, 1, Optional.empty(), Optional.of(pending), requestIdentity()))
+                1, budget, 0, 0, 1, Optional.empty(), Optional.of(pending), Optional.empty(), requestIdentity()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("pending");
     }
@@ -70,16 +71,16 @@ class AgentRunStateTest {
                 new ClarifyAction("which repository", List.of(), "scope is ambiguous"));
 
         assertThatThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.STARTING, attempt,
-                1, budget, 1, 0, 0, Optional.empty(), Optional.empty(), requestIdentity()))
+                1, budget, 1, 0, 0, Optional.empty(), Optional.empty(), Optional.empty(), requestIdentity()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("bootstrap");
         assertThatThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.STARTING, attempt,
-                1, budget, 0, 0, 1, Optional.empty(), Optional.empty(), requestIdentity()))
+                1, budget, 0, 0, 1, Optional.empty(), Optional.empty(), Optional.empty(), requestIdentity()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("bootstrap");
 
         AgentRunState running = new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.RUNNING, attempt,
-                1, budget, 0, 0, 1, Optional.empty(), Optional.of(pending), requestIdentity());
+                1, budget, 0, 0, 1, Optional.empty(), Optional.of(pending), Optional.empty(), requestIdentity());
 
         assertThat(running.pendingTerminalResponse()).contains(pending);
     }
@@ -115,14 +116,14 @@ class AgentRunStateTest {
                 new ClarifyAction("which repository", List.of(), "scope is ambiguous"));
 
         AgentRunState concluded = new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.CONCLUDED, attempt,
-                1, budget(), 1, 0, 3, Optional.of(RunOutcome.INCONCLUSIVE), Optional.of(pending), requestIdentity());
+                1, budget(), 1, 0, 3, Optional.of(RunOutcome.INCONCLUSIVE), Optional.of(pending), Optional.empty(), requestIdentity());
 
         assertThat(concluded.pendingTerminalResponse()).contains(pending);
     }
 
     private AgentRunState runningState(RunAttempt attempt, PendingTerminalResponse pending) {
         return new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.RUNNING, attempt,
-                1, budget(), 1, 0, 3, Optional.empty(), Optional.of(pending), requestIdentity());
+                1, budget(), 1, 0, 3, Optional.empty(), Optional.of(pending), Optional.empty(), requestIdentity());
     }
 
     private PendingTerminalResponse.Answer pendingAnswer(
@@ -133,8 +134,7 @@ class AgentRunStateTest {
                 sessionId,
                 new ConversationTurn(runId, question, document().renderParagraphs(), ConversationTurnType.ANSWER),
                 document(),
-                acceptedCompleteVerdict(),
-                RunOutcome.COMPLETED);
+                AnswerAcceptance.llm(acceptedCompleteVerdict()));
     }
 
     private AttemptBudget budget() {

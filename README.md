@@ -2,7 +2,7 @@
 
 This repository contains two independent Java 21 / Spring Boot projects:
 
-- the root `java-system-agent`, currently a validated Agent kernel with a durable session inbox and PostgreSQL adapters
+- the root `java-system-agent`, a profiled production composition for a validated Agent with a durable session inbox and PostgreSQL persistence
 - `java-semantic-service/`, the separately built service that owns repository lifecycle, JDT LS integration, and call-graph construction
 
 They share versioned HTTP contracts and an opaque `repoId`; there is deliberately no Maven
@@ -10,12 +10,13 @@ aggregator or shared Java library.
 
 ## Current Status
 
-The root Agent is intentionally **not runnable yet**. Its domain flow and PostgreSQL persistence
-boundaries exist, but there is no composition root and no production wiring for Slack, LLM calls,
-semantic queries, answer verification, repository catalogs/revisions, scheduling, or response
-delivery. The Spring context therefore does not construct an Agent workflow.
+The root Agent has a production composition graph when the `agent-runtime` profile is active. It
+does **not** yet provide an HTTP controller, Slack ingress, listener, consumer, scheduler, worker,
+or Slack response-delivery adapter. A manual driver or another external component must call the
+Java inbound contracts and invoke inbox processing; enabling the profile alone does not create a
+background worker.
 
-What M1 provides:
+The composed M2 flow provides:
 
 - a framework-free validated loop whose model proposes exactly one `QUERY`, `ANSWER`, or `CLARIFY`
 - deterministic validation of issued handles, schemas, revisions, budgets, cancellation, evidence,
@@ -28,6 +29,8 @@ What M1 provides:
 - append-only Agent events, an atomic current-state snapshot, and append-only accepted session turns
 - versioned JSON codecs that reject unknown or malformed persistence documents
 - PostgreSQL adapters for inbox, Agent transitions, cancellation, and session history
+- Spring AI action planning and answer-verification adapters, including a contract-only verifier
+- HTTP repository catalog/revision and five Java Semantic Service capability adapters
 
 The model chooses the semantic action, including candidate subset and order. Runtime validators
 accept or reject that proposal against issued contracts. The reducer does not make semantic
@@ -52,8 +55,8 @@ source message
 ```
 
 Messages in the same session cannot pass an earlier `PENDING` or `PROCESSING` message. A failed
-infrastructure attempt returns the same message to `PENDING` with backoff; after the third failed
-attempt it becomes `FAILED`, allowing the next message in that session to proceed. On startup,
+infrastructure attempt returns the same message to `PENDING` with backoff. After three external
+attempts, the inbox schedules a fourth terminal-reconciliation claim. On startup,
 interrupted `PROCESSING` rows can be returned to `PENDING` without changing their session, run ID,
 question, sequence, or attempt count. Attempts two and three may restart a nonterminal Agent attempt
 through reducer events and freshly issued context. If no run state was persisted yet, the inbox
@@ -61,7 +64,9 @@ attempt seeds the initial Agent attempt sequence. After bootstrap, that sequence
 state and advances only through reducer events, including revision-driven restarts.
 A recovered claim beyond the configured ceiling
 is terminal-reconciliation-only: it may finish an already durable terminal result, but it cannot
-call the model, semantic provider, or verifier again; a nonterminal run becomes `FAILED`.
+call the model, semantic provider, or verifier again. A safely persisted nonterminal run concludes
+with Agent outcome `FAILED` while the inbox becomes `COMPLETED`; inbox `FAILED` is reserved for
+absent or unsafe state, or reconciliation failure.
 
 Inbox completion is deliberately separate from terminal Agent persistence and session-turn append.
 If the process stops between those boundaries, retry uses the same run ID: persisted terminal state
@@ -69,8 +74,13 @@ prevents another model action, and the immutable `(sessionId, runId)` turn appen
 when its content is identical.
 
 These guarantees target the approved single-machine lifecycle. PostgreSQL transactions protect the
-implemented atomic boundaries, but M1 does not claim distributed worker ownership, leases, or
-cross-machine coordination.
+implemented atomic boundaries, but the Agent does not claim distributed worker ownership, leases,
+or cross-machine coordination.
+
+When an answer is accepted in `contract-only` mode, it is a `COMPLETED` answer and the inbound
+`AnswerQuestionResult` retains `responseKind=ANSWER` and
+`verificationBasis=CONTRACT_ONLY`. This is deliberately not a fabricated LLM verdict; callers can
+distinguish it from an LLM-verified answer through the typed result.
 
 ## Project Layout
 
@@ -80,6 +90,11 @@ src/main/java/com/java/system/agent/
   runtime/       validated action-loop domain, application flow, and ports
   inbox/         durable source-message queue contracts and processing policy
   persistence/   versioned JSON codecs and PostgreSQL JDBC adapters
+  capability/    fixed catalog, executor registry, and generic QUERY dispatcher
+  codebase/      Java Semantic Service HTTP adapter and five read-only executors
+  model/         Spring AI action and answer-verification adapters
+  Agent*Configuration.java
+                 profile-gated root composition and replaceable infrastructure
 
 src/main/resources/db/migration/
   V1__create_agent_session_inbox_and_trace.sql
@@ -92,8 +107,50 @@ knowledge/
   repos/{repoId}/
 ```
 
-`runtime` and `inbox` contain no Spring components or JDBC code. Persistence implementations also
-carry no Spring stereotypes; a later composition root must construct them explicitly.
+`runtime` and `inbox` contain no Spring components or JDBC code. `runtime` has no module
+dependencies and remains framework-free; its reducer only computes the next state from an accepted
+event. The root configuration is the privileged composition boundary.
+
+## Running the Production Composition
+
+Activate `agent-runtime` only when a driver will use the Java contracts and the required external
+services are available:
+
+```bash
+export SPRING_PROFILES_ACTIVE=agent-runtime
+export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/agent
+export SPRING_DATASOURCE_USERNAME=agent
+export SPRING_DATASOURCE_PASSWORD=secret
+export GOOGLE_API_KEY=...
+export GOOGLE_GENAI_MODEL=gemini-3.1-flash-lite
+export CODEBASE_SERVICE_BASE_URL=http://localhost:8081
+export CODEBASE_SERVICE_API_TOKEN=...
+export AGENT_ANSWER_VERIFICATION_MODE=llm  # or contract-only
+```
+
+With the profile off, the Agent persistence composition does not create or access a database. With
+it on, the project-owned default is an unpooled `DriverManagerDataSource` plus Flyway migration; an
+integrator may instead provide `DataSource`, `Flyway`, `JdbcClient`, or `TransactionTemplate` beans.
+The default model is [`gemini-3.1-flash-lite`](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite).
+
+The five built-in, read-only codebase capabilities are:
+
+- `codebase.list-entry-points`
+- `codebase.lookup-api-route`
+- `codebase.suggest-api-route`
+- `codebase.outgoing-call-graph`
+- `codebase.incoming-call-graph`
+
+A representative one-query answer performs three LLM calls and three HTTP calls: catalog HTTP →
+`QUERY` action LLM → revision HTTP → capability HTTP → `ANSWER` action LLM → verifier LLM. The
+model may make more than one `QUERY`, so actual calls can be higher.
+
+For planning only, one Gemini envelope is 15 RPM, 250,000 input TPM, and 500–1,500 RPD. These
+numbers are project/model/tier-specific, are not guaranteed, and active limits in AI Studio are
+authoritative; see the [Gemini rate-limit documentation](https://ai.google.dev/gemini-api/docs/rate-limits).
+A single question can consume several requests, so a manual driver should serialize and throttle
+work. A Gemini HTTP 429 is not immediately retried inside the model adapter or loop: the error
+propagates outward and the durable inbox retry/backoff policy handles the retry.
 
 ## Build and Test
 
@@ -132,7 +189,7 @@ include Java semantic analysis, API reads, and log queries.
 
 An action that can modify external state must not be disguised as `QUERY`. It requires a deliberate
 future `EXECUTE` contract with authorization, approval, idempotency, side-effect audit, and
-result-reconciliation rules. M1 implements no such action.
+result-reconciliation rules. M2 implements no such action.
 
 ## Business Knowledge
 

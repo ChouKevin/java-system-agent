@@ -10,8 +10,11 @@ import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
 import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
+import com.java.system.agent.runtime.domain.run.PendingAnswerVerification;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
+import com.java.system.agent.runtime.domain.answer.AnswerAcceptance;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
@@ -26,6 +29,8 @@ import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
 import com.java.system.agent.runtime.domain.observation.ObservationId;
 import com.java.system.agent.runtime.domain.observation.ObservationSource;
+import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
@@ -61,7 +66,7 @@ class AgentStateReducerTest {
         assertThat(queryBudgetConsumed.stateRevision()).isEqualTo(3);
         assertThat(queryBudgetConsumed.acceptedActionCount()).isZero();
         assertThat(queryBudgetConsumed.rejectedActionCount()).isZero();
-        assertThat(queryBudgetConsumed.budget().usedSemanticQueries()).isEqualTo(1);
+        assertThat(queryBudgetConsumed.budget().usedQueryExecutions()).isEqualTo(1);
     }
 
     @Test
@@ -144,10 +149,10 @@ class AgentStateReducerTest {
 
     @Test
     void should_clear_a_pending_terminal_response_when_the_attempt_is_invalidated() {
-        AgentRunState started = startedState();
+        AgentRunState started = proposeAnswer(startedState(), document(), true);
         AgentRunState answerPending = reducer.reduce(started,
                 new AgentEvent.AnswerAccepted(started.runId(), started.currentAttempt().attemptId(),
-                        started.stateRevision(), document(), acceptedCompleteVerdict(), answerSessionId(),
+                        started.stateRevision(), document(), AnswerAcceptance.llm(acceptedCompleteVerdict()), answerSessionId(),
                         answerTurn(started.runId(), document()), true))
                 .candidateState();
 
@@ -163,6 +168,25 @@ class AgentStateReducerTest {
         assertThatThrownBy(() -> conclude(restarting, RunOutcome.INCONCLUSIVE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("terminal response");
+    }
+
+    @Test
+    void should_reject_an_answer_proposal_with_revisions_different_from_the_current_attempt() {
+        AgentRunState state = startedState();
+        PendingAnswerVerification proposal = new PendingAnswerVerification(
+                state.currentAttempt().attemptId(),
+                RevisionVector.empty().pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1")),
+                document(),
+                true,
+                AnswerVerificationMode.LLM);
+        AgentEvent.AnswerProposed event = new AgentEvent.AnswerProposed(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), proposal);
+
+        assertThatThrownBy(() -> reducer.reduce(state, event))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("pending answer verification revisions must match the current attempt revisions");
+
+        assertThat(state.pendingAnswerVerification()).isEmpty();
     }
 
     @Test
@@ -229,10 +253,10 @@ class AgentStateReducerTest {
 
     @Test
     void should_charge_answer_and_clarification_by_final_response_mode() {
-        AgentRunState normalAnswerState = startedState();
+        AgentRunState normalAnswerState = proposeAnswer(startedState(), document(), false);
         AgentRunState normalAnswer = reducer.reduce(normalAnswerState,
                 answerAccepted(normalAnswerState, AnswerDisposition.ACCEPTED_COMPLETE, false)).candidateState();
-        AgentRunState finalAnswerState = startedState();
+        AgentRunState finalAnswerState = proposeAnswer(startedState(), document(), true);
         AgentRunState finalAnswer = reducer.reduce(finalAnswerState,
                 answerAccepted(finalAnswerState, AnswerDisposition.ACCEPTED_INCONCLUSIVE, true)).candidateState();
         AgentRunState normalClarificationState = startedState();
@@ -258,7 +282,7 @@ class AgentStateReducerTest {
 
     @Test
     void should_require_the_pending_response_expected_outcome_when_concluding() {
-        AgentRunState answerState = startedState();
+        AgentRunState answerState = proposeAnswer(startedState(), document(), true);
         AgentRunState completeAnswer = reducer.reduce(answerState,
                 answerAccepted(answerState, AnswerDisposition.ACCEPTED_COMPLETE, true)).candidateState();
         AgentRunState clarificationState = startedState();
@@ -275,7 +299,7 @@ class AgentStateReducerTest {
 
     @Test
     void should_retain_accepted_terminal_content_and_reject_runtime_fixed_conclusions() {
-        AgentRunState answerState = startedState();
+        AgentRunState answerState = proposeAnswer(startedState(), document(), true);
         AgentRunState answerPending = reducer.reduce(answerState,
                 answerAccepted(answerState, AnswerDisposition.ACCEPTED_INCONCLUSIVE, true)).candidateState();
         AgentRunState clarificationState = startedState();
@@ -300,16 +324,38 @@ class AgentStateReducerTest {
 
     @Test
     void should_reject_terminal_turns_that_do_not_match_persisted_request_identity() {
-        AgentRunState state = startedState();
+        AgentRunState state = proposeAnswer(startedState(), document(), true);
         ConversationTurn wrongQuestion = new ConversationTurn(
                 state.runId(), "other question", document().renderParagraphs(), ConversationTurnType.ANSWER);
         AgentEvent.AnswerAccepted event = new AgentEvent.AnswerAccepted(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), document(),
-                acceptedCompleteVerdict(), answerSessionId(), wrongQuestion, true);
+                AnswerAcceptance.llm(acceptedCompleteVerdict()), answerSessionId(), wrongQuestion, true);
 
         assertThatThrownBy(() -> reducer.reduce(state, event))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("request identity");
+    }
+
+    @Test
+    void should_reject_accepted_answer_that_differs_from_the_pending_verification_checkpoint() {
+        AgentRunState state = proposeAnswer(startedState(), document(), true);
+
+        AgentEvent.AnswerAccepted wrongDocument = new AgentEvent.AnswerAccepted(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), document("other"),
+                AnswerAcceptance.llm(acceptedCompleteVerdict()), answerSessionId(), answerTurn(state.runId(), document("other")), true);
+        AgentEvent.AnswerAccepted wrongMode = new AgentEvent.AnswerAccepted(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), document(),
+                AnswerAcceptance.llm(acceptedCompleteVerdict()), answerSessionId(), answerTurn(state.runId(), document()), false);
+        AgentEvent.AnswerAccepted wrongBasis = new AgentEvent.AnswerAccepted(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), document(),
+                AnswerAcceptance.contractOnly(), answerSessionId(), answerTurn(state.runId(), document()), true);
+
+        assertThatThrownBy(() -> reducer.reduce(state, wrongDocument)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("pending answer verification checkpoint");
+        assertThatThrownBy(() -> reducer.reduce(state, wrongMode)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("pending answer verification checkpoint");
+        assertThatThrownBy(() -> reducer.reduce(state, wrongBasis)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("pending answer verification checkpoint");
     }
 
     @Test
@@ -340,8 +386,16 @@ class AgentStateReducerTest {
     private AgentEvent.AnswerAccepted answerAccepted(AgentRunState state, AnswerDisposition disposition,
                                                       boolean finalResponseMode) {
         return new AgentEvent.AnswerAccepted(state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
-                document(), answerVerdict(disposition), answerSessionId(), answerTurn(state.runId(), document()),
+                document(), AnswerAcceptance.llm(answerVerdict(disposition)), answerSessionId(), answerTurn(state.runId(), document()),
                 finalResponseMode);
+    }
+
+    private AgentRunState proposeAnswer(AgentRunState state, AnswerDocument document, boolean finalResponseMode) {
+        PendingAnswerVerification proposal = new PendingAnswerVerification(
+                state.currentAttempt().attemptId(), state.currentAttempt().revisionVector(), document,
+                finalResponseMode, AnswerVerificationMode.LLM);
+        return reducer.reduce(state, new AgentEvent.AnswerProposed(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), proposal)).candidateState();
     }
 
     private AgentEvent.ClarificationAccepted clarificationAccepted(AgentRunState state, boolean finalResponseMode) {
@@ -360,8 +414,12 @@ class AgentStateReducerTest {
     }
 
     private AnswerDocument document() {
+        return document("answer");
+    }
+
+    private AnswerDocument document(String answer) {
         return new AnswerDocument(List.of(new AnswerStatement(
-                new StatementId("statement-1"), StatementType.QUESTION, "answer", Optional.empty(), Set.of(), Set.of())));
+                new StatementId("statement-1"), StatementType.QUESTION, answer, Optional.empty(), Set.of(), Set.of())));
     }
 
     private SessionId answerSessionId() {

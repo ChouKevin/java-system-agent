@@ -7,9 +7,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * 語意服務回應中，一筆可佐證答案的證據
+ * capability 執行器回應中，一筆可佐證答案的證據
  *
- * <p>由 semantic 層將 {@code SemanticQueryResult} 轉譯而來，經 state 層核准後
+ * <p>由 capability 執行器轉譯而來，經 state 層核准後
  * 才會綁進 {@code EvidenceBinding}</p>
  *
  * <p>{@code repositoryId}／{@code repositoryRevision} 必須與當時的 {@code RevisionVector} 相符，

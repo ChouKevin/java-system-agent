@@ -85,7 +85,7 @@ public final class AgentActionValidator {
         } catch (CapabilityQueryContractException exception) {
             return rejected(ActionRejectionCode.INVALID_ARGUMENTS, action);
         }
-        return context.budget().hasAgentStepRemaining() && context.budget().hasSemanticQueryRemaining()
+        return context.budget().hasAgentStepRemaining() && context.budget().hasQueryExecutionRemaining()
                 ? new ActionValidation.Accepted(action)
                 : rejected(ActionRejectionCode.BUDGET_EXHAUSTED, action);
     }

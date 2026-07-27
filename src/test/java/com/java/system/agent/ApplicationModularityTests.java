@@ -11,6 +11,8 @@ import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.modulith.core.ApplicationModule;
@@ -25,7 +27,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ApplicationModularityTests {
 
-    private final ApplicationModules modules = ApplicationModules.of(Application.class);
+    private static final DescribedPredicate<JavaClass> PRIVILEGED_BOOTSTRAP_TYPES =
+            JavaClass.Predicates.belongToAnyOf(
+                    AgentCapabilityConfiguration.class,
+                    AgentCodebaseConfiguration.class,
+                    AgentCodebaseProperties.class,
+                    AgentModelConfiguration.class,
+                    AgentPersistenceConfiguration.class,
+                    AgentDatabaseProperties.class,
+                    AgentRuntimeConfiguration.class,
+                    AgentRuntimeProperties.class);
+
+    private final ApplicationModules modules = ApplicationModules.of(Application.class, PRIVILEGED_BOOTSTRAP_TYPES);
 
     @Test
     @DisplayName("modulith constraints should pass")
@@ -40,8 +53,8 @@ class ApplicationModularityTests {
                 .map(module -> module.getIdentifier().toString())
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("runtime", "inbox", "persistence"), moduleNames,
-                "Expected exactly the runtime, inbox, and persistence modules");
+        assertEquals(Set.of("runtime", "inbox", "persistence", "capability", "model", "codebase"), moduleNames,
+                "Expected exactly the runtime, inbox, persistence, capability, model, and codebase modules");
     }
 
     @Test
@@ -133,6 +146,59 @@ class ApplicationModularityTests {
         assertTrue(exposed.isEmpty(), "Persistence implementation packages must remain internal");
     }
 
+    @Test
+    @DisplayName("capability module should declare only runtime domain and outbound dependencies")
+    void capabilityShouldDeclareOnlyIntendedModuleDependencies() {
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out"), allowedDependenciesOf(requireCapability()),
+                "Capability module must depend only on runtime domain and outbound contracts");
+        assertEquals(Set.of("runtime"), directDependenciesOf(requireCapability()),
+                "Capability module must directly depend only on runtime");
+    }
+
+    @Test
+    @DisplayName("model module should declare only runtime domain and outbound dependencies")
+    void modelShouldDeclareOnlyIntendedModuleDependencies() {
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out"), allowedDependenciesOf(requireModel()),
+                "Model module must depend only on runtime domain and outbound contracts");
+        assertEquals(Set.of("runtime"), directDependenciesOf(requireModel()),
+                "Model module must directly depend only on runtime");
+    }
+
+    @Test
+    @DisplayName("codebase module should declare only runtime and capability executor dependencies")
+    void codebaseShouldDeclareOnlyIntendedModuleDependencies() {
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: executor-spi"),
+                allowedDependenciesOf(requireCodebase()),
+                "Codebase module must depend only on runtime contracts and capability executor SPI");
+        assertEquals(Set.of("runtime", "capability"), directDependenciesOf(requireCodebase()),
+                "Codebase module must directly depend only on runtime and capability");
+    }
+
+    @Test
+    @DisplayName("capability module should expose its executor SPI")
+    void capabilityShouldExposeExecutorSpi() {
+        Set<String> exposed = requireCapability().getNamedInterfaces().stream()
+                .filter(namedInterface -> !namedInterface.isUnnamed())
+                .map(NamedInterface::getName)
+                .collect(Collectors.toSet());
+
+        assertEquals(Set.of("executor-spi"), exposed,
+                "Capability module must expose exactly its executor SPI");
+    }
+
+    private Set<String> allowedDependenciesOf(ApplicationModule module) {
+        return module.getAllowedDependencies(modules).stream()
+                .map(dependency -> dependency.getTargetModule().getIdentifier().toString()
+                        + " :: " + dependency.getTargetNamedInterface().getName())
+                .collect(Collectors.toSet());
+    }
+
+    private Set<String> directDependenciesOf(ApplicationModule module) {
+        return module.getDirectDependencies(modules).uniqueModules()
+                .map(dependency -> dependency.getIdentifier().toString())
+                .collect(Collectors.toSet());
+    }
+
     private ApplicationModule requireRuntime() {
         return modules.getModuleByName("runtime")
                 .orElseThrow(() -> new IllegalStateException("Missing module: runtime"));
@@ -146,5 +212,20 @@ class ApplicationModularityTests {
     private ApplicationModule requirePersistence() {
         return modules.getModuleByName("persistence")
                 .orElseThrow(() -> new IllegalStateException("Missing module: persistence"));
+    }
+
+    private ApplicationModule requireCapability() {
+        return modules.getModuleByName("capability")
+                .orElseThrow(() -> new IllegalStateException("Missing module: capability"));
+    }
+
+    private ApplicationModule requireModel() {
+        return modules.getModuleByName("model")
+                .orElseThrow(() -> new IllegalStateException("Missing module: model"));
+    }
+
+    private ApplicationModule requireCodebase() {
+        return modules.getModuleByName("codebase")
+                .orElseThrow(() -> new IllegalStateException("Missing module: codebase"));
     }
 }

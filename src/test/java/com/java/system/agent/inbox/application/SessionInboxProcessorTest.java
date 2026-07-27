@@ -11,6 +11,7 @@ import com.java.system.agent.inbox.domain.SourceMessageId;
 import com.java.system.agent.inbox.port.in.EnqueueSessionMessageCommand;
 import com.java.system.agent.inbox.port.out.SessionInboxPort;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
@@ -18,9 +19,12 @@ import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
+import com.java.system.agent.runtime.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 import com.java.system.agent.runtime.port.in.AnswerQuestionUseCase;
 import org.junit.jupiter.api.Test;
@@ -31,6 +35,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -65,7 +72,7 @@ class SessionInboxProcessorTest {
     }
 
     @Test
-    void retriesWithExponentialDelayThenFailsWhilePreservingTheClaimedMessage() {
+    void schedulesTerminalReconciliationAfterTheFinalOrdinaryFailure() {
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
                 inbox, command -> {
@@ -78,16 +85,180 @@ class SessionInboxProcessorTest {
         assertThat(processor.process(firstAttempt, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
         assertThat(inbox.retriedAvailableAt).isEqualTo(NOW.plusSeconds(1));
         assertThat(inbox.retried).isEqualTo(firstAttempt);
-        assertThat(inbox.failure.code()).isEqualTo("ANSWER_EXECUTION_FAILED");
+        assertThat(inbox.failure.code()).isEqualTo("ANSWER_UNEXPECTED");
         assertThat(inbox.failure.description()).doesNotContain("provider payload");
 
         assertThat(processor.process(secondAttempt, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
         assertThat(inbox.retriedAvailableAt).isEqualTo(NOW.plusSeconds(2));
         assertThat(inbox.retried).isEqualTo(secondAttempt);
 
-        assertThat(processor.process(thirdAttempt, NOW)).isEqualTo(InboxProcessingOutcome.FAILED);
-        assertThat(inbox.failed).isEqualTo(thirdAttempt);
+        assertThat(processor.process(thirdAttempt, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        assertThat(inbox.retried).isEqualTo(thirdAttempt);
+        assertThat(inbox.retriedAvailableAt).isEqualTo(NOW);
+        assertThat(inbox.failed).isNull();
+
+        RecordingAnswerQuestionUseCase terminalReconciliation =
+                new RecordingAnswerQuestionUseCase(result(RunOutcome.FAILED));
+        SessionInboxProcessor reconciliationProcessor = new SessionInboxProcessor(
+                inbox, terminalReconciliation, BUDGET, InboxRetryPolicy.defaults());
+
+        assertThat(reconciliationProcessor.process(claimed(4), NOW)).isEqualTo(InboxProcessingOutcome.COMPLETED);
+        assertThat(terminalReconciliation.command.executionMode())
+                .isEqualTo(AnswerExecutionMode.TERMINAL_RECONCILIATION);
+        assertThat(terminalReconciliation.invocationCount).isOne();
+    }
+
+    @Test
+    void logsTheUnexpectedFailureThrowableWithoutPersistingItsMessage() {
+        Logger logger = Logger.getLogger(SessionInboxProcessor.class.getName());
+        CapturingHandler handler = new CapturingHandler();
+        IllegalArgumentException cause = new IllegalArgumentException("provider cause payload must not persist");
+        IllegalStateException failure = new IllegalStateException("provider payload must not persist", cause);
+        logger.addHandler(handler);
+        try {
+            RecordingInboxPort inbox = new RecordingInboxPort();
+            SessionInboxProcessor processor = new SessionInboxProcessor(
+                    inbox, command -> {
+                        throw failure;
+                    }, BUDGET, InboxRetryPolicy.defaults());
+
+            InboxProcessingOutcome outcome = processor.process(claimed(1), NOW);
+
+            assertThat(outcome).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+            assertThat(inbox.failure.description()).doesNotContain("provider payload");
+            LogRecord record = handler.record();
+            Throwable diagnostic = record.getThrown();
+            assertThat(diagnostic).isNotNull();
+            assertThat(diagnostic.getMessage())
+                    .contains(failure.getClass().getName())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(diagnostic.getStackTrace()).containsExactly(failure.getStackTrace());
+            assertThat(diagnostic.getCause()).isNotNull();
+            assertThat(diagnostic.getCause().getMessage())
+                    .contains(cause.getClass().getName())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(diagnostic.getCause().getStackTrace()).containsExactly(cause.getStackTrace());
+            assertThat(record.getMessage())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+        } finally {
+            logger.removeHandler(handler);
+            handler.close();
+        }
+    }
+
+    @Test
+    void truncatesCyclicThrowableDiagnosticsWithoutExposingOriginalMessages() {
+        Logger logger = Logger.getLogger(SessionInboxProcessor.class.getName());
+        CapturingHandler handler = new CapturingHandler();
+        IllegalStateException failure = new IllegalStateException("provider payload must not persist");
+        IllegalArgumentException cause = new IllegalArgumentException("provider cause payload must not persist");
+        failure.initCause(cause);
+        cause.initCause(failure);
+        logger.addHandler(handler);
+        try {
+            RecordingInboxPort inbox = new RecordingInboxPort();
+            SessionInboxProcessor processor = new SessionInboxProcessor(
+                    inbox, command -> {
+                        throw failure;
+                    }, BUDGET, InboxRetryPolicy.defaults());
+
+            InboxProcessingOutcome outcome = processor.process(claimed(1), NOW);
+
+            assertThat(outcome).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+            LogRecord record = handler.record();
+            Throwable diagnostic = record.getThrown();
+            assertThat(diagnostic).isNotNull();
+            assertThat(diagnostic.getCause()).isNotNull();
+            assertThat(diagnostic.getCause().getCause()).isNotNull();
+            assertThat(diagnostic.getCause().getCause().getMessage())
+                    .contains("diagnostic cause chain truncated")
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(diagnostic.getMessage())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(diagnostic.getCause().getMessage())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(record.getMessage())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+        } finally {
+            logger.removeHandler(handler);
+            handler.close();
+        }
+    }
+
+    @Test
+    void retriesAnUnavailableAnswerVerifierWithOnlyTheFixedSafeFailure() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, command -> {
+                    throw new AnswerExecutionUnavailableException(
+                            "provider payload must not persist", new IllegalStateException("connection refused"));
+                }, BUDGET, InboxRetryPolicy.defaults());
+
+        InboxProcessingOutcome outcome = processor.process(claimed(1), NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        assertThat(inbox.failure.code()).isEqualTo("ANSWER_VERIFIER_UNAVAILABLE");
+        assertThat(inbox.failure.description())
+                .doesNotContain("provider payload", "connection refused", claimed(1).exactQuestion());
+    }
+
+    @Test
+    void failsAnAnswerIntegrationContractViolationWithoutRetry() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, command -> {
+                    throw new AnswerExecutionContractException("provider response violated the contract");
+                }, BUDGET, InboxRetryPolicy.defaults());
+        InboxMessage claimed = claimed(1);
+
+        InboxProcessingOutcome outcome = processor.process(claimed, NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(inbox.failed).isEqualTo(claimed);
+        assertThat(inbox.retried).isNull();
+        assertThat(inbox.failure.code()).isEqualTo("ANSWER_INTEGRATION_CONTRACT");
+        assertThat(inbox.failure.description()).doesNotContain("provider response");
+    }
+
+    @Test
+    void completesAnExhaustedMessageWhenTerminalReconciliationReturnsFailed() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        RecordingAnswerQuestionUseCase answerQuestion = new RecordingAnswerQuestionUseCase(result(RunOutcome.FAILED));
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, answerQuestion, BUDGET, InboxRetryPolicy.defaults());
+        InboxMessage terminalClaim = claimed(4);
+
+        InboxProcessingOutcome outcome = processor.process(terminalClaim, NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.COMPLETED);
+        assertThat(inbox.completed).isEqualTo(terminalClaim);
+        assertThat(answerQuestion.command.executionMode()).isEqualTo(AnswerExecutionMode.TERMINAL_RECONCILIATION);
+    }
+
+    @Test
+    void failsTerminalReconciliationWhenAnswerExecutionIsUnavailable() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, command -> {
+                    throw new AnswerExecutionUnavailableException(
+                            "provider payload must not persist", new IllegalStateException("connection refused"));
+                }, BUDGET, InboxRetryPolicy.defaults());
+        InboxMessage terminalClaim = claimed(4);
+
+        InboxProcessingOutcome outcome = processor.process(terminalClaim, NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(inbox.failed).isEqualTo(terminalClaim);
         assertThat(inbox.failedAt).isEqualTo(NOW);
+        assertThat(inbox.retried).isNull();
+        assertThat(inbox.transitionCount).isOne();
     }
 
     @Test
@@ -173,7 +344,7 @@ class SessionInboxProcessorTest {
         inbox.failingTransition = failingTransition;
         SessionInboxProcessor processor = new SessionInboxProcessor(
                 inbox, answerUseCaseFor(failingTransition), BUDGET, InboxRetryPolicy.defaults());
-        InboxMessage claimed = failingTransition == FailingTransition.FAIL ? claimed(3) : claimed(1);
+        InboxMessage claimed = failingTransition == FailingTransition.FAIL ? claimed(4) : claimed(1);
 
         assertThatThrownBy(() -> processor.process(claimed, NOW))
                 .isInstanceOf(IllegalStateException.class)
@@ -188,8 +359,8 @@ class SessionInboxProcessorTest {
 
     @Test
     void boundsFailureDescription() {
-        assertThat(new InboxFailure("ANSWER_EXECUTION_FAILED", "x".repeat(512)).description()).hasSize(512);
-        assertThatThrownBy(() -> new InboxFailure("ANSWER_EXECUTION_FAILED", "x".repeat(513)))
+        assertThat(new InboxFailure("ANSWER_UNEXPECTED", "x".repeat(512)).description()).hasSize(512);
+        assertThatThrownBy(() -> new InboxFailure("ANSWER_UNEXPECTED", "x".repeat(513)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -249,8 +420,15 @@ class SessionInboxProcessorTest {
                         new StatementId("statement-1"), StatementType.QUESTION, "Completed", Optional.empty(),
                         Set.of(), Set.of()))))
                 : Optional.empty();
+        RunResponseKind responseKind = answerDocument.isPresent()
+                ? RunResponseKind.ANSWER
+                : RunResponseKind.RUNTIME_NOTICE;
+        Optional<AnswerVerificationBasis> verificationBasis = answerDocument.isPresent()
+                ? Optional.of(AnswerVerificationBasis.LLM)
+                : Optional.empty();
         return new AnswerQuestionResult(
-                new AnalysisRunId("run-1"), outcome, "Completed", answerDocument, RevisionVector.empty());
+                new AnalysisRunId("run-1"), outcome, "Completed", answerDocument, responseKind, verificationBasis,
+                RevisionVector.empty());
     }
 
     private static AnswerQuestionUseCase answerUseCaseFor(FailingTransition failingTransition) {
@@ -266,6 +444,31 @@ class SessionInboxProcessorTest {
         COMPLETE,
         RETRY,
         FAIL
+    }
+
+    /**
+     * 擷取 processor JUL 紀錄以驗證可診斷的 failure cause
+     */
+    private static final class CapturingHandler extends Handler {
+
+        private Optional<LogRecord> record = Optional.empty();
+
+        @Override
+        public void publish(LogRecord logRecord) {
+            record = Optional.of(logRecord);
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+
+        private LogRecord record() {
+            return record.orElseThrow();
+        }
     }
 
     private static final class RecordingAnswerQuestionUseCase implements AnswerQuestionUseCase {

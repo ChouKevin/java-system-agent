@@ -12,6 +12,12 @@ public record InboxFailure(String code, String description) {
 
     public static final int MAX_CODE_LENGTH = 64;
     public static final int MAX_DESCRIPTION_LENGTH = 512;
+    public static final InboxFailure ANSWER_VERIFIER_UNAVAILABLE = new InboxFailure(
+            "ANSWER_VERIFIER_UNAVAILABLE", "Answer verifier is unavailable");
+    public static final InboxFailure ANSWER_INTEGRATION_CONTRACT = new InboxFailure(
+            "ANSWER_INTEGRATION_CONTRACT", "Answer integration contract failed");
+    public static final InboxFailure ANSWER_UNEXPECTED = new InboxFailure(
+            "ANSWER_UNEXPECTED", "Unexpected answer execution failure");
 
     public InboxFailure {
         code = boundedSingleLine(code, "failure code", MAX_CODE_LENGTH);

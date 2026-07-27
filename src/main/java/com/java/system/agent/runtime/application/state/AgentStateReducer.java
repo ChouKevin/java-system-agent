@@ -12,9 +12,12 @@ import com.java.system.agent.runtime.domain.run.AgentRunState;
 import com.java.system.agent.runtime.domain.run.AgentRunStatus;
 import com.java.system.agent.runtime.domain.run.AgentTransition;
 import com.java.system.agent.runtime.domain.run.PendingTerminalResponse;
+import com.java.system.agent.runtime.domain.run.PendingAnswerVerification;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
+import com.java.system.agent.runtime.domain.answer.AnswerAcceptance;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
@@ -45,7 +48,10 @@ public final class AgentStateReducer {
                     observationRecorded);
             case AgentEvent.AttemptInvalidated attemptInvalidated ->
                     applyAttemptInvalidated(currentState, attemptInvalidated);
+            case AgentEvent.AnswerProposed answerProposed -> applyAnswerProposed(currentState, answerProposed);
             case AgentEvent.AnswerAccepted answerAccepted -> applyAnswerAccepted(currentState, answerAccepted);
+            case AgentEvent.AnswerRejected answerRejected -> applyAnswerRejected(currentState, answerRejected);
+            case AgentEvent.AnswerVerificationAbandoned abandoned -> applyAnswerVerificationAbandoned(currentState, abandoned);
             case AgentEvent.ClarificationAccepted clarificationAccepted -> applyClarificationAccepted(currentState,
                     clarificationAccepted);
             case AgentEvent.RunConcluded runConcluded -> applyRunConcluded(currentState, runConcluded);
@@ -127,6 +133,9 @@ public final class AgentStateReducer {
     private AgentRunState applyActionRejected(AgentRunState state, AgentEvent.ActionRejected event) {
         requireRunning(state);
         requireInitialAttemptStarted(state);
+        if (state.pendingAnswerVerification().isPresent()) {
+            throw new IllegalArgumentException("generic action rejection is illegal while answer verification is pending");
+        }
         AttemptBudget budget = event.finalResponseMode()
                 ? state.budget().consumeFinalAnswer()
                 : state.budget().consumeActionRejection();
@@ -138,7 +147,7 @@ public final class AgentStateReducer {
     private AgentRunState applyQueryBudgetConsumed(AgentRunState state) {
         requireRunning(state);
         requireInitialAttemptStarted(state);
-        return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), state.budget().consumeSemanticQuery(),
+        return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), state.budget().consumeQueryExecution(),
                 state.acceptedActionCount(), state.rejectedActionCount(), state.pendingTerminalResponse(),
                 Optional.empty());
     }
@@ -161,25 +170,78 @@ public final class AgentStateReducer {
                 : state.budget();
         return next(state, AgentRunStatus.RESTARTING, state.currentAttempt(), budget,
                 state.acceptedActionCount(), state.rejectedActionCount(), Optional.empty(),
-                Optional.empty());
+                Optional.empty(), Optional.empty());
     }
 
     private AgentRunState applyAnswerAccepted(AgentRunState state, AgentEvent.AnswerAccepted event) {
         requireRunning(state);
         requireInitialAttemptStarted(state);
         validateTerminalIdentity(state, event.sessionId().value(), event.turn());
-        if (state.pendingTerminalResponse().isPresent()) {
-            throw new IllegalArgumentException("agent run already has a pending terminal response");
+        if (state.pendingTerminalResponse().isPresent() || state.pendingAnswerVerification().isEmpty()) {
+            throw new IllegalArgumentException("accepted answer requires the pending answer verification checkpoint");
         }
-        AttemptBudget budget = event.finalResponseMode()
+        PendingAnswerVerification pending = state.pendingAnswerVerification().orElseThrow();
+        if (!pending.document().equals(event.document())
+                || pending.finalResponseMode() != event.finalResponseMode()
+                || !verificationBasisMatches(pending, event.acceptance())) {
+            throw new IllegalArgumentException("accepted answer must match the pending answer verification checkpoint");
+        }
+        AttemptBudget budget = pending.finalResponseMode()
                 ? state.budget().consumeFinalAnswer()
                 : state.budget().consumeAgentStep();
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), budget,
                 state.acceptedActionCount() + 1, state.rejectedActionCount(),
                 Optional.of(new PendingTerminalResponse.Answer(
-                        event.sessionId(), event.turn(), event.document(), event.verdict(),
-                        event.verdict().disposition() == AnswerDisposition.ACCEPTED_COMPLETE
-                                ? RunOutcome.COMPLETED : RunOutcome.INCONCLUSIVE)), Optional.empty());
+                        event.sessionId(), event.turn(), pending.document(), event.acceptance())), Optional.empty(),
+                Optional.empty());
+    }
+
+    private boolean verificationBasisMatches(PendingAnswerVerification pending, AnswerAcceptance acceptance) {
+        return switch (pending.verificationMode()) {
+            case LLM -> acceptance.verificationBasis() == AnswerVerificationBasis.LLM;
+            case CONTRACT_ONLY -> acceptance.verificationBasis() == AnswerVerificationBasis.CONTRACT_ONLY;
+        };
+    }
+
+    private AgentRunState applyAnswerProposed(AgentRunState state, AgentEvent.AnswerProposed event) {
+        requireRunning(state);
+        requireInitialAttemptStarted(state);
+        if (!event.proposal().revisions().equals(state.currentAttempt().revisionVector())) {
+            throw new IllegalArgumentException(
+                    "pending answer verification revisions must match the current attempt revisions");
+        }
+        if (state.pendingAnswerVerification().isPresent() || state.pendingTerminalResponse().isPresent()) {
+            throw new IllegalArgumentException("agent run already has a pending terminal operation");
+        }
+        return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), state.budget(),
+                state.acceptedActionCount(), state.rejectedActionCount(), Optional.empty(), Optional.empty(),
+                Optional.of(event.proposal()));
+    }
+
+    private AgentRunState applyAnswerRejected(AgentRunState state, AgentEvent.AnswerRejected event) {
+        requireRunning(state);
+        requireInitialAttemptStarted(state);
+        if (state.pendingAnswerVerification().isEmpty()) {
+            throw new IllegalArgumentException("answer rejection requires a pending answer verification checkpoint");
+        }
+        PendingAnswerVerification pending = state.pendingAnswerVerification().orElseThrow();
+        AttemptBudget budget = pending.finalResponseMode()
+                ? state.budget().consumeFinalAnswer()
+                : state.budget().consumeActionRejection();
+        return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), budget,
+                state.acceptedActionCount(), state.rejectedActionCount() + 1, Optional.empty(), Optional.empty(),
+                Optional.empty());
+    }
+
+    private AgentRunState applyAnswerVerificationAbandoned(
+            AgentRunState state, AgentEvent.AnswerVerificationAbandoned event) {
+        requireRunning(state);
+        if (state.pendingAnswerVerification().isEmpty()) {
+            throw new IllegalArgumentException("answer verification abandonment requires a pending checkpoint");
+        }
+        return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), state.budget(),
+                state.acceptedActionCount(), state.rejectedActionCount(), state.pendingTerminalResponse(),
+                Optional.empty(), Optional.empty());
     }
 
     private AgentRunState applyClarificationAccepted(AgentRunState state,
@@ -204,7 +266,7 @@ public final class AgentStateReducer {
         validateConclusion(state, event);
         return next(state, AgentRunStatus.CONCLUDED, state.currentAttempt(), state.budget(),
                 state.acceptedActionCount(), state.rejectedActionCount(), state.pendingTerminalResponse(),
-                Optional.of(event.outcome()));
+                Optional.of(event.outcome()), Optional.empty());
     }
 
     private void validateConclusion(AgentRunState state, AgentEvent.RunConcluded event) {
@@ -255,7 +317,16 @@ public final class AgentStateReducer {
                                Optional<PendingTerminalResponse> pendingTerminalResponse,
                                Optional<RunOutcome> finalOutcome) {
         return next(state, status, attempt, state.attemptSequence(), budget, acceptedActionCount,
-                rejectedActionCount, pendingTerminalResponse, finalOutcome);
+                rejectedActionCount, pendingTerminalResponse, finalOutcome, state.pendingAnswerVerification());
+    }
+
+    private AgentRunState next(AgentRunState state, AgentRunStatus status, RunAttempt attempt,
+                               AttemptBudget budget, long acceptedActionCount, long rejectedActionCount,
+                               Optional<PendingTerminalResponse> pendingTerminalResponse,
+                               Optional<RunOutcome> finalOutcome,
+                               Optional<PendingAnswerVerification> pendingAnswerVerification) {
+        return next(state, status, attempt, state.attemptSequence(), budget, acceptedActionCount,
+                rejectedActionCount, pendingTerminalResponse, finalOutcome, pendingAnswerVerification);
     }
 
     private AgentRunState next(AgentRunState state, AgentRunStatus status, RunAttempt attempt,
@@ -263,9 +334,20 @@ public final class AgentStateReducer {
                                long acceptedActionCount, long rejectedActionCount,
                                Optional<PendingTerminalResponse> pendingTerminalResponse,
                                Optional<RunOutcome> finalOutcome) {
+        return next(state, status, attempt, attemptSequence, budget, acceptedActionCount, rejectedActionCount,
+                pendingTerminalResponse, finalOutcome, state.pendingAnswerVerification());
+    }
+
+    private AgentRunState next(AgentRunState state, AgentRunStatus status, RunAttempt attempt,
+                               int attemptSequence, AttemptBudget budget,
+                               long acceptedActionCount, long rejectedActionCount,
+                               Optional<PendingTerminalResponse> pendingTerminalResponse,
+                               Optional<RunOutcome> finalOutcome,
+                               Optional<PendingAnswerVerification> pendingAnswerVerification) {
         return new AgentRunState(state.runId(), status, attempt, attemptSequence, budget,
                 acceptedActionCount, rejectedActionCount,
-                state.stateRevision() + 1, finalOutcome, pendingTerminalResponse, state.requestIdentity());
+                state.stateRevision() + 1, finalOutcome, pendingTerminalResponse, pendingAnswerVerification,
+                state.requestIdentity());
     }
 
     private void requireRunning(AgentRunState state) {

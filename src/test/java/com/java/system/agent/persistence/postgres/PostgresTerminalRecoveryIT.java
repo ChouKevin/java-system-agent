@@ -28,9 +28,15 @@ import com.java.system.agent.runtime.application.state.AgentTransitionCommitter;
 import com.java.system.agent.runtime.application.validation.AgentActionValidator;
 import com.java.system.agent.runtime.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.runtime.application.validation.AnswerVerdictValidator;
+import com.java.system.agent.runtime.domain.action.AnswerAction;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
 import com.java.system.agent.runtime.domain.action.QueryAction;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
+import com.java.system.agent.runtime.domain.answer.AnswerDocument;
+import com.java.system.agent.runtime.domain.answer.AnswerStatement;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
+import com.java.system.agent.runtime.domain.answer.StatementId;
+import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
 import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
@@ -49,8 +55,9 @@ import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
 import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 import com.java.system.agent.runtime.port.out.AgentActionPort;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryResult;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryPort;
+import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionPort;
 import com.java.system.agent.runtime.port.out.RepositoryDescriptor;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
 import com.java.system.agent.runtime.port.out.SessionPort;
@@ -65,6 +72,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -101,7 +109,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    void retriesTerminalAppendFailuresWithTheSameRunThenFailsAndReleasesTheFollower() {
+    void retriesTerminalAppendFailuresWithTheSameRunThenReconcilesAndReleasesTheFollower() {
         InboxMessage enqueued = inbox.enqueue(new InboxEnqueueRequest(
                 new SessionSourceRef("slack", "channel-1:thread-1"),
                 new SourceMessageId("message-1"),
@@ -126,13 +134,19 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         InboxMessage secondClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
         assertThat(processor.process(secondClaim, NOW.plusSeconds(1))).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
         InboxMessage thirdClaim = inbox.claimNext(NOW.plusSeconds(3)).orElseThrow();
-        assertThat(processor.process(thirdClaim, NOW.plusSeconds(3))).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(processor.process(thirdClaim, NOW.plusSeconds(3)))
+                .isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        InboxMessage reconciliationClaim = inbox.claimNext(NOW.plusSeconds(3)).orElseThrow();
+        assertThat(reconciliationClaim.attemptCount()).isEqualTo(4);
+        assertThat(processor.process(reconciliationClaim, NOW.plusSeconds(3)))
+                .isEqualTo(InboxProcessingOutcome.COMPLETED);
 
         assertThat(actionCalls).hasValue(1);
-        assertThat(eventCount(enqueued.runId())).isEqualTo(4L);
+        assertThat(eventCount(enqueued.runId())).isEqualTo(5L);
         assertThat(eventCount(enqueued.runId(), "CLARIFICATION_ACCEPTED")).isEqualTo(1L);
-        assertThat(sessions.read(enqueued.sessionId()).turns()).isEmpty();
-        assertThat(inboxStatus(enqueued.inboxMessageId())).isEqualTo(InboxMessageStatus.FAILED.name());
+        assertThat(eventCount(enqueued.runId(), "RUN_CONCLUDED")).isEqualTo(1L);
+        assertThat(sessions.read(enqueued.sessionId()).turns()).hasSize(1);
+        assertThat(inboxStatus(enqueued.inboxMessageId())).isEqualTo(InboxMessageStatus.COMPLETED.name());
         assertThat(inbox.claimNext(NOW.plusSeconds(3)).orElseThrow().inboxMessageId())
                 .isEqualTo(follower.inboxMessageId());
     }
@@ -248,10 +262,10 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         SessionInboxProcessor processor = new SessionInboxProcessor(
                 inbox, terminalOnlyService, command(terminalClaim).budget(), InboxRetryPolicy.defaults());
 
-        assertThat(processor.process(terminalClaim, NOW.plusSeconds(3))).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(processor.process(terminalClaim, NOW.plusSeconds(3))).isEqualTo(InboxProcessingOutcome.COMPLETED);
         assertThat(actionCalls).hasValue(3);
         assertThat(eventCount(enqueued.runId(), "ATTEMPT_STARTED")).isEqualTo(3L);
-        assertThat(inboxStatus(enqueued.inboxMessageId())).isEqualTo(InboxMessageStatus.FAILED.name());
+        assertThat(inboxStatus(enqueued.inboxMessageId())).isEqualTo(InboxMessageStatus.COMPLETED.name());
     }
 
     @Test
@@ -280,7 +294,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThat(eventCount(enqueued.runId(), "ACTION_ACCEPTED")).isEqualTo(2L);
         assertThat(eventCount(enqueued.runId(), "QUERY_BUDGET_CONSUMED")).isEqualTo(2L);
         assertThat(state.budget().usedAgentSteps()).isEqualTo(2);
-        assertThat(state.budget().usedSemanticQueries()).isEqualTo(2);
+        assertThat(state.budget().usedQueryExecutions()).isEqualTo(2);
         assertThat(state.budget().usedFinalAnswers()).isEqualTo(1);
         assertThat(sessions.read(enqueued.sessionId()).turns()).hasSize(1);
     }
@@ -324,6 +338,89 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    void reconcilesAnUnavailablePersistedAnswerVerificationWithoutAnotherExternalCallOrTurn() {
+        InboxMessage enqueued = inbox.enqueue(new InboxEnqueueRequest(
+                new SessionSourceRef("slack", "channel-1:thread-1"),
+                new SourceMessageId("message-1"),
+                "Which repository should I inspect?"));
+        AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger verifierCalls = new AtomicInteger();
+        ValidatedAgentLoop unavailableLoop = new ValidatedAgentLoop(
+                context -> {
+                    actionCalls.incrementAndGet();
+                    return new AgentActionProposal.Proposed(new AnswerAction(new AnswerDocument(List.of(
+                            new AnswerStatement(new StatementId("statement-1"), StatementType.QUESTION,
+                                    "Which repository should I inspect?", Optional.empty(),
+                                    Set.of(), Set.of())))));
+                },
+                query -> {
+                    throw new AssertionError("answer proposal must not execute a semantic query");
+                },
+                (mode, context) -> {
+                    verifierCalls.incrementAndGet();
+                    throw new AnswerVerificationUnavailableException("temporary verifier outage", null);
+                },
+                AnswerVerificationMode.LLM,
+                sessions,
+                new FakeRepositoryCatalogAdapter(),
+                new FakeCapabilityCatalogAdapter(),
+                repositoryId -> {
+                    throw new AssertionError("answer proposal must not resolve a repository revision");
+                },
+                new FakeCancellationAdapter(),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                new AgentActionValidator(),
+                new AnswerDocumentValidator(),
+                new AnswerVerdictValidator(),
+                new AgentTransitionCommitter(new AgentStateReducer(), transitions),
+                new ContextIssuer());
+        InboxMessage firstClaim = inbox.claimNext(NOW).orElseThrow();
+        SessionInboxProcessor unavailableProcessor = new SessionInboxProcessor(
+                inbox, new AnalysisApplicationService(unavailableLoop), command(firstClaim).budget(),
+                InboxRetryPolicy.defaults());
+
+        assertThat(unavailableProcessor.process(firstClaim, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        AgentRunState pendingVerification = transitions.findByRunId(enqueued.runId()).orElseThrow();
+        assertThat(pendingVerification.pendingAnswerVerification()).isPresent();
+        assertThat(eventCount(enqueued.runId(), "ANSWER_PROPOSED")).isEqualTo(1L);
+
+        InboxMessage secondClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
+        assertThat(unavailableProcessor.process(secondClaim, NOW.plusSeconds(1)))
+                .isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        InboxMessage thirdClaim = inbox.claimNext(NOW.plusSeconds(3)).orElseThrow();
+        assertThat(unavailableProcessor.process(thirdClaim, NOW.plusSeconds(3)))
+                .isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        InboxMessage reconciliationClaim = inbox.claimNext(NOW.plusSeconds(3)).orElseThrow();
+        AnalysisApplicationService reconciliationService = service(
+                context -> {
+                    throw new AssertionError("terminal reconciliation must not request another action");
+                },
+                query -> {
+                    throw new AssertionError("terminal reconciliation must not execute a semantic query");
+                },
+                sessions,
+                new AnalysisAttemptId("attempt-unused"));
+        SessionInboxProcessor reconciliationProcessor = new SessionInboxProcessor(
+                inbox, reconciliationService, command(reconciliationClaim).budget(), InboxRetryPolicy.defaults());
+
+        assertThat(secondClaim.attemptCount()).isEqualTo(2);
+        assertThat(thirdClaim.attemptCount()).isEqualTo(3);
+        assertThat(reconciliationClaim.attemptCount()).isEqualTo(4);
+        assertThat(reconciliationProcessor.process(reconciliationClaim, NOW.plusSeconds(3)))
+                .isEqualTo(InboxProcessingOutcome.COMPLETED);
+        assertThat(actionCalls).hasValue(1);
+        assertThat(verifierCalls).hasValue(3);
+        assertThat(eventCount(enqueued.runId(), "ANSWER_VERIFICATION_ABANDONED")).isEqualTo(1L);
+        assertThat(eventPayload(enqueued.runId(), "ANSWER_VERIFICATION_ABANDONED"))
+                .contains("RETRY_EXHAUSTED");
+        assertThat(eventCount(enqueued.runId(), "RUN_CONCLUDED")).isEqualTo(1L);
+        assertThat(transitions.findByRunId(enqueued.runId()).orElseThrow().finalOutcome())
+                .contains(RunOutcome.FAILED);
+        assertThat(sessions.read(enqueued.sessionId()).turns()).isEmpty();
+        assertThat(inboxStatus(enqueued.inboxMessageId())).isEqualTo(InboxMessageStatus.COMPLETED.name());
+    }
+
+    @Test
     void failsAnExhaustedRecoveredMessageWithoutStateBeforeAnyExternalExecution() {
         InboxMessage enqueued = inbox.enqueue(new InboxEnqueueRequest(
                 new SessionSourceRef("slack", "channel-1:thread-1"),
@@ -349,10 +446,11 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                     semanticCalls.incrementAndGet();
                     throw new AssertionError("terminal reconciliation must not query semantics");
                 },
-                context -> {
+                (mode, context) -> {
                     verifierCalls.incrementAndGet();
                     throw new AssertionError("terminal reconciliation must not verify an answer");
                 },
+                AnswerVerificationMode.LLM,
                 sessions,
                 new FakeRepositoryCatalogAdapter(),
                 new FakeCapabilityCatalogAdapter(),
@@ -394,15 +492,16 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
 
     private AnalysisApplicationService service(
             AgentActionPort actionPort,
-            AgentSemanticQueryPort semanticQueryPort,
+            CapabilityExecutionPort semanticQueryPort,
             SessionPort sessionPort,
             AnalysisAttemptId... attemptIds) {
         ValidatedAgentLoop loop = new ValidatedAgentLoop(
                 actionPort,
                 semanticQueryPort,
-                context -> {
+                (mode, context) -> {
                     throw new AssertionError("clarification must not verify an answer");
                 },
+                AnswerVerificationMode.LLM,
                 sessionPort,
                 new FakeRepositoryCatalogAdapter(),
                 new FakeCapabilityCatalogAdapter(),
@@ -444,18 +543,19 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
             return new AgentActionProposal.Proposed(
                     new ClarifyAction("Which behavior should I trace next?", List.of(), "Query budget is exhausted"));
         };
-        AgentSemanticQueryPort semanticQueryPort = query -> {
+        CapabilityExecutionPort semanticQueryPort = query -> {
             if (semanticCalls.getAndIncrement() == 0) {
                 throw new IllegalStateException("simulated semantic provider interruption");
             }
-            return new AgentSemanticQueryResult(List.of(), List.of(), List.of());
+            return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
         };
         ValidatedAgentLoop loop = new ValidatedAgentLoop(
                 actionPort,
                 semanticQueryPort,
-                context -> {
+                (mode, context) -> {
                     throw new AssertionError("clarification must not verify an answer");
                 },
+                AnswerVerificationMode.LLM,
                 sessions,
                 new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(repositoryId, "repository one")),
                 new FakeCapabilityCatalogAdapter(capability),
@@ -510,6 +610,19 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 .param("runId", runId.value())
                 .param("eventType", eventType)
                 .query(Long.class)
+                .single();
+    }
+
+    private String eventPayload(AnalysisRunId runId, String eventType) {
+        return jdbcClient.sql("""
+                SELECT payload::text
+                FROM agent_run_event
+                WHERE run_id = :runId
+                  AND event_type = :eventType
+                """)
+                .param("runId", runId.value())
+                .param("eventType", eventType)
+                .query(String.class)
                 .single();
     }
 

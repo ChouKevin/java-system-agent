@@ -9,14 +9,15 @@ import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
 import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
-import com.java.system.agent.runtime.domain.observation.SemanticObservation;
+import com.java.system.agent.runtime.domain.observation.CapabilityObservation;
 import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
-import com.java.system.agent.runtime.port.out.AgentSemanticQueryResult;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
+import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.runtime.port.out.RepositoryDescriptor;
 import org.junit.jupiter.api.Test;
 
@@ -75,19 +76,19 @@ class ContextIssuerTest {
                 List.of(capability("find")),
                 List.of(new RepositoryDescriptor(repositoryId, "Repository one")));
         RepositoryCandidate foreign = new RepositoryCandidate(repositoryId, "Not returned");
-        SemanticObservation observation = new SemanticObservation(
+        CapabilityObservation observation = new CapabilityObservation(
                 ObservationCode.AMBIGUOUS_REPOSITORY,
                 "Candidate is ambiguous",
                 List.of(foreign),
                 List.of(),
                 "semantic-service");
 
-        assertThatThrownBy(() -> issuer.issueSemanticResult(
+        assertThatThrownBy(() -> issuer.issueCapabilityResult(
                 runId,
                 initial,
-                new AgentSemanticQueryResult(List.of(), List.of(), List.of(observation)),
+                new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of(observation)),
                 Set.of(repositoryId)))
-                .isInstanceOf(AgentSemanticProtocolException.class)
+                .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("outside the same result");
     }
 
@@ -102,25 +103,25 @@ class ContextIssuerTest {
                 List.of(new RepositoryDescriptor(repositoryId, "Repository one")));
         RepositoryId unknownRepository = new RepositoryId("repo-unknown");
 
-        assertThatThrownBy(() -> issuer.issueSemanticResult(
+        assertThatThrownBy(() -> issuer.issueCapabilityResult(
                 runId,
                 initial,
-                new AgentSemanticQueryResult(
+                new CapabilityExecutionResult.Succeeded(
                         List.of(new RepositoryCandidate(unknownRepository, "Unknown repository")),
                         List.of(),
                         List.of()),
                 Set.of(repositoryId)))
-                .isInstanceOf(AgentSemanticProtocolException.class)
+                .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("candidate repository is absent from the catalog");
-        assertThatThrownBy(() -> issuer.issueSemanticResult(
+        assertThatThrownBy(() -> issuer.issueCapabilityResult(
                 runId,
                 initial,
-                new AgentSemanticQueryResult(
+                new CapabilityExecutionResult.Succeeded(
                         List.of(),
                         List.of(evidence(unknownRepository, "rev-1", "unknown")),
                         List.of()),
                 Set.of(repositoryId)))
-                .isInstanceOf(AgentSemanticProtocolException.class)
+                .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("evidence repository is absent from the catalog");
     }
 
@@ -133,7 +134,7 @@ class ContextIssuerTest {
                 RevisionVector.empty(),
                 List.of(capability("find")),
                 List.of(repository, repository)))
-                .isInstanceOf(AgentSemanticProtocolException.class)
+                .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("duplicate repository ID");
 
         RevisionVector pinned = pin(repositoryId, new RepositoryRevision("rev-1"));
@@ -146,19 +147,19 @@ class ContextIssuerTest {
         RepositoryCandidate candidate = new RepositoryCandidate(repositoryId, "Discovered repository");
         EvidenceRef evidence = evidence(repositoryId, "rev-1", "duplicate");
 
-        assertThatThrownBy(() -> issuer.issueSemanticResult(
+        assertThatThrownBy(() -> issuer.issueCapabilityResult(
                 runId,
                 initial,
-                new AgentSemanticQueryResult(List.of(candidate, candidate), List.of(), List.of()),
+                new CapabilityExecutionResult.Succeeded(List.of(candidate, candidate), List.of(), List.of()),
                 Set.of(repositoryId)))
-                .isInstanceOf(AgentSemanticProtocolException.class)
+                .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("duplicate candidate");
-        assertThatThrownBy(() -> issuer.issueSemanticResult(
+        assertThatThrownBy(() -> issuer.issueCapabilityResult(
                 runId,
                 initial,
-                new AgentSemanticQueryResult(List.of(), List.of(evidence, evidence), List.of()),
+                new CapabilityExecutionResult.Succeeded(List.of(), List.of(evidence, evidence), List.of()),
                 Set.of(repositoryId)))
-                .isInstanceOf(AgentSemanticProtocolException.class)
+                .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("duplicate evidence");
     }
 

@@ -2,9 +2,10 @@
 
 ## Repositories
 
-This hand-authored index describes repositories that a future Agent catalog adapter may expose
-through opaque `repoId` values. The current root Agent has no production catalog or document-reading
-adapter, so this file is documentation rather than an active runtime registry.
+This hand-authored index describes repositories that the root Agent's production Java Semantic
+Service HTTP adapter may expose through opaque `repoId` values. The root resolves catalog and
+revision data through versioned HTTP contracts; this file remains documentation rather than a
+runtime registry or source clone.
 
 | repoId | Purpose | Primary documents |
 |--------|---------|-------------------|
@@ -14,8 +15,8 @@ adapter, so this file is documentation rather than an active runtime registry.
 
 1. Use the `repoId` to open `knowledge/repos/{repoId}/business-map.md`.
 2. Select a business group and read its existing document under `business-groups/`.
-3. Treat any section marked as a contract or future integration as non-runnable until a production
-   adapter and composition root exist.
+3. Treat a future integration or external ingress section as non-runnable: the root composition
+   exists, but Slack ingress, workers, scheduling, and response delivery do not.
 4. Use source-level evidence from the owning project when actual implementation behavior is needed.
 
 The runtime must not infer confidence or rank repositories from this document. A future model may

@@ -19,6 +19,7 @@ public record AgentRunState(
         long stateRevision,
         Optional<RunOutcome> finalOutcome,
         Optional<PendingTerminalResponse> pendingTerminalResponse,
+        Optional<PendingAnswerVerification> pendingAnswerVerification,
         RunRequestIdentity requestIdentity) {
 
     public AgentRunState {
@@ -28,6 +29,7 @@ public record AgentRunState(
         Objects.requireNonNull(budget, "agent run budget must not be null");
         Objects.requireNonNull(finalOutcome, "run final outcome must not be null");
         Objects.requireNonNull(pendingTerminalResponse, "pending terminal response must not be null");
+        Objects.requireNonNull(pendingAnswerVerification, "pending answer verification must not be null");
         Objects.requireNonNull(requestIdentity, "run request identity must not be null");
         if (attemptSequence < 1) {
             throw new IllegalArgumentException("agent attempt sequence must be positive");
@@ -51,6 +53,14 @@ public record AgentRunState(
                     || !requestIdentity.sessionIdValue().equals(pending.sessionId().value())
                     || !requestIdentity.exactQuestion().equals(pending.turn().userMessage())) {
                 throw new IllegalArgumentException("pending terminal response does not match the run request identity");
+            }
+        }
+        if (pendingAnswerVerification.isPresent()) {
+            PendingAnswerVerification pending = pendingAnswerVerification.orElseThrow();
+            if (status != AgentRunStatus.RUNNING || !currentAttempt.attemptId().equals(pending.attemptId())
+                    || !currentAttempt.revisionVector().equals(pending.revisions())
+                    || pendingTerminalResponse.isPresent()) {
+                throw new IllegalArgumentException("pending answer verification is inconsistent with the running attempt");
             }
         }
         if (status == AgentRunStatus.CONCLUDED && pendingTerminalResponse.isPresent()
@@ -90,7 +100,7 @@ public record AgentRunState(
             RunRequestIdentity requestIdentity) {
         return new AgentRunState(runId, AgentRunStatus.STARTING, RunAttempt.empty(firstAttemptId),
                 firstAttemptSequence, budget,
-                0, 0, 0, Optional.empty(), Optional.empty(), requestIdentity);
+                0, 0, 0, Optional.empty(), Optional.empty(), Optional.empty(), requestIdentity);
     }
 
     public static AgentRunState initial(

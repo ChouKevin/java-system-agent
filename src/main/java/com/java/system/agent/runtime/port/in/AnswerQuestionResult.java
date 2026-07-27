@@ -1,8 +1,10 @@
 package com.java.system.agent.runtime.port.in;
 
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
+import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 
 import java.util.Objects;
@@ -16,6 +18,8 @@ public record AnswerQuestionResult(
         RunOutcome outcome,
         String responseText,
         Optional<AnswerDocument> answerDocument,
+        RunResponseKind responseKind,
+        Optional<AnswerVerificationBasis> verificationBasis,
         RevisionVector finalRevisions) {
 
     public AnswerQuestionResult {
@@ -23,19 +27,32 @@ public record AnswerQuestionResult(
         Objects.requireNonNull(outcome, "analysis run outcome must not be null");
         Objects.requireNonNull(responseText, "answer response text must not be null");
         Objects.requireNonNull(answerDocument, "answer document must not be null");
+        Objects.requireNonNull(responseKind, "answer response kind must not be null");
+        Objects.requireNonNull(verificationBasis, "answer verification basis must not be null");
         Objects.requireNonNull(finalRevisions, "final revisions must not be null");
         if (responseText.isBlank()) {
             throw new IllegalArgumentException("answer response text must not be blank");
         }
-        if (outcome == RunOutcome.COMPLETED && answerDocument.isEmpty()) {
-            throw new IllegalArgumentException("completed answer result must contain an answer document");
-        }
-        if ((outcome == RunOutcome.FAILED || outcome == RunOutcome.CANCELLED) && answerDocument.isPresent()) {
-            throw new IllegalArgumentException("failed or cancelled answer result must not contain an answer document");
-        }
-        if (answerDocument.isPresent()
-                && !responseText.equals(answerDocument.orElseThrow().renderParagraphs())) {
-            throw new IllegalArgumentException("answer response text must render the answer document exactly");
+        switch (responseKind) {
+            case ANSWER -> {
+                if (answerDocument.isEmpty() || verificationBasis.isEmpty()
+                        || !responseText.equals(answerDocument.orElseThrow().renderParagraphs())
+                        || outcome != RunOutcome.COMPLETED && outcome != RunOutcome.INCONCLUSIVE
+                        || verificationBasis.orElseThrow() == AnswerVerificationBasis.CONTRACT_ONLY
+                        && outcome != RunOutcome.COMPLETED) {
+                    throw new IllegalArgumentException("answer response must retain its document and verification basis");
+                }
+            }
+            case CLARIFICATION -> {
+                if (answerDocument.isPresent() || verificationBasis.isPresent() || outcome != RunOutcome.INCONCLUSIVE) {
+                    throw new IllegalArgumentException("clarification response must be an inconclusive non-answer");
+                }
+            }
+            case RUNTIME_NOTICE -> {
+                if (answerDocument.isPresent() || verificationBasis.isPresent() || outcome == RunOutcome.COMPLETED) {
+                    throw new IllegalArgumentException("runtime notice must not retain answer verification content");
+                }
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ package com.java.system.agent.runtime.domain.run;
 
 import com.java.system.agent.runtime.domain.action.AgentAction;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
+import com.java.system.agent.runtime.domain.answer.AnswerAcceptance;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
@@ -30,7 +31,8 @@ import java.util.Optional;
 public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.AttemptStarted,
         AgentEvent.ContextIssued, AgentEvent.ActionAccepted, AgentEvent.ActionRejected,
         AgentEvent.QueryBudgetConsumed, AgentEvent.ObservationRecorded, AgentEvent.AttemptInvalidated,
-        AgentEvent.AnswerAccepted, AgentEvent.ClarificationAccepted, AgentEvent.RunConcluded {
+        AgentEvent.AnswerProposed, AgentEvent.AnswerAccepted, AgentEvent.AnswerRejected,
+        AgentEvent.AnswerVerificationAbandoned, AgentEvent.ClarificationAccepted, AgentEvent.RunConcluded {
 
     AnalysisRunId runId();
 
@@ -117,23 +119,51 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
         }
     }
 
+    record AnswerProposed(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                          PendingAnswerVerification proposal) implements AgentEvent {
+        public AnswerProposed {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(proposal, "pending answer verification proposal must not be null");
+            if (!attemptId.equals(proposal.attemptId())) {
+                throw new IllegalArgumentException("pending answer verification must belong to the event attempt");
+            }
+        }
+    }
+
     record AnswerAccepted(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
-                          AnswerDocument document, AnswerVerdict verdict,
+                          AnswerDocument document, AnswerAcceptance acceptance,
                           SessionId sessionId, ConversationTurn turn,
                           boolean finalResponseMode) implements AgentEvent {
         public AnswerAccepted {
             validateEnvelope(runId, attemptId, expectedStateRevision);
             Objects.requireNonNull(document, "accepted answer document must not be null");
-            Objects.requireNonNull(verdict, "accepted answer verdict must not be null");
+            Objects.requireNonNull(acceptance, "accepted answer acceptance must not be null");
             Objects.requireNonNull(sessionId, "accepted answer session ID must not be null");
             Objects.requireNonNull(turn, "accepted answer conversation turn must not be null");
-            if (verdict.disposition() == AnswerDisposition.REJECTED) {
-                throw new IllegalArgumentException("accepted answer requires an accepted verdict");
-            }
             if (!runId.equals(turn.runId()) || turn.type() != ConversationTurnType.ANSWER
                     || !turn.assistantMessage().equals(document.renderParagraphs())) {
                 throw new IllegalArgumentException("accepted answer turn must render the document for the same run");
             }
+        }
+    }
+
+    record AnswerRejected(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                          AnswerVerdict verdict) implements AgentEvent {
+        public AnswerRejected {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(verdict, "rejected answer verdict must not be null");
+            if (verdict.disposition() != AnswerDisposition.REJECTED) {
+                throw new IllegalArgumentException("answer rejection requires a rejected verdict");
+            }
+        }
+    }
+
+    record AnswerVerificationAbandoned(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                                       long expectedStateRevision, AnswerVerificationAbandonReason reason)
+            implements AgentEvent {
+        public AnswerVerificationAbandoned {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(reason, "answer verification abandon reason must not be null");
         }
     }
 

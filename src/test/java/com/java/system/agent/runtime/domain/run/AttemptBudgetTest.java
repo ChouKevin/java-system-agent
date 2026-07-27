@@ -12,7 +12,7 @@ class AttemptBudgetTest {
         AttemptBudget budget = new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0);
 
         AttemptBudget normalStep = budget.consumeAgentStep();
-        AttemptBudget query = normalStep.consumeSemanticQuery();
+        AttemptBudget query = normalStep.consumeQueryExecution();
         AttemptBudget finalResponse = budget.consumeFinalAnswer();
 
         assertThat(query.usedFinalAnswers()).isZero();
@@ -25,7 +25,7 @@ class AttemptBudgetTest {
         AttemptBudget budget = new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0);
 
         assertThatIllegalArgumentException().isThrownBy(() -> budget.consumeAgentStep().consumeAgentStep());
-        assertThatIllegalArgumentException().isThrownBy(() -> budget.consumeSemanticQuery().consumeSemanticQuery());
+        assertThatIllegalArgumentException().isThrownBy(() -> budget.consumeQueryExecution().consumeQueryExecution());
         assertThatIllegalArgumentException().isThrownBy(() -> budget.consumeActionRejection().consumeActionRejection());
         assertThatIllegalArgumentException().isThrownBy(() -> budget.consumeRevisionRestart().consumeRevisionRestart());
     }

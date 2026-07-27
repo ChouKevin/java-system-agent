@@ -33,6 +33,8 @@ public final class AnalysisApplicationService implements AnswerQuestionUseCase {
                 result.outcome(),
                 result.responseText(),
                 result.answerDocument(),
+                result.responseKind(),
+                result.verificationBasis(),
                 result.finalRevisions());
     }
 }

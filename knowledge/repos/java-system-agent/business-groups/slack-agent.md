@@ -10,8 +10,9 @@ transport；runtime 不知道 Slack thread 格式，只接收 opaque source refe
 ## Current External Entry Points
 
 None. 舊的 `SlackEventListener`、event deduplicator、stream client 與 chat-memory endpoints
-已不存在。M1 只有 Java use-case/port 與 PostgreSQL adapters，尚無 scheduler、worker 或
-composition root。
+已不存在。`agent-runtime` profile 已組裝 Java use-case、Google Gemini action/verifier、Java
+Semantic HTTP、PostgreSQL 與 inbox processor，但尚無 Slack ingress、scheduler、worker 或
+Slack response delivery。
 
 ## Required Input
 
@@ -29,7 +30,7 @@ composition root。
 2. `claimNext` 只認領到期 session head；同 session 後續訊息不能越過較早的 `PENDING` 或
    `PROCESSING`，不同 session 可獨立認領。
 3. `ValidatedAgentLoop` 讀取累積 session history，讓 LLM 提出一個 action，再以 deterministic
-   validators 接受或拒絕。
+   validators 接受或拒絕；query capability 經由 Java Semantic Service HTTP adapter 執行。
 4. Reducer 只依 accepted event 計算下一 state；transition adapter 在一個 transaction 內
    append event 並 CAS current snapshot。
 5. Terminal answer/clarification 通過 cancellation arbitration 後，append 一筆 immutable
@@ -37,12 +38,20 @@ composition root。
 6. 若在 durable terminal/turn 後、inbox completion 前中斷，startup recovery 將
    `PROCESSING` 退回 `PENDING`。相同 run retry 讀到 terminal state，不再呼叫 LLM；相同 turn
    append 是 no-op。
-7. 基礎設施失敗採 exponential backoff，預設最多三次。第 2、3 次可透過 reducer event
+7. 基礎設施失敗採 exponential backoff，預設三次外部嘗試後安排第四次
+   terminal-reconciliation claim。第 2、3 次可透過 reducer event
    重啟 nonterminal attempt 並重新配發 context。若 bootstrap 尚未持久化，inbox attempt
    會作為初始 Agent attempt 序號；之後序號保存在 run state，只由 reducer event 推進。
-   超過上限的 recovered claim 只能
+   若 answer 已持久化為 pending verification，recovery 只重試 verifier，不會再次 plan 或
+   查詢 capability。
+   第四次 terminal-reconciliation claim 只能
    reconcile 已 durable 的 terminal response，不能再呼叫 LLM、semantic provider 或
-   verifier。若 run 仍 nonterminal，訊息轉為 `FAILED`，同 session 下一筆才可繼續。
+   verifier。若 run 已安全持久化但仍 nonterminal，Agent 以 `FAILED` 結束且 inbox 為
+   `COMPLETED`；只有狀態缺失、不安全或 reconciliation 失敗時 inbox 才為 `FAILED`，同 session
+   下一筆才可繼續。
+
+`AnswerQuestionResult` 以 typed response kind 區分 answer、clarification 與 runtime notice；
+answer 另帶 verification basis。`CONTRACT_ONLY` 是完成回答的明示合約依據，並非虛構 LLM verdict。
 
 ## Durable Data
 
