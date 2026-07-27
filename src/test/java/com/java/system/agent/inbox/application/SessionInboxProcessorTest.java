@@ -23,6 +23,8 @@ import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
+import com.java.system.agent.runtime.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 import com.java.system.agent.runtime.port.in.AnswerQuestionUseCase;
 import org.junit.jupiter.api.Test;
@@ -67,7 +69,7 @@ class SessionInboxProcessorTest {
     }
 
     @Test
-    void retriesWithExponentialDelayThenFailsWhilePreservingTheClaimedMessage() {
+    void retriesUnexpectedFailuresWithExponentialDelayThenFailsWhilePreservingTheClaimedMessage() {
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
                 inbox, command -> {
@@ -80,7 +82,7 @@ class SessionInboxProcessorTest {
         assertThat(processor.process(firstAttempt, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
         assertThat(inbox.retriedAvailableAt).isEqualTo(NOW.plusSeconds(1));
         assertThat(inbox.retried).isEqualTo(firstAttempt);
-        assertThat(inbox.failure.code()).isEqualTo("ANSWER_EXECUTION_FAILED");
+        assertThat(inbox.failure.code()).isEqualTo("ANSWER_UNEXPECTED");
         assertThat(inbox.failure.description()).doesNotContain("provider payload");
 
         assertThat(processor.process(secondAttempt, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
@@ -90,6 +92,56 @@ class SessionInboxProcessorTest {
         assertThat(processor.process(thirdAttempt, NOW)).isEqualTo(InboxProcessingOutcome.FAILED);
         assertThat(inbox.failed).isEqualTo(thirdAttempt);
         assertThat(inbox.failedAt).isEqualTo(NOW);
+    }
+
+    @Test
+    void retriesAnUnavailableAnswerVerifierWithOnlyTheFixedSafeFailure() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, command -> {
+                    throw new AnswerExecutionUnavailableException(
+                            "provider payload must not persist", new IllegalStateException("connection refused"));
+                }, BUDGET, InboxRetryPolicy.defaults());
+
+        InboxProcessingOutcome outcome = processor.process(claimed(1), NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        assertThat(inbox.failure.code()).isEqualTo("ANSWER_VERIFIER_UNAVAILABLE");
+        assertThat(inbox.failure.description())
+                .doesNotContain("provider payload", "connection refused", claimed(1).exactQuestion());
+    }
+
+    @Test
+    void failsAnAnswerIntegrationContractViolationWithoutRetry() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, command -> {
+                    throw new AnswerExecutionContractException("provider response violated the contract");
+                }, BUDGET, InboxRetryPolicy.defaults());
+        InboxMessage claimed = claimed(1);
+
+        InboxProcessingOutcome outcome = processor.process(claimed, NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(inbox.failed).isEqualTo(claimed);
+        assertThat(inbox.retried).isNull();
+        assertThat(inbox.failure.code()).isEqualTo("ANSWER_INTEGRATION_CONTRACT");
+        assertThat(inbox.failure.description()).doesNotContain("provider response");
+    }
+
+    @Test
+    void completesAnExhaustedMessageWhenTerminalReconciliationReturnsFailed() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        RecordingAnswerQuestionUseCase answerQuestion = new RecordingAnswerQuestionUseCase(result(RunOutcome.FAILED));
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, answerQuestion, BUDGET, InboxRetryPolicy.defaults());
+        InboxMessage terminalClaim = claimed(4);
+
+        InboxProcessingOutcome outcome = processor.process(terminalClaim, NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.COMPLETED);
+        assertThat(inbox.completed).isEqualTo(terminalClaim);
+        assertThat(answerQuestion.command.executionMode()).isEqualTo(AnswerExecutionMode.TERMINAL_RECONCILIATION);
     }
 
     @Test
@@ -190,8 +242,8 @@ class SessionInboxProcessorTest {
 
     @Test
     void boundsFailureDescription() {
-        assertThat(new InboxFailure("ANSWER_EXECUTION_FAILED", "x".repeat(512)).description()).hasSize(512);
-        assertThatThrownBy(() -> new InboxFailure("ANSWER_EXECUTION_FAILED", "x".repeat(513)))
+        assertThat(new InboxFailure("ANSWER_UNEXPECTED", "x".repeat(512)).description()).hasSize(512);
+        assertThatThrownBy(() -> new InboxFailure("ANSWER_UNEXPECTED", "x".repeat(513)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
