@@ -100,6 +100,14 @@ public final class ValidatedAgentLoop {
     public static final String INCONCLUSIVE_RESPONSE = "目前資訊不足以產生可驗證的回答";
     public static final String FAILED_RESPONSE = "分析流程發生錯誤，未回傳未驗證內容";
     public static final String CANCELLED_RESPONSE = "分析已取消";
+    private static final String CAPABILITY_CATALOG_OPERATION = "CAPABILITY_CATALOG";
+    private static final String REPOSITORY_CATALOG_OPERATION = "REPOSITORY_CATALOG";
+    private static final String REPOSITORY_REVISION_RESOLUTION_OPERATION = "REPOSITORY_REVISION_RESOLUTION";
+    private static final String CAPABILITY_EXECUTION_OPERATION = "CAPABILITY_EXECUTION";
+    private static final String SUCCEEDED_RESULT_CATEGORY = "SUCCEEDED";
+    private static final String TYPED_FAILURE_RESULT_CATEGORY = "TYPED_FAILURE";
+    private static final String CONTRACT_EXCEPTION_RESULT_CATEGORY = "CONTRACT_EXCEPTION";
+    private static final String UNEXPECTED_EXCEPTION_RESULT_CATEGORY = "UNEXPECTED_EXCEPTION";
     private static final Logger LOGGER = Logger.getLogger(ValidatedAgentLoop.class.getName());
 
     private final AgentActionPort actionPort;
@@ -343,12 +351,8 @@ public final class ValidatedAgentLoop {
                 new RunRequestIdentity(request.sessionId().value(), request.question()));
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
-        List<CapabilityDescriptor> capabilityCatalog = List.copyOf(Objects.requireNonNull(
-                capabilityCatalogPort.availableCapabilities(),
-                "capability catalog port must return a catalog"));
-        List<RepositoryDescriptor> repositoryCatalog = List.copyOf(Objects.requireNonNull(
-                repositoryCatalogPort.availableRepositories(),
-                "repository catalog port must return a catalog"));
+        List<CapabilityDescriptor> capabilityCatalog = loadCapabilityCatalog(initialState);
+        List<RepositoryDescriptor> repositoryCatalog = loadRepositoryCatalog(initialState);
         RunAttempt initialContext = contextIssuer.issueInitial(
                 request.runId(), attemptId, RevisionVector.empty(), capabilityCatalog, repositoryCatalog);
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
@@ -378,12 +382,8 @@ public final class ValidatedAgentLoop {
     private ActiveExecution prepareRetryExecution(AgentLoopRequest request, AgentRunState persistedState) {
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
-        List<CapabilityDescriptor> capabilityCatalog = List.copyOf(Objects.requireNonNull(
-                capabilityCatalogPort.availableCapabilities(),
-                "capability catalog port must return a catalog"));
-        List<RepositoryDescriptor> repositoryCatalog = List.copyOf(Objects.requireNonNull(
-                repositoryCatalogPort.availableRepositories(),
-                "repository catalog port must return a catalog"));
+        List<CapabilityDescriptor> capabilityCatalog = loadCapabilityCatalog(persistedState);
+        List<RepositoryDescriptor> repositoryCatalog = loadRepositoryCatalog(persistedState);
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
                 .map(RepositoryDescriptor::repositoryId)
                 .collect(Collectors.toUnmodifiableSet());
@@ -554,7 +554,7 @@ public final class ValidatedAgentLoop {
                 .toList();
         RevisionResolution revisionResolution;
         try {
-            revisionResolution = resolveRevisions(state.currentAttempt().revisionVector(), selectedValues);
+            revisionResolution = resolveRevisions(state, state.currentAttempt().revisionVector(), selectedValues);
         } catch (RepositoryRevisionContractException exception) {
             return integrationContractFailure(request, state, attemptSequence, exception);
         }
@@ -649,12 +649,24 @@ public final class ValidatedAgentLoop {
                 action.arguments(),
                 queryContext.revisionVector());
         CapabilityExecutionResult result;
+        long capabilityExecutionStartedNanos = System.nanoTime();
+        String capabilityExecutionResultCategory = UNEXPECTED_EXCEPTION_RESULT_CATEGORY;
         try {
-            result = Objects.requireNonNull(
-                    capabilityExecutionPort.execute(capabilityInvocation),
-                    "capability execution port must return a result");
+            CapabilityExecutionResult executionResult = capabilityExecutionPort.execute(capabilityInvocation);
+            if (Objects.isNull(executionResult)) {
+                capabilityExecutionResultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
+            }
+            result = Objects.requireNonNull(executionResult, "capability execution port must return a result");
+            capabilityExecutionResultCategory = capabilityExecutionResultCategory(result);
         } catch (CapabilityExecutionContractException exception) {
+            capabilityExecutionResultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
             return integrationContractFailure(request, state, attemptSequence, exception);
+        } finally {
+            logLifecycleOperation(
+                    state,
+                    CAPABILITY_EXECUTION_OPERATION,
+                    capabilityExecutionResultCategory,
+                    capabilityExecutionStartedNanos);
         }
         if (result instanceof CapabilityExecutionResult.Failed failed) {
             state = recordCapabilityFailureObservation(state, ObservationCode.BLOCKING_UNCERTAINTY,
@@ -744,7 +756,7 @@ public final class ValidatedAgentLoop {
                 List.copyOf(documentValidation.referencedObservations().values()));
         AnswerVerificationResult verificationResult;
         long verificationStartedNanos = System.nanoTime();
-        String verificationResultCategory = "CONTRACT_EXCEPTION";
+        String verificationResultCategory = UNEXPECTED_EXCEPTION_RESULT_CATEGORY;
         try {
             verificationResult = Objects.requireNonNull(
                     verificationPort.verify(pending.verificationMode(), verificationContext),
@@ -754,6 +766,7 @@ public final class ValidatedAgentLoop {
             verificationResultCategory = "VERIFIER_UNAVAILABLE";
             throw new AnswerExecutionUnavailableException("answer verification is unavailable", exception);
         } catch (AnswerVerificationContractException exception) {
+            verificationResultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
             return integrationContractTerminalFailure(state, request, exception);
         } finally {
             logVerificationOperation(state, pending.verificationMode(), verificationResultCategory, verificationStartedNanos);
@@ -869,7 +882,45 @@ public final class ValidatedAgentLoop {
                 Optional.empty());
     }
 
+    private List<CapabilityDescriptor> loadCapabilityCatalog(AgentRunState state) {
+        long startedNanos = System.nanoTime();
+        String resultCategory = UNEXPECTED_EXCEPTION_RESULT_CATEGORY;
+        try {
+            List<CapabilityDescriptor> catalog = capabilityCatalogPort.availableCapabilities();
+            if (Objects.isNull(catalog)) {
+                resultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
+            }
+            List<CapabilityDescriptor> copiedCatalog = List.copyOf(Objects.requireNonNull(
+                    catalog, "capability catalog port must return a catalog"));
+            resultCategory = SUCCEEDED_RESULT_CATEGORY;
+            return copiedCatalog;
+        } catch (CapabilityExecutionContractException exception) {
+            resultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
+            throw exception;
+        } finally {
+            logLifecycleOperation(state, CAPABILITY_CATALOG_OPERATION, resultCategory, startedNanos);
+        }
+    }
+
+    private List<RepositoryDescriptor> loadRepositoryCatalog(AgentRunState state) {
+        long startedNanos = System.nanoTime();
+        String resultCategory = UNEXPECTED_EXCEPTION_RESULT_CATEGORY;
+        try {
+            List<RepositoryDescriptor> catalog = repositoryCatalogPort.availableRepositories();
+            if (Objects.isNull(catalog)) {
+                resultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
+            }
+            List<RepositoryDescriptor> copiedCatalog = List.copyOf(Objects.requireNonNull(
+                    catalog, "repository catalog port must return a catalog"));
+            resultCategory = SUCCEEDED_RESULT_CATEGORY;
+            return copiedCatalog;
+        } finally {
+            logLifecycleOperation(state, REPOSITORY_CATALOG_OPERATION, resultCategory, startedNanos);
+        }
+    }
+
     private RevisionResolution resolveRevisions(
+            AgentRunState state,
             RevisionVector current,
             List<IssuedCandidate> selectedCandidates) {
         LinkedHashSet<RepositoryId> selectedRepositories = new LinkedHashSet<>();
@@ -880,9 +931,7 @@ public final class ValidatedAgentLoop {
         boolean drifted = false;
         Optional<RepositoryRevisionFailure> unavailable = Optional.empty();
         for (RepositoryId repositoryId : selectedRepositories) {
-            RepositoryRevisionResult result = Objects.requireNonNull(
-                    repositoryRevisionPort.currentRevision(repositoryId),
-                    "repository revision port must return a result");
+            RepositoryRevisionResult result = resolveRepositoryRevision(state, repositoryId);
             if (result instanceof RepositoryRevisionResult.Failed failed) {
                 if (unavailable.isEmpty()) {
                     unavailable = Optional.of(failed.failure());
@@ -898,6 +947,30 @@ public final class ValidatedAgentLoop {
             }
         }
         return new RevisionResolution(revisions, drifted, drifted ? Optional.empty() : unavailable);
+    }
+
+    private RepositoryRevisionResult resolveRepositoryRevision(AgentRunState state, RepositoryId repositoryId) {
+        long startedNanos = System.nanoTime();
+        String resultCategory = UNEXPECTED_EXCEPTION_RESULT_CATEGORY;
+        try {
+            RepositoryRevisionResult revisionResult = repositoryRevisionPort.currentRevision(repositoryId);
+            if (Objects.isNull(revisionResult)) {
+                resultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
+            }
+            RepositoryRevisionResult result = Objects.requireNonNull(
+                    revisionResult, "repository revision port must return a result");
+            resultCategory = repositoryRevisionResultCategory(result);
+            return result;
+        } catch (RepositoryRevisionContractException exception) {
+            resultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
+            throw exception;
+        } finally {
+            logLifecycleOperation(
+                    state,
+                    REPOSITORY_REVISION_RESOLUTION_OPERATION,
+                    resultCategory,
+                    startedNanos);
+        }
     }
 
     private AgentRunState reject(
@@ -1168,6 +1241,36 @@ public final class ValidatedAgentLoop {
         return !budget.hasAgentStepRemaining()
                 || !budget.hasQueryExecutionRemaining()
                 || !budget.hasActionRejectionRemaining();
+    }
+
+    private static String capabilityExecutionResultCategory(CapabilityExecutionResult result) {
+        if (result instanceof CapabilityExecutionResult.Succeeded) {
+            return SUCCEEDED_RESULT_CATEGORY;
+        }
+        return TYPED_FAILURE_RESULT_CATEGORY;
+    }
+
+    private static String repositoryRevisionResultCategory(RepositoryRevisionResult result) {
+        if (result instanceof RepositoryRevisionResult.Ready) {
+            return SUCCEEDED_RESULT_CATEGORY;
+        }
+        return TYPED_FAILURE_RESULT_CATEGORY;
+    }
+
+    private static void logLifecycleOperation(
+            AgentRunState state,
+            String operation,
+            String resultCategory,
+            long startedNanos) {
+        Level level = SUCCEEDED_RESULT_CATEGORY.equals(resultCategory) ? Level.INFO : Level.WARNING;
+        LOGGER.log(level,
+                "agent lifecycle operation={0} runId={1} attemptId={2} resultCategory={3} elapsedMs={4}",
+                new Object[]{
+                        operation,
+                        state.runId().value(),
+                        state.currentAttempt().attemptId().value(),
+                        resultCategory,
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }
 
     private static String verificationResultCategory(AnswerVerificationResult result) {
