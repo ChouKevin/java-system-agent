@@ -150,6 +150,47 @@ class SessionInboxProcessorTest {
     }
 
     @Test
+    void truncatesCyclicThrowableDiagnosticsWithoutExposingOriginalMessages() {
+        Logger logger = Logger.getLogger(SessionInboxProcessor.class.getName());
+        CapturingHandler handler = new CapturingHandler();
+        IllegalStateException failure = new IllegalStateException("provider payload must not persist");
+        IllegalArgumentException cause = new IllegalArgumentException("provider cause payload must not persist");
+        failure.initCause(cause);
+        cause.initCause(failure);
+        logger.addHandler(handler);
+        try {
+            RecordingInboxPort inbox = new RecordingInboxPort();
+            SessionInboxProcessor processor = new SessionInboxProcessor(
+                    inbox, command -> {
+                        throw failure;
+                    }, BUDGET, InboxRetryPolicy.defaults());
+
+            InboxProcessingOutcome outcome = processor.process(claimed(1), NOW);
+
+            assertThat(outcome).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+            LogRecord record = handler.record();
+            Throwable diagnostic = record.getThrown();
+            assertThat(diagnostic).isNotNull();
+            assertThat(diagnostic.getCause()).isNotNull();
+            assertThat(diagnostic.getCause().getCause()).isNotNull();
+            assertThat(diagnostic.getCause().getCause().getMessage())
+                    .contains("diagnostic cause chain truncated");
+            assertThat(diagnostic.getMessage())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(diagnostic.getCause().getMessage())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+            assertThat(record.getMessage())
+                    .doesNotContain(failure.getMessage())
+                    .doesNotContain(cause.getMessage());
+        } finally {
+            logger.removeHandler(handler);
+            handler.close();
+        }
+    }
+
+    @Test
     void retriesAnUnavailableAnswerVerifierWithOnlyTheFixedSafeFailure() {
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
