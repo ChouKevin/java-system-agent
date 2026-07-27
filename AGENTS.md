@@ -5,7 +5,8 @@
 This repository holds **two independent Maven projects** that share only versioned HTTP contracts and an opaque `repoId`. There is deliberately no `<modules>` aggregation and no parent POM: without aggregation, introducing a shared library would require a dependency visible in a pom diff. Build them separately.
 
 **Root project — the Agent.** A Spring Boot 4 / Java 21 Spring Modulith application.
-`src/main/java/com/java/system/agent/` contains `Application.java` and three modules:
+`src/main/java/com/java/system/agent/` contains `Application.java`, six Modulith modules, and
+profile-gated root configuration:
 
 ```
 runtime/
@@ -20,13 +21,20 @@ inbox/
 persistence/
   document/     versioned Agent state/event JSON codecs
   jdbc/         PostgreSQL inbox, transition, cancellation, and session adapters
+capability/     fixed catalog, executor SPI/registry, and generic QUERY dispatcher
+codebase/       Java Semantic Service HTTP adapter and read-only executors
+model/          Spring AI action and answer-verification adapters
+Agent*Configuration.java
+                `agent-runtime` composition, properties, and replaceable infrastructure
 ```
 
 `runtime.domain` groups immutable action-loop values. `ValidatedAgentLoop` is the only lifecycle
 orchestrator; `AnalysisApplicationService` is only the public request/result mapping boundary.
 Session history is read once and append-only, while the append-only Agent event trace and atomic
 current-state snapshot are persisted separately. `inbox` serializes work by opaque session;
-`persistence` implements infrastructure ports without becoming a named interface.
+`persistence` implements infrastructure ports without becoming a named interface. `capability`
+depends on `runtime :: domain` and `runtime :: port-out`; `codebase` additionally consumes the
+capability executor SPI; `model` has the same runtime-only dependencies as `capability`.
 
 **`java-semantic-service/`** is a standalone Java 21 / Spring Boot service that owns repository lifecycle, JDT LS integration, and call-graph construction. It has its own `AGENTS.md`; read that before working in it.
 
@@ -34,17 +42,22 @@ current-state snapshot are persisted separately. `inbox` serializes work by opaq
 
 ## Current State
 
-The root Agent **does not run yet**, and this is expected rather than broken. The original agent was
-retired at `47fab8c`; M1 now has durable inbox and PostgreSQL persistence, but no composition root:
+M2 has a production composition graph behind the `agent-runtime` profile. It wires Spring AI action
+planning and verification, the Java Semantic Service HTTP adapter, the built-in capability catalog
+and dispatchers, HTTP repository catalog/revision, PostgreSQL inbox/session/transition/cancellation
+adapters, and `AnalysisApplicationService` / `SessionInboxProcessor`.
 
-- Production adapters exist for session inbox, Agent transition/event/current-state persistence,
-  session history, cancellation, and inbox UUID identity generation.
-- Agent action, semantic query, answer verification, repository/capability catalogs, repository
-  revision, and attempt-ID ports still have no production adapters.
-- Slack ingestion, scheduling/worker execution, response delivery, datasource configuration, and
-  the composition root remain absent. `runtime`, `inbox`, and production persistence classes carry
-  no Spring stereotypes, so nothing constructs or calls `AnalysisApplicationService`.
-- The Spring context therefore starts without an Agent workflow or persistence adapter beans.
+- When `agent-runtime` is inactive, the Agent persistence composition creates and accesses no
+  `DataSource`, Flyway, `JdbcClient`, or `TransactionTemplate`; this does not constrain unrelated
+  host application infrastructure.
+- When active, the default persistence boundary is project-owned unpooled
+  `DriverManagerDataSource` plus Flyway; hosts can replace `DataSource`, Flyway, `JdbcClient`, or
+  `TransactionTemplate` beans.
+- There is still no ingress: no HTTP controller, Slack listener, MQ consumer, scheduler, worker,
+  or Slack response delivery. An external/manual driver must call inbound Java contracts and drive
+  inbox processing.
+- Capability execution is read-only. The five built-ins are list entry points, lookup/suggest API
+  routes, and outgoing/incoming call graphs. Do not infer an external-state mutation contract.
 
 The validated action-loop cutover is current:
 
@@ -70,6 +83,8 @@ The durable session lifecycle is also current:
   `AgentRunState` and advances only through reducer events. A recovered claim beyond the ceiling is
   `TERMINAL_RECONCILIATION`: it may finish a durable terminal response but must not call model,
   semantic, or verifier ports for a nonterminal run.
+- A persisted pending answer-verification checkpoint resumes by calling only the verifier; it does
+  not re-plan or re-execute a capability. Verifier unavailability is an inbox retry/backoff failure.
 - Agent event append and current-state replacement are one transaction. State/event JSON is
   versioned and decoded fail-closed. Accepted session turns are immutable and idempotent by
   `(sessionId, runId)`.
@@ -114,6 +129,9 @@ These are enforced by tests, not convention:
   reads, and log queries can use capability schemas. Any future external-state change requires an
   explicit `EXECUTE` action with authorization, approval, idempotency, audit, and reconciliation;
   do not overload `QUERY`.
+- **Inbound answers preserve their typed acceptance information.** `AnswerQuestionResult` and the
+  internal `AgentLoopResult` return `RunResponseKind` plus optional `AnswerVerificationBasis`. A
+  contract-only accepted answer is `COMPLETED` with `CONTRACT_ONLY`, not a synthetic LLM verdict.
 
 ## Coding Style & Naming Conventions
 

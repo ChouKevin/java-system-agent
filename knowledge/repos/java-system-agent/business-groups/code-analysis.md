@@ -3,14 +3,27 @@
 ## Business Purpose
 
 Root runtime 提供 generic `QUERY` action contract，讓 model 選擇 runtime-issued capability
-與任意 candidate subset/order。它驗證合約並接收 typed observations/evidence，但不實作
-Java call graph、API lookup 或 log query。
+與任意 candidate subset/order。它驗證合約並接收 typed observations/evidence；production
+composition 以 Java Semantic Service HTTP adapter 實作五個 read-only Java capabilities。
 
 ## Current External Entry Points
 
 None. 舊的 root `CallGraphController`、`AnalysisController` 與內建分析服務已不存在。
-Java semantic HTTP endpoints 位於獨立 `java-semantic-service`；root 尚未有 production
-client adapter。
+Java semantic HTTP endpoints 位於獨立 `java-semantic-service`；root 的 profile-gated client
+adapter 由 Java inbound contracts 使用，但沒有 controller、worker 或 scheduler 呼叫它。
+
+## Built-in Read-only Capabilities
+
+| Capability | Java Semantic Service operation |
+|------------|---------------------------------|
+| `codebase.list-entry-points` | 列出 repository entry points |
+| `codebase.lookup-api-route` | 依 route 查詢 API |
+| `codebase.suggest-api-route` | 依文字建議 API route |
+| `codebase.outgoing-call-graph` | 查詢 outgoing call graph |
+| `codebase.incoming-call-graph` | 查詢 incoming call graph |
+
+每一個 capability 只有一個 executor，executor 只委派給該 HTTP adapter；model 可在同一題中
+多次提出 `QUERY` 並組合不同 capability。runtime 不替它們打分、排序或補選。
 
 ## Implemented Query Flow
 
@@ -19,10 +32,13 @@ client adapter。
 3. `AgentActionValidator` 驗證 handle membership、schema、scope 與 budget，不做候選推薦或
    semantic ranking。
 4. `RepositoryRevisionPort` 綁定 selected repositories 的 exact revision。
-5. `CapabilityExecutionPort.execute` 以 provider-neutral capability execution 語意回傳 typed observations、evidence、warnings 與新 candidates。
+5. `CapabilityExecutionPort.execute` 將 selected capability dispatch 到唯一 executor，再由 HTTP
+   adapter 以 provider-neutral execution 語意回傳 typed observations、evidence、warnings 與新 candidates。
 6. Runtime 驗證回傳 evidence/revision，配發新的 opaque handles，將完整疑問與證據放入
    後續 model context。
-7. `ANSWER` 必須引用已發出的 evidence，且通過 statement-level verification 才能被接受。
+7. 每個 answer statement 依其 kind 引用已發行的 evidence 或 observation，並通過 document 與
+   verifier contract 才能被接受；inbound result 以 LLM 或 `CONTRACT_ONLY` verification basis
+   明示接受依據。
 
 ## Confidence and Uncertainty
 

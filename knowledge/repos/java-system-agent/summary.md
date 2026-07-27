@@ -8,8 +8,9 @@
 ## 專案簡介
 
 這個專案正在建立一個能持續理解同一討論串、查詢系統資訊並產生可驗證回答的智慧助理。
-目前已完成核心流程與可靠資料保存，但還沒有接上 Slack、AI 服務或背景工作，因此尚不能
-直接提供使用者服務。
+目前已完成可啟用的 production composition：可經由 Google Gemini 規劃與驗證回答、呼叫 Java
+Semantic Service 查詢程式碼，並將流程可靠保存至 PostgreSQL。但它仍沒有 Slack 或其他外部
+事件入口、背景 worker 與回覆傳送，所以尚不能直接提供使用者服務。
 
 ## 主要業務功能
 
@@ -24,7 +25,8 @@ session 會依提問順序處理，不同 session 則可各自等待執行。暫
 
 AI 負責決定下一步要查詢、回答或請使用者補充，也可以自行選擇一個或多個候選範圍。
 系統只負責確認這些選擇是否仍在允許範圍、是否有足夠證據，以及最終回答是否受到證據
-支持。系統不使用信心分數或路由分數；未確定事項會保留成文字說明、警告與候選資訊，
+支持。驗證可使用 LLM verdict，或在 contract-only 設定下明確回報其 contract basis；系統不使用
+信心分數或路由分數；未確定事項會保留成文字說明、警告與候選資訊，
 讓後續步驟可以繼續處理疑問。
 
 ### 對話歷史與中斷復原
@@ -34,8 +36,9 @@ AI 負責決定下一步要查詢、回答或請使用者補充，也可以自�
 
 ### 程式碼查詢與程式庫管理邊界
 
-專案已定義未來查詢程式碼、API 或 log 所需的共通流程；實際的 Java 程式碼分析與
-repository lifecycle 由同一 repository 內的獨立 semantic service 負責。兩者尚未接線。
+專案透過 versioned HTTP contract 與 opaque `repoId`，向同一 repository 內獨立的 Java
+Semantic Service 取得 catalog、exact revision 與五種唯讀程式碼查詢。repository lifecycle
+仍由 semantic service 負責，root 不直接操作 clone。
 未來若要加入會改變外部狀態的操作，必須另外設計授權、人工批准、重複執行保護與稽核
 流程，不能直接當成一般查詢。
 
@@ -50,5 +53,5 @@ repository lifecycle 由同一 repository 內的獨立 semantic service 負責�
 
 ## 備註
 
-目前仍缺少 Slack、AI/semantic production adapters、回覆傳送、資料來源設定與 composition
-root。這份摘要描述已完成且有測試保護的核心行為，不代表服務已可部署使用。
+目前仍缺少 Slack、其他外部 ingress、worker/scheduler 與回覆傳送。這份摘要描述已完成且有
+測試保護的 composition 與核心行為，不代表服務已可自行接收或傳送使用者訊息。
