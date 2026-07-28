@@ -4,8 +4,7 @@ import com.java.system.agent.runtime.domain.action.AgentAction;
 import com.java.system.agent.runtime.domain.action.AnswerAction;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
 import com.java.system.agent.runtime.domain.action.QueryAction;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQueryContractException;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
@@ -80,11 +79,6 @@ public final class AgentActionValidator {
         }
         if (hasDuplicateCandidates(action.candidates())) return rejected(ActionRejectionCode.DUPLICATE_CANDIDATE, action);
         if (!allCandidatesMatchRevision(action.candidates(), context)) return rejected(ActionRejectionCode.STALE_REVISION, action);
-        try {
-            context.capabilities().get(action.capability()).querySchema().validate(action.arguments());
-        } catch (CapabilityQueryContractException exception) {
-            return rejected(ActionRejectionCode.INVALID_ARGUMENTS, action);
-        }
         return context.budget().hasAgentStepRemaining() && context.budget().hasQueryExecutionRemaining()
                 ? new ActionValidation.Accepted(action)
                 : rejected(ActionRejectionCode.BUDGET_EXHAUSTED, action);
@@ -140,7 +134,7 @@ public final class AgentActionValidator {
 
     private static boolean supportsCandidateKinds(
             List<CandidateHandle> candidates,
-            CapabilityDescriptor capability,
+            CapabilityPolicy capability,
             AgentValidationContext context) {
         return candidates.stream().allMatch(candidate -> capability.acceptedCandidateKinds()
                 .contains(context.candidates().get(candidate).candidate().kind()));
@@ -148,7 +142,7 @@ public final class AgentActionValidator {
 
     private static boolean hasPermittedCardinality(
             List<CandidateHandle> candidates,
-            CapabilityDescriptor capability) {
+            CapabilityPolicy capability) {
         int size = candidates.size();
         return size >= capability.minimumCandidates() && size <= capability.maximumCandidates();
     }

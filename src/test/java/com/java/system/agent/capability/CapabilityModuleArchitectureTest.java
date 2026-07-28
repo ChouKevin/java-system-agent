@@ -20,5 +20,6 @@ class CapabilityModuleArchitectureTest {
             .that().resideInAPackage("..capability..")
             .and().doNotHaveSimpleName("package-info")
             .should().onlyDependOnClassesThat()
-            .resideInAnyPackage("java..", "..capability..", "..runtime.domain..", "..runtime.port.out..");
+            .resideInAnyPackage("java..", "com.fasterxml.jackson..", "org.springframework..", "..capability..",
+                    "..runtime.domain..", "..runtime.port.out..");
 }

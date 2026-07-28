@@ -22,5 +22,6 @@ class ModelModuleArchitectureTest {
             .should().onlyDependOnClassesThat()
             .resideInAnyPackage("java..", "org.springframework..", "tools.jackson..", "com.google.genai..", "..model..",
                     "..runtime.domain..",
-                    "..runtime.port.out..");
+                    "..runtime.port.out..",
+                    "..capability.tool..");
 }

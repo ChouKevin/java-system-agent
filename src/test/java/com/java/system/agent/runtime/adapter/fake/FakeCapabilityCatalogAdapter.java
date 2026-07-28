@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.adapter.fake;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.port.out.CapabilityCatalogPort;
 
 import java.util.List;
@@ -11,15 +11,15 @@ import java.util.Objects;
  */
 public final class FakeCapabilityCatalogAdapter implements CapabilityCatalogPort {
 
-    private final List<CapabilityDescriptor> capabilities;
+    private final List<CapabilityPolicy> capabilities;
 
-    public FakeCapabilityCatalogAdapter(CapabilityDescriptor... capabilities) {
+    public FakeCapabilityCatalogAdapter(CapabilityPolicy... capabilities) {
         Objects.requireNonNull(capabilities, "capability catalog must not be null");
         this.capabilities = List.of(capabilities);
     }
 
     @Override
-    public List<CapabilityDescriptor> availableCapabilities() {
+    public List<CapabilityPolicy> availableCapabilities() {
         return capabilities;
     }
 }

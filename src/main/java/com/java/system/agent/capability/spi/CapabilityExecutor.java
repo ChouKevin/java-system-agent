@@ -1,6 +1,6 @@
 package com.java.system.agent.capability.spi;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
 import com.java.system.agent.runtime.port.out.CapabilityInvocation;
 
@@ -9,7 +9,7 @@ import com.java.system.agent.runtime.port.out.CapabilityInvocation;
  */
 public interface CapabilityExecutor {
 
-    CapabilityDescriptor capability();
+    CapabilityPolicy capability();
 
     CapabilityExecutionResult execute(CapabilityInvocation invocation);
 }

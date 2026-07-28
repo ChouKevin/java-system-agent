@@ -37,8 +37,7 @@ import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
@@ -523,13 +522,12 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
             AtomicInteger semanticCalls) {
         RepositoryId repositoryId = new RepositoryId("repo-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
-        CapabilityDescriptor capability = new CapabilityDescriptor(
+        CapabilityPolicy capability = new CapabilityPolicy(
                 "inspect",
                 "v1",
                 Set.of(CandidateKind.REPOSITORY),
                 1,
-                1,
-                new CapabilityQuerySchema(List.of()));
+                1);
         AgentActionPort actionPort = context -> {
             int actionNumber = actionCalls.incrementAndGet();
             if (actionNumber <= 2) {

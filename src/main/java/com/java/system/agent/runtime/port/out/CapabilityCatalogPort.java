@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.port.out;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 
 import java.util.List;
 
@@ -9,5 +9,5 @@ import java.util.List;
  */
 public interface CapabilityCatalogPort {
 
-    List<CapabilityDescriptor> availableCapabilities();
+    List<CapabilityPolicy> availableCapabilities();
 }

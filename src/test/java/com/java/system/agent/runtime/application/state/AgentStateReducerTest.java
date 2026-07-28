@@ -20,8 +20,7 @@ import com.java.system.agent.runtime.domain.action.ClarifyAction;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
@@ -454,8 +453,7 @@ class AgentStateReducerTest {
         return new AttemptBudget(3, 0, 3, 0, 3, 0, 3, 0, 1, 0);
     }
 
-    private CapabilityDescriptor capability() {
-        return new CapabilityDescriptor("find", "v1", Set.of(CandidateKind.REPOSITORY), 0, 1,
-                new CapabilityQuerySchema(List.of()));
+    private CapabilityPolicy capability() {
+        return new CapabilityPolicy("find", "v1", Set.of(CandidateKind.REPOSITORY), 0, 1);
     }
 }

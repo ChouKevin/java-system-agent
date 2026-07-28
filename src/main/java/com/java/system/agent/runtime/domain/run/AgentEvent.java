@@ -6,7 +6,7 @@ import com.java.system.agent.runtime.domain.answer.AnswerAcceptance;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
@@ -57,7 +57,7 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
 
     record ContextIssued(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
                          RevisionVector revisions,
-                         Map<CapabilityHandle, CapabilityDescriptor> capabilities,
+                         Map<CapabilityHandle, CapabilityPolicy> capabilities,
                          Map<CandidateHandle, IssuedCandidate> candidates,
                          Map<EvidenceHandle, IssuedEvidence> evidence,
                          Map<ObservationId, AgentObservation> observations) implements AgentEvent {

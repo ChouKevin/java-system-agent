@@ -3,7 +3,7 @@ package com.java.system.agent;
 import com.java.system.agent.runtime.domain.action.AgentAction;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.candidate.AnalysisCandidate;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
@@ -91,7 +91,7 @@ class ApplicationModularityTests {
                         && domain.contains(AgentAction.class)
                         && domain.contains(AnswerDocument.class)
                         && domain.contains(AnalysisCandidate.class)
-                        && domain.contains(CapabilityDescriptor.class)
+                        && domain.contains(CapabilityPolicy.class)
                         && domain.contains(EvidenceRef.class)
                         && domain.contains(CandidateHandle.class)
                         && domain.contains(AgentObservation.class)
@@ -156,12 +156,13 @@ class ApplicationModularityTests {
     }
 
     @Test
-    @DisplayName("model module should declare only runtime domain and outbound dependencies")
+    @DisplayName("model module should declare only runtime and capability tool-registry dependencies")
     void modelShouldDeclareOnlyIntendedModuleDependencies() {
-        assertEquals(Set.of("runtime :: domain", "runtime :: port-out"), allowedDependenciesOf(requireModel()),
-                "Model module must depend only on runtime domain and outbound contracts");
-        assertEquals(Set.of("runtime"), directDependenciesOf(requireModel()),
-                "Model module must directly depend only on runtime");
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: tool-registry"),
+                allowedDependenciesOf(requireModel()),
+                "Model module must depend only on runtime contracts and capability tool registry");
+        assertEquals(Set.of("runtime", "capability"), directDependenciesOf(requireModel()),
+                "Model module must directly depend only on runtime and capability");
     }
 
     @Test
@@ -175,15 +176,15 @@ class ApplicationModularityTests {
     }
 
     @Test
-    @DisplayName("capability module should expose its executor SPI")
+    @DisplayName("capability module should expose executor SPI and tool registry")
     void capabilityShouldExposeExecutorSpi() {
         Set<String> exposed = requireCapability().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
                 .map(NamedInterface::getName)
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("executor-spi"), exposed,
-                "Capability module must expose exactly its executor SPI");
+        assertEquals(Set.of("executor-spi", "tool-registry"), exposed,
+                "Capability module must expose exactly its executor SPI and tool registry");
     }
 
     private Set<String> allowedDependenciesOf(ApplicationModule module) {

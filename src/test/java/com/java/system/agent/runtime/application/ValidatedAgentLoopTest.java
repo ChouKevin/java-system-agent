@@ -26,8 +26,7 @@ import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.runtime.domain.candidate.RouteCandidate;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
 import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
@@ -571,13 +570,12 @@ class ValidatedAgentLoopTest {
             return new AgentActionProposal.Proposed(
                     new ClarifyAction("Which route should I investigate?", List.of(), "Route scope is now available"));
         };
-        CapabilityDescriptor routeDiscovery = new CapabilityDescriptor(
+        CapabilityPolicy routeDiscovery = new CapabilityPolicy(
                 "discover-routes",
                 "v1",
                 Set.of(CandidateKind.REPOSITORY, CandidateKind.ROUTE),
                 0,
-                10,
-                new CapabilityQuerySchema(List.of()));
+                10);
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loopWithCapability(
                 actionPort,
@@ -628,13 +626,12 @@ class ValidatedAgentLoopTest {
     @Test
     void doesNotPersistUnscopedRebindWhenResultRepeatsPreviouslyIssuedCandidate() {
         AtomicInteger revisionCalls = new AtomicInteger();
-        CapabilityDescriptor routeDiscovery = new CapabilityDescriptor(
+        CapabilityPolicy routeDiscovery = new CapabilityPolicy(
                 "discover-routes",
                 "v1",
                 Set.of(CandidateKind.REPOSITORY, CandidateKind.ROUTE),
                 0,
-                10,
-                new CapabilityQuerySchema(List.of()));
+                10);
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loopWithCapability(
                 context -> new AgentActionProposal.Proposed(new QueryAction(
@@ -676,13 +673,12 @@ class ValidatedAgentLoopTest {
     void unscopedMultiRepositoryResultPrefersRevisionConflictOverFailureWithoutPersistingResults() {
         AtomicInteger actionNumber = new AtomicInteger();
         List<RepositoryId> revisionLookups = new ArrayList<>();
-        CapabilityDescriptor routeDiscovery = new CapabilityDescriptor(
+        CapabilityPolicy routeDiscovery = new CapabilityPolicy(
                 "discover-routes",
                 "v1",
                 Set.of(CandidateKind.REPOSITORY, CandidateKind.ROUTE),
                 0,
-                10,
-                new CapabilityQuerySchema(List.of()));
+                10);
         AgentActionPort actionPort = context -> {
             if (actionNumber.getAndIncrement() == 0) {
                 return new AgentActionProposal.Proposed(new QueryAction(
@@ -789,13 +785,12 @@ class ValidatedAgentLoopTest {
     @Test
     void recordsExecutionFailureWhenAnUnscopedResultRevisionIsUnavailable() {
         AtomicInteger actionNumber = new AtomicInteger();
-        CapabilityDescriptor routeDiscovery = new CapabilityDescriptor(
+        CapabilityPolicy routeDiscovery = new CapabilityPolicy(
                 "discover-routes",
                 "v1",
                 Set.of(CandidateKind.REPOSITORY, CandidateKind.ROUTE),
                 0,
-                10,
-                new CapabilityQuerySchema(List.of()));
+                10);
         AgentActionPort actionPort = context -> {
             if (actionNumber.getAndIncrement() == 0) {
                 return new AgentActionProposal.Proposed(new QueryAction(
@@ -1348,13 +1343,12 @@ class ValidatedAgentLoopTest {
             AnalysisAttemptIdGenerator attemptIdGenerator,
             AnalysisCancellationPort cancellationPort,
             AnswerVerificationPort verifier) {
-        CapabilityDescriptor capability = new CapabilityDescriptor(
+        CapabilityPolicy capability = new CapabilityPolicy(
                 "trace",
                 "v1",
                 Set.of(CandidateKind.REPOSITORY),
                 1,
-                10,
-                new CapabilityQuerySchema(List.of()));
+                10);
         FakeRepositoryCatalogAdapter repositories = new FakeRepositoryCatalogAdapter(
                 new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one"),
                 new RepositoryDescriptor(new RepositoryId("repo-2"), "Repository two"));
@@ -1381,7 +1375,7 @@ class ValidatedAgentLoopTest {
             CapabilityExecutionPort capabilityExecutionPort,
             AgentTransitionPort transitionPort,
             RepositoryRevisionPort revisionPort,
-            CapabilityDescriptor capability) {
+            CapabilityPolicy capability) {
         FakeRepositoryCatalogAdapter repositories = new FakeRepositoryCatalogAdapter(
                 new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one"),
                 new RepositoryDescriptor(new RepositoryId("repo-2"), "Repository two"));
