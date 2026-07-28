@@ -175,8 +175,8 @@ class M2ProductionFlowIT {
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(2);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(2);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(3);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(3);
         assertThat(state.pendingTerminalResponse()).hasValueSatisfying(response -> {
             assertThat(response).isInstanceOf(PendingTerminalResponse.Answer.class);
             PendingTerminalResponse.Answer answer = (PendingTerminalResponse.Answer) response;

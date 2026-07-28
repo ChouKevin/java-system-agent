@@ -228,11 +228,16 @@ public final class CapabilityToolRegistry implements CapabilityCatalogPort {
             @Override
             public String inputSchema() {
                 StringBuilder properties = new StringBuilder("\"candidateHandles\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"questionToResolve\":{\"type\":\"string\"},\"rationale\":{\"type\":\"string\"}");
+                List<String> required = new ArrayList<>(List.of("candidateHandles", "questionToResolve", "rationale"));
                 for (ArgumentRule rule : copiedRules) {
                     properties.append(',').append(rule.schema());
+                    if (rule.required()) {
+                        required.add(rule.name());
+                    }
                 }
                 return "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{" + properties
-                        + "},\"required\":[\"candidateHandles\",\"questionToResolve\",\"rationale\"]}";
+                        + "},\"required\":[" + required.stream().map(value -> "\"" + value + "\"")
+                        .collect(Collectors.joining(",")) + "]}";
             }
         };
     }
