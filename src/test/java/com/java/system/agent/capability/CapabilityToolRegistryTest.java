@@ -58,6 +58,9 @@ class CapabilityToolRegistryTest {
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":[],"questionToResolve":"Find route","rationale":"Need route","apiPath":" ","extra":"x"}
                 """, new ObjectMapper())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> decoder.decode("""
+                {"candidateHandles":[],"questionToResolve":"Find route","rationale":"Need route","apiPath":" "}
+                """, new ObjectMapper())).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -72,6 +75,9 @@ class CapabilityToolRegistryTest {
                 """, objectMapper).candidateHandles()).isEmpty();
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":[],"questionToResolve":"Find routes","rationale":"Need options","type":"API","limit":4294967297}
+                """, objectMapper)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> decoder.decode("""
+                {"candidateHandles":[],"questionToResolve":"Find routes","rationale":"Need options","type":"API","limit":21}
                 """, objectMapper)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":[],"questionToResolve":"Find routes","rationale":"Need options","type":"API","limit":1.5}
