@@ -20,10 +20,7 @@ import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.answer.StatementVerdict;
 import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
-import com.java.system.agent.runtime.domain.capability.ArgumentDefinition;
-import com.java.system.agent.runtime.domain.capability.ArgumentType;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
@@ -446,17 +443,17 @@ final class AgentValueDocumentMapper {
         return revisions;
     }
 
-    private ArrayNode capabilitiesNode(Map<CapabilityHandle, CapabilityDescriptor> capabilities) {
+    private ArrayNode capabilitiesNode(Map<CapabilityHandle, CapabilityPolicy> capabilities) {
         ArrayNode entries = array();
-        for (Map.Entry<CapabilityHandle, CapabilityDescriptor> entry : capabilities.entrySet()) {
+        for (Map.Entry<CapabilityHandle, CapabilityPolicy> entry : capabilities.entrySet()) {
             ObjectNode value = object(); value.set("handle", capabilityHandleNode(entry.getKey())); value.set("descriptor", capabilityNode(entry.getValue()));
             entries.add(value);
         }
         return entries;
     }
 
-    private Map<CapabilityHandle, CapabilityDescriptor> capabilitiesFrom(JsonNode node) {
-        LinkedHashMap<CapabilityHandle, CapabilityDescriptor> values = new LinkedHashMap<>();
+    private Map<CapabilityHandle, CapabilityPolicy> capabilitiesFrom(JsonNode node) {
+        LinkedHashMap<CapabilityHandle, CapabilityPolicy> values = new LinkedHashMap<>();
         for (JsonNode entryNode : array(node)) {
             ObjectNode entry = object(entryNode);
             requireExactFields(entry, "handle", "descriptor");
@@ -466,51 +463,22 @@ final class AgentValueDocumentMapper {
         return values;
     }
 
-    private ObjectNode capabilityNode(CapabilityDescriptor capability) {
+    private ObjectNode capabilityNode(CapabilityPolicy capability) {
         ObjectNode node = object(); node.put("name", capability.name()); node.put("version", capability.version());
         ArrayNode kinds = array(); for (CandidateKind kind : capability.acceptedCandidateKinds()) { kinds.add(kind.name()); }
         node.set("accepted_candidate_kinds", kinds); node.put("minimum_candidates", capability.minimumCandidates());
-        node.put("maximum_candidates", capability.maximumCandidates()); node.set("query_schema", querySchemaNode(capability.querySchema()));
+        node.put("maximum_candidates", capability.maximumCandidates());
         return node;
     }
 
-    private CapabilityDescriptor capabilityFrom(JsonNode node) {
+    private CapabilityPolicy capabilityFrom(JsonNode node) {
         ObjectNode object = object(node); LinkedHashSet<CandidateKind> kinds = new LinkedHashSet<>();
-        requireExactFields(object, "name", "version", "accepted_candidate_kinds", "minimum_candidates", "maximum_candidates", "query_schema");
+        requireExactFields(object, "name", "version", "accepted_candidate_kinds", "minimum_candidates", "maximum_candidates");
         for (JsonNode kind : array(required(object, "accepted_candidate_kinds"))) {
             addUnique(kinds, enumText(kind, CandidateKind.class));
         }
-        return new CapabilityDescriptor(text(object, "name"), text(object, "version"), kinds, intField(object, "minimum_candidates"),
-                intField(object, "maximum_candidates"), querySchemaFrom(required(object, "query_schema")));
-    }
-
-    private ObjectNode querySchemaNode(CapabilityQuerySchema schema) {
-        ObjectNode node = object(); ArrayNode arguments = array();
-        for (ArgumentDefinition definition : schema.arguments()) { arguments.add(argumentNode(definition)); }
-        node.set("arguments", arguments); return node;
-    }
-
-    private CapabilityQuerySchema querySchemaFrom(JsonNode node) {
-        ObjectNode object = object(node); List<ArgumentDefinition> arguments = new ArrayList<>();
-        requireExactFields(object, "arguments");
-        for (JsonNode argument : array(required(object, "arguments"))) { arguments.add(argumentFrom(argument)); }
-        return new CapabilityQuerySchema(arguments);
-    }
-
-    private ObjectNode argumentNode(ArgumentDefinition definition) {
-        ObjectNode node = object(); node.put("name", definition.name()); node.put("type", definition.type().name()); node.put("required", definition.required());
-        putOptionalInteger(node, "minimum", Optional.ofNullable(definition.minimum())); putOptionalInteger(node, "maximum", Optional.ofNullable(definition.maximum()));
-        ArrayNode values = array(); for (String value : definition.enumValues()) { values.add(value); } node.set("enum_values", values); return node;
-    }
-
-    private ArgumentDefinition argumentFrom(JsonNode node) {
-        ObjectNode object = object(node); LinkedHashSet<String> values = new LinkedHashSet<>();
-        requireExactFields(object, "name", "type", "required", "minimum", "maximum", "enum_values");
-        for (JsonNode value : array(required(object, "enum_values"))) {
-            addUnique(values, text(value));
-        }
-        return new ArgumentDefinition(text(object, "name"), enumField(object, "type", ArgumentType.class), booleanField(object, "required"),
-                optionalInt(object, "minimum").orElse(null), optionalInt(object, "maximum").orElse(null), values);
+        return new CapabilityPolicy(text(object, "name"), text(object, "version"), kinds, intField(object, "minimum_candidates"),
+                intField(object, "maximum_candidates"));
     }
 
     private ArrayNode candidatesNode(Map<CandidateHandle, IssuedCandidate> candidates) {

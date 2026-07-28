@@ -23,5 +23,6 @@ class ModelModuleArchitectureTest {
             .resideInAnyPackage("java..", "org.springframework..", "reactor..", "tools.jackson..", "com.google.genai..",
                     "..model..",
                     "..runtime.domain..",
-                    "..runtime.port.out..");
+                    "..runtime.port.out..",
+                    "..capability.tool..");
 }

@@ -1,5 +1,6 @@
 package com.java.system.agent;
 
+import com.java.system.agent.capability.tool.CapabilityToolRegistry;
 import com.java.system.agent.model.quota.ModelQuotaGate;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -20,6 +21,7 @@ class AgentModelConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(AgentModelConfiguration.class)
             .withBean(ChatModel.class, CountingChatModel::new)
+            .withBean(CapabilityToolRegistry.class, () -> new CapabilityToolRegistry(List.of()))
             .withPropertyValues(
                     "spring.profiles.active=agent-runtime",
                     "agent.model.rate-limit.requests-per-minute=1",
@@ -79,6 +81,7 @@ class AgentModelConfigurationTest {
                 .withBean("primaryChatModel", ChatModel.class, CountingChatModel::new,
                         beanDefinition -> beanDefinition.setPrimary(true))
                 .withBean("secondaryChatModel", ChatModel.class, CountingChatModel::new)
+                .withBean(CapabilityToolRegistry.class, () -> new CapabilityToolRegistry(List.of()))
                 .withPropertyValues(
                         "spring.profiles.active=agent-runtime",
                         "agent.model.rate-limit.requests-per-minute=15",

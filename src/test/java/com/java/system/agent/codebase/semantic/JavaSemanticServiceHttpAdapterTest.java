@@ -4,8 +4,7 @@ import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.runtime.domain.candidate.SemanticTargetCandidate;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
@@ -228,8 +227,8 @@ class JavaSemanticServiceHttpAdapterTest {
                 "Trace orders", Map.of("depth", "1"), revisions);
     }
 
-    private static CapabilityDescriptor descriptor(String name, CandidateKind candidateKind) {
-        return new CapabilityDescriptor(name, "v1", Set.of(candidateKind), 0, 1, new CapabilityQuerySchema(List.of()));
+    private static CapabilityPolicy descriptor(String name, CandidateKind candidateKind) {
+        return new CapabilityPolicy(name, "v1", Set.of(candidateKind), 0, 1);
     }
 
     private static TestClient testClient() {

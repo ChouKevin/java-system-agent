@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.application.validation;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
@@ -17,7 +17,7 @@ import java.util.Objects;
 /**
  * 動作驗證所需的 runtime 已配發契約快照
  */
-public record AgentValidationContext(Map<CapabilityHandle, CapabilityDescriptor> capabilities,
+public record AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> capabilities,
         Map<CandidateHandle, IssuedCandidate> candidates, Map<EvidenceHandle, IssuedEvidence> evidence,
         Map<ObservationId, AgentObservation> observations, HandleBinding currentBinding, AttemptBudget budget,
         boolean finalResponseMode) {

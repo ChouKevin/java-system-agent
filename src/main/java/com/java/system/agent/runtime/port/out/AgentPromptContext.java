@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.port.out;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
@@ -27,7 +27,7 @@ public record AgentPromptContext(
         SessionHistory sessionHistory,
         AnalysisRunId runId,
         AnalysisAttemptId attemptId,
-        Map<CapabilityHandle, CapabilityDescriptor> issuedCapabilities,
+        Map<CapabilityHandle, CapabilityPolicy> issuedCapabilities,
         Map<CandidateHandle, IssuedCandidate> issuedCandidates,
         Map<EvidenceHandle, IssuedEvidence> issuedEvidence,
         Map<ObservationId, AgentObservation> observations,

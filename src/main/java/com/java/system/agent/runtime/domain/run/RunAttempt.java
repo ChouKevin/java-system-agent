@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.domain.run;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
 import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
@@ -22,7 +22,7 @@ import java.util.Objects;
 public record RunAttempt(
         AnalysisAttemptId attemptId,
         RevisionVector revisionVector,
-        Map<CapabilityHandle, CapabilityDescriptor> issuedCapabilities,
+        Map<CapabilityHandle, CapabilityPolicy> issuedCapabilities,
         Map<CandidateHandle, IssuedCandidate> issuedCandidates,
         Map<EvidenceHandle, IssuedEvidence> issuedEvidence,
         Map<ObservationId, AgentObservation> observations) {
@@ -42,7 +42,7 @@ public record RunAttempt(
 
     public RunAttempt withIssuedContext(
             RevisionVector revisions,
-            Map<CapabilityHandle, CapabilityDescriptor> capabilities,
+            Map<CapabilityHandle, CapabilityPolicy> capabilities,
             Map<CandidateHandle, IssuedCandidate> candidates,
             Map<EvidenceHandle, IssuedEvidence> evidence,
             Map<ObservationId, AgentObservation> observations) {
@@ -60,14 +60,14 @@ public record RunAttempt(
                 nextObservations);
     }
 
-    private static Map<CapabilityHandle, CapabilityDescriptor> immutableCapabilities(
-            Map<CapabilityHandle, CapabilityDescriptor> capabilities, AnalysisAttemptId attemptId,
+    private static Map<CapabilityHandle, CapabilityPolicy> immutableCapabilities(
+            Map<CapabilityHandle, CapabilityPolicy> capabilities, AnalysisAttemptId attemptId,
             RevisionVector revisionVector) {
         Objects.requireNonNull(capabilities, "issued capabilities must not be null");
-        Map<CapabilityHandle, CapabilityDescriptor> copied = new LinkedHashMap<>();
+        Map<CapabilityHandle, CapabilityPolicy> copied = new LinkedHashMap<>();
         capabilities.forEach((handle, descriptor) -> copied.put(
                 Objects.requireNonNull(handle, "issued capability handle must not be null"),
-                Objects.requireNonNull(descriptor, "issued capability descriptor must not be null")));
+                Objects.requireNonNull(descriptor, "issued capability policy must not be null")));
         copied.keySet().forEach(handle -> validateBinding(handle.binding(), attemptId, revisionVector));
         return Collections.unmodifiableMap(copied);
     }

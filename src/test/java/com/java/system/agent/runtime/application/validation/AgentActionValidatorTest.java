@@ -9,10 +9,7 @@ import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.ClaimId;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
-import com.java.system.agent.runtime.domain.capability.ArgumentDefinition;
-import com.java.system.agent.runtime.domain.capability.ArgumentType;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
@@ -116,14 +113,6 @@ class AgentActionValidatorTest {
     }
 
     @Test
-    void should_reject_depth_outside_integer_range() {
-        Fixture fixture = fixture();
-        QueryAction action = fixture.query(List.of(fixture.candidate()), "3");
-
-        assertRejected(validator.validate(action, fixture.context()), ActionRejectionCode.INVALID_ARGUMENTS, action);
-    }
-
-    @Test
     void should_reject_query_during_final_response_mode() {
         Fixture fixture = fixture(true);
         QueryAction action = fixture.query(List.of(fixture.candidate()), "1");
@@ -207,10 +196,8 @@ class AgentActionValidatorTest {
         HandleBinding binding = binding("attempt-1", "rev-1");
         CandidateHandle candidate = new CandidateHandle("candidate-1", binding, CandidateKind.ROUTE);
         CapabilityHandle capability = new CapabilityHandle("capability-1", binding);
-        CapabilityDescriptor descriptor = new CapabilityDescriptor(
-                "callers", "v1", Set.of(CandidateKind.ROUTE), 1, 2,
-                new CapabilityQuerySchema(List.of(
-                        new ArgumentDefinition("depth", ArgumentType.INTEGER, true, 1, 2, Set.of()))));
+        CapabilityPolicy descriptor = new CapabilityPolicy(
+                "callers", "v1", Set.of(CandidateKind.ROUTE), 1, 2);
         Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
         candidates.put(candidate, issued(candidate));
         AgentValidationContext context = new AgentValidationContext(
@@ -250,7 +237,7 @@ class AgentActionValidatorTest {
     }
 
     private record Fixture(HandleBinding binding, CapabilityHandle capability, CandidateHandle candidate,
-                           CapabilityDescriptor descriptor, boolean finalResponseMode, AgentValidationContext context) {
+                           CapabilityPolicy descriptor, boolean finalResponseMode, AgentValidationContext context) {
         private QueryAction query(List<CandidateHandle> handles, String depth) {
             return new QueryAction(capability, handles, "Find callers", Map.of("depth", depth), "Need call graph");
         }

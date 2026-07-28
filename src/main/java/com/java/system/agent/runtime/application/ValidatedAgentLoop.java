@@ -53,7 +53,7 @@ import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.port.out.AgentActionPort;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
@@ -245,7 +245,7 @@ public final class ValidatedAgentLoop {
         }
         AgentRunState state = execution.state();
         SessionHistory sessionHistory = execution.sessionHistory();
-        List<CapabilityDescriptor> capabilityCatalog = execution.capabilityCatalog();
+        List<CapabilityPolicy> capabilityCatalog = execution.capabilityCatalog();
         List<RepositoryDescriptor> repositoryCatalog = execution.repositoryCatalog();
         Set<RepositoryId> catalogRepositoryIds = execution.catalogRepositoryIds();
         int attemptSequence = execution.attemptSequence();
@@ -371,7 +371,7 @@ public final class ValidatedAgentLoop {
                 new RunRequestIdentity(request.sessionId().value(), request.participant(), request.question()));
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
-        List<CapabilityDescriptor> capabilityCatalog = loadCapabilityCatalog(initialState);
+        List<CapabilityPolicy> capabilityCatalog = loadCapabilityCatalog(initialState);
         List<RepositoryDescriptor> repositoryCatalog = loadRepositoryCatalog(initialState);
         RunAttempt initialContext = contextIssuer.issueInitial(
                 request.runId(), attemptId, RevisionVector.empty(), capabilityCatalog, repositoryCatalog);
@@ -402,7 +402,7 @@ public final class ValidatedAgentLoop {
     private ActiveExecution prepareRetryExecution(AgentLoopRequest request, AgentRunState persistedState) {
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
-        List<CapabilityDescriptor> capabilityCatalog = loadCapabilityCatalog(persistedState);
+        List<CapabilityPolicy> capabilityCatalog = loadCapabilityCatalog(persistedState);
         List<RepositoryDescriptor> repositoryCatalog = loadRepositoryCatalog(persistedState);
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
                 .map(RepositoryDescriptor::repositoryId)
@@ -439,7 +439,7 @@ public final class ValidatedAgentLoop {
         }
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
-        List<CapabilityDescriptor> capabilities = List.copyOf(
+        List<CapabilityPolicy> capabilities = List.copyOf(
                 persistedState.currentAttempt().issuedCapabilities().values());
         Map<RepositoryId, RepositoryDescriptor> repositories = new LinkedHashMap<>();
         for (IssuedCandidate issued : persistedState.currentAttempt().issuedCandidates().values()) {
@@ -467,7 +467,7 @@ public final class ValidatedAgentLoop {
         if (terminal.result().isPresent()) {
             return new PendingVerificationResume(Optional.empty(), terminal.result());
         }
-        List<CapabilityDescriptor> capabilities = List.copyOf(persisted.currentAttempt().issuedCapabilities().values());
+        List<CapabilityPolicy> capabilities = List.copyOf(persisted.currentAttempt().issuedCapabilities().values());
         Map<RepositoryId, RepositoryDescriptor> repositories = new LinkedHashMap<>();
         for (IssuedCandidate issued : persisted.currentAttempt().issuedCandidates().values()) {
             if (issued.candidate() instanceof RepositoryCandidate repository) {
@@ -591,7 +591,7 @@ public final class ValidatedAgentLoop {
             AgentRunState currentState,
             QueryAction action,
             int attemptSequence,
-            List<CapabilityDescriptor> capabilityCatalog,
+            List<CapabilityPolicy> capabilityCatalog,
             List<RepositoryDescriptor> repositoryCatalog,
             Set<RepositoryId> catalogRepositoryIds) {
         AgentRunState state = currentState;
@@ -1095,15 +1095,15 @@ public final class ValidatedAgentLoop {
                 Optional.empty());
     }
 
-    private List<CapabilityDescriptor> loadCapabilityCatalog(AgentRunState state) {
+    private List<CapabilityPolicy> loadCapabilityCatalog(AgentRunState state) {
         long startedNanos = System.nanoTime();
         String resultCategory = UNEXPECTED_EXCEPTION_RESULT_CATEGORY;
         try {
-            List<CapabilityDescriptor> catalog = capabilityCatalogPort.availableCapabilities();
+            List<CapabilityPolicy> catalog = capabilityCatalogPort.availableCapabilities();
             if (Objects.isNull(catalog)) {
                 resultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
             }
-            List<CapabilityDescriptor> copiedCatalog = List.copyOf(Objects.requireNonNull(
+            List<CapabilityPolicy> copiedCatalog = List.copyOf(Objects.requireNonNull(
                     catalog, "capability catalog port must return a catalog"));
             resultCategory = SUCCEEDED_RESULT_CATEGORY;
             return copiedCatalog;
@@ -1412,7 +1412,7 @@ public final class ValidatedAgentLoop {
                 state.currentAttempt().revisionVector());
     }
 
-    private CapabilityDescriptor findCapability(
+    private CapabilityPolicy findCapability(
             RunAttempt attempt,
             QueryAction action) {
         return attempt.issuedCapabilities().entrySet().stream()
@@ -1546,7 +1546,7 @@ public final class ValidatedAgentLoop {
             AgentRunState initialState,
             RunAttempt initialContext,
             SessionHistory sessionHistory,
-            List<CapabilityDescriptor> capabilityCatalog,
+            List<CapabilityPolicy> capabilityCatalog,
             List<RepositoryDescriptor> repositoryCatalog,
             Set<RepositoryId> catalogRepositoryIds) {
     }
@@ -1554,7 +1554,7 @@ public final class ValidatedAgentLoop {
     private record ActiveExecution(
             AgentRunState state,
             SessionHistory sessionHistory,
-            List<CapabilityDescriptor> capabilityCatalog,
+            List<CapabilityPolicy> capabilityCatalog,
             List<RepositoryDescriptor> repositoryCatalog,
             Set<RepositoryId> catalogRepositoryIds,
             int attemptSequence,

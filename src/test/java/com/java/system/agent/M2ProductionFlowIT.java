@@ -32,6 +32,7 @@ import com.java.system.agent.support.ControllableChatModel;
 import com.java.system.agent.support.M2IntegrationTestConfiguration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -167,7 +168,7 @@ class M2ProductionFlowIT {
         InboxClaim claim = inbox.claimNext(NOW).orElseThrow();
         InboxMessage enqueued = claim.message();
         String attemptId = enqueued.runId().value() + ":A1";
-        chatModel.enqueue(CallTimeline.LLM_QUERY_ACTION, queryJson(attemptId));
+        chatModel.enqueue(CallTimeline.LLM_QUERY_ACTION, queryToolCall(attemptId));
         chatModel.enqueue(CallTimeline.LLM_ANSWER_ACTION, answerJson(attemptId));
         chatModel.enqueue(CallTimeline.LLM_VERIFIER, verdictJson());
         InboxProcessingOutcome outcome = processor.process(claim, NOW);
@@ -177,8 +178,8 @@ class M2ProductionFlowIT {
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(4);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(3);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(5);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(4);
         assertThat(deliveryStatuses(enqueued)).containsExactly(
                 "FINAL_RESPONSE:WAITING_FOR_RECEIPT", "RECEIPT:PENDING");
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
@@ -336,10 +337,17 @@ class M2ProductionFlowIT {
             String participantKey) {
     }
 
-    private static String queryJson(String attemptId) {
-        return """
-                {"type":"QUERY","query":{"capabilityHandle":"%s:C2","candidateHandles":["%s:R1"],"questionToResolve":"Find the unresolved entry point","arguments":{},"rationale":"inspect the repository entry points"},"answer":null,"clarify":null}
-                """.formatted(attemptId, attemptId);
+    private static AssistantMessage queryToolCall(String attemptId) {
+        return AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall(
+                        "call-1",
+                        "function",
+                        "codebase.list-entry-points",
+                        """
+                                {"candidateHandles":["%s:R1"],"questionToResolve":"Find the unresolved entry point","rationale":"inspect the repository entry points"}
+                                """.formatted(attemptId))))
+                .build();
     }
 
     private static String answerJson(String attemptId) {

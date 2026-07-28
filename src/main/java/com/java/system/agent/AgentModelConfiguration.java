@@ -1,6 +1,7 @@
 package com.java.system.agent;
 
 import com.java.system.agent.model.action.SpringAiAgentActionAdapter;
+import com.java.system.agent.capability.tool.CapabilityToolRegistry;
 import com.java.system.agent.model.quota.ModelInputTokenEstimator;
 import com.java.system.agent.model.quota.ModelQuotaGate;
 import com.java.system.agent.model.quota.ModelQuotaWindow;
@@ -96,8 +97,9 @@ public final class AgentModelConfiguration {
     }
 
     @Bean
-    AgentActionPort agentActionPort(@Qualifier("agentActionChatClient") ChatClient chatClient) {
-        return new SpringAiAgentActionAdapter(chatClient);
+    AgentActionPort agentActionPort(@Qualifier("agentActionChatClient") ChatClient chatClient,
+                                    CapabilityToolRegistry registry) {
+        return new SpringAiAgentActionAdapter(chatClient, registry);
     }
 
     @Bean
