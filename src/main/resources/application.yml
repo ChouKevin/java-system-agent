@@ -1,6 +1,9 @@
 spring:
   profiles:
     active: dev
+    group:
+      slack-agent:
+        - agent-runtime
   application:
     name: java-system-agent
   http:

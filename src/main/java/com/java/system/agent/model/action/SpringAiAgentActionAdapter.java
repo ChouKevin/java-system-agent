@@ -10,6 +10,7 @@ import com.java.system.agent.runtime.port.out.AgentActionPort;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentActionTransportException;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
+import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.converter.BeanOutputConverter;
 
@@ -55,6 +56,8 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             try {
                 content = chatClient.prompt().system(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
                         .user(promptRenderer.render(context, converter.getFormat())).call().content();
+            } catch (ExternalExecutionDeferredException exception) {
+                throw exception;
             } catch (RuntimeException exception) {
                 resultCategory = category(exception);
                 throw new AgentActionTransportException(resultCategory, exception);
@@ -64,6 +67,8 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
                 actionType = actionType(proposal);
                 resultCategory = proposal instanceof AgentActionProposal.Proposed ? "PROPOSED" : "MALFORMED";
                 return proposal;
+            } catch (ExternalExecutionDeferredException exception) {
+                throw exception;
             } catch (RuntimeException exception) {
                 resultCategory = "MALFORMED";
                 return new AgentActionProposal.Malformed(AgentActionResponseInterpreter.MALFORMED_DESCRIPTION);

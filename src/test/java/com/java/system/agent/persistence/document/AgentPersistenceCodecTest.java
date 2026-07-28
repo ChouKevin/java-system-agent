@@ -29,6 +29,7 @@ import com.java.system.agent.runtime.domain.candidate.RouteCandidate;
 import com.java.system.agent.runtime.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
 import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
@@ -91,7 +92,13 @@ class AgentPersistenceCodecTest {
         for (AgentRunState state : states) {
             VersionedJsonDocument document = stateCodec.encode(state);
 
-            assertThat(document.schemaVersion()).isEqualTo(2);
+            assertThat(document.schemaVersion()).isEqualTo(4);
+            assertThat(document.payload().path("request_identity").has("question_text")).isTrue();
+            assertThat(document.payload().path("request_identity").path("participant_source_type").asText())
+                    .isEqualTo("test");
+            assertThat(document.payload().path("request_identity").path("participant_key").asText())
+                    .isEqualTo("participant-1");
+            assertThat(document.payload().path("request_identity").has("exact_question")).isFalse();
             assertThat(stateCodec.decode(document)).isEqualTo(state);
         }
     }
@@ -101,7 +108,7 @@ class AgentPersistenceCodecTest {
     void should_round_trip_every_event_variant_with_its_stable_discriminator(AgentEvent event) {
         VersionedJsonDocument document = eventCodec.encode(event);
 
-        assertThat(document.schemaVersion()).isEqualTo(2);
+        assertThat(document.schemaVersion()).isEqualTo(3);
         assertThat(document.payload().path("event_type").asText()).isNotBlank();
         assertThat(eventCodec.decode(document.payload().path("event_type").asText(), document)).isEqualTo(event);
     }
@@ -114,18 +121,24 @@ class AgentPersistenceCodecTest {
         ObjectNode unknownEvent = eventDocument.payload().deepCopy();
         unknownEvent.put("event_type", "UNKNOWN");
 
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(5, stateDocument.payload())))
+                .isInstanceOf(PersistenceDocumentException.class)
+                .hasMessage("unsupported state document schema version");
         assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(3, stateDocument.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported state document schema version");
         assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(1, stateDocument.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported state document schema version");
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, unknownState)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, stateDocument.payload())))
+                .isInstanceOf(PersistenceDocumentException.class)
+                .hasMessage("unsupported state document schema version");
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, unknownState)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported state document discriminator");
         assertThatThrownBy(() -> eventCodec.decode(
                 eventCodec.eventType(new AgentEvent.RunStarted(runId(), attemptId(), 0)),
-                new VersionedJsonDocument(3, eventDocument.payload())))
+                new VersionedJsonDocument(4, eventDocument.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported event document schema version");
         assertThatThrownBy(() -> eventCodec.decode(
@@ -133,7 +146,12 @@ class AgentPersistenceCodecTest {
                 new VersionedJsonDocument(1, eventDocument.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported event document schema version");
-        assertThatThrownBy(() -> eventCodec.decode("UNKNOWN", new VersionedJsonDocument(2, unknownEvent)))
+        assertThatThrownBy(() -> eventCodec.decode(
+                eventCodec.eventType(new AgentEvent.RunStarted(runId(), attemptId(), 0)),
+                new VersionedJsonDocument(2, eventDocument.payload())))
+                .isInstanceOf(PersistenceDocumentException.class)
+                .hasMessage("unsupported event document schema version");
+        assertThatThrownBy(() -> eventCodec.decode("UNKNOWN", new VersionedJsonDocument(3, unknownEvent)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported event document discriminator");
         assertThatThrownBy(() -> eventCodec.decode("ACTION_ACCEPTED", eventDocument))
@@ -142,7 +160,7 @@ class AgentPersistenceCodecTest {
     }
 
     @Test
-    void writes_only_v2_capability_budget_and_observation_fields() {
+    void writes_only_current_capability_budget_and_observation_fields() {
         ObjectNode state = (ObjectNode) stateCodec.encode(activeState()).payload();
         ObjectNode budget = (ObjectNode) state.path("budget");
         ObjectNode observation = (ObjectNode) state.path("current_attempt").path("observations").path(0)
@@ -172,17 +190,42 @@ class AgentPersistenceCodecTest {
         ((ObjectNode) unknownNestedAction.path("pending_terminal_response").path("action"))
                 .put("unexpected", "private action content");
 
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, unknownTopLevel)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, unknownTopLevel)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported document field")
                 .hasNoCause();
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, unknownNested)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, unknownNested)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported document field")
                 .hasNoCause();
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, unknownNestedAction)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, unknownNestedAction)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported document field")
+                .hasNoCause();
+    }
+
+    @Test
+    void should_reject_the_pre_m3_request_identity_field_without_a_compatibility_fallback() {
+        ObjectNode legacyRequestIdentity = stateCodec.encode(initialState()).payload().deepCopy();
+        ObjectNode identity = (ObjectNode) legacyRequestIdentity.path("request_identity");
+        String questionText = identity.remove("question_text").asText();
+        identity.put("exact_question", questionText);
+
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, legacyRequestIdentity)))
+                .isInstanceOf(PersistenceDocumentException.class)
+                .hasMessage("unsupported document field")
+                .hasNoCause();
+    }
+
+    @Test
+    void should_reject_a_request_identity_without_the_persisted_participant() {
+        ObjectNode legacyRequestIdentity = stateCodec.encode(initialState()).payload().deepCopy();
+        ObjectNode identity = (ObjectNode) legacyRequestIdentity.path("request_identity");
+        identity.remove("participant_source_type");
+        identity.remove("participant_key");
+
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, legacyRequestIdentity)))
+                .isInstanceOf(PersistenceDocumentException.class)
                 .hasNoCause();
     }
 
@@ -192,7 +235,7 @@ class AgentPersistenceCodecTest {
         ObjectNode missingPendingResponse = document.payload().deepCopy();
         missingPendingResponse.remove("pending_terminal_response");
 
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, missingPendingResponse)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, missingPendingResponse)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("missing nullable document field")
                 .hasNoCause();
@@ -221,16 +264,16 @@ class AgentPersistenceCodecTest {
                 .path("document").path("statements").path(0).path("citations");
         citations.add(citations.get(0).deepCopy());
 
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, capabilityKinds)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, capabilityKinds)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("duplicate persisted set entry");
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, enumValues)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, enumValues)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("duplicate persisted set entry");
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, observationHandles)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, observationHandles)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("duplicate persisted set entry");
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, answerCitations)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, answerCitations)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("duplicate persisted set entry");
     }
@@ -257,13 +300,13 @@ class AgentPersistenceCodecTest {
 
         assertThatThrownBy(() -> eventCodec.decode(
                 "ACTION_ACCEPTED",
-                new VersionedJsonDocument(2, unknownEventField)))
+                new VersionedJsonDocument(3, unknownEventField)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported document field")
                 .hasNoCause();
         assertThatThrownBy(() -> eventCodec.decode(
                 "ACTION_ACCEPTED",
-                new VersionedJsonDocument(2, unknownFixedField)))
+                new VersionedJsonDocument(3, unknownFixedField)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported document field")
                 .hasNoCause();
@@ -276,13 +319,13 @@ class AgentPersistenceCodecTest {
                 .put("event_type", "RUN_STARTED")
                 .put("private_content", "private event content");
 
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(2, malformedState)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(4, malformedState)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("invalid document object shape")
                 .hasNoCause();
         assertThatThrownBy(() -> eventCodec.decode(
                 "RUN_STARTED",
-                new VersionedJsonDocument(2, malformedEvent)))
+                new VersionedJsonDocument(3, malformedEvent)))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("missing required document field")
                 .hasNoCause();
@@ -294,13 +337,13 @@ class AgentPersistenceCodecTest {
         AgentEvent event = new AgentEvent.RunStarted(runId(), attemptId(), 0);
         VersionedJsonDocument eventDocument = eventCodec.encode(event);
 
-        assertThat(stateCodec.decode(2, stateDocument.payload().toString())).isEqualTo(initialState());
-        assertThat(eventCodec.decode("RUN_STARTED", 2, eventDocument.payload().toString())).isEqualTo(event);
-        assertThatThrownBy(() -> stateCodec.decode(2, "{\"private\":\"state\""))
+        assertThat(stateCodec.decode(4, stateDocument.payload().toString())).isEqualTo(initialState());
+        assertThat(eventCodec.decode("RUN_STARTED", 3, eventDocument.payload().toString())).isEqualTo(event);
+        assertThatThrownBy(() -> stateCodec.decode(4, "{\"private\":\"state\""))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("invalid state document JSON")
                 .hasNoCause();
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 2, "{\"private\":\"event\""))
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 3, "{\"private\":\"event\""))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("invalid event document JSON")
                 .hasNoCause();
@@ -309,9 +352,9 @@ class AgentPersistenceCodecTest {
     private static Stream<AgentEvent> events() {
         AgentRunState active = activeState();
         RunAttempt attempt = active.currentAttempt();
-        ConversationTurn answerTurn = new ConversationTurn(runId(), "question", answerDocument().renderParagraphs(),
+        ConversationTurn answerTurn = new ConversationTurn(runId(), participant(), "question", answerDocument().renderParagraphs(),
                 ConversationTurnType.ANSWER);
-        ConversationTurn clarificationTurn = new ConversationTurn(runId(), "question", "Which route applies?",
+        ConversationTurn clarificationTurn = new ConversationTurn(runId(), participant(), "question", "Which route applies?",
                 ConversationTurnType.CLARIFICATION);
         return Stream.of(
                 new AgentEvent.RunStarted(runId(), attemptId(), 0),
@@ -334,6 +377,10 @@ class AgentPersistenceCodecTest {
                 new AgentEvent.ClarificationAccepted(runId(), attemptId(), 9, clarifyAction(),
                         new SessionId("session-1"), clarificationTurn, false),
                 new AgentEvent.RunConcluded(runId(), attemptId(), 10, RunOutcome.FAILED, true));
+    }
+
+    private static ParticipantRef participant() {
+        return new ParticipantRef("test", "participant-1");
     }
 
     private static AgentEvent.ContextIssued contextIssuedWithDistinctMapAndValueHandles(RunAttempt attempt) {
@@ -375,7 +422,7 @@ class AgentPersistenceCodecTest {
 
     private static AgentRunState concludedAnswerState() {
         AnswerDocument document = answerDocument();
-        ConversationTurn turn = new ConversationTurn(runId(), "question", document.renderParagraphs(), ConversationTurnType.ANSWER);
+        ConversationTurn turn = new ConversationTurn(runId(), participant(), "question", document.renderParagraphs(), ConversationTurnType.ANSWER);
         PendingTerminalResponse pending = new PendingTerminalResponse.Answer(new SessionId("session-1"), turn,
                 document, AnswerAcceptance.llm(acceptedVerdict()));
         return new AgentRunState(runId(), AgentRunStatus.CONCLUDED, richAttempt(), 1, budget(), 3, 1, 8,
@@ -392,7 +439,7 @@ class AgentPersistenceCodecTest {
     }
 
     private static AgentRunState concludedClarificationState() {
-        ConversationTurn turn = new ConversationTurn(runId(), "question", "Which route applies?", ConversationTurnType.CLARIFICATION);
+        ConversationTurn turn = new ConversationTurn(runId(), participant(), "question", "Which route applies?", ConversationTurnType.CLARIFICATION);
         PendingTerminalResponse pending = new PendingTerminalResponse.Clarification(new SessionId("session-1"), turn,
                 clarifyAction());
         return new AgentRunState(runId(), AgentRunStatus.CONCLUDED, richAttempt(), 1, budget(), 3, 1, 8,
@@ -505,6 +552,6 @@ class AgentPersistenceCodecTest {
     }
 
     private static RunRequestIdentity requestIdentity() {
-        return new RunRequestIdentity("session-1", "question");
+        return new RunRequestIdentity("session-1", participant(), "question");
     }
 }

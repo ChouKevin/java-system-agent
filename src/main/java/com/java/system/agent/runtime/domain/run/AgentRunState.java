@@ -51,7 +51,7 @@ public record AgentRunState(
             PendingTerminalResponse pending = pendingTerminalResponse.orElseThrow();
             if (!runId.equals(pending.turn().runId())
                     || !requestIdentity.sessionIdValue().equals(pending.sessionId().value())
-                    || !requestIdentity.exactQuestion().equals(pending.turn().userMessage())) {
+                    || !requestIdentity.questionText().equals(pending.turn().userMessage())) {
                 throw new IllegalArgumentException("pending terminal response does not match the run request identity");
             }
         }

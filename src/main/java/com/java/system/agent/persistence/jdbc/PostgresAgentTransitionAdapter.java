@@ -105,7 +105,7 @@ public final class PostgresAgentTransitionAdapter implements AgentTransitionPort
         Objects.requireNonNull(runId, "analysis run ID must not be null");
         try {
             Optional<StoredState> stored = jdbcClient.sql("""
-                    SELECT run_id, session_id, exact_question, status, state_revision, state_schema_version,
+                    SELECT run_id, session_id, question_text, status, state_revision, state_schema_version,
                            current_state::text AS current_state
                     FROM agent_run
                     WHERE run_id = :runId
@@ -136,16 +136,16 @@ public final class PostgresAgentTransitionAdapter implements AgentTransitionPort
             EncodedTransition contextIssued) {
         int insertedRunRows = jdbcClient.sql("""
                 INSERT INTO agent_run (
-                    run_id, session_id, exact_question, status, state_revision, state_schema_version,
+                    run_id, session_id, question_text, status, state_revision, state_schema_version,
                     current_state, cancellation_requested, created_at, updated_at
                 ) VALUES (
-                    :runId, :sessionId, :exactQuestion, :status, :stateRevision, :stateSchemaVersion,
+                    :runId, :sessionId, :questionText, :status, :stateRevision, :stateSchemaVersion,
                     CAST(:currentState AS jsonb), FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 ) ON CONFLICT (run_id) DO NOTHING
                 """)
                 .param("runId", finalState.runId().value())
                 .param("sessionId", finalState.requestIdentity().sessionIdValue())
-                .param("exactQuestion", finalState.requestIdentity().exactQuestion())
+                .param("questionText", finalState.requestIdentity().questionText())
                 .param("status", finalState.status().name())
                 .param("stateRevision", finalState.stateRevision())
                 .param("stateSchemaVersion", encodedState.schemaVersion())
@@ -198,7 +198,7 @@ public final class PostgresAgentTransitionAdapter implements AgentTransitionPort
                 WHERE run_id = :runId
                   AND state_revision = :expectedStateRevision
                   AND session_id = :sessionId
-                  AND exact_question = :exactQuestion
+                  AND question_text = :questionText
                 """)
                 .param("status", transition.candidateState().status().name())
                 .param("stateRevision", transition.candidateState().stateRevision())
@@ -207,7 +207,7 @@ public final class PostgresAgentTransitionAdapter implements AgentTransitionPort
                 .param("runId", transition.event().runId().value())
                 .param("expectedStateRevision", transition.event().expectedStateRevision())
                 .param("sessionId", transition.candidateState().requestIdentity().sessionIdValue())
-                .param("exactQuestion", transition.candidateState().requestIdentity().exactQuestion())
+                .param("questionText", transition.candidateState().requestIdentity().questionText())
                 .update();
         requireSingleAffectedRow(updatedRows);
     }
@@ -333,7 +333,7 @@ public final class PostgresAgentTransitionAdapter implements AgentTransitionPort
                 || stored.stateRevision() != decoded.stateRevision()
                 || !stored.status().equals(decoded.status().name())
                 || !stored.sessionId().equals(decoded.requestIdentity().sessionIdValue())
-                || !stored.exactQuestion().equals(decoded.requestIdentity().exactQuestion())) {
+                || !stored.questionText().equals(decoded.requestIdentity().questionText())) {
             throw new JdbcPersistenceException();
         }
     }
@@ -342,7 +342,7 @@ public final class PostgresAgentTransitionAdapter implements AgentTransitionPort
         return new StoredState(
                 resultSet.getString("run_id"),
                 resultSet.getString("session_id"),
-                resultSet.getString("exact_question"),
+                resultSet.getString("question_text"),
                 resultSet.getString("status"),
                 resultSet.getLong("state_revision"),
                 resultSet.getInt("state_schema_version"),
@@ -399,7 +399,7 @@ public final class PostgresAgentTransitionAdapter implements AgentTransitionPort
     private record StoredState(
             String runId,
             String sessionId,
-            String exactQuestion,
+            String questionText,
             String status,
             long stateRevision,
             int stateSchemaVersion,

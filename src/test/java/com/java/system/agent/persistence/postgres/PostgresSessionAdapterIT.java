@@ -5,6 +5,7 @@ import com.java.system.agent.persistence.jdbc.PostgresSessionAdapter;
 import com.java.system.agent.persistence.jdbc.SessionTurnConflictException;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
@@ -40,6 +41,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class PostgresSessionAdapterIT extends PostgresIntegrationTestSupport {
 
+    private static final ParticipantRef PARTICIPANT = new ParticipantRef("slack", "U123456");
+
     private DataSource dataSource;
     private JdbcClient jdbcClient;
     private PostgresSessionAdapter sessions;
@@ -73,6 +76,40 @@ class PostgresSessionAdapterIT extends PostgresIntegrationTestSupport {
 
         assertThat(sessions.read(sessionId).turns()).containsExactly(first, second);
         assertThat(nextTurnSequence(sessionId)).isEqualTo(2L);
+    }
+
+    @Test
+    void retainsEachParticipantExactlyAcrossOneSessionHistory() {
+        SessionId sessionId = new SessionId("session-participants");
+        ConversationTurn alice = new ConversationTurn(
+                new AnalysisRunId("run-alice"), new ParticipantRef("slack", "U-ALICE"),
+                "alice question", "alice response", ConversationTurnType.ANSWER);
+        ConversationTurn bob = new ConversationTurn(
+                new AnalysisRunId("run-bob"), new ParticipantRef("slack", "U-BOB"),
+                "bob question", "bob response", ConversationTurnType.CLARIFICATION);
+        insertSession(sessionId.value());
+
+        sessions.append(sessionId, alice);
+        sessions.append(sessionId, bob);
+
+        assertThat(sessions.read(sessionId).turns()).containsExactly(alice, bob);
+    }
+
+    @Test
+    void rejectsADuplicateRunWhenOnlyItsParticipantChanges() {
+        SessionId sessionId = new SessionId("session-participant-conflict");
+        ConversationTurn accepted = new ConversationTurn(
+                new AnalysisRunId("run-1"), new ParticipantRef("slack", "U-ALICE"),
+                "question", "response", ConversationTurnType.ANSWER);
+        ConversationTurn changedParticipant = new ConversationTurn(
+                new AnalysisRunId("run-1"), new ParticipantRef("slack", "U-BOB"),
+                "question", "response", ConversationTurnType.ANSWER);
+        insertSession(sessionId.value());
+        sessions.append(sessionId, accepted);
+
+        assertThatThrownBy(() -> sessions.append(sessionId, changedParticipant))
+                .isInstanceOf(SessionTurnConflictException.class);
+        assertThat(sessions.read(sessionId).turns()).containsExactly(accepted);
     }
 
     @Test
@@ -339,6 +376,6 @@ class PostgresSessionAdapterIT extends PostgresIntegrationTestSupport {
             String userMessage,
             String assistantMessage,
             ConversationTurnType type) {
-        return new ConversationTurn(new AnalysisRunId(runId), userMessage, assistantMessage, type);
+        return new ConversationTurn(new AnalysisRunId(runId), PARTICIPANT, userMessage, assistantMessage, type);
     }
 }

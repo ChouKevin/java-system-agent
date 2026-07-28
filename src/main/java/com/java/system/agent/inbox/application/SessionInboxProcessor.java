@@ -1,16 +1,21 @@
 package com.java.system.agent.inbox.application;
 
 import com.java.system.agent.inbox.domain.InboxFailure;
+import com.java.system.agent.inbox.domain.InboxClaim;
 import com.java.system.agent.inbox.domain.InboxMessage;
 import com.java.system.agent.inbox.domain.InboxMessageStatus;
 import com.java.system.agent.inbox.domain.InboxProcessingOutcome;
 import com.java.system.agent.inbox.port.out.SessionInboxPort;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
+import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
+import com.java.system.agent.runtime.port.in.AnalysisExecutionDeferredException;
 import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
 import com.java.system.agent.runtime.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.runtime.port.in.AnswerQuestionUseCase;
+import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 
 import java.time.Instant;
 import java.util.IdentityHashMap;
@@ -26,74 +31,136 @@ import java.util.logging.Logger;
 public final class SessionInboxProcessor {
 
     private static final int MAX_DIAGNOSTIC_CAUSE_DEPTH = 16;
+    private static final String FAILED_RESPONSE = "處理失敗，請稍後再試";
+    private static final String CANCELLED_RESPONSE = "處理已取消";
     private static final Logger LOGGER = Logger.getLogger(SessionInboxProcessor.class.getName());
 
     private final SessionInboxPort sessionInboxPort;
     private final AnswerQuestionUseCase answerQuestionUseCase;
     private final AttemptBudget attemptBudget;
     private final InboxRetryPolicy retryPolicy;
+    private final InboxLifecycleMetrics metrics;
 
     public SessionInboxProcessor(
             SessionInboxPort sessionInboxPort,
             AnswerQuestionUseCase answerQuestionUseCase,
             AttemptBudget attemptBudget,
             InboxRetryPolicy retryPolicy) {
+        this(sessionInboxPort, answerQuestionUseCase, attemptBudget, retryPolicy, InboxLifecycleMetrics.NO_OP);
+    }
+
+    public SessionInboxProcessor(
+            SessionInboxPort sessionInboxPort,
+            AnswerQuestionUseCase answerQuestionUseCase,
+            AttemptBudget attemptBudget,
+            InboxRetryPolicy retryPolicy,
+            InboxLifecycleMetrics metrics) {
         this.sessionInboxPort = Objects.requireNonNull(sessionInboxPort, "session inbox port must not be null");
         this.answerQuestionUseCase = Objects.requireNonNull(answerQuestionUseCase,
                 "answer question use case must not be null");
         this.attemptBudget = Objects.requireNonNull(attemptBudget, "attempt budget must not be null");
         this.retryPolicy = Objects.requireNonNull(retryPolicy, "retry policy must not be null");
+        this.metrics = Objects.requireNonNull(metrics, "agent lifecycle metrics must not be null");
     }
 
-    public InboxProcessingOutcome process(InboxMessage claimedMessage, Instant now) {
+    public InboxProcessingOutcome process(InboxClaim claim, Instant now) {
+        Objects.requireNonNull(claim, "inbox claim must not be null");
+        InboxMessage claimedMessage = claim.message();
         Objects.requireNonNull(claimedMessage, "claimed inbox message must not be null");
         Objects.requireNonNull(now, "processing time must not be null");
         if (claimedMessage.status() != InboxMessageStatus.PROCESSING) {
             throw new IllegalArgumentException("inbox processor accepts only processing messages");
         }
         AnswerQuestionCommand command = new AnswerQuestionCommand(
-                claimedMessage.runId(), claimedMessage.sessionId(), claimedMessage.exactQuestion(), attemptBudget,
+                claimedMessage.runId(), claimedMessage.sessionId(), claimedMessage.participant(),
+                claimedMessage.questionText(), attemptBudget,
                 executionMode(claimedMessage), claimedMessage.attemptCount());
+        AnswerQuestionResult result;
         try {
-            Objects.requireNonNull(
+            result = Objects.requireNonNull(
                     answerQuestionUseCase.answer(command), "answer question result must not be null");
+        } catch (AnalysisExecutionDeferredException exception) {
+            metrics.capacityDeferred();
+            sessionInboxPort.deferForCapacity(claim, exception.deferral().retryAt());
+            return InboxProcessingOutcome.CAPACITY_DEFERRED;
         } catch (AnswerExecutionUnavailableException exception) {
+            metrics.infrastructureFailure();
             logFailure("ANSWER_VERIFIER_UNAVAILABLE", claimedMessage, exception);
-            return retryOrFail(claimedMessage, InboxFailure.ANSWER_VERIFIER_UNAVAILABLE, now);
+            return retryOrFail(claim, InboxFailure.ANSWER_VERIFIER_UNAVAILABLE, now);
         } catch (AnswerExecutionContractException exception) {
             logFailure("ANSWER_INTEGRATION_CONTRACT", claimedMessage, exception);
-            sessionInboxPort.fail(claimedMessage, InboxFailure.ANSWER_INTEGRATION_CONTRACT, now);
+            sessionInboxPort.failWithFinal(
+                    claim, InboxFailure.ANSWER_INTEGRATION_CONTRACT, safeResponse(RunOutcome.FAILED), now);
             return InboxProcessingOutcome.FAILED;
         } catch (Exception exception) {
+            metrics.infrastructureFailure();
             logFailure("ANSWER_UNEXPECTED", claimedMessage, exception);
-            return retryOrFail(claimedMessage, InboxFailure.ANSWER_UNEXPECTED, now);
+            return retryOrFail(claim, InboxFailure.ANSWER_UNEXPECTED, now);
         }
-        sessionInboxPort.complete(claimedMessage, now);
+        if (result.responseKind() == RunResponseKind.RUNTIME_NOTICE
+                && result.outcome() == RunOutcome.FAILED) {
+            sessionInboxPort.failWithFinal(
+                    claim, InboxFailure.ANSWER_UNEXPECTED, safeResponse(RunOutcome.FAILED), now);
+            return InboxProcessingOutcome.FAILED;
+        }
+        sessionInboxPort.completeWithFinal(claim, normalizedCompletionResult(result), now);
         return InboxProcessingOutcome.COMPLETED;
     }
 
     private AnswerExecutionMode executionMode(InboxMessage claimedMessage) {
+        if (claimedMessage.attemptCount() > retryPolicy.maxAttempts()) {
+            if (claimedMessage.deferReason().isPresent()) {
+                logContractViolation("STALE_CAPACITY_TERMINAL_RECONCILIATION", claimedMessage);
+            }
+            return AnswerExecutionMode.TERMINAL_RECONCILIATION;
+        }
+        if (claimedMessage.deferReason().isPresent()) {
+            return AnswerExecutionMode.CAPACITY_RESUME;
+        }
         if (claimedMessage.attemptCount() == 1) {
             return AnswerExecutionMode.INITIAL;
         }
-        if (claimedMessage.attemptCount() <= retryPolicy.maxAttempts()) {
-            return AnswerExecutionMode.RETRY;
-        }
-        return AnswerExecutionMode.TERMINAL_RECONCILIATION;
+        return AnswerExecutionMode.RETRY;
     }
 
-    private InboxProcessingOutcome retryOrFail(InboxMessage claimedMessage, InboxFailure failure, Instant now) {
+    private InboxProcessingOutcome retryOrFail(InboxClaim claim, InboxFailure failure, Instant now) {
+        InboxMessage claimedMessage = claim.message();
         if (claimedMessage.attemptCount() == retryPolicy.maxAttempts()) {
-            sessionInboxPort.retry(claimedMessage, failure, now);
+            sessionInboxPort.retry(claim, failure, now);
             return InboxProcessingOutcome.RETRY_SCHEDULED;
         }
         Optional<Instant> retryAt = retryPolicy.retryAvailableAt(claimedMessage.attemptCount(), now);
         if (retryAt.isPresent()) {
-            sessionInboxPort.retry(claimedMessage, failure, retryAt.orElseThrow());
+            sessionInboxPort.retry(claim, failure, retryAt.orElseThrow());
             return InboxProcessingOutcome.RETRY_SCHEDULED;
         }
-        sessionInboxPort.fail(claimedMessage, failure, now);
+        sessionInboxPort.failWithFinal(claim, failure, safeResponse(RunOutcome.FAILED), now);
         return InboxProcessingOutcome.FAILED;
+    }
+
+    private static String safeResponse(RunOutcome outcome) {
+        return switch (outcome) {
+            case FAILED -> FAILED_RESPONSE;
+            case CANCELLED -> CANCELLED_RESPONSE;
+            case COMPLETED, INCONCLUSIVE -> throw new IllegalArgumentException("safe response requires a terminal notice outcome");
+        };
+    }
+
+    private static AnswerQuestionResult normalizedCompletionResult(AnswerQuestionResult result) {
+        if (result.responseKind() != RunResponseKind.RUNTIME_NOTICE || result.outcome() != RunOutcome.CANCELLED) {
+            return result;
+        }
+        return new AnswerQuestionResult(
+                result.runId(), result.outcome(), safeResponse(result.outcome()), result.answerDocument(),
+                result.responseKind(), result.verificationBasis(), result.finalRevisions());
+    }
+
+    private static void logContractViolation(String category, InboxMessage claimedMessage) {
+        LOGGER.log(Level.WARNING, "answer execution category={0} runId={1} inboxId={2} attempt={3}", new Object[]{
+                category,
+                claimedMessage.runId().value(),
+                claimedMessage.inboxMessageId().value(),
+                claimedMessage.attemptCount()});
     }
 
     private static void logFailure(String category, InboxMessage claimedMessage, Exception exception) {

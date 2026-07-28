@@ -1,0 +1,10 @@
+agent:
+  worker:
+    inbox-poll-interval: ${AGENT_INBOX_POLL_INTERVAL:1s}
+    delivery-poll-interval: ${AGENT_DELIVERY_POLL_INTERVAL:250ms}
+    shutdown-grace-period: ${AGENT_SHUTDOWN_GRACE_PERIOD:30s}
+    delivery-max-attempts: ${AGENT_DELIVERY_MAX_ATTEMPTS:5}
+  slack:
+    app-token: ${SLACK_APP_TOKEN:}
+    bot-token: ${SLACK_BOT_TOKEN:}
+    bot-user-id: ${SLACK_BOT_USER_ID:}

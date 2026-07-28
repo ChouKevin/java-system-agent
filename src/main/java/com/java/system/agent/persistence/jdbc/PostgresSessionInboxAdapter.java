@@ -1,16 +1,24 @@
 package com.java.system.agent.persistence.jdbc;
 
-import com.java.system.agent.inbox.domain.InboxEnqueueRequest;
+import com.java.system.agent.inbox.domain.InboxClaim;
+import com.java.system.agent.inbox.domain.InboxDeferReason;
 import com.java.system.agent.inbox.domain.InboxFailure;
 import com.java.system.agent.inbox.domain.InboxMessage;
 import com.java.system.agent.inbox.domain.InboxMessageId;
 import com.java.system.agent.inbox.domain.InboxMessageStatus;
 import com.java.system.agent.inbox.domain.SessionSourceRef;
 import com.java.system.agent.inbox.domain.SourceMessageId;
+import com.java.system.agent.inbox.domain.delivery.DeliveryFailure;
+import com.java.system.agent.inbox.domain.delivery.DeliveryKind;
+import com.java.system.agent.inbox.domain.delivery.DeliveryStatus;
 import com.java.system.agent.inbox.port.out.InboxIdentityGenerator;
 import com.java.system.agent.inbox.port.out.SessionInboxPort;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunResponseKind;
+import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.TransactionException;
@@ -25,9 +33,12 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * PostgreSQL session inbox 的原子 JDBC 持久化 adapter
+ * PostgreSQL session inbox 與 terminal delivery 的原子 JDBC 持久化 adapter
  */
 public final class PostgresSessionInboxAdapter implements SessionInboxPort {
+
+    private static final DeliveryFailure PREDECESSOR_BLOCKED = new DeliveryFailure(
+            "PREDECESSOR_BLOCKED", "Receipt delivery was permanently blocked");
 
     private final JdbcClient jdbcClient;
     private final TransactionTemplate transactionTemplate;
@@ -43,29 +54,17 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
     }
 
     @Override
-    public InboxMessage enqueue(InboxEnqueueRequest request) {
-        Objects.requireNonNull(request, "inbox enqueue request must not be null");
-        try {
-            Optional<InboxMessage> existingMessage = findByDeduplicationKey(request);
-            if (existingMessage.isPresent()) {
-                return duplicateOrConflict(existingMessage.get(), request);
-            }
-            return executeInTransaction(() -> enqueueWithinTransaction(request));
-        } catch (InboxPersistenceConflictException exception) {
-            throw exception;
-        } catch (JdbcPersistenceException exception) {
-            return resolveUniqueRace(request, exception);
-        }
-    }
-
-    @Override
-    public Optional<InboxMessage> claimNext(Instant now) {
+    public Optional<InboxClaim> claimNext(Instant now) {
         Objects.requireNonNull(now, "claim timestamp must not be null");
         return executeInTransaction(() -> {
+            jdbcClient.sql("SELECT pg_advisory_xact_lock(743211)")
+                    .query((resultSet, rowNumber) -> Boolean.TRUE)
+                    .single();
             Optional<InboxMessage> pendingHead = jdbcClient.sql("""
                     SELECT inbox.inbox_message_id, session.source_type, session.source_key, inbox.source_message_id,
-                           inbox.session_id, inbox.session_sequence, inbox.analysis_run_id, inbox.exact_question,
-                           inbox.status, inbox.attempt_count, inbox.available_at, inbox.claimed_at,
+                           inbox.session_id, inbox.session_sequence, inbox.analysis_run_id,
+                           inbox.participant_source_type, inbox.participant_key, inbox.source_text, inbox.question_text,
+                           inbox.status, inbox.attempt_count, inbox.available_at, inbox.claimed_at, inbox.defer_reason,
                            inbox.last_error_code, inbox.last_error_description
                     FROM session_inbox inbox
                     JOIN agent_session session ON session.session_id = inbox.session_id
@@ -73,12 +72,17 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
                       AND inbox.available_at <= :now
                       AND NOT EXISTS (
                           SELECT 1
+                          FROM session_inbox processing
+                          WHERE processing.status = 'PROCESSING'
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1
                           FROM session_inbox earlier
                           WHERE earlier.session_id = inbox.session_id
                             AND earlier.session_sequence < inbox.session_sequence
                             AND earlier.status IN ('PENDING', 'PROCESSING')
                       )
-                    ORDER BY inbox.available_at, inbox.created_at, inbox.inbox_message_id
+                    ORDER BY inbox.available_at, inbox.created_at
                     FOR UPDATE SKIP LOCKED
                     LIMIT 1
                     """)
@@ -88,122 +92,99 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
             if (pendingHead.isEmpty()) {
                 return Optional.empty();
             }
-
-            InboxMessage pendingMessage = pendingHead.get();
+            InboxMessage message = pendingHead.get();
             int updatedRows = jdbcClient.sql("""
                     UPDATE session_inbox
                     SET status = 'PROCESSING',
-                        attempt_count = attempt_count + 1,
+                        attempt_count = attempt_count + CASE WHEN defer_reason = 'MODEL_CAPACITY' THEN 0 ELSE 1 END,
                         claimed_at = :claimedAt,
-                        updated_at = :updatedAt
+                        defer_reason = CASE WHEN defer_reason = 'MODEL_CAPACITY' THEN defer_reason ELSE NULL END,
+                        updated_at = :claimedAt
                     WHERE inbox_message_id = :inboxMessageId
                       AND status = 'PENDING'
                     """)
                     .param("claimedAt", Timestamp.from(now))
-                    .param("updatedAt", Timestamp.from(now))
-                    .param("inboxMessageId", pendingMessage.inboxMessageId().value())
+                    .param("inboxMessageId", message.inboxMessageId().value())
                     .update();
             requireSingleAffectedRow(updatedRows);
-            return Optional.of(new InboxMessage(
-                    pendingMessage.inboxMessageId(), pendingMessage.source(), pendingMessage.sourceMessageId(),
-                    pendingMessage.sessionId(), pendingMessage.sessionSequence(), pendingMessage.runId(),
-                    pendingMessage.exactQuestion(), InboxMessageStatus.PROCESSING, pendingMessage.attemptCount() + 1,
-                    pendingMessage.availableAt(), Optional.of(now), pendingMessage.lastFailure()));
+            int attemptCount = message.deferReason().isPresent()
+                    ? message.attemptCount()
+                    : Math.incrementExact(message.attemptCount());
+            InboxMessage claimed = new InboxMessage(
+                    message.inboxMessageId(), message.source(), message.sourceMessageId(), message.sessionId(),
+                    message.sessionSequence(), message.runId(), message.participant(), message.sourceText(), message.questionText(),
+                    InboxMessageStatus.PROCESSING, attemptCount, message.availableAt(), Optional.of(now),
+                    message.deferReason(), message.lastFailure());
+            return Optional.of(new InboxClaim(claimed));
         });
     }
 
     @Override
-    public void complete(InboxMessage claimedMessage, Instant completedAt) {
-        Objects.requireNonNull(claimedMessage, "claimed inbox message must not be null");
+    public void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt) {
+        Objects.requireNonNull(claim, "inbox claim must not be null");
+        Objects.requireNonNull(result, "answer question result must not be null");
         Objects.requireNonNull(completedAt, "completed timestamp must not be null");
-        requireProcessingClaim(claimedMessage);
+        requireResultRun(claim, result);
         executeInTransactionWithoutResult(() -> {
-            int updatedRows = jdbcClient.sql("""
-                    UPDATE session_inbox
-                    SET status = 'COMPLETED',
-                        claimed_at = NULL,
-                        last_error_code = NULL,
-                        last_error_description = NULL,
-                        updated_at = :completedAt
-                    WHERE inbox_message_id = :inboxMessageId
-                      AND analysis_run_id = :runId
-                      AND session_id = :sessionId
-                      AND status = 'PROCESSING'
-                      AND attempt_count = :attemptCount
-                    """)
-                    .param("completedAt", Timestamp.from(completedAt))
-                    .param("inboxMessageId", claimedMessage.inboxMessageId().value())
-                    .param("runId", claimedMessage.runId().value())
-                    .param("sessionId", claimedMessage.sessionId().value())
-                    .param("attemptCount", claimedMessage.attemptCount())
-                    .update();
-            requireSingleAffectedRow(updatedRows);
+            updateTerminalInbox(claim, InboxMessageStatus.COMPLETED, Optional.empty(), completedAt);
+            insertFinalResponse(claim.message(), result.responseKind(), result.outcome(), result.responseText(), completedAt);
         });
     }
 
     @Override
-    public void retry(InboxMessage claimedMessage, InboxFailure failure, Instant availableAt) {
-        Objects.requireNonNull(claimedMessage, "claimed inbox message must not be null");
+    public void failWithFinal(InboxClaim claim, InboxFailure failure, String safeResponseText, Instant failedAt) {
+        Objects.requireNonNull(claim, "inbox claim must not be null");
+        Objects.requireNonNull(failure, "inbox failure must not be null");
+        Objects.requireNonNull(safeResponseText, "safe response text must not be null");
+        Objects.requireNonNull(failedAt, "failed timestamp must not be null");
+        if (safeResponseText.isBlank()) {
+            throw new IllegalArgumentException("safe response text must not be blank");
+        }
+        executeInTransactionWithoutResult(() -> {
+            updateTerminalInbox(claim, InboxMessageStatus.FAILED, Optional.of(failure), failedAt);
+            insertFinalResponse(claim.message(), RunResponseKind.RUNTIME_NOTICE, RunOutcome.FAILED, safeResponseText, failedAt);
+        });
+    }
+
+    @Override
+    public void retry(InboxClaim claim, InboxFailure failure, Instant availableAt) {
+        Objects.requireNonNull(claim, "inbox claim must not be null");
         Objects.requireNonNull(failure, "inbox failure must not be null");
         Objects.requireNonNull(availableAt, "available timestamp must not be null");
-        requireProcessingClaim(claimedMessage);
-        executeInTransactionWithoutResult(() -> {
-            int updatedRows = jdbcClient.sql("""
-                    UPDATE session_inbox
-                    SET status = 'PENDING',
-                        claimed_at = NULL,
-                        available_at = :availableAt,
-                        last_error_code = :failureCode,
-                        last_error_description = :failureDescription,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE inbox_message_id = :inboxMessageId
-                      AND analysis_run_id = :runId
-                      AND session_id = :sessionId
-                      AND status = 'PROCESSING'
-                      AND attempt_count = :attemptCount
-                    """)
-                    .param("availableAt", Timestamp.from(availableAt))
-                    .param("failureCode", failure.code())
-                    .param("failureDescription", failure.description())
-                    .param("inboxMessageId", claimedMessage.inboxMessageId().value())
-                    .param("runId", claimedMessage.runId().value())
-                    .param("sessionId", claimedMessage.sessionId().value())
-                    .param("attemptCount", claimedMessage.attemptCount())
-                    .update();
-            requireSingleAffectedRow(updatedRows);
-        });
+        executeInTransactionWithoutResult(() -> updatePendingInbox(claim, failure, availableAt, Optional.empty()));
     }
 
     @Override
-    public void fail(InboxMessage claimedMessage, InboxFailure failure, Instant failedAt) {
-        Objects.requireNonNull(claimedMessage, "claimed inbox message must not be null");
-        Objects.requireNonNull(failure, "inbox failure must not be null");
-        Objects.requireNonNull(failedAt, "failed timestamp must not be null");
-        requireProcessingClaim(claimedMessage);
-        executeInTransactionWithoutResult(() -> {
-            int updatedRows = jdbcClient.sql("""
-                    UPDATE session_inbox
-                    SET status = 'FAILED',
-                        claimed_at = NULL,
-                        last_error_code = :failureCode,
-                        last_error_description = :failureDescription,
-                        updated_at = :failedAt
-                    WHERE inbox_message_id = :inboxMessageId
-                      AND analysis_run_id = :runId
-                      AND session_id = :sessionId
-                      AND status = 'PROCESSING'
-                      AND attempt_count = :attemptCount
-                    """)
-                    .param("failedAt", Timestamp.from(failedAt))
-                    .param("failureCode", failure.code())
-                    .param("failureDescription", failure.description())
-                    .param("inboxMessageId", claimedMessage.inboxMessageId().value())
-                    .param("runId", claimedMessage.runId().value())
-                    .param("sessionId", claimedMessage.sessionId().value())
-                    .param("attemptCount", claimedMessage.attemptCount())
-                    .update();
-            requireSingleAffectedRow(updatedRows);
-        });
+    public void deferForCapacity(InboxClaim claim, Instant retryAt) {
+        Objects.requireNonNull(claim, "inbox claim must not be null");
+        Objects.requireNonNull(retryAt, "capacity retry timestamp must not be null");
+        executeInTransactionWithoutResult(() -> updatePendingInbox(
+                claim, null, retryAt, Optional.of(InboxDeferReason.MODEL_CAPACITY)));
+    }
+
+    @Override
+    public boolean recoverClaim(InboxClaim claim, Instant recoveredAt) {
+        Objects.requireNonNull(claim, "inbox claim must not be null");
+        Objects.requireNonNull(recoveredAt, "claim recovery timestamp must not be null");
+        InboxMessage message = claim.message();
+        requireProcessingClaim(claim);
+        return executeInTransaction(() -> jdbcClient.sql("""
+                UPDATE session_inbox
+                SET status = 'PENDING', claimed_at = NULL, available_at = :recoveredAt, updated_at = :recoveredAt
+                WHERE inbox_message_id = :inboxMessageId
+                  AND analysis_run_id = :runId
+                  AND session_id = :sessionId
+                  AND status = 'PROCESSING'
+                  AND attempt_count = :attemptCount
+                  AND claimed_at = :claimedAt
+                """)
+                .param("recoveredAt", Timestamp.from(recoveredAt))
+                .param("inboxMessageId", message.inboxMessageId().value())
+                .param("runId", message.runId().value())
+                .param("sessionId", message.sessionId().value())
+                .param("attemptCount", message.attemptCount())
+                .param("claimedAt", Timestamp.from(message.claimedAt().orElseThrow()))
+                .update() == 1);
     }
 
     @Override
@@ -211,168 +192,163 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
         Objects.requireNonNull(recoveredAt, "recovery timestamp must not be null");
         return executeInTransaction(() -> jdbcClient.sql("""
                 UPDATE session_inbox
-                SET status = 'PENDING',
-                    claimed_at = NULL,
-                    available_at = :recoveredAt,
-                    updated_at = :recoveredAt
+                SET status = 'PENDING', claimed_at = NULL, available_at = :recoveredAt, updated_at = :recoveredAt
                 WHERE status = 'PROCESSING'
                 """)
                 .param("recoveredAt", Timestamp.from(recoveredAt))
                 .update());
     }
 
-    private InboxMessage enqueueWithinTransaction(InboxEnqueueRequest request) {
-        Optional<InboxMessage> existingMessage = findByDeduplicationKey(request);
-        if (existingMessage.isPresent()) {
-            return duplicateOrConflict(existingMessage.get(), request);
-        }
-
-        SessionId sessionId = resolveSessionId(request.source());
-        Long allocatedSequence = jdbcClient.sql("""
-                UPDATE agent_session
-                SET next_inbox_sequence = next_inbox_sequence + 1
-                WHERE session_id = :sessionId
-                RETURNING next_inbox_sequence - 1
+    private void updateTerminalInbox(
+            InboxClaim claim,
+            InboxMessageStatus status,
+            Optional<InboxFailure> failure,
+            Instant transitionedAt) {
+        InboxMessage message = claim.message();
+        requireProcessingClaim(claim);
+        int updatedRows = jdbcClient.sql("""
+                UPDATE session_inbox
+                SET status = :status, claimed_at = NULL, defer_reason = NULL,
+                    last_error_code = :failureCode, last_error_description = :failureDescription, updated_at = :transitionedAt
+                WHERE inbox_message_id = :inboxMessageId
+                  AND analysis_run_id = :runId
+                  AND session_id = :sessionId
+                  AND status = 'PROCESSING'
+                  AND attempt_count = :attemptCount
+                  AND claimed_at = :claimedAt
                 """)
-                .param("sessionId", sessionId.value())
-                .query(Long.class)
-                .single();
-        long sessionSequence = Objects.requireNonNull(allocatedSequence, "allocated inbox sequence must not be null");
-        InboxMessageId inboxMessageId = identityGenerator.nextInboxMessageId();
-        AnalysisRunId runId = identityGenerator.nextRunId();
+                .param("status", status.name())
+                .param("failureCode", failure.map(InboxFailure::code).orElse(null))
+                .param("failureDescription", failure.map(InboxFailure::description).orElse(null))
+                .param("transitionedAt", Timestamp.from(transitionedAt))
+                .param("inboxMessageId", message.inboxMessageId().value())
+                .param("runId", message.runId().value())
+                .param("sessionId", message.sessionId().value())
+                .param("attemptCount", message.attemptCount())
+                .param("claimedAt", Timestamp.from(message.claimedAt().orElseThrow()))
+                .update();
+        requireSingleAffectedRow(updatedRows);
+    }
+
+    private void updatePendingInbox(
+            InboxClaim claim,
+            InboxFailure failure,
+            Instant availableAt,
+            Optional<InboxDeferReason> deferReason) {
+        InboxMessage message = claim.message();
+        requireProcessingClaim(claim);
+        int updatedRows = jdbcClient.sql("""
+                UPDATE session_inbox
+                SET status = 'PENDING', claimed_at = NULL, available_at = :availableAt,
+                    defer_reason = :deferReason, last_error_code = :failureCode,
+                    last_error_description = :failureDescription, updated_at = :availableAt
+                WHERE inbox_message_id = :inboxMessageId
+                  AND analysis_run_id = :runId
+                  AND session_id = :sessionId
+                  AND status = 'PROCESSING'
+                  AND attempt_count = :attemptCount
+                  AND claimed_at = :claimedAt
+                """)
+                .param("availableAt", Timestamp.from(availableAt))
+                .param("deferReason", deferReason.map(Enum::name).orElse(null))
+                .param("failureCode", Optional.ofNullable(failure).map(InboxFailure::code).orElse(null))
+                .param("failureDescription", Optional.ofNullable(failure).map(InboxFailure::description).orElse(null))
+                .param("inboxMessageId", message.inboxMessageId().value())
+                .param("runId", message.runId().value())
+                .param("sessionId", message.sessionId().value())
+                .param("attemptCount", message.attemptCount())
+                .param("claimedAt", Timestamp.from(message.claimedAt().orElseThrow()))
+                .update();
+        requireSingleAffectedRow(updatedRows);
+    }
+
+    private void insertFinalResponse(
+            InboxMessage message,
+            RunResponseKind responseKind,
+            RunOutcome outcome,
+            String responseText,
+            Instant createdAt) {
+        ReceiptState receipt = lockReceipt(message.inboxMessageId());
+        FinalState finalState = finalState(receipt.status());
         int insertedRows = jdbcClient.sql("""
-                INSERT INTO session_inbox (
-                    inbox_message_id, source_type, source_message_id, session_id, session_sequence, analysis_run_id,
-                    exact_question, status, attempt_count, available_at, claimed_at, last_error_code,
-                    last_error_description, created_at, updated_at
+                INSERT INTO delivery_outbox (
+                    delivery_id, inbox_message_id, analysis_run_id, delivery_kind, response_kind, outcome,
+                    source_type, source_key, participant_source_type, participant_key, response_text,
+                    status, attempt_count, next_attempt_at, last_failure_category, last_failure_description,
+                    provider_message_id, created_at, updated_at
                 ) VALUES (
-                    :inboxMessageId, :sourceType, :sourceMessageId, :sessionId, :sessionSequence, :runId,
-                    :exactQuestion, 'PENDING', 0, CURRENT_TIMESTAMP, NULL, NULL, NULL, CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP
+                    :deliveryId, :inboxMessageId, :runId, 'FINAL_RESPONSE', :responseKind, :outcome,
+                    :sourceType, :sourceKey, :participantSourceType, :participantKey, :responseText,
+                    :status, 0, :createdAt, :failureCategory, :failureDescription,
+                    NULL, :createdAt, :createdAt
                 )
                 """)
-                .param("inboxMessageId", inboxMessageId.value())
-                .param("sourceType", request.source().sourceType())
-                .param("sourceMessageId", request.sourceMessageId().value())
-                .param("sessionId", sessionId.value())
-                .param("sessionSequence", sessionSequence)
-                .param("runId", runId.value())
-                .param("exactQuestion", request.exactQuestion())
+                .param("deliveryId", identityGenerator.nextDeliveryId())
+                .param("inboxMessageId", message.inboxMessageId().value())
+                .param("runId", message.runId().value())
+                .param("responseKind", responseKind.name())
+                .param("outcome", outcome.name())
+                .param("sourceType", message.source().sourceType())
+                .param("sourceKey", message.source().sourceKey())
+                .param("participantSourceType", message.participant().sourceType())
+                .param("participantKey", message.participant().participantKey())
+                .param("responseText", responseText)
+                .param("status", finalState.status().name())
+                .param("createdAt", Timestamp.from(createdAt))
+                .param("failureCategory", finalState.failure().map(DeliveryFailure::category).orElse(null))
+                .param("failureDescription", finalState.failure().map(DeliveryFailure::description).orElse(null))
                 .update();
         requireSingleAffectedRow(insertedRows);
-        return findByInboxMessageId(inboxMessageId)
-                .orElseThrow(JdbcPersistenceException::new);
     }
 
-    private SessionId resolveSessionId(SessionSourceRef source) {
-        Optional<String> existingSessionId = jdbcClient.sql("""
-                SELECT session_id
-                FROM agent_session
-                WHERE source_type = :sourceType
-                  AND source_key = :sourceKey
-                """)
-                .param("sourceType", source.sourceType())
-                .param("sourceKey", source.sourceKey())
-                .query(String.class)
-                .optional();
-        if (existingSessionId.isPresent()) {
-            return new SessionId(existingSessionId.get());
-        }
-
-        SessionId sessionId = identityGenerator.nextSessionId();
-        int insertedRows = jdbcClient.sql("""
-                INSERT INTO agent_session (
-                    session_id, source_type, source_key, next_inbox_sequence, next_turn_sequence, created_at
-                ) VALUES (
-                    :sessionId, :sourceType, :sourceKey, 0, 0, CURRENT_TIMESTAMP
-                )
-                """)
-                .param("sessionId", sessionId.value())
-                .param("sourceType", source.sourceType())
-                .param("sourceKey", source.sourceKey())
-                .update();
-        requireSingleAffectedRow(insertedRows);
-        return sessionId;
-    }
-
-    private InboxMessage resolveUniqueRace(InboxEnqueueRequest request, JdbcPersistenceException originalFailure) {
-        try {
-            Optional<InboxMessage> existingMessage = findByDeduplicationKey(request);
-            if (existingMessage.isPresent()) {
-                return duplicateOrConflict(existingMessage.get(), request);
-            }
-            return executeInTransaction(() -> enqueueWithinTransaction(request));
-        } catch (InboxPersistenceConflictException exception) {
-            throw exception;
-        } catch (JdbcPersistenceException exception) {
-            throw originalFailure;
-        }
-    }
-
-    private InboxMessage duplicateOrConflict(InboxMessage existingMessage, InboxEnqueueRequest request) {
-        if (existingMessage.source().equals(request.source())
-                && existingMessage.exactQuestion().equals(request.exactQuestion())) {
-            return existingMessage;
-        }
-        throw new InboxPersistenceConflictException();
-    }
-
-    private Optional<InboxMessage> findByDeduplicationKey(InboxEnqueueRequest request) {
-        try {
-            return jdbcClient.sql("""
-                    SELECT inbox.inbox_message_id, session.source_type, session.source_key, inbox.source_message_id,
-                           inbox.session_id, inbox.session_sequence, inbox.analysis_run_id, inbox.exact_question,
-                           inbox.status, inbox.attempt_count, inbox.available_at, inbox.claimed_at,
-                           inbox.last_error_code, inbox.last_error_description
-                    FROM session_inbox inbox
-                    JOIN agent_session session ON session.session_id = inbox.session_id
-                    WHERE inbox.source_type = :sourceType
-                      AND inbox.source_message_id = :sourceMessageId
-                    """)
-                    .param("sourceType", request.source().sourceType())
-                    .param("sourceMessageId", request.sourceMessageId().value())
-                    .query(this::mapInboxMessage)
-                    .optional();
-        } catch (DataAccessException exception) {
-            throw new JdbcPersistenceException();
-        }
-    }
-
-    private Optional<InboxMessage> findByInboxMessageId(InboxMessageId inboxMessageId) {
-        return jdbcClient.sql("""
-                SELECT inbox.inbox_message_id, session.source_type, session.source_key, inbox.source_message_id,
-                       inbox.session_id, inbox.session_sequence, inbox.analysis_run_id, inbox.exact_question,
-                       inbox.status, inbox.attempt_count, inbox.available_at, inbox.claimed_at,
-                       inbox.last_error_code, inbox.last_error_description
-                FROM session_inbox inbox
-                JOIN agent_session session ON session.session_id = inbox.session_id
-                WHERE inbox.inbox_message_id = :inboxMessageId
+    private ReceiptState lockReceipt(InboxMessageId inboxMessageId) {
+        Optional<ReceiptState> receipt = jdbcClient.sql("""
+                SELECT status
+                FROM delivery_outbox
+                WHERE inbox_message_id = :inboxMessageId
+                  AND delivery_kind = 'RECEIPT'
+                FOR UPDATE
                 """)
                 .param("inboxMessageId", inboxMessageId.value())
-                .query(this::mapInboxMessage)
+                .query((resultSet, rowNumber) -> new ReceiptState(
+                        DeliveryStatus.valueOf(resultSet.getString("status"))))
                 .optional();
+        return receipt.orElseThrow(InboxPersistenceConflictException::new);
+    }
+
+    private FinalState finalState(DeliveryStatus receiptStatus) {
+        return switch (receiptStatus) {
+            case DELIVERED -> new FinalState(DeliveryStatus.PENDING, Optional.empty());
+            case PENDING, PROCESSING, RETRY_SCHEDULED -> new FinalState(DeliveryStatus.WAITING_FOR_RECEIPT, Optional.empty());
+            case BLOCKED -> new FinalState(DeliveryStatus.BLOCKED, Optional.of(PREDECESSOR_BLOCKED));
+            case WAITING_FOR_RECEIPT -> throw new InboxPersistenceConflictException();
+        };
     }
 
     private InboxMessage mapInboxMessage(ResultSet resultSet, int rowNumber) throws SQLException {
         String failureCode = resultSet.getString("last_error_code");
         String failureDescription = resultSet.getString("last_error_description");
+        String deferReason = resultSet.getString("defer_reason");
         Optional<InboxFailure> lastFailure = Optional.ofNullable(failureCode)
                 .map(code -> new InboxFailure(code, failureDescription));
-        Optional<Instant> claimedAt = Optional.ofNullable(resultSet.getTimestamp("claimed_at"))
-                .map(Timestamp::toInstant);
+        Optional<Instant> claimedAt = Optional.ofNullable(resultSet.getTimestamp("claimed_at")).map(Timestamp::toInstant);
         return new InboxMessage(
                 new InboxMessageId(resultSet.getString("inbox_message_id")),
                 new SessionSourceRef(resultSet.getString("source_type"), resultSet.getString("source_key")),
                 new SourceMessageId(resultSet.getString("source_message_id")),
-                new SessionId(resultSet.getString("session_id")),
-                resultSet.getLong("session_sequence"),
+                new SessionId(resultSet.getString("session_id")), resultSet.getLong("session_sequence"),
                 new AnalysisRunId(resultSet.getString("analysis_run_id")),
-                resultSet.getString("exact_question"),
-                InboxMessageStatus.valueOf(resultSet.getString("status")),
-                resultSet.getInt("attempt_count"),
-                resultSet.getTimestamp("available_at").toInstant(),
-                claimedAt,
-                lastFailure);
+                new ParticipantRef(resultSet.getString("participant_source_type"), resultSet.getString("participant_key")),
+                resultSet.getString("source_text"), resultSet.getString("question_text"),
+                InboxMessageStatus.valueOf(resultSet.getString("status")), resultSet.getInt("attempt_count"),
+                resultSet.getTimestamp("available_at").toInstant(), claimedAt,
+                Optional.ofNullable(deferReason).map(InboxDeferReason::valueOf), lastFailure);
+    }
+
+    private void requireResultRun(InboxClaim claim, AnswerQuestionResult result) {
+        if (!claim.message().runId().equals(result.runId())) {
+            throw new InboxPersistenceConflictException();
+        }
     }
 
     private <T> T executeInTransaction(Supplier<T> operation) {
@@ -402,9 +378,16 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
         }
     }
 
-    private void requireProcessingClaim(InboxMessage claimedMessage) {
-        if (claimedMessage.status() != InboxMessageStatus.PROCESSING || claimedMessage.claimedAt().isEmpty()) {
+    private void requireProcessingClaim(InboxClaim claim) {
+        InboxMessage message = claim.message();
+        if (message.status() != InboxMessageStatus.PROCESSING || message.claimedAt().isEmpty()) {
             throw new InboxPersistenceConflictException();
         }
+    }
+
+    private record ReceiptState(DeliveryStatus status) {
+    }
+
+    private record FinalState(DeliveryStatus status, Optional<DeliveryFailure> failure) {
     }
 }

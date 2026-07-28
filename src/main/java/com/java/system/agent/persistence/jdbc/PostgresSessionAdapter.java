@@ -2,6 +2,7 @@ package com.java.system.agent.persistence.jdbc;
 
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
@@ -36,7 +37,7 @@ public final class PostgresSessionAdapter implements SessionPort {
         Objects.requireNonNull(sessionId, "session ID must not be null");
         try {
             List<ConversationTurn> turns = jdbcClient.sql("""
-                    SELECT run_id, user_message, assistant_message, turn_type
+                    SELECT run_id, participant_source_type, participant_key, user_message, assistant_message, turn_type
                     FROM session_turn
                     WHERE session_id = :sessionId
                     ORDER BY turn_sequence
@@ -92,14 +93,16 @@ public final class PostgresSessionAdapter implements SessionPort {
         }
         int insertedRows = jdbcClient.sql("""
                 INSERT INTO session_turn (
-                    session_id, run_id, turn_sequence, user_message, assistant_message, turn_type, created_at
+                    session_id, run_id, turn_sequence, participant_source_type, participant_key, user_message, assistant_message, turn_type, created_at
                 ) VALUES (
-                    :sessionId, :runId, :turnSequence, :userMessage, :assistantMessage, :turnType, CURRENT_TIMESTAMP
+                    :sessionId, :runId, :turnSequence, :participantSourceType, :participantKey, :userMessage, :assistantMessage, :turnType, CURRENT_TIMESTAMP
                 )
                 """)
                 .param("sessionId", sessionId.value())
                 .param("runId", turn.runId().value())
                 .param("turnSequence", allocatedSequence.orElseThrow())
+                .param("participantSourceType", turn.participant().sourceType())
+                .param("participantKey", turn.participant().participantKey())
                 .param("userMessage", turn.userMessage())
                 .param("assistantMessage", turn.assistantMessage())
                 .param("turnType", turn.type().name())
@@ -132,7 +135,7 @@ public final class PostgresSessionAdapter implements SessionPort {
 
     private Optional<ConversationTurn> findExistingTurn(SessionId sessionId, AnalysisRunId runId) {
         return jdbcClient.sql("""
-                SELECT run_id, user_message, assistant_message, turn_type
+                SELECT run_id, participant_source_type, participant_key, user_message, assistant_message, turn_type
                 FROM session_turn
                 WHERE session_id = :sessionId
                   AND run_id = :runId
@@ -146,6 +149,7 @@ public final class PostgresSessionAdapter implements SessionPort {
     private ConversationTurn mapTurn(ResultSet resultSet, int rowNumber) throws SQLException {
         return new ConversationTurn(
                 new AnalysisRunId(resultSet.getString("run_id")),
+                new ParticipantRef(resultSet.getString("participant_source_type"), resultSet.getString("participant_key")),
                 resultSet.getString("user_message"),
                 resultSet.getString("assistant_message"),
                 ConversationTurnType.valueOf(resultSet.getString("turn_type")));

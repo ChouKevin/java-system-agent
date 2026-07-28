@@ -3,6 +3,7 @@ package com.java.system.agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codebase.semantic.JavaSemanticServiceHttpAdapter;
 import com.java.system.agent.inbox.application.SessionInboxProcessor;
+import com.java.system.agent.inbox.port.in.AcceptSourceEventUseCase;
 import com.java.system.agent.runtime.port.in.AnswerQuestionUseCase;
 import com.java.system.agent.runtime.port.out.AgentActionPort;
 import com.java.system.agent.runtime.port.out.AnswerVerificationPort;
@@ -18,6 +19,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClient;
 import org.flywaydb.core.Flyway;
@@ -37,7 +39,7 @@ class AgentRuntimeConfigurationTest {
             .withBean(DataSource.class, () -> mock(DataSource.class))
             .withBean(Flyway.class, () -> mock(Flyway.class))
             .withBean(JdbcClient.class, () -> mock(JdbcClient.class))
-            .withBean(TransactionTemplate.class, () -> mock(TransactionTemplate.class))
+            .withBean(TransactionTemplate.class, () -> new TransactionTemplate(new DataSourceTransactionManager(mock(DataSource.class))))
             .withPropertyValues(
                     "spring.profiles.active=test-infrastructure",
                     "spring.ai.model.chat=none",
@@ -53,6 +55,7 @@ class AgentRuntimeConfigurationTest {
         contextRunner.run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBeansOfType(AnswerQuestionUseCase.class)).isEmpty();
+            assertThat(context.getBeansOfType(AcceptSourceEventUseCase.class)).isEmpty();
             assertThat(context.getBeansOfType(SessionInboxProcessor.class)).isEmpty();
             assertThat(context.getBeansOfType(AgentActionPort.class)).isEmpty();
             assertThat(context.getBeansOfType(AnswerVerificationPort.class)).isEmpty();
@@ -81,6 +84,7 @@ class AgentRuntimeConfigurationTest {
         contextRunner.withPropertyValues("spring.profiles.active=agent-runtime,test-infrastructure").run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBeansOfType(AnswerQuestionUseCase.class)).hasSize(1);
+            assertThat(context.getBeansOfType(AcceptSourceEventUseCase.class)).hasSize(1);
             assertThat(context.getBeansOfType(SessionInboxProcessor.class)).hasSize(1);
             assertThat(context.getBeansOfType(AgentActionPort.class)).hasSize(1);
             assertThat(context.getBeansOfType(AnswerVerificationPort.class)).hasSize(1);
@@ -145,7 +149,7 @@ class AgentRuntimeConfigurationTest {
                 .withBean(DataSource.class, () -> mock(DataSource.class))
                 .withBean(Flyway.class, () -> mock(Flyway.class))
                 .withBean(JdbcClient.class, () -> mock(JdbcClient.class))
-                .withBean(TransactionTemplate.class, () -> mock(TransactionTemplate.class))
+                .withBean(TransactionTemplate.class, () -> new TransactionTemplate(new DataSourceTransactionManager(mock(DataSource.class))))
                 .withPropertyValues(
                         "spring.profiles.active=agent-runtime,no-chat-model-test",
                         "spring.ai.model.chat=none",

@@ -6,6 +6,7 @@ import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
@@ -42,11 +43,13 @@ class AnalysisApplicationServiceTest {
         AnswerQuestionCommand command = new AnswerQuestionCommand(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                participant(),
                 "  How does it work?  ",
                 new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         AgentLoopRequest expectedRequest = new AgentLoopRequest(
-                command.runId(), command.sessionId(), command.question(), command.budget());
+                command.runId(), command.sessionId(), command.participant(), command.question(), command.budget(),
+                command.executionMode(), command.executionAttempt());
         when(loop.execute(expectedRequest)).thenReturn(loopResult);
 
         AnswerQuestionResult result = service.answer(command);
@@ -69,10 +72,12 @@ class AnalysisApplicationServiceTest {
         AnswerQuestionCommand command = new AnswerQuestionCommand(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                participant(),
                 "How does it work?",
                 new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
         AgentLoopRequest expectedRequest = new AgentLoopRequest(
-                command.runId(), command.sessionId(), command.question(), command.budget());
+                command.runId(), command.sessionId(), command.participant(), command.question(), command.budget(),
+                command.executionMode(), command.executionAttempt());
         AgentLoopResult mismatchedResult = new AgentLoopResult(
                 new AnalysisRunId("run-2"),
                 RunOutcome.COMPLETED,
@@ -92,5 +97,9 @@ class AnalysisApplicationServiceTest {
     private AnswerDocument document(String text) {
         return new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.QUESTION, text, Optional.empty(), Set.of(), Set.of())));
+    }
+
+    private ParticipantRef participant() {
+        return new ParticipantRef("test", "participant-1");
     }
 }

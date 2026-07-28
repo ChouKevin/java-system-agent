@@ -10,6 +10,7 @@ import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
 import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
@@ -24,12 +25,15 @@ import com.java.system.agent.runtime.domain.observation.ObservationId;
 import com.java.system.agent.runtime.domain.observation.ObservationSource;
 import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferralReason;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
 import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
 import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -39,6 +43,7 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 
 import java.util.List;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -162,6 +167,17 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
+    void preservesAnExternalExecutionDeferralWithoutVerifierClassification() {
+        ExternalExecutionDeferredException deferral = new ExternalExecutionDeferredException(
+                new ExecutionDeferral(Instant.parse("2026-07-28T01:02:03Z"), ExecutionDeferralReason.RATE_LIMITED));
+        CountingChatModel model = new CountingChatModel(deferral);
+        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+
+        assertThatThrownBy(() -> adapter.verify(AnswerVerificationMode.LLM, context())).isSameAs(deferral);
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
     void rendersOnlyVerifierContextWithoutActionControlTerms() {
         String prompt = new AnswerVerificationPromptRenderer().render(context(), "response-schema");
 
@@ -176,7 +192,7 @@ class AnswerVerificationAdapterTest {
     void rendersStatementReferencesAndGlobalVerifierContextInDeterministicOrder() {
         String prompt = new AnswerVerificationPromptRenderer().render(richContext(), "response-schema");
 
-        assertThat(prompt).contains("user: Earlier question", "assistant: Earlier answer");
+        assertThat(prompt).contains("participant[test:participant-1]: Earlier question", "assistant: Earlier answer");
         assertThat(prompt).contains("statement-b [FACT]: Second fact", "claimId: claim-b",
                 "citationHandles: evidence-a, evidence-b", "observationIds: observation-a, observation-b");
         assertThat(prompt).contains("statement-a [FACT]: First fact", "claimId: claim-a",
@@ -249,7 +265,7 @@ class AnswerVerificationAdapterTest {
         IssuedEvidence issuedEvidenceA = new IssuedEvidence(evidenceA, evidence(repositoryId, revision, "Evidence A", "digest-a"));
         AgentObservation observationValueB = observation(observationB, evidenceB, "Observation B");
         AgentObservation observationValueA = observation(observationA, evidenceA, "Observation A");
-        SessionHistory history = new SessionHistory(List.of(new ConversationTurn(runId, "Earlier question", "Earlier answer",
+        SessionHistory history = new SessionHistory(List.of(new ConversationTurn(runId, new ParticipantRef("test", "participant-1"), "Earlier question", "Earlier answer",
                 ConversationTurnType.ANSWER)));
         return new AnswerVerificationContext("What is known?", history, document,
                 List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA),

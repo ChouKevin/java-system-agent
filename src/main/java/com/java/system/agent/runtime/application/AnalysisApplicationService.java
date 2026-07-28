@@ -21,7 +21,7 @@ public final class AnalysisApplicationService implements AnswerQuestionUseCase {
     public AnswerQuestionResult answer(AnswerQuestionCommand command) {
         Objects.requireNonNull(command, "answer question command must not be null");
         AgentLoopRequest request = new AgentLoopRequest(
-                command.runId(), command.sessionId(), command.question(), command.budget(),
+                command.runId(), command.sessionId(), command.participant(), command.question(), command.budget(),
                 command.executionMode(), command.executionAttempt());
         AgentLoopResult result = Objects.requireNonNull(
                 loop.execute(request), "validated agent loop must return a result");

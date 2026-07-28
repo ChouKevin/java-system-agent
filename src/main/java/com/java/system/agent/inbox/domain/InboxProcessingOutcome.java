@@ -5,6 +5,7 @@ package com.java.system.agent.inbox.domain;
  */
 public enum InboxProcessingOutcome {
     COMPLETED,
+    CAPACITY_DEFERRED,
     RETRY_SCHEDULED,
     FAILED
 }

@@ -10,25 +10,29 @@ aggregator or shared Java library.
 
 ## Current Status
 
-The root Agent has a production composition graph when the `agent-runtime` profile is active. It
-does **not** yet provide an HTTP controller, Slack ingress, listener, consumer, scheduler, worker,
-or Slack response-delivery adapter. A manual driver or another external component must call the
-Java inbound contracts and invoke inbox processing; enabling the profile alone does not create a
-background worker.
+The root Agent has a production composition graph when the `agent-runtime` profile is active.
+That profile remains manually drivable: it starts no background work, so a caller must invoke its
+Java inbound contracts. The `slack-agent` profile includes `agent-runtime` and adds mention-only
+Slack Socket Mode admission, one Agent inbox worker, and one Slack-delivery worker.
 
-The composed M2 flow provides:
+The composed M3 flow provides:
 
 - a framework-free validated loop whose model proposes exactly one `QUERY`, `ANSWER`, or `CLARIFY`
 - deterministic validation of issued handles, schemas, revisions, budgets, cancellation, evidence,
   citations, and answer verdicts
-- a durable inbox that maps a source thread to one opaque `SessionId` and a source message to one
+- durable-before-ACK Socket Mode admission that canonicalizes source identity, detects payload
+  conflicts, maps a source thread to one opaque `SessionId`, and keeps a source message on one
   stable `AnalysisRunId`
-- ordered processing within one session, while different sessions remain independently claimable
-- startup recovery of interrupted `PROCESSING` messages and a bounded three-attempt infrastructure
-  retry policy
+- one immediate receipt outbox message per accepted source event, followed by a final-response
+  outbox message; Slack transport is at-least-once from this application's perspective
+- participant-aware, append-only session history; global single inbox claiming with same-session
+  ordering
+- startup recovery of interrupted inbox/delivery claims, typed model-capacity deferral, a bounded
+  three-attempt infrastructure retry policy, and terminal reconciliation
 - append-only Agent events, an atomic current-state snapshot, and append-only accepted session turns
 - versioned JSON codecs that reject unknown or malformed persistence documents
-- PostgreSQL adapters for inbox, Agent transitions, cancellation, and session history
+- PostgreSQL adapters for source admission, inbox, Agent transitions, cancellation, session history,
+  and delivery outbox durability
 - Spring AI action planning and answer-verification adapters, including a contract-only verifier
 - HTTP repository catalog/revision and five Java Semantic Service capability adapters
 
@@ -42,26 +46,32 @@ language and structured context: observations, evidence, warnings, candidate des
 model's explicit explanation. The runtime does not truncate, summarize, delete, reorder, or rewrite
 conversation or model-selected candidates.
 
-## Durable Session Flow
+## Durable Slack Flow
 
 ```text
-source message
-  -> enqueue: resolve/create opaque session, deduplicate source message, allocate stable run
-  -> claim: select an eligible session head
+supported Slack app_mention
+  -> normalize and durably admit canonical source event
+  -> atomically create inbox row and receipt-delivery outbox row
+  -> ACK Socket Mode only after durable admission
+  -> delivery worker sends receipt
+  -> inbox worker globally claims an eligible session head
   -> validated Agent loop: propose, validate, query/answer/clarify, reduce
   -> atomically append Agent event and replace current snapshot
-  -> append one immutable accepted session turn
-  -> complete inbox message
+  -> append participant-aware immutable accepted session turn
+  -> complete inbox and create final-delivery outbox row
+  -> delivery worker sends final response after its receipt
 ```
 
-Messages in the same session cannot pass an earlier `PENDING` or `PROCESSING` message. A failed
+The single-process deployment uses a PostgreSQL global inbox claim gate; messages in the same session
+cannot pass an earlier `PENDING` or `PROCESSING` message. A typed model-capacity deferral returns the
+message to `PENDING` at the supplied retry time without consuming another external attempt. A failed
 infrastructure attempt returns the same message to `PENDING` with backoff. After three external
-attempts, the inbox schedules a fourth terminal-reconciliation claim. On startup,
-interrupted `PROCESSING` rows can be returned to `PENDING` without changing their session, run ID,
-question, sequence, or attempt count. Attempts two and three may restart a nonterminal Agent attempt
-through reducer events and freshly issued context. If no run state was persisted yet, the inbox
-attempt seeds the initial Agent attempt sequence. After bootstrap, that sequence is persisted in run
-state and advances only through reducer events, including revision-driven restarts.
+attempts, the inbox schedules a fourth terminal-reconciliation claim. On startup, interrupted
+inbox and delivery claims can be returned to `PENDING` without changing durable identity. Attempts
+two and three may restart a nonterminal Agent attempt through reducer events and freshly issued
+context. If no run state was persisted yet, the inbox attempt seeds the initial Agent attempt
+sequence. After bootstrap, that sequence is persisted in run state and advances only through reducer
+events, including revision-driven restarts.
 A recovered claim beyond the configured ceiling
 is terminal-reconciliation-only: it may finish an already durable terminal result, but it cannot
 call the model, semantic provider, or verifier again. A safely persisted nonterminal run concludes
@@ -73,9 +83,11 @@ If the process stops between those boundaries, retry uses the same run ID: persi
 prevents another model action, and the immutable `(sessionId, runId)` turn append becomes a no-op
 when its content is identical.
 
-These guarantees target the approved single-machine lifecycle. PostgreSQL transactions protect the
-implemented atomic boundaries, but the Agent does not claim distributed worker ownership, leases,
-or cross-machine coordination.
+Receipt delivery is a predecessor of final delivery. The `slack-agent` `SmartLifecycle` manager
+recovers interrupted work before starting its two fixed-delay polling loops; on shutdown it first
+closes claim admission, then waits for the configured grace period. These guarantees target one
+machine and one process. PostgreSQL transactions protect implemented atomic boundaries, but the
+Agent does not claim distributed ownership, leases, or cross-machine coordination.
 
 When an answer is accepted in `contract-only` mode, it is a `COMPLETED` answer and the inbound
 `AnswerQuestionResult` retains `responseKind=ANSWER` and
@@ -95,9 +107,12 @@ src/main/java/com/java/system/agent/
   model/         Spring AI action and answer-verification adapters
   Agent*Configuration.java
                  profile-gated root composition and replaceable infrastructure
+  slack/         Socket Mode source normalization and Slack delivery transport
+  worker/        inbox and delivery SmartLifecycle polling
 
 src/main/resources/db/migration/
   V1__create_agent_session_inbox_and_trace.sql
+  V2__create_slack_source_and_delivery_lifecycle.sql
 
 java-semantic-service/
   pom.xml        independent semantic service build
@@ -113,8 +128,8 @@ event. The root configuration is the privileged composition boundary.
 
 ## Running the Production Composition
 
-Activate `agent-runtime` only when a driver will use the Java contracts and the required external
-services are available:
+Activate `agent-runtime` only when a manual driver will use the Java contracts and the required
+external services are available. It creates no Socket Mode connection or background worker:
 
 ```bash
 export SPRING_PROFILES_ACTIVE=agent-runtime
@@ -126,6 +141,23 @@ export GOOGLE_GENAI_MODEL=gemini-3.1-flash-lite
 export CODEBASE_SERVICE_BASE_URL=http://localhost:8081
 export CODEBASE_SERVICE_API_TOKEN=...
 export AGENT_ANSWER_VERIFICATION_MODE=llm  # or contract-only
+```
+
+To run the Slack integration, activate `slack-agent`; its profile group also activates
+`agent-runtime`. Slack requires an app-level Socket Mode token and a bot token, plus the bot user ID
+unless `auth.test` can resolve it at startup:
+
+```bash
+export SPRING_PROFILES_ACTIVE=slack-agent
+export SLACK_APP_TOKEN=xapp-...
+export SLACK_BOT_TOKEN=xoxb-...
+export SLACK_BOT_USER_ID=U...  # optional when Slack auth.test is available
+export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/agent
+export SPRING_DATASOURCE_USERNAME=agent
+export SPRING_DATASOURCE_PASSWORD=secret
+export GOOGLE_API_KEY=...
+export CODEBASE_SERVICE_BASE_URL=http://localhost:8081
+export CODEBASE_SERVICE_API_TOKEN=...
 ```
 
 With the profile off, the Agent persistence composition does not create or access a database. With
@@ -148,9 +180,8 @@ model may make more than one `QUERY`, so actual calls can be higher.
 For planning only, one Gemini envelope is 15 RPM, 250,000 input TPM, and 500–1,500 RPD. These
 numbers are project/model/tier-specific, are not guaranteed, and active limits in AI Studio are
 authoritative; see the [Gemini rate-limit documentation](https://ai.google.dev/gemini-api/docs/rate-limits).
-A single question can consume several requests, so a manual driver should serialize and throttle
-work. A Gemini HTTP 429 is not immediately retried inside the model adapter or loop: the error
-propagates outward and the durable inbox retry/backoff policy handles the retry.
+A single question can consume several requests. A provider capacity signal produces a typed inbox
+deferral; other transient infrastructure failures use the durable retry/backoff policy.
 
 ## Build and Test
 
@@ -160,12 +191,16 @@ Run the normal root suite without Docker:
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml clean test
 ```
 
-Run the focused module-boundary checks:
+Run the focused module-boundary and Slack lifecycle checks:
 
 ```bash
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml test \
   -Dtest=ApplicationModularityTests,RuntimeKernelArchitectureTest,InboxModuleArchitectureTest,PersistenceModuleArchitectureTest
 ```
+
+The normal suite covers Socket Mode admission, source/inbox/delivery contracts through lightweight
+fakes, and `SmartLifecycle` worker recovery and shutdown without requiring Docker or a live Slack
+workspace. The PostgreSQL profile below verifies the real database boundaries.
 
 Run PostgreSQL migrations and adapter integration tests through Testcontainers:
 
@@ -189,7 +224,7 @@ include Java semantic analysis, API reads, and log queries.
 
 An action that can modify external state must not be disguised as `QUERY`. It requires a deliberate
 future `EXECUTE` contract with authorization, approval, idempotency, side-effect audit, and
-result-reconciliation rules. M2 implements no such action.
+result-reconciliation rules. M3 implements no such action.
 
 ## Business Knowledge
 

@@ -1,6 +1,7 @@
 package com.java.system.agent.runtime.application;
 
 import com.java.system.agent.runtime.domain.conversation.SessionId;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
@@ -13,6 +14,7 @@ import java.util.Objects;
 public record AgentLoopRequest(
         AnalysisRunId runId,
         SessionId sessionId,
+        ParticipantRef participant,
         String question,
         AttemptBudget budget,
         AnswerExecutionMode executionMode,
@@ -21,14 +23,16 @@ public record AgentLoopRequest(
     public AgentLoopRequest(
             AnalysisRunId runId,
             SessionId sessionId,
+            ParticipantRef participant,
             String question,
             AttemptBudget budget) {
-        this(runId, sessionId, question, budget, AnswerExecutionMode.INITIAL, 1);
+        this(runId, sessionId, participant, question, budget, AnswerExecutionMode.INITIAL, 1);
     }
 
     public AgentLoopRequest {
         Objects.requireNonNull(runId, "analysis run ID must not be null");
         Objects.requireNonNull(sessionId, "session ID must not be null");
+        Objects.requireNonNull(participant, "agent loop participant must not be null");
         Objects.requireNonNull(question, "agent loop question must not be null");
         Objects.requireNonNull(budget, "agent loop budget must not be null");
         Objects.requireNonNull(executionMode, "agent loop execution mode must not be null");

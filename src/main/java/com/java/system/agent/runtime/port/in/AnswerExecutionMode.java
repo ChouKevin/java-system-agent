@@ -6,6 +6,7 @@ package com.java.system.agent.runtime.port.in;
 public enum AnswerExecutionMode {
     INITIAL,
     RETRY,
+    CAPACITY_RESUME,
     TERMINAL_RECONCILIATION;
 
     /**
@@ -18,7 +19,7 @@ public enum AnswerExecutionMode {
         if (this == INITIAL && executionAttempt != 1) {
             throw new IllegalArgumentException("initial answer execution requires attempt one");
         }
-        if (this != INITIAL && executionAttempt == 1) {
+        if ((this == RETRY || this == TERMINAL_RECONCILIATION) && executionAttempt == 1) {
             throw new IllegalArgumentException("answer recovery execution requires an attempt after one");
         }
     }

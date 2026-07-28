@@ -26,6 +26,8 @@ codebase/       Java Semantic Service HTTP adapter and read-only executors
 model/          Spring AI action and answer-verification adapters
 Agent*Configuration.java
                 `agent-runtime` composition, properties, and replaceable infrastructure
+slack/           Socket Mode source normalization and Slack delivery transport
+worker/          profile-gated inbox and delivery lifecycle polling
 ```
 
 `runtime.domain` groups immutable action-loop values. `ValidatedAgentLoop` is the only lifecycle
@@ -42,10 +44,11 @@ capability executor SPI; `model` has the same runtime-only dependencies as `capa
 
 ## Current State
 
-M2 has a production composition graph behind the `agent-runtime` profile. It wires Spring AI action
+M3 has a production composition graph behind the `agent-runtime` profile. It wires Spring AI action
 planning and verification, the Java Semantic Service HTTP adapter, the built-in capability catalog
-and dispatchers, HTTP repository catalog/revision, PostgreSQL inbox/session/transition/cancellation
-adapters, and `AnalysisApplicationService` / `SessionInboxProcessor`.
+and dispatchers, HTTP repository catalog/revision, PostgreSQL durability, and the inbound Agent
+contracts. The `slack-agent` profile includes `agent-runtime` and adds Socket Mode source admission,
+one Agent worker, and one Slack-delivery worker.
 
 - When `agent-runtime` is inactive, the Agent persistence composition creates and accesses no
   `DataSource`, Flyway, `JdbcClient`, or `TransactionTemplate`; this does not constrain unrelated
@@ -53,9 +56,12 @@ adapters, and `AnalysisApplicationService` / `SessionInboxProcessor`.
 - When active, the default persistence boundary is project-owned unpooled
   `DriverManagerDataSource` plus Flyway; hosts can replace `DataSource`, Flyway, `JdbcClient`, or
   `TransactionTemplate` beans.
-- There is still no ingress: no HTTP controller, Slack listener, MQ consumer, scheduler, worker,
-  or Slack response delivery. An external/manual driver must call inbound Java contracts and drive
-  inbox processing.
+- `agent-runtime` remains manually drivable and starts no background work. `slack-agent` admits
+  supported `app_mention` events through Socket Mode, then starts exactly one inbox polling loop
+  and one delivery polling loop through `SmartLifecycle`.
+- PostgreSQL durably owns source admission, inbox rows, Agent state/events, append-only session
+  history, and receipt/final delivery outbox rows. Slack transport is at-least-once from this
+  application's perspective; the deployment contract remains one machine and one process.
 - Capability execution is read-only. The five built-ins are list entry points, lookup/suggest API
   routes, and outgoing/incoming call graphs. Do not infer an external-state mutation contract.
 
@@ -72,8 +78,10 @@ The durable session lifecycle is also current:
 
 - A source thread maps to one opaque `SessionId`; each accepted source message keeps one stable
   `AnalysisRunId` across retries and restart recovery.
-- The inbox preserves exact questions and source-message deduplication. Same-session messages execute
-  in sequence; different sessions remain independently claimable.
+- Durable source admission canonicalizes source identity, detects replay-payload conflicts, creates
+  the inbox row and immediate receipt outbox entry atomically, and preserves the exact question and
+  participant. Same-session messages execute in sequence; a PostgreSQL global claim gate permits
+  one inbox claim at a time.
 - Startup recovery returns interrupted `PROCESSING` rows to `PENDING` without changing identity or
   attempt count. Infrastructure failures use bounded retry; after three external attempts the inbox
   schedules a fourth terminal-reconciliation claim.
@@ -87,6 +95,10 @@ The durable session lifecycle is also current:
   or reconciliation failure.
 - A persisted pending answer-verification checkpoint resumes by calling only the verifier; it does
   not re-plan or re-execute a capability. Verifier unavailability is an inbox retry/backoff failure.
+- Typed model-capacity deferral returns a claimed inbox row to `PENDING` for a later capacity resume
+  without consuming another external attempt. Receipt delivery precedes final delivery; interrupted
+  inbox and delivery claims are recovered before workers begin polling, and shutdown stops new
+  claims before awaiting the configured grace period.
 - Agent event append and current-state replacement are one transaction. State/event JSON is
   versioned and decoded fail-closed. Accepted session turns are immutable and idempotent by
   `(sessionId, runId)`.

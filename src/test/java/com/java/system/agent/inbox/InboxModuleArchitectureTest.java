@@ -17,6 +17,17 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 class InboxModuleArchitectureTest {
 
     @ArchTest
+    static final ArchRule SOURCE_ADMISSION_AND_DELIVERY_CONTRACTS_REMAIN_IN_EXPOSED_INBOX_PACKAGES = classes()
+            .that().haveFullyQualifiedName("com.java.system.agent.inbox.domain.NormalizedSourceEvent")
+            .or().haveFullyQualifiedName("com.java.system.agent.inbox.domain.SourceAcceptance")
+            .or().haveFullyQualifiedName("com.java.system.agent.inbox.domain.delivery.DeliveryMessage")
+            .or().haveFullyQualifiedName("com.java.system.agent.inbox.port.in.AcceptSourceEventUseCase")
+            .or().haveFullyQualifiedName("com.java.system.agent.inbox.port.out.SourceAcceptancePort")
+            .or().haveFullyQualifiedName("com.java.system.agent.inbox.port.out.DeliveryOutboxPort")
+            .or().haveFullyQualifiedName("com.java.system.agent.inbox.port.out.DeliveryTransportPort")
+            .should().resideInAnyPackage("..inbox.domain..", "..inbox.port.in..", "..inbox.port.out..");
+
+    @ArchTest
     static final ArchRule DOMAIN_DEPENDS_ONLY_ON_JDK_INBOX_DOMAIN_AND_RUNTIME_DOMAIN = classes()
             .that().resideInAPackage("..inbox.domain..")
             .and().doNotHaveSimpleName("package-info")

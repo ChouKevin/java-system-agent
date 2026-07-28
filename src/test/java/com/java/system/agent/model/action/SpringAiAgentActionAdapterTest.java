@@ -21,6 +21,8 @@ import com.java.system.agent.runtime.domain.handle.HandleBinding;
 import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferralReason;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
@@ -32,6 +34,7 @@ import com.java.system.agent.runtime.domain.observation.ObservationSource;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentActionTransportException;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
+import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.ai.chat.client.ChatClient;
@@ -43,6 +46,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -174,6 +178,17 @@ class SpringAiAgentActionAdapterTest {
         assertThatThrownBy(() -> adapter.nextAction(context()))
                 .isInstanceOf(AgentActionTransportException.class)
                 .hasMessage("RATE_LIMITED");
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void preservesAnExternalExecutionDeferralWithoutTransportClassification() {
+        ExternalExecutionDeferredException deferral = new ExternalExecutionDeferredException(
+                new ExecutionDeferral(Instant.parse("2026-07-28T01:02:03Z"), ExecutionDeferralReason.RATE_LIMITED));
+        CountingChatModel model = new CountingChatModel(deferral);
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build());
+
+        assertThatThrownBy(() -> adapter.nextAction(context())).isSameAs(deferral);
         assertThat(model.calls()).isEqualTo(1);
     }
 

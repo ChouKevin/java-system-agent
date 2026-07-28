@@ -26,4 +26,14 @@ public final class UuidInboxIdentityGenerator implements InboxIdentityGenerator 
     public AnalysisRunId nextRunId() {
         return new AnalysisRunId(UUID.randomUUID().toString());
     }
+
+    @Override
+    public String nextDeliveryId() {
+        return UUID.randomUUID().toString();
+    }
+
+    @Override
+    public String nextConflictId() {
+        return UUID.randomUUID().toString();
+    }
 }

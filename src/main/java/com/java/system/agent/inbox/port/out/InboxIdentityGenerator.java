@@ -14,4 +14,8 @@ public interface InboxIdentityGenerator {
     SessionId nextSessionId();
 
     AnalysisRunId nextRunId();
+
+    String nextDeliveryId();
+
+    String nextConflictId();
 }

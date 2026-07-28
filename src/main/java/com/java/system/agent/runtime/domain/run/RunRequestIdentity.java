@@ -1,16 +1,19 @@
 package com.java.system.agent.runtime.domain.run;
 
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
+
 import java.util.Objects;
 
 /**
  * Agent Run 持久化擁有的不可變 session 與問題識別
  */
-public record RunRequestIdentity(String sessionIdValue, String exactQuestion) {
+public record RunRequestIdentity(String sessionIdValue, ParticipantRef participant, String questionText) {
 
     public RunRequestIdentity {
         Objects.requireNonNull(sessionIdValue, "run session ID value must not be null");
-        Objects.requireNonNull(exactQuestion, "run exact question must not be null");
-        if (sessionIdValue.isBlank() || exactQuestion.isBlank()) {
+        Objects.requireNonNull(participant, "run participant must not be null");
+        Objects.requireNonNull(questionText, "run question text must not be null");
+        if (sessionIdValue.isBlank() || questionText.isBlank()) {
             throw new IllegalArgumentException("run request identity values must not be blank");
         }
     }

@@ -10,6 +10,7 @@ import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AgentEvent;
@@ -23,6 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AgentEventPayloadTest {
+
+    private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
 
     @Test
     void should_preserve_nonblank_rejection_description_and_invalidation_reason_exactly() {
@@ -50,7 +53,7 @@ class AgentEventPayloadTest {
 
         assertThatThrownBy(() -> new AgentEvent.AnswerAccepted(runId, attemptId, 0,
                 document(), AnswerAcceptance.llm(rejected), new SessionId("session-1"),
-                new ConversationTurn(runId, "question", "answer", ConversationTurnType.ANSWER), true))
+                new ConversationTurn(runId, PARTICIPANT, "question", "answer", ConversationTurnType.ANSWER), true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("accepted");
     }

@@ -1,6 +1,7 @@
 package com.java.system.agent.runtime.port.in;
 
 import com.java.system.agent.runtime.domain.conversation.SessionId;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 
@@ -12,6 +13,7 @@ import java.util.Objects;
 public record AnswerQuestionCommand(
         AnalysisRunId runId,
         SessionId sessionId,
+        ParticipantRef participant,
         String question,
         AttemptBudget budget,
         AnswerExecutionMode executionMode,
@@ -20,14 +22,16 @@ public record AnswerQuestionCommand(
     public AnswerQuestionCommand(
             AnalysisRunId runId,
             SessionId sessionId,
+            ParticipantRef participant,
             String question,
             AttemptBudget budget) {
-        this(runId, sessionId, question, budget, AnswerExecutionMode.INITIAL, 1);
+        this(runId, sessionId, participant, question, budget, AnswerExecutionMode.INITIAL, 1);
     }
 
     public AnswerQuestionCommand {
         Objects.requireNonNull(runId, "analysis run ID must not be null");
         Objects.requireNonNull(sessionId, "session ID must not be null");
+        Objects.requireNonNull(participant, "participant must not be null");
         Objects.requireNonNull(question, "question must not be null");
         Objects.requireNonNull(budget, "analysis attempt budget must not be null");
         Objects.requireNonNull(executionMode, "answer execution mode must not be null");

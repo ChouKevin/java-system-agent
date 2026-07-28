@@ -30,13 +30,18 @@ class ApplicationModularityTests {
     private static final DescribedPredicate<JavaClass> PRIVILEGED_BOOTSTRAP_TYPES =
             JavaClass.Predicates.belongToAnyOf(
                     AgentCapabilityConfiguration.class,
+                    AgentObservabilityConfiguration.class,
                     AgentCodebaseConfiguration.class,
                     AgentCodebaseProperties.class,
                     AgentModelConfiguration.class,
+                    AgentModelRateLimitProperties.class,
                     AgentPersistenceConfiguration.class,
                     AgentDatabaseProperties.class,
                     AgentRuntimeConfiguration.class,
-                    AgentRuntimeProperties.class);
+                    AgentRuntimeProperties.class,
+                    AgentWorkerProperties.class,
+                    SlackAgentConfiguration.class,
+                    SlackAgentProperties.class);
 
     private final ApplicationModules modules = ApplicationModules.of(Application.class, PRIVILEGED_BOOTSTRAP_TYPES);
 
@@ -53,8 +58,8 @@ class ApplicationModularityTests {
                 .map(module -> module.getIdentifier().toString())
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("runtime", "inbox", "persistence", "capability", "model", "codebase"), moduleNames,
-                "Expected exactly the runtime, inbox, persistence, capability, model, and codebase modules");
+        assertEquals(Set.of("runtime", "inbox", "persistence", "capability", "model", "codebase", "slack", "worker"), moduleNames,
+                "Expected exactly the runtime, inbox, persistence, capability, model, codebase, slack, and worker modules");
     }
 
     @Test
@@ -186,6 +191,27 @@ class ApplicationModularityTests {
                 "Capability module must expose exactly its executor SPI");
     }
 
+    @Test
+    @DisplayName("Slack transport should declare only inbox contracts and runtime domain values")
+    void slackShouldDeclareOnlyIntendedModuleDependencies() {
+        assertEquals(Set.of("inbox :: domain", "inbox :: port-in", "inbox :: port-out", "runtime :: domain"),
+                allowedDependenciesOf(requireSlack()),
+                "Slack must depend only on inbox contracts and transport-neutral runtime domain values");
+        assertEquals(Set.of("inbox", "runtime"), directDependenciesOf(requireSlack()),
+                "Slack must directly depend only on inbox and runtime");
+    }
+
+    @Test
+    @DisplayName("Slack transport should expose no implementation package")
+    void slackShouldExposeNoNamedInterface() {
+        Set<String> exposed = requireSlack().getNamedInterfaces().stream()
+                .filter(namedInterface -> !namedInterface.isUnnamed())
+                .map(NamedInterface::getName)
+                .collect(Collectors.toSet());
+
+        assertTrue(exposed.isEmpty(), "Slack implementation packages must remain internal");
+    }
+
     private Set<String> allowedDependenciesOf(ApplicationModule module) {
         return module.getAllowedDependencies(modules).stream()
                 .map(dependency -> dependency.getTargetModule().getIdentifier().toString()
@@ -227,5 +253,10 @@ class ApplicationModularityTests {
     private ApplicationModule requireCodebase() {
         return modules.getModuleByName("codebase")
                 .orElseThrow(() -> new IllegalStateException("Missing module: codebase"));
+    }
+
+    private ApplicationModule requireSlack() {
+        return modules.getModuleByName("slack")
+                .orElseThrow(() -> new IllegalStateException("Missing module: slack"));
     }
 }

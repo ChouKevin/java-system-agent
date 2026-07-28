@@ -37,9 +37,8 @@ public final class AgentActionPromptRenderer {
         section(prompt, "Original question", context.originalQuestion());
         prompt.append("Session turns:\n");
         for (ConversationTurn turn : context.sessionHistory().turns()) {
-            prompt.append("- user: ").append(turn.userMessage()).append('\n');
-            prompt.append("  assistant: ").append(turn.assistantMessage()).append('\n');
-            prompt.append("  type: ").append(turn.type()).append('\n');
+            prompt.append(turn.participant().promptLabel()).append(": ").append(turn.userMessage()).append('\n');
+            prompt.append("assistant: ").append(turn.assistantMessage()).append('\n');
         }
         prompt.append("Capabilities:\n");
         for (Map.Entry<CapabilityHandle, CapabilityDescriptor> entry : context.issuedCapabilities().entrySet()) {

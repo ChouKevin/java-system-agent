@@ -20,6 +20,7 @@ import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.run.AgentEvent;
@@ -30,6 +31,8 @@ import com.java.system.agent.runtime.domain.run.AgentTransition;
 import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferralReason;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
@@ -43,7 +46,9 @@ import com.java.system.agent.runtime.port.out.AnswerVerificationPort;
 import com.java.system.agent.runtime.port.out.AnswerVerificationContractException;
 import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
 import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionUnavailableException;
+import com.java.system.agent.runtime.port.in.AnalysisExecutionDeferredException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
 import com.java.system.agent.runtime.port.out.SessionPort;
@@ -54,6 +59,7 @@ import com.java.system.agent.runtime.port.out.AnalysisAttemptIdGenerator;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayDeque;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
@@ -72,6 +78,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * ValidatedAgentLoop verified answer 與 terminal persistence 邊界測試
  */
 class ValidatedAgentLoopAnswerTest {
+
+    private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
 
     @Test
     void returnsOnlyTheVerifiedAnswerAfterTerminalEventsAreCommitted() {
@@ -98,6 +106,10 @@ class ValidatedAgentLoopAnswerTest {
                 .singleElement()
                 .extracting(ConversationTurn::assistantMessage)
                 .isEqualTo("Verified answer");
+        assertThat(session.read(new SessionId("session-1")).turns())
+                .singleElement()
+                .extracting(ConversationTurn::participant)
+                .isEqualTo(PARTICIPANT);
     }
 
     @Test
@@ -168,6 +180,47 @@ class ValidatedAgentLoopAnswerTest {
         assertThat(verificationCalls).hasValue(3);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
         assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(1);
+    }
+
+    @Test
+    void resumesPendingVerificationAfterCapacityDeferralWithoutRestartingTheAttempt() {
+        Instant retryAt = Instant.parse("2026-07-28T01:02:03Z");
+        ExecutionDeferral deferral = new ExecutionDeferral(retryAt, ExecutionDeferralReason.RATE_LIMITED);
+        AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger verificationCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                new FakeSessionAdapter(),
+                transitions,
+                (mode, context) -> {
+                    verificationCalls.incrementAndGet();
+                    throw new ExternalExecutionDeferredException(deferral);
+                },
+                context -> {
+                    actionCalls.incrementAndGet();
+                    return new AgentActionProposal.Proposed(new AnswerAction(document("Capacity-resumed answer")));
+                });
+
+        assertThatThrownBy(() -> loop.execute(request()))
+                .isInstanceOf(AnalysisExecutionDeferredException.class)
+                .satisfies(exception -> assertThat(((AnalysisExecutionDeferredException) exception).deferral())
+                        .isSameAs(deferral));
+        AgentRunState pending = transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow();
+        assertThat(pending.pendingAnswerVerification()).isPresent();
+
+        assertThatThrownBy(() -> loop.execute(capacityResumeRequest()))
+                .isInstanceOf(AnalysisExecutionDeferredException.class)
+                .satisfies(exception -> assertThat(((AnalysisExecutionDeferredException) exception).deferral())
+                        .isSameAs(deferral));
+        assertThat(actionCalls).hasValue(1);
+        assertThat(verificationCalls).hasValue(2);
+        assertThat(transitions.events()).filteredOn(AgentEvent.AttemptStarted.class::isInstance).hasSize(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
+        assertThat(transitions.events()).filteredOn(AgentEvent.ActionAccepted.class::isInstance).isEmpty();
+        assertThat(transitions.events()).filteredOn(AgentEvent.ActionRejected.class::isInstance).isEmpty();
+        AgentRunState resumed = transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow();
+        assertThat(resumed.pendingAnswerVerification()).isPresent();
+        assertThat(resumed.budget()).isEqualTo(pending.budget());
     }
 
     @Test
@@ -532,6 +585,36 @@ class ValidatedAgentLoopAnswerTest {
     }
 
     @Test
+    void rejectsParticipantDriftBeforeExternalExecutionForEveryPersistedResumeMode() {
+        for (AnswerExecutionMode mode : List.of(
+                AnswerExecutionMode.RETRY,
+                AnswerExecutionMode.CAPACITY_RESUME,
+                AnswerExecutionMode.TERMINAL_RECONCILIATION)) {
+            AtomicInteger actionCalls = new AtomicInteger();
+            AtomicInteger verificationCalls = new AtomicInteger();
+            ValidatedAgentLoop loop = loop(
+                    new FakeSessionAdapter(),
+                    new FailingConclusionTransitionPort(),
+                    (verificationMode, context) -> {
+                        verificationCalls.incrementAndGet();
+                        return new AnswerVerificationResult.LlmVerdict(acceptedComplete());
+                    },
+                    context -> {
+                        actionCalls.incrementAndGet();
+                        return new AgentActionProposal.Proposed(new AnswerAction(document("Recovered answer")));
+                    });
+
+            assertThatThrownBy(() -> loop.execute(request())).isInstanceOf(AgentLoopException.class);
+
+            assertThatThrownBy(() -> loop.execute(request(new ParticipantRef("test", "participant-2"), mode)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("request identity");
+            assertThat(actionCalls).hasValue(1);
+            assertThat(verificationCalls).hasValue(1);
+        }
+    }
+
+    @Test
     void cancellationDuringVerificationPreventsAcceptedTerminalPersistenceAndSessionAppend() {
         AtomicBoolean cancelled = new AtomicBoolean();
         AtomicInteger verificationCalls = new AtomicInteger();
@@ -721,20 +804,39 @@ class ValidatedAgentLoopAnswerTest {
         return new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 sessionId,
+                PARTICIPANT,
                 question,
                 new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0));
     }
 
+    private AgentLoopRequest request(ParticipantRef participant, AnswerExecutionMode mode) {
+        int attemptCount = mode == AnswerExecutionMode.TERMINAL_RECONCILIATION ? 4 : 2;
+        return new AgentLoopRequest(
+                new AnalysisRunId("run-1"),
+                new SessionId("session-1"),
+                participant,
+                "What is verified?",
+                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
+                mode,
+                attemptCount);
+    }
+
     private AgentLoopRequest terminalRequest() {
-        return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
+        return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
                 "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
                 AnswerExecutionMode.TERMINAL_RECONCILIATION, 4);
     }
 
     private AgentLoopRequest retryRequest() {
-        return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
+        return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
                 "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
                 AnswerExecutionMode.RETRY, 2);
+    }
+
+    private AgentLoopRequest capacityResumeRequest() {
+        return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
+                AnswerExecutionMode.CAPACITY_RESUME, 2);
     }
 
     private AgentRunState runningState() {
@@ -742,7 +844,8 @@ class ValidatedAgentLoopAnswerTest {
                 new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"),
                 new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
-                new com.java.system.agent.runtime.domain.run.RunRequestIdentity("session-1", "What is verified?"));
+                new com.java.system.agent.runtime.domain.run.RunRequestIdentity(
+                        "session-1", PARTICIPANT, "What is verified?"));
         AgentStateReducer reducer = new AgentStateReducer();
         AgentRunState started = reducer.reduce(initial,
                 new AgentEvent.RunStarted(initial.runId(), initial.currentAttempt().attemptId(), 0)).candidateState();

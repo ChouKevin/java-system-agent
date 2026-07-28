@@ -8,6 +8,7 @@ import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.port.out.AgentTransitionPort;
 import com.java.system.agent.runtime.port.out.AgentTransitionConflictException;
 import org.junit.jupiter.api.Test;
@@ -96,7 +97,7 @@ class AgentTransitionCommitterTest {
     private AgentRunState initialState() {
         return AgentRunState.initial(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
                 new AttemptBudget(2, 0, 2, 0, 2, 0, 2, 0, 1, 0),
-                new RunRequestIdentity("session-1", "question"));
+                new RunRequestIdentity("session-1", new ParticipantRef("test", "participant-1"), "question"));
     }
 
     private static final class RecordingTransitionPort implements AgentTransitionPort {

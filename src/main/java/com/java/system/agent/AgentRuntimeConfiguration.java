@@ -2,14 +2,18 @@ package com.java.system.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.inbox.application.InboxRetryPolicy;
-import com.java.system.agent.inbox.application.SessionInboxApplicationService;
+import com.java.system.agent.inbox.application.InboxWorkApplicationService;
+import com.java.system.agent.inbox.application.ClaimAdmissionCoordinator;
 import com.java.system.agent.inbox.application.SessionInboxProcessor;
+import com.java.system.agent.inbox.application.SourceAcceptanceApplicationService;
 import com.java.system.agent.persistence.document.AgentEventDocumentCodec;
 import com.java.system.agent.persistence.document.AgentStateDocumentCodec;
 import com.java.system.agent.persistence.jdbc.PostgresAgentTransitionAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresAnalysisCancellationAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionInboxAdapter;
+import com.java.system.agent.persistence.jdbc.PostgresDeliveryOutboxAdapter;
+import com.java.system.agent.persistence.jdbc.PostgresSourceAcceptanceAdapter;
 import com.java.system.agent.persistence.jdbc.UuidInboxIdentityGenerator;
 import com.java.system.agent.runtime.application.AnalysisApplicationService;
 import com.java.system.agent.runtime.application.ContextIssuer;
@@ -20,6 +24,7 @@ import com.java.system.agent.runtime.application.validation.AgentActionValidator
 import com.java.system.agent.runtime.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.runtime.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
+import com.java.system.agent.inbox.application.InboxLifecycleMetrics;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.port.out.AnalysisAttemptIdGenerator;
 import com.java.system.agent.runtime.port.out.AgentActionPort;
@@ -81,6 +86,21 @@ public final class AgentRuntimeConfiguration {
             TransactionTemplate transactionTemplate,
             UuidInboxIdentityGenerator identityGenerator) {
         return new PostgresSessionInboxAdapter(jdbcClient, transactionTemplate, identityGenerator);
+    }
+
+    @Bean
+    PostgresSourceAcceptanceAdapter postgresSourceAcceptanceAdapter(
+            JdbcClient jdbcClient,
+            TransactionTemplate transactionTemplate,
+            UuidInboxIdentityGenerator identityGenerator) {
+        return new PostgresSourceAcceptanceAdapter(jdbcClient, transactionTemplate, identityGenerator);
+    }
+
+    @Bean
+    PostgresDeliveryOutboxAdapter postgresDeliveryOutboxAdapter(
+            JdbcClient jdbcClient,
+            TransactionTemplate transactionTemplate) {
+        return new PostgresDeliveryOutboxAdapter(jdbcClient, transactionTemplate);
     }
 
     @Bean
@@ -180,12 +200,28 @@ public final class AgentRuntimeConfiguration {
             PostgresSessionInboxAdapter inboxPort,
             AnalysisApplicationService useCase,
             AttemptBudget attemptBudget,
-            InboxRetryPolicy retryPolicy) {
-        return new SessionInboxProcessor(inboxPort, useCase, attemptBudget, retryPolicy);
+            InboxRetryPolicy retryPolicy,
+            InboxLifecycleMetrics metrics) {
+        return new SessionInboxProcessor(inboxPort, useCase, attemptBudget, retryPolicy, metrics);
     }
 
     @Bean
-    SessionInboxApplicationService sessionInboxApplicationService(PostgresSessionInboxAdapter inboxPort) {
-        return new SessionInboxApplicationService(inboxPort);
+    InboxWorkApplicationService inboxWorkApplicationService(
+            PostgresSessionInboxAdapter inboxPort,
+            SessionInboxProcessor processor,
+            ClaimAdmissionCoordinator claimAdmission) {
+        return new InboxWorkApplicationService(inboxPort, processor, claimAdmission);
+    }
+
+    @Bean
+    ClaimAdmissionCoordinator claimAdmissionCoordinator() {
+        return new ClaimAdmissionCoordinator();
+    }
+
+    @Bean
+    SourceAcceptanceApplicationService sourceAcceptanceApplicationService(
+            PostgresSourceAcceptanceAdapter sourceAcceptancePort,
+            InboxLifecycleMetrics metrics) {
+        return new SourceAcceptanceApplicationService(sourceAcceptancePort, metrics);
     }
 }

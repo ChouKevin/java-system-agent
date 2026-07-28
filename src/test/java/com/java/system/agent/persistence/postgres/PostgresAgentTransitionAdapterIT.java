@@ -10,6 +10,7 @@ import com.java.system.agent.runtime.application.state.AgentStateReducer;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.run.AgentBootstrap;
 import com.java.system.agent.runtime.domain.run.AgentEvent;
@@ -41,6 +42,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * PostgresAgentTransitionAdapter 的真實 PostgreSQL atomic snapshot 與 event trace 行為驗證
  */
 class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
+
+    private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
 
     private JdbcClient jdbcClient;
     private PostgresAgentTransitionAdapter transitions;
@@ -95,6 +98,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 bootstrap.runStarted().candidateState(),
                 new RunRequestIdentity(
                         bootstrap.runStarted().candidateState().requestIdentity().sessionIdValue(),
+                        PARTICIPANT,
                         "forged bootstrap question"));
         AgentBootstrap forged = new AgentBootstrap(
                 new AgentTransition(bootstrap.runStarted().event(), forgedRunStartedState),
@@ -149,6 +153,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 transition.candidateState(),
                 new RunRequestIdentity(
                         transition.candidateState().requestIdentity().sessionIdValue(),
+                        PARTICIPANT,
                         "forged ordinary question"));
         AgentTransition forged = new AgentTransition(transition.event(), forgedCandidate);
 
@@ -223,7 +228,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                         new SessionId(persisted.requestIdentity().sessionIdValue()),
                         new ConversationTurn(
                                 persisted.runId(),
-                                persisted.requestIdentity().exactQuestion(),
+                                PARTICIPANT,
+                                persisted.requestIdentity().questionText(),
                                 "Which repository should be used?",
                                 ConversationTurnType.CLARIFICATION),
                         false));
@@ -241,7 +247,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentRunState persisted = transitions.bootstrap(bootstrap("run-tampered-projection"));
         jdbcClient.sql("""
                 UPDATE agent_run
-                SET exact_question = 'tampered relational question'
+                SET question_text = 'tampered relational question'
                 WHERE run_id = :runId
                 """)
                 .param("runId", persisted.runId().value())
@@ -270,7 +276,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
     private AgentBootstrap bootstrap(String runIdValue) {
         AnalysisRunId runId = new AnalysisRunId(runIdValue);
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-" + runIdValue);
-        RunRequestIdentity identity = new RunRequestIdentity("session-" + runIdValue, "question-" + runIdValue);
+        RunRequestIdentity identity = new RunRequestIdentity(
+                "session-" + runIdValue, PARTICIPANT, "question-" + runIdValue);
         insertSession(identity.sessionIdValue());
         AgentRunState initial = AgentRunState.initial(
                 runId,
@@ -306,7 +313,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                         new SessionId(persisted.requestIdentity().sessionIdValue()),
                         new ConversationTurn(
                                 persisted.runId(),
-                                persisted.requestIdentity().exactQuestion(),
+                                PARTICIPANT,
+                                persisted.requestIdentity().questionText(),
                                 "Which repository should be used?",
                                 ConversationTurnType.CLARIFICATION),
                         false));

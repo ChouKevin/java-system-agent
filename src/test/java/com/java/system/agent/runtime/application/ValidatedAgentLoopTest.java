@@ -29,13 +29,17 @@ import com.java.system.agent.runtime.domain.candidate.RouteCandidate;
 import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
 import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
 import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
 import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
+import com.java.system.agent.runtime.domain.observation.CapabilityObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationSource;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferralReason;
 import com.java.system.agent.runtime.domain.run.AgentEvent;
 import com.java.system.agent.runtime.domain.run.AgentBootstrap;
 import com.java.system.agent.runtime.domain.run.AgentRunState;
@@ -56,6 +60,7 @@ import com.java.system.agent.runtime.port.out.CapabilityExecutionContractExcepti
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionFailure;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionFailureCode;
+import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import com.java.system.agent.runtime.port.out.AnalysisCancellationPort;
 import com.java.system.agent.runtime.port.out.AnalysisAttemptIdGenerator;
 import com.java.system.agent.runtime.port.out.AgentTransitionPort;
@@ -70,9 +75,11 @@ import com.java.system.agent.runtime.port.out.RepositoryRevisionFailure;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionFailureCode;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionContractException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
+import com.java.system.agent.runtime.port.in.AnalysisExecutionDeferredException;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,6 +103,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * ValidatedAgentLoop query order、拒絕與 final reserve 行為測試
  */
 class ValidatedAgentLoopTest {
+
+    private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
 
     @Test
     void cancellationBeforeActionConcludesWithoutRequestingAnAction() {
@@ -335,6 +344,7 @@ class ValidatedAgentLoopTest {
         AgentLoopRequest retryRequest = new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
                 AnswerExecutionMode.RETRY,
@@ -352,6 +362,83 @@ class ValidatedAgentLoopTest {
                 .singleElement()
                 .satisfies(event -> assertThat(((AgentEvent.AttemptInvalidated) event).consumeRevisionRestart())
                         .isFalse());
+    }
+
+    @Test
+    void resumesPersistedQueryAttemptAfterCapacityDeferralWithoutReissuingItsContext() {
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        FakeSessionAdapter session = new FakeSessionAdapter();
+        Instant retryAt = Instant.parse("2026-07-28T01:02:03Z");
+        ExecutionDeferral deferral = new ExecutionDeferral(retryAt, ExecutionDeferralReason.RATE_LIMITED);
+        AtomicInteger actionCalls = new AtomicInteger();
+        ValidatedAgentLoop initialLoop = loop(
+                context -> {
+                    if (actionCalls.incrementAndGet() == 1) {
+                        return query(context);
+                    }
+                    throw new ExternalExecutionDeferredException(deferral);
+                },
+                invocation -> new CapabilityExecutionResult.Succeeded(
+                        List.of(),
+                        List.of(),
+                        List.of(new CapabilityObservation(
+                                ObservationCode.PARTIAL_GRAPH,
+                                "Query completed before capacity was exhausted",
+                                List.of(),
+                                List.of(),
+                                "test-capability"))),
+                transitions);
+
+        assertThatThrownBy(() -> initialLoop.execute(request()))
+                .isInstanceOf(AnalysisExecutionDeferredException.class)
+                .satisfies(exception -> assertThat(((AnalysisExecutionDeferredException) exception).deferral())
+                        .isSameAs(deferral));
+        AgentRunState deferredState = transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow();
+        assertThat(deferredState.currentAttempt().observations()).hasSize(1);
+
+        ValidatedAgentLoop resumedLoop = new ValidatedAgentLoop(
+                context -> {
+                    assertThat(context.attemptId()).isEqualTo(deferredState.currentAttempt().attemptId());
+                    assertThat(context.issuedCapabilities()).isEqualTo(deferredState.currentAttempt().issuedCapabilities());
+                    assertThat(context.issuedCandidates()).isEqualTo(deferredState.currentAttempt().issuedCandidates());
+                    throw new ExternalExecutionDeferredException(deferral);
+                },
+                invocation -> {
+                    throw new AssertionError("capacity resume clarification must not execute a capability");
+                },
+                (mode, context) -> {
+                    throw new AssertionError("capacity resume clarification must not verify an answer");
+                },
+                AnswerVerificationMode.LLM,
+                session,
+                () -> {
+                    throw new AssertionError("capacity resume must not load the repository catalog");
+                },
+                () -> {
+                    throw new AssertionError("capacity resume must not load the capability catalog");
+                },
+                repositoryId -> {
+                    throw new AssertionError("capacity resume clarification must not resolve revisions");
+                },
+                new FakeCancellationAdapter(),
+                new FakeAttemptIdGenerator(),
+                new AgentActionValidator(),
+                new AnswerDocumentValidator(),
+                new AnswerVerdictValidator(),
+                new AgentTransitionCommitter(new AgentStateReducer(), transitions),
+                new ContextIssuer());
+
+        assertThatThrownBy(() -> resumedLoop.execute(capacityResumeRequest()))
+                .isInstanceOf(AnalysisExecutionDeferredException.class)
+                .satisfies(exception -> assertThat(((AnalysisExecutionDeferredException) exception).deferral())
+                        .isSameAs(deferral));
+
+        AgentRunState resumedState = transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow();
+        assertThat(resumedState.attemptSequence()).isEqualTo(deferredState.attemptSequence());
+        assertThat(resumedState.currentAttempt().attemptId()).isEqualTo(deferredState.currentAttempt().attemptId());
+        assertThat(resumedState.budget()).isEqualTo(deferredState.budget());
+        assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
+        assertThat(transitions.events()).filteredOn(AgentEvent.AttemptStarted.class::isInstance).hasSize(1);
     }
 
     @Test
@@ -612,6 +699,7 @@ class ValidatedAgentLoopTest {
         AgentLoopRequest request = new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 new AttemptBudget(2, 0, 2, 0, 2, 0, 1, 0, 1, 0));
 
@@ -888,6 +976,7 @@ class ValidatedAgentLoopTest {
         AgentLoopRequest request = new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 new AttemptBudget(4, 0, 3, 0, 2, 0, 1, 1, 1, 0));
 
@@ -927,6 +1016,7 @@ class ValidatedAgentLoopTest {
         AgentLoopResult result = loop.execute(new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
                 AnswerExecutionMode.RETRY,
@@ -978,6 +1068,7 @@ class ValidatedAgentLoopTest {
         assertThatThrownBy(() -> loop.execute(new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 budget)))
                 .isInstanceOf(IllegalStateException.class)
@@ -986,6 +1077,7 @@ class ValidatedAgentLoopTest {
         AgentLoopResult result = loop.execute(new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 budget,
                 AnswerExecutionMode.RETRY,
@@ -1115,7 +1207,7 @@ class ValidatedAgentLoopTest {
                 List.of("blocking uncertainty text"),
                 List.of("explicit rejection text")));
         AgentLoopRequest request = new AgentLoopRequest(
-                new AnalysisRunId("run-1"), new SessionId("session-1"), "How does this flow work?",
+                new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT, "How does this flow work?",
                 new AttemptBudget(3, 0, 2, 0, 2, 0, 1, 0, 1, 0));
         ValidatedAgentLoop verifiedLoop = loop(
                 actionPort,
@@ -1186,6 +1278,7 @@ class ValidatedAgentLoopTest {
         AgentLoopRequest request = new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 new AttemptBudget(4, 0, 3, 0, 2, 0, 1, 1, 1, 0));
 
@@ -1253,6 +1346,7 @@ class ValidatedAgentLoopTest {
         AgentLoopRequest request = new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 new AttemptBudget(3, 0, 2, 0, 2, 0, 1, 1, 1, 0));
 
@@ -1413,8 +1507,20 @@ class ValidatedAgentLoopTest {
         return new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
+                PARTICIPANT,
                 "How does this flow work?",
                 new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0));
+    }
+
+    private AgentLoopRequest capacityResumeRequest() {
+        return new AgentLoopRequest(
+                new AnalysisRunId("run-1"),
+                new SessionId("session-1"),
+                PARTICIPANT,
+                "How does this flow work?",
+                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
+                AnswerExecutionMode.CAPACITY_RESUME,
+                2);
     }
 
     private EvidenceRef evidence(String revision) {

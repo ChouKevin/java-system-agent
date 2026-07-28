@@ -7,3 +7,10 @@ spring:
         api-key: ${GOOGLE_API_KEY:}
         chat:
           model: ${GOOGLE_GENAI_MODEL:gemini-3.1-flash-lite}
+agent:
+  model:
+    rate-limit:
+      requests-per-minute: ${AGENT_MODEL_RPM:15}
+      input-tokens-per-minute: ${AGENT_MODEL_INPUT_TPM:250000}
+      requests-per-day: ${AGENT_MODEL_RPD:500}
+      provider-retry-fallback: ${AGENT_MODEL_RETRY_FALLBACK:1m}

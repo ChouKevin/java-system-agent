@@ -1,6 +1,7 @@
 package com.java.system.agent.runtime.adapter.fake;
 
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
@@ -11,6 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FakeSessionAdapterTest {
+
+    private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
 
     @Test
     void should_retain_all_turns_in_insertion_order_without_allowing_caller_mutation() {
@@ -41,15 +44,32 @@ class FakeSessionAdapterTest {
 
         assertThat(adapter.read(sessionId).turns()).containsExactly(accepted);
         assertThatThrownBy(() -> adapter.append(sessionId,
-                new ConversationTurn(runId, "different", "answer-1", ConversationTurnType.ANSWER)))
+                new ConversationTurn(runId, PARTICIPANT, "different", "answer-1", ConversationTurnType.ANSWER)))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> adapter.append(sessionId,
-                new ConversationTurn(runId, "question-1 ", "answer-1", ConversationTurnType.ANSWER)))
+                new ConversationTurn(runId, PARTICIPANT, "question-1 ", "answer-1", ConversationTurnType.ANSWER)))
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void should_preserve_stored_participants_in_history_order() {
+        FakeSessionAdapter adapter = new FakeSessionAdapter();
+        SessionId sessionId = new SessionId("thread-1");
+        ParticipantRef alice = new ParticipantRef("slack", "U123456");
+        ParticipantRef bob = new ParticipantRef("slack", "U789012");
+
+        adapter.append(sessionId, new ConversationTurn(new AnalysisRunId("run-1"), alice,
+                "請查詢付款流程", "付款流程如下", ConversationTurnType.ANSWER));
+        adapter.append(sessionId, new ConversationTurn(new AnalysisRunId("run-2"), bob,
+                "也包含退款流程", "退款流程如下", ConversationTurnType.ANSWER));
+
+        assertThat(adapter.read(sessionId).turns())
+                .extracting(ConversationTurn::participant)
+                .containsExactly(alice, bob);
+    }
+
     private ConversationTurn turn(AnalysisRunId runId, int index) {
-        return new ConversationTurn(runId, "question-" + index, "answer-" + index,
+        return new ConversationTurn(runId, PARTICIPANT, "question-" + index, "answer-" + index,
                 ConversationTurnType.ANSWER);
     }
 }

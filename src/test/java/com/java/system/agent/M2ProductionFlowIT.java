@@ -1,13 +1,16 @@
 package com.java.system.agent;
 
-import com.java.system.agent.inbox.application.SessionInboxApplicationService;
 import com.java.system.agent.inbox.application.SessionInboxProcessor;
+import com.java.system.agent.inbox.domain.InboxClaim;
 import com.java.system.agent.inbox.domain.InboxMessage;
 import com.java.system.agent.inbox.domain.InboxMessageStatus;
 import com.java.system.agent.inbox.domain.InboxProcessingOutcome;
+import com.java.system.agent.inbox.domain.NormalizedSourceEvent;
 import com.java.system.agent.inbox.domain.SessionSourceRef;
 import com.java.system.agent.inbox.domain.SourceMessageId;
-import com.java.system.agent.inbox.port.in.EnqueueSessionMessageCommand;
+import com.java.system.agent.inbox.domain.SourcePayloadFingerprintV1;
+import com.java.system.agent.inbox.domain.TransportEventId;
+import com.java.system.agent.inbox.port.in.AcceptSourceEventUseCase;
 import com.java.system.agent.model.action.AgentActionPromptRenderer;
 import com.java.system.agent.model.verification.AnswerVerificationPromptRenderer;
 import com.java.system.agent.persistence.jdbc.PostgresAgentTransitionAdapter;
@@ -15,6 +18,7 @@ import com.java.system.agent.persistence.jdbc.PostgresSessionInboxAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionAdapter;
 import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.run.AgentRunState;
 import com.java.system.agent.runtime.domain.run.AgentRunStatus;
 import com.java.system.agent.runtime.domain.run.PendingTerminalResponse;
@@ -76,6 +80,7 @@ import static org.springframework.http.HttpMethod.GET;
 class M2ProductionFlowIT {
 
     private static final Instant NOW = Instant.parse("2030-07-27T10:00:00Z");
+    private static final ParticipantRef PARTICIPANT = new ParticipantRef("slack", "U123456");
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17.5-alpine");
@@ -90,7 +95,7 @@ class M2ProductionFlowIT {
     private TransactionTemplate transactionTemplate;
 
     @Autowired
-    private SessionInboxApplicationService enqueueService;
+    private AcceptSourceEventUseCase sourceAcceptance;
 
     @Autowired
     private PostgresSessionInboxAdapter inbox;
@@ -141,11 +146,7 @@ class M2ProductionFlowIT {
         assertThat(transactionTemplate).isNotNull();
         assertThat(flyway.info().current()).isNotNull();
 
-        InboxMessage enqueued = enqueueService.enqueue(new EnqueueSessionMessageCommand(
-                new SessionSourceRef("slack", "channel-1:thread-1"),
-                new SourceMessageId("message-1"),
-                "Which entry point remains unresolved?"));
-        String attemptId = enqueued.runId().value() + ":A1";
+        assertThat(sourceAcceptance.accept(event()).admission()).isPresent();
 
         server.expect(requestTo("http://semantic.test/v1/repositories"))
                 .andExpect(method(GET))
@@ -163,20 +164,30 @@ class M2ProductionFlowIT {
                 .andExpect(request -> callTimeline.record(CallTimeline.HTTP_LIST_ENTRY_POINTS))
                 .andRespond(withSuccess(entryPointsJson(), APPLICATION_JSON));
 
+        InboxClaim claim = inbox.claimNext(NOW).orElseThrow();
+        InboxMessage enqueued = claim.message();
+        String attemptId = enqueued.runId().value() + ":A1";
         chatModel.enqueue(CallTimeline.LLM_QUERY_ACTION, queryJson(attemptId));
         chatModel.enqueue(CallTimeline.LLM_ANSWER_ACTION, answerJson(attemptId));
         chatModel.enqueue(CallTimeline.LLM_VERIFIER, verdictJson());
-
-        InboxMessage claimed = inbox.claimNext(NOW).orElseThrow();
-        InboxProcessingOutcome outcome = processor.process(claimed, NOW);
+        InboxProcessingOutcome outcome = processor.process(claim, NOW);
 
         assertThat(outcome).isEqualTo(InboxProcessingOutcome.COMPLETED);
         assertThat(inboxStatus(enqueued)).isEqualTo(InboxMessageStatus.COMPLETED.name());
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(2);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(2);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(4);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(3);
+        assertThat(deliveryStatuses(enqueued)).containsExactly(
+                "FINAL_RESPONSE:WAITING_FOR_RECEIPT", "RECEIPT:PENDING");
+        assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
+                "WAITING_FOR_RECEIPT",
+                "ANSWER",
+                "COMPLETED",
+                "OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND",
+                PARTICIPANT.sourceType(),
+                PARTICIPANT.participantKey()));
         assertThat(state.pendingTerminalResponse()).hasValueSatisfying(response -> {
             assertThat(response).isInstanceOf(PendingTerminalResponse.Answer.class);
             PendingTerminalResponse.Answer answer = (PendingTerminalResponse.Answer) response;
@@ -187,8 +198,13 @@ class M2ProductionFlowIT {
         assertThat(eventTypes(enqueued)).filteredOn("ACTION_ACCEPTED"::equals).hasSize(1);
         assertThat(eventTypes(enqueued)).filteredOn("QUERY_BUDGET_CONSUMED"::equals).hasSize(1);
         assertThat(sessionAnswerCount(enqueued)).isEqualTo(1L);
-        assertThat(sessions.read(enqueued.sessionId()).turns()).hasSize(1)
-                .allMatch(turn -> turn.type() == ConversationTurnType.ANSWER);
+        assertThat(sessions.read(enqueued.sessionId()).turns()).singleElement().satisfies(turn -> {
+            assertThat(turn.type()).isEqualTo(ConversationTurnType.ANSWER);
+            assertThat(turn.participant()).isEqualTo(PARTICIPANT);
+            assertThat(turn.userMessage()).isEqualTo(enqueued.questionText());
+            assertThat(turn.assistantMessage()).isEqualTo(
+                    "OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND");
+        });
         assertThat(chatModel.prompts())
                 .extracting(Prompt::getSystemMessage)
                 .extracting(SystemMessage::getText)
@@ -197,7 +213,7 @@ class M2ProductionFlowIT {
                         AgentActionPromptRenderer.SYSTEM_INSTRUCTION,
                         AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION);
         AnswerQuestionResult reconciled = answerQuestionUseCase.answer(new AnswerQuestionCommand(
-                enqueued.runId(), enqueued.sessionId(), enqueued.exactQuestion(), state.budget()));
+                enqueued.runId(), enqueued.sessionId(), enqueued.participant(), enqueued.questionText(), state.budget()));
         assertThat(reconciled.responseKind()).isEqualTo(RunResponseKind.ANSWER);
         assertThat(reconciled.verificationBasis()).contains(AnswerVerificationBasis.LLM);
         assertThat(chatModel.prompts()).hasSize(3);
@@ -210,6 +226,15 @@ class M2ProductionFlowIT {
                 CallTimeline.LLM_VERIFIER);
         assertThat(environment.getProperty("spring.ai.google.genai.api-key")).isEmpty();
         server.verify();
+    }
+
+    private static NormalizedSourceEvent event() {
+        String sourceText = "<@agent> Which entry point remains unresolved?";
+        return new NormalizedSourceEvent(
+                "slack", new TransportEventId("event-1"), new SourceMessageId("message-1"),
+                new SessionSourceRef("slack", "channel-1:thread-1"), PARTICIPANT, sourceText,
+                "Which entry point remains unresolved?", SourcePayloadFingerprintV1.fromCanonicalFields(
+                        "workspace-1", "channel-1", "message-1", "thread-1", "U123456", sourceText), NOW);
     }
 
     private String inboxStatus(InboxMessage message) {
@@ -270,6 +295,45 @@ class M2ProductionFlowIT {
                 .param("runId", message.runId().value())
                 .query(Long.class)
                 .single();
+    }
+
+    private List<String> deliveryStatuses(InboxMessage message) {
+        return jdbcClient.sql("""
+                SELECT delivery_kind || ':' || status
+                FROM delivery_outbox
+                WHERE inbox_message_id = :inboxMessageId
+                ORDER BY delivery_kind
+                """)
+                .param("inboxMessageId", message.inboxMessageId().value())
+                .query(String.class)
+                .list();
+    }
+
+    private FinalDelivery finalDelivery(InboxMessage message) {
+        return jdbcClient.sql("""
+                SELECT status, response_kind, outcome, response_text, participant_source_type, participant_key
+                FROM delivery_outbox
+                WHERE inbox_message_id = :inboxMessageId
+                  AND delivery_kind = 'FINAL_RESPONSE'
+                """)
+                .param("inboxMessageId", message.inboxMessageId().value())
+                .query((resultSet, rowNumber) -> new FinalDelivery(
+                        resultSet.getString("status"),
+                        resultSet.getString("response_kind"),
+                        resultSet.getString("outcome"),
+                        resultSet.getString("response_text"),
+                        resultSet.getString("participant_source_type"),
+                        resultSet.getString("participant_key")))
+                .single();
+    }
+
+    private record FinalDelivery(
+            String status,
+            String responseKind,
+            String outcome,
+            String responseText,
+            String participantSourceType,
+            String participantKey) {
     }
 
     private static String queryJson(String attemptId) {

@@ -17,6 +17,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import com.java.system.agent.persistence.jdbc.PostgresAgentOperationsAdapter;
 import org.springframework.util.CollectionUtils;
 
 /**
@@ -55,6 +57,12 @@ public final class AgentPersistenceConfiguration {
     TransactionTemplate transactionTemplate(DataSource dataSource, Flyway flyway) {
         DataSourceTransactionManager transactionManager = new DataSourceTransactionManager(dataSource);
         return new TransactionTemplate(transactionManager);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(PostgresAgentOperationsAdapter.class)
+    PostgresAgentOperationsAdapter postgresAgentOperationsAdapter(JdbcClient jdbcClient) {
+        return new PostgresAgentOperationsAdapter(jdbcClient);
     }
 
     @Bean(initMethod = "migrate")

@@ -11,6 +11,7 @@ import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -21,6 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AgentRunStateTest {
+
+    private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
 
     @Test
     void should_bootstrap_starting_run_with_first_empty_attempt() {
@@ -43,7 +46,7 @@ class AgentRunStateTest {
         AttemptBudget budget = budget();
         PendingTerminalResponse pending = new PendingTerminalResponse.Answer(
                 new SessionId("session-1"),
-                new ConversationTurn(new AnalysisRunId("run-1"), "question", "answer", ConversationTurnType.ANSWER),
+                new ConversationTurn(new AnalysisRunId("run-1"), PARTICIPANT, "question", "answer", ConversationTurnType.ANSWER),
                 document(), AnswerAcceptance.llm(acceptedCompleteVerdict()));
 
         assertThatThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.CONCLUDED, attempt,
@@ -66,7 +69,7 @@ class AgentRunStateTest {
         AttemptBudget budget = budget();
         PendingTerminalResponse pending = new PendingTerminalResponse.Clarification(
                 new SessionId("session-1"),
-                new ConversationTurn(new AnalysisRunId("run-1"), "question", "which repository",
+                new ConversationTurn(new AnalysisRunId("run-1"), PARTICIPANT, "question", "which repository",
                         ConversationTurnType.CLARIFICATION),
                 new ClarifyAction("which repository", List.of(), "scope is ambiguous"));
 
@@ -111,7 +114,7 @@ class AgentRunStateTest {
         RunAttempt attempt = RunAttempt.empty(new AnalysisAttemptId("attempt-1"));
         PendingTerminalResponse pending = new PendingTerminalResponse.Clarification(
                 new SessionId("session-1"),
-                new ConversationTurn(new AnalysisRunId("run-1"), "question", "which repository",
+                new ConversationTurn(new AnalysisRunId("run-1"), PARTICIPANT, "question", "which repository",
                         ConversationTurnType.CLARIFICATION),
                 new ClarifyAction("which repository", List.of(), "scope is ambiguous"));
 
@@ -132,7 +135,7 @@ class AgentRunStateTest {
             String question) {
         return new PendingTerminalResponse.Answer(
                 sessionId,
-                new ConversationTurn(runId, question, document().renderParagraphs(), ConversationTurnType.ANSWER),
+                new ConversationTurn(runId, PARTICIPANT, question, document().renderParagraphs(), ConversationTurnType.ANSWER),
                 document(),
                 AnswerAcceptance.llm(acceptedCompleteVerdict()));
     }
@@ -142,7 +145,7 @@ class AgentRunStateTest {
     }
 
     private RunRequestIdentity requestIdentity() {
-        return new RunRequestIdentity("session-1", "question");
+        return new RunRequestIdentity("session-1", PARTICIPANT, "question");
     }
 
     private AnswerVerdict acceptedCompleteVerdict() {

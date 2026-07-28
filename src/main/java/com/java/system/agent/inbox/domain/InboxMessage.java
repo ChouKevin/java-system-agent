@@ -1,6 +1,7 @@
 package com.java.system.agent.inbox.domain;
 
 import com.java.system.agent.runtime.domain.conversation.SessionId;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 
 import java.time.Instant;
@@ -17,11 +18,14 @@ public record InboxMessage(
         SessionId sessionId,
         long sessionSequence,
         AnalysisRunId runId,
-        String exactQuestion,
+        ParticipantRef participant,
+        String sourceText,
+        String questionText,
         InboxMessageStatus status,
         int attemptCount,
         Instant availableAt,
         Optional<Instant> claimedAt,
+        Optional<InboxDeferReason> deferReason,
         Optional<InboxFailure> lastFailure) {
 
     public InboxMessage {
@@ -30,10 +34,13 @@ public record InboxMessage(
         Objects.requireNonNull(sourceMessageId, "source message ID must not be null");
         Objects.requireNonNull(sessionId, "session ID must not be null");
         Objects.requireNonNull(runId, "analysis run ID must not be null");
-        Objects.requireNonNull(exactQuestion, "exact question must not be null");
+        Objects.requireNonNull(participant, "participant must not be null");
+        Objects.requireNonNull(sourceText, "source text must not be null");
+        Objects.requireNonNull(questionText, "question text must not be null");
         Objects.requireNonNull(status, "inbox message status must not be null");
         Objects.requireNonNull(availableAt, "available at must not be null");
         Objects.requireNonNull(claimedAt, "claimed at must not be null");
+        Objects.requireNonNull(deferReason, "defer reason must not be null");
         Objects.requireNonNull(lastFailure, "last failure must not be null");
         if (sessionSequence < 0) {
             throw new IllegalArgumentException("session sequence must not be negative");
@@ -44,8 +51,8 @@ public record InboxMessage(
         if (status == InboxMessageStatus.PROCESSING && attemptCount < 1) {
             throw new IllegalArgumentException("processing inbox message must have at least one attempt");
         }
-        if (exactQuestion.isBlank()) {
-            throw new IllegalArgumentException("exact question must not be blank");
+        if (questionText.isBlank()) {
+            throw new IllegalArgumentException("question text must not be blank");
         }
         if (status == InboxMessageStatus.PROCESSING && claimedAt.isEmpty()) {
             throw new IllegalArgumentException("processing inbox message must have a claim timestamp");

@@ -32,6 +32,7 @@ import com.java.system.agent.runtime.domain.candidate.RouteCandidate;
 import com.java.system.agent.runtime.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
 import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
@@ -404,14 +405,20 @@ final class AgentValueDocumentMapper {
 
     private ObjectNode requestIdentityNode(RunRequestIdentity identity) {
         ObjectNode node = object();
-        node.put("session_id", identity.sessionIdValue()); node.put("exact_question", identity.exactQuestion());
+        node.put("session_id", identity.sessionIdValue());
+        node.put("participant_source_type", identity.participant().sourceType());
+        node.put("participant_key", identity.participant().participantKey());
+        node.put("question_text", identity.questionText());
         return node;
     }
 
     private RunRequestIdentity requestIdentityFrom(JsonNode node) {
         ObjectNode object = object(node);
-        requireExactFields(object, "session_id", "exact_question");
-        return new RunRequestIdentity(text(object, "session_id"), text(object, "exact_question"));
+        requireExactFields(object, "session_id", "participant_source_type", "participant_key", "question_text");
+        return new RunRequestIdentity(
+                text(object, "session_id"),
+                new ParticipantRef(text(object, "participant_source_type"), text(object, "participant_key")),
+                text(object, "question_text"));
     }
 
     private ObjectNode revisionsNode(RevisionVector revisions) {
@@ -804,11 +811,11 @@ final class AgentValueDocumentMapper {
     }
 
     private ObjectNode conversationTurnNode(ConversationTurn turn) {
-        ObjectNode node = object(); node.put("run_id", turn.runId().value()); node.put("user_message", turn.userMessage()); node.put("assistant_message", turn.assistantMessage()); node.put("turn_type", turn.type().name()); return node;
+        ObjectNode node = object(); node.put("run_id", turn.runId().value()); node.put("participant_source_type", turn.participant().sourceType()); node.put("participant_key", turn.participant().participantKey()); node.put("user_message", turn.userMessage()); node.put("assistant_message", turn.assistantMessage()); node.put("turn_type", turn.type().name()); return node;
     }
 
     private ConversationTurn conversationTurnFrom(JsonNode node) {
-        ObjectNode object = object(node); requireExactFields(object, "run_id", "user_message", "assistant_message", "turn_type"); return new ConversationTurn(runId(object, "run_id"), text(object, "user_message"), text(object, "assistant_message"), enumField(object, "turn_type", ConversationTurnType.class));
+        ObjectNode object = object(node); requireExactFields(object, "run_id", "participant_source_type", "participant_key", "user_message", "assistant_message", "turn_type"); return new ConversationTurn(runId(object, "run_id"), new ParticipantRef(text(object, "participant_source_type"), text(object, "participant_key")), text(object, "user_message"), text(object, "assistant_message"), enumField(object, "turn_type", ConversationTurnType.class));
     }
 
     private ObjectNode pendingNode(PendingTerminalResponse pending) {

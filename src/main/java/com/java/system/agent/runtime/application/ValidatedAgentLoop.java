@@ -48,6 +48,7 @@ import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.run.PendingTerminalResponse;
 import com.java.system.agent.runtime.domain.run.PendingAnswerVerification;
 import com.java.system.agent.runtime.domain.run.AnswerVerificationAbandonReason;
+import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
 import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
@@ -80,6 +81,8 @@ import com.java.system.agent.runtime.port.out.RepositoryRevisionContractExceptio
 import com.java.system.agent.runtime.port.out.AgentTransitionConflictException;
 import com.java.system.agent.runtime.port.out.TerminalAcceptanceCancelledException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
+import com.java.system.agent.runtime.port.in.AnalysisExecutionDeferredException;
+import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -193,24 +196,32 @@ public final class ValidatedAgentLoop {
                 if (request.executionMode() == AnswerExecutionMode.INITIAL) {
                     throw new AgentRunInProgressException("agent run is already in progress: " + request.runId().value());
                 }
-                try {
-                    execution = prepareRetryExecution(request, persistedState);
-                } catch (ActiveIntegrationContractException exception) {
-                    return concludeIntegrationFailure(exception.state(), request, exception);
-                } catch (AgentTransitionConflictException exception) {
-                    PersistedDispatch conflict = resolveRetryConflict(request, exception);
-                    if (conflict.result().isPresent()) {
-                        return conflict.result().orElseThrow();
-                    }
-                    if (conflict.execution().isPresent()) {
-                        execution = conflict.execution().orElseThrow();
-                    } else {
-                        throw new AgentRunInProgressException(
-                                "agent run is already in progress: " + request.runId().value());
+                if (request.executionMode() == AnswerExecutionMode.CAPACITY_RESUME) {
+                    execution = prepareCapacityResumeExecution(request, persistedState);
+                } else {
+                    try {
+                        execution = prepareRetryExecution(request, persistedState);
+                    } catch (ActiveIntegrationContractException exception) {
+                        return concludeIntegrationFailure(exception.state(), request, exception);
+                    } catch (AgentTransitionConflictException exception) {
+                        PersistedDispatch conflict = resolveRetryConflict(request, exception);
+                        if (conflict.result().isPresent()) {
+                            return conflict.result().orElseThrow();
+                        }
+                        if (conflict.execution().isPresent()) {
+                            execution = conflict.execution().orElseThrow();
+                        } else {
+                            throw new AgentRunInProgressException(
+                                    "agent run is already in progress: " + request.runId().value());
+                        }
                     }
                 }
             }
         } else {
+            if (request.executionMode() == AnswerExecutionMode.CAPACITY_RESUME) {
+                throw new AnswerExecutionContractException(
+                        "capacity resume requires a persisted nonterminal agent run");
+            }
             int attemptSequence = request.executionAttempt();
             BootstrapPreparation preparation;
             try {
@@ -246,9 +257,14 @@ public final class ValidatedAgentLoop {
                 return conclude(state, request, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty());
             }
             boolean finalResponseMode = forcedFinalResponse || normalBudgetExhausted(state.budget());
-            AgentActionProposal proposal = Objects.requireNonNull(
-                    actionPort.nextAction(prompt(request, sessionHistory, state, latestRejection, finalResponseMode)),
-                    "agent action port must return a proposal");
+            AgentActionProposal proposal;
+            try {
+                proposal = Objects.requireNonNull(
+                        actionPort.nextAction(prompt(request, sessionHistory, state, latestRejection, finalResponseMode)),
+                        "agent action port must return a proposal");
+            } catch (ExternalExecutionDeferredException exception) {
+                throw deferredExecution(exception);
+            }
             if (cancellationPort.isCancellationRequested(request.runId())) {
                 return conclude(state, request, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty());
             }
@@ -352,7 +368,7 @@ public final class ValidatedAgentLoop {
                 attemptId,
                 attemptSequence,
                 request.budget(),
-                new RunRequestIdentity(request.sessionId().value(), request.question()));
+                new RunRequestIdentity(request.sessionId().value(), request.participant(), request.question()));
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
         List<CapabilityDescriptor> capabilityCatalog = loadCapabilityCatalog(initialState);
@@ -411,6 +427,34 @@ public final class ValidatedAgentLoop {
                 repositoryCatalog,
                 catalogRepositoryIds,
                 contextualized.attemptSequence(),
+                Optional.empty(),
+                false);
+    }
+
+    private ActiveExecution prepareCapacityResumeExecution(AgentLoopRequest request, AgentRunState persistedState) {
+        validateRequestIdentity(request, persistedState);
+        if (persistedState.status() != AgentRunStatus.RUNNING) {
+            throw new AnswerExecutionContractException(
+                    "capacity resume requires a persisted running agent run");
+        }
+        SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
+                "session port must return session history");
+        List<CapabilityDescriptor> capabilities = List.copyOf(
+                persistedState.currentAttempt().issuedCapabilities().values());
+        Map<RepositoryId, RepositoryDescriptor> repositories = new LinkedHashMap<>();
+        for (IssuedCandidate issued : persistedState.currentAttempt().issuedCandidates().values()) {
+            if (issued.candidate() instanceof RepositoryCandidate repository) {
+                repositories.putIfAbsent(repository.repositoryId(),
+                        new RepositoryDescriptor(repository.repositoryId(), repository.description()));
+            }
+        }
+        return new ActiveExecution(
+                persistedState,
+                sessionHistory,
+                capabilities,
+                List.copyOf(repositories.values()),
+                Set.copyOf(repositories.keySet()),
+                persistedState.attemptSequence(),
                 Optional.empty(),
                 false);
     }
@@ -511,7 +555,8 @@ public final class ValidatedAgentLoop {
 
     private void validateRequestIdentity(AgentLoopRequest request, AgentRunState state) {
         if (!state.requestIdentity().sessionIdValue().equals(request.sessionId().value())
-                || !state.requestIdentity().exactQuestion().equals(request.question())) {
+                || !state.requestIdentity().participant().equals(request.participant())
+                || !state.requestIdentity().questionText().equals(request.question())) {
             throw new IllegalArgumentException("incoming request does not match the persisted request identity");
         }
     }
@@ -921,6 +966,9 @@ public final class ValidatedAgentLoop {
                     verificationPort.verify(pending.verificationMode(), verificationContext),
                     "answer verification port must return a result");
             verificationResultCategory = verificationResultCategory(pending.verificationMode(), verificationResult);
+        } catch (ExternalExecutionDeferredException exception) {
+            verificationResultCategory = "EXECUTION_DEFERRED";
+            throw deferredExecution(exception);
         } catch (AnswerVerificationUnavailableException exception) {
             verificationResultCategory = "VERIFIER_UNAVAILABLE";
             throw new AnswerExecutionUnavailableException("answer verification is unavailable", exception);
@@ -967,7 +1015,7 @@ public final class ValidatedAgentLoop {
         }
         String rendered = pending.document().renderParagraphs();
         ConversationTurn turn = new ConversationTurn(
-                request.runId(), request.question(), rendered, ConversationTurnType.ANSWER);
+                request.runId(), request.participant(), request.question(), rendered, ConversationTurnType.ANSWER);
         try {
             state = commitTerminalAcceptance(state, new AgentEvent.AnswerAccepted(
                     state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), pending.document(),
@@ -1017,13 +1065,19 @@ public final class ValidatedAgentLoop {
         }
     }
 
+    private AnalysisExecutionDeferredException deferredExecution(ExternalExecutionDeferredException exception) {
+        ExecutionDeferral deferral = exception.deferral();
+        return new AnalysisExecutionDeferredException(deferral);
+    }
+
     private AgentLoopResult acceptClarification(
             AgentLoopRequest request,
             AgentRunState currentState,
             ClarifyAction clarification,
             boolean finalResponseMode) {
         ConversationTurn turn = new ConversationTurn(
-                request.runId(), request.question(), clarification.question(), ConversationTurnType.CLARIFICATION);
+                request.runId(), request.participant(), request.question(), clarification.question(),
+                ConversationTurnType.CLARIFICATION);
         AgentRunState state;
         try {
             state = commitTerminalAcceptance(currentState, new AgentEvent.ClarificationAccepted(

@@ -35,6 +35,7 @@ import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.domain.conversation.SessionId;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
+import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -108,7 +109,7 @@ class AgentStateReducerTest {
                 new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"),
                 new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 1, 1, 0),
-                new RunRequestIdentity("session-1", "question"));
+                new RunRequestIdentity("session-1", participant(), "question"));
         AgentRunState runStarted = reducer.reduce(initial, new AgentEvent.RunStarted(
                 initial.runId(), initial.currentAttempt().attemptId(), initial.stateRevision())).candidateState();
         AgentRunState started = reducer.reduce(runStarted, new AgentEvent.AttemptStarted(
@@ -326,7 +327,7 @@ class AgentStateReducerTest {
     void should_reject_terminal_turns_that_do_not_match_persisted_request_identity() {
         AgentRunState state = proposeAnswer(startedState(), document(), true);
         ConversationTurn wrongQuestion = new ConversationTurn(
-                state.runId(), "other question", document().renderParagraphs(), ConversationTurnType.ANSWER);
+                state.runId(), participant(), "other question", document().renderParagraphs(), ConversationTurnType.ANSWER);
         AgentEvent.AnswerAccepted event = new AgentEvent.AnswerAccepted(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), document(),
                 AnswerAcceptance.llm(acceptedCompleteVerdict()), answerSessionId(), wrongQuestion, true);
@@ -401,7 +402,7 @@ class AgentStateReducerTest {
     private AgentEvent.ClarificationAccepted clarificationAccepted(AgentRunState state, boolean finalResponseMode) {
         return new AgentEvent.ClarificationAccepted(state.runId(), state.currentAttempt().attemptId(),
                 state.stateRevision(), new ClarifyAction("which repository", List.of(), "scope is ambiguous"),
-                answerSessionId(), new ConversationTurn(state.runId(), "question", "which repository",
+                answerSessionId(), new ConversationTurn(state.runId(), participant(), "question", "which repository",
                 ConversationTurnType.CLARIFICATION), finalResponseMode);
     }
 
@@ -427,7 +428,11 @@ class AgentStateReducerTest {
     }
 
     private ConversationTurn answerTurn(AnalysisRunId runId, AnswerDocument document) {
-        return new ConversationTurn(runId, "question", document.renderParagraphs(), ConversationTurnType.ANSWER);
+        return new ConversationTurn(runId, participant(), "question", document.renderParagraphs(), ConversationTurnType.ANSWER);
+    }
+
+    private ParticipantRef participant() {
+        return new ParticipantRef("test", "participant-1");
     }
 
     private AgentObservation observation(String id) {
@@ -437,7 +442,7 @@ class AgentStateReducerTest {
 
     private AgentRunState initialState() {
         return AgentRunState.initial(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), budget(),
-                new RunRequestIdentity("session-1", "question"));
+                new RunRequestIdentity("session-1", participant(), "question"));
     }
 
     private AgentRunState startedState() {

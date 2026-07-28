@@ -6,6 +6,7 @@ import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
 import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
 import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.converter.BeanOutputConverter;
 
@@ -59,6 +60,8 @@ public final class SpringAiAnswerVerificationAdapter implements AnswerVerificati
             try {
                 content = chatClient.prompt().system(AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION)
                         .user(promptRenderer.render(context, converter.getFormat())).call().content();
+            } catch (ExternalExecutionDeferredException exception) {
+                throw exception;
             } catch (RuntimeException exception) {
                 resultCategory = category(exception);
                 throw new AnswerVerificationUnavailableException(resultCategory, exception);
@@ -68,6 +71,8 @@ public final class SpringAiAnswerVerificationAdapter implements AnswerVerificati
                         interpreter.interpret(converter.convert(content), context));
                 resultCategory = "LLM_VERDICT";
                 return result;
+            } catch (ExternalExecutionDeferredException exception) {
+                throw exception;
             } catch (RuntimeException exception) {
                 resultCategory = UNAVAILABLE;
                 throw new AnswerVerificationUnavailableException(UNAVAILABLE, exception);

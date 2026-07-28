@@ -20,7 +20,8 @@ class ModelModuleArchitectureTest {
             .that().resideInAPackage("..model..")
             .and().doNotHaveSimpleName("package-info")
             .should().onlyDependOnClassesThat()
-            .resideInAnyPackage("java..", "org.springframework..", "tools.jackson..", "com.google.genai..", "..model..",
+            .resideInAnyPackage("java..", "org.springframework..", "reactor..", "tools.jackson..", "com.google.genai..",
+                    "..model..",
                     "..runtime.domain..",
                     "..runtime.port.out..");
 }

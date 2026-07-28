@@ -34,8 +34,8 @@ public final class AnswerVerificationPromptRenderer {
         section(prompt, "Current question", context.question());
         prompt.append("Session history:\n");
         for (ConversationTurn turn : context.sessionHistory().turns()) {
-            prompt.append("- user: ").append(turn.userMessage()).append('\n');
-            prompt.append("  assistant: ").append(turn.assistantMessage()).append('\n');
+            prompt.append(turn.participant().promptLabel()).append(": ").append(turn.userMessage()).append('\n');
+            prompt.append("assistant: ").append(turn.assistantMessage()).append('\n');
         }
         prompt.append("Proposed document:\n");
         for (AnswerStatement statement : context.document().statements()) {

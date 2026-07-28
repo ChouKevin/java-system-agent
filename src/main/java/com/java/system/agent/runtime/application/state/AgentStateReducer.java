@@ -306,7 +306,7 @@ public final class AgentStateReducer {
             ConversationTurn turn) {
         if (!state.runId().equals(turn.runId())
                 || !state.requestIdentity().sessionIdValue().equals(sessionIdValue)
-                || !state.requestIdentity().exactQuestion().equals(turn.userMessage())) {
+                || !state.requestIdentity().questionText().equals(turn.userMessage())) {
             throw new IllegalArgumentException("accepted terminal response does not match the run request identity");
         }
     }
