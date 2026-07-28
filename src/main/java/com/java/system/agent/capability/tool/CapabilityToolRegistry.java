@@ -273,10 +273,14 @@ public final class CapabilityToolRegistry implements CapabilityCatalogPort {
                 return;
             }
             if (Objects.nonNull(minimum)) {
-                if (!value.isIntegralNumber() || value.intValue() < minimum || value.intValue() > maximum) {
+                if (!value.isIntegralNumber() || !value.canConvertToInt()) {
                     throw new ToolInputException();
                 }
-                arguments.put(name, Integer.toString(value.intValue()));
+                int parsed = value.intValue();
+                if (parsed < minimum || parsed > maximum) {
+                    throw new ToolInputException();
+                }
+                arguments.put(name, Integer.toString(parsed));
                 return;
             }
             arguments.put(name, textValue(value));
