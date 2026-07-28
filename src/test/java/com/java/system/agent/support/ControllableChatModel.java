@@ -42,6 +42,15 @@ public final class ControllableChatModel implements ChatModel {
         if (response.isBlank()) {
             throw new IllegalArgumentException("chat response must not be blank");
         }
+        enqueue(label, new AssistantMessage(response));
+    }
+
+    public synchronized void enqueue(String label, AssistantMessage response) {
+        Objects.requireNonNull(label, "chat response label must not be null");
+        Objects.requireNonNull(response, "chat response must not be null");
+        if (label.isBlank()) {
+            throw new IllegalArgumentException("chat response label must not be blank");
+        }
         responses.add(new ScriptedResponse(label, response));
     }
 
@@ -58,9 +67,9 @@ public final class ControllableChatModel implements ChatModel {
         prompts.add(prompt);
         ScriptedResponse response = responses.remove();
         callTimeline.record(response.label());
-        return new ChatResponse(List.of(new Generation(new AssistantMessage(response.content()))));
+        return new ChatResponse(List.of(new Generation(response.message())));
     }
 
-    private record ScriptedResponse(String label, String content) {
+    private record ScriptedResponse(String label, AssistantMessage message) {
     }
 }

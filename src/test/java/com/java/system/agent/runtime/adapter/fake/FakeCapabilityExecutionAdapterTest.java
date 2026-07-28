@@ -3,8 +3,7 @@ package com.java.system.agent.runtime.adapter.fake;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
@@ -59,8 +58,8 @@ class FakeCapabilityExecutionAdapterTest {
         CandidateHandle handle = new CandidateHandle("candidate-1", binding, CandidateKind.REPOSITORY);
         IssuedCandidate candidate = new IssuedCandidate(handle,
                 new RepositoryCandidate(repositoryId, "repository candidate"));
-        CapabilityDescriptor capability = new CapabilityDescriptor("lookup", "v1", Set.of(CandidateKind.REPOSITORY),
-                1, 1, new CapabilityQuerySchema(List.of()));
+        CapabilityPolicy capability = new CapabilityPolicy("lookup", "v1", Set.of(CandidateKind.REPOSITORY),
+                1, 1);
         return new CapabilityInvocation(capability, List.of(candidate), "question", Map.of(), revisions);
     }
 }

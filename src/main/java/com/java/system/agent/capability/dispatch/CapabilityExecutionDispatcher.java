@@ -1,6 +1,7 @@
 package com.java.system.agent.capability.dispatch;
 
 import com.java.system.agent.capability.spi.CapabilityExecutor;
+import com.java.system.agent.capability.tool.CapabilityToolRegistry;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionPort;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
@@ -18,10 +19,10 @@ public final class CapabilityExecutionDispatcher implements CapabilityExecutionP
 
     private static final Logger LOGGER = Logger.getLogger(CapabilityExecutionDispatcher.class.getName());
 
-    private final CapabilityExecutorRegistry registry;
+    private final CapabilityToolRegistry registry;
 
-    public CapabilityExecutionDispatcher(CapabilityExecutorRegistry registry) {
-        this.registry = Objects.requireNonNull(registry, "capability executor registry must not be null");
+    public CapabilityExecutionDispatcher(CapabilityToolRegistry registry) {
+        this.registry = Objects.requireNonNull(registry, "capability tool registry must not be null");
     }
 
     @Override
@@ -31,10 +32,7 @@ public final class CapabilityExecutionDispatcher implements CapabilityExecutionP
         String resultCategory = "CONTRACT_EXCEPTION";
         String executorClass = "UNREGISTERED";
         try {
-            CapabilityExecutor executor = registry.executors().get(invocation.capability());
-            if (Objects.isNull(executor)) {
-                throw new CapabilityExecutionContractException("validated capability has no registered executor");
-            }
+            CapabilityExecutor executor = registry.executor(invocation.capability());
             executorClass = executor.getClass().getName();
             CapabilityExecutionResult result = executor.execute(invocation);
             if (Objects.isNull(result)) {

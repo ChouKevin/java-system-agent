@@ -5,17 +5,14 @@ import com.java.system.agent.model.action.dto.AgentActionResponse;
 import com.java.system.agent.model.action.dto.AnswerResponse;
 import com.java.system.agent.model.action.dto.AnswerStatementResponse;
 import com.java.system.agent.model.action.dto.ClarifyResponse;
-import com.java.system.agent.model.action.dto.QueryResponse;
 import com.java.system.agent.runtime.domain.action.AnswerAction;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
-import com.java.system.agent.runtime.domain.action.QueryAction;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.ClaimId;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
-import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
 import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
@@ -48,23 +45,12 @@ public final class AgentActionResponseInterpreter {
             Objects.requireNonNull(context, "agent prompt context must not be null");
             Objects.requireNonNull(response.type(), "action response type must not be null");
             return switch (response.type()) {
-                case QUERY -> proposedQuery(response, context);
                 case ANSWER -> proposedAnswer(response, context);
                 case CLARIFY -> proposedClarify(response, context);
             };
         } catch (RuntimeException exception) {
             return new AgentActionProposal.Malformed(MALFORMED_DESCRIPTION);
         }
-    }
-
-    private AgentActionProposal proposedQuery(AgentActionResponse response, AgentPromptContext context) {
-        requireOnly(response, ActionResponseType.QUERY);
-        QueryResponse query = Objects.requireNonNull(response.query(), "query response must not be null");
-        HandleBinding binding = binding(context);
-        CapabilityHandle capability = capabilityHandle(query.capabilityHandle(), context, binding);
-        List<CandidateHandle> candidates = candidateHandles(query.candidateHandles(), context, binding);
-        return new AgentActionProposal.Proposed(new QueryAction(capability, candidates, query.questionToResolve(),
-                immutableArguments(query.arguments()), query.rationale()));
     }
 
     private AgentActionProposal proposedAnswer(AgentActionResponse response, AgentPromptContext context) {
@@ -90,24 +76,12 @@ public final class AgentActionResponseInterpreter {
     }
 
     private static void requireOnly(AgentActionResponse response, ActionResponseType expected) {
-        boolean hasQuery = Objects.nonNull(response.query());
         boolean hasAnswer = Objects.nonNull(response.answer());
         boolean hasClarify = Objects.nonNull(response.clarify());
-        if ((expected == ActionResponseType.QUERY && (!hasQuery || hasAnswer || hasClarify))
-                || (expected == ActionResponseType.ANSWER && (hasQuery || !hasAnswer || hasClarify))
-                || (expected == ActionResponseType.CLARIFY && (hasQuery || hasAnswer || !hasClarify))) {
+        if ((expected == ActionResponseType.ANSWER && (!hasAnswer || hasClarify))
+                || (expected == ActionResponseType.CLARIFY && (hasAnswer || !hasClarify))) {
             throw new IllegalArgumentException("action response envelope is contradictory");
         }
-    }
-
-    private static CapabilityHandle capabilityHandle(String value, AgentPromptContext context, HandleBinding binding) {
-        String requiredValue = requiredText(value, "capability handle");
-        for (CapabilityHandle handle : context.issuedCapabilities().keySet()) {
-            if (handle.value().equals(requiredValue)) {
-                return handle;
-            }
-        }
-        return new CapabilityHandle(requiredValue, binding);
     }
 
     private static List<CandidateHandle> candidateHandles(List<String> values, AgentPromptContext context,
@@ -154,15 +128,6 @@ public final class AgentActionResponseInterpreter {
             ids.add(new ObservationId(requiredText(value, "observation ID")));
         }
         return Set.copyOf(ids);
-    }
-
-    private static Map<String, String> immutableArguments(Map<String, String> arguments) {
-        Objects.requireNonNull(arguments, "query arguments must not be null");
-        for (Map.Entry<String, String> entry : arguments.entrySet()) {
-            requiredText(entry.getKey(), "query argument key");
-            requiredText(entry.getValue(), "query argument value");
-        }
-        return Map.copyOf(arguments);
     }
 
     private static <T> List<T> requiredList(List<T> values, String description) {

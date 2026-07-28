@@ -1,12 +1,9 @@
 package com.java.system.agent.codebase.executor;
 
 import com.java.system.agent.capability.spi.CapabilityExecutor;
-import com.java.system.agent.capability.catalog.BuiltInCapabilityCatalog;
-import com.java.system.agent.capability.dispatch.CapabilityExecutorRegistry;
 import com.java.system.agent.codebase.semantic.JavaSemanticServiceHttpAdapter;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
 import com.java.system.agent.runtime.port.out.CapabilityInvocation;
@@ -51,9 +48,9 @@ class CodebaseExecutorTest {
 
     @Test
     void rejectsADescriptorThatDoesNotExactlyMatchTheExecutorWiring() {
-        CapabilityDescriptor wired = descriptor("codebase.lookup-api-route");
-        CapabilityDescriptor differentVersion = new CapabilityDescriptor("codebase.lookup-api-route", "v2",
-                Set.of(CandidateKind.REPOSITORY), 0, 1, new CapabilityQuerySchema(List.of()));
+        CapabilityPolicy wired = descriptor("codebase.lookup-api-route");
+        CapabilityPolicy differentVersion = new CapabilityPolicy("codebase.lookup-api-route", "v2",
+                Set.of(CandidateKind.REPOSITORY), 0, 1);
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CapabilityExecutor executor = new LookupApiRouteExecutor(wired, adapter);
 
@@ -63,28 +60,13 @@ class CodebaseExecutorTest {
         verifyNoMoreInteractions(adapter);
     }
 
-    @Test
-    void registersTheFiveConcreteExecutorsForTheCompleteBuiltInCatalog() {
-        BuiltInCapabilityCatalog catalog = new BuiltInCapabilityCatalog();
-        List<CapabilityDescriptor> descriptors = catalog.availableCapabilities();
-        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
-        CapabilityExecutorRegistry registry = new CapabilityExecutorRegistry(catalog, List.of(
-                new ListEntryPointsExecutor(descriptors.get(0), adapter),
-                new LookupApiRouteExecutor(descriptors.get(1), adapter),
-                new SuggestApiRouteExecutor(descriptors.get(2), adapter),
-                new OutgoingCallGraphExecutor(descriptors.get(3), adapter),
-                new IncomingCallGraphExecutor(descriptors.get(4), adapter)));
-
-        assertThat(registry.executors().keySet()).containsExactlyElementsOf(descriptors);
-    }
-
     private static Stream<ExecutorCase> executorCases() {
         return Stream.of(
                 listEntryPoints(), lookupApiRoute(), suggestApiRoute(), outgoingCallGraph(), incomingCallGraph());
     }
 
     private static ExecutorCase listEntryPoints() {
-        CapabilityDescriptor descriptor = descriptor("codebase.list-entry-points");
+        CapabilityPolicy descriptor = descriptor("codebase.list-entry-points");
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         return new ExecutorCase(new ListEntryPointsExecutor(descriptor, adapter), descriptor, adapter,
                 (mockAdapter, invocation, result) -> when(mockAdapter.listEntryPoints(invocation)).thenReturn(result),
@@ -92,7 +74,7 @@ class CodebaseExecutorTest {
     }
 
     private static ExecutorCase lookupApiRoute() {
-        CapabilityDescriptor descriptor = descriptor("codebase.lookup-api-route");
+        CapabilityPolicy descriptor = descriptor("codebase.lookup-api-route");
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         return new ExecutorCase(new LookupApiRouteExecutor(descriptor, adapter), descriptor, adapter,
                 (mockAdapter, invocation, result) -> when(mockAdapter.lookupApiRoute(invocation)).thenReturn(result),
@@ -100,7 +82,7 @@ class CodebaseExecutorTest {
     }
 
     private static ExecutorCase suggestApiRoute() {
-        CapabilityDescriptor descriptor = descriptor("codebase.suggest-api-route");
+        CapabilityPolicy descriptor = descriptor("codebase.suggest-api-route");
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         return new ExecutorCase(new SuggestApiRouteExecutor(descriptor, adapter), descriptor, adapter,
                 (mockAdapter, invocation, result) -> when(mockAdapter.suggestApiRoute(invocation)).thenReturn(result),
@@ -108,7 +90,7 @@ class CodebaseExecutorTest {
     }
 
     private static ExecutorCase outgoingCallGraph() {
-        CapabilityDescriptor descriptor = descriptor("codebase.outgoing-call-graph");
+        CapabilityPolicy descriptor = descriptor("codebase.outgoing-call-graph");
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         return new ExecutorCase(new OutgoingCallGraphExecutor(descriptor, adapter), descriptor, adapter,
                 (mockAdapter, invocation, result) -> when(mockAdapter.outgoingCallGraph(invocation)).thenReturn(result),
@@ -116,19 +98,18 @@ class CodebaseExecutorTest {
     }
 
     private static ExecutorCase incomingCallGraph() {
-        CapabilityDescriptor descriptor = descriptor("codebase.incoming-call-graph");
+        CapabilityPolicy descriptor = descriptor("codebase.incoming-call-graph");
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         return new ExecutorCase(new IncomingCallGraphExecutor(descriptor, adapter), descriptor, adapter,
                 (mockAdapter, invocation, result) -> when(mockAdapter.incomingCallGraph(invocation)).thenReturn(result),
                 (mockAdapter, invocation) -> verify(mockAdapter).incomingCallGraph(same(invocation)));
     }
 
-    private static CapabilityDescriptor descriptor(String name) {
-        return new CapabilityDescriptor(name, "v1", Set.of(CandidateKind.REPOSITORY), 0, 1,
-                new CapabilityQuerySchema(List.of()));
+    private static CapabilityPolicy descriptor(String name) {
+        return new CapabilityPolicy(name, "v1", Set.of(CandidateKind.REPOSITORY), 0, 1);
     }
 
-    private record ExecutorCase(CapabilityExecutor executor, CapabilityDescriptor descriptor,
+    private record ExecutorCase(CapabilityExecutor executor, CapabilityPolicy descriptor,
                                 JavaSemanticServiceHttpAdapter adapter,
                                 AdapterStubber stubber, AdapterVerifier verifier) {
     }

@@ -1,7 +1,6 @@
 package com.java.system.agent.runtime.application;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
-import com.java.system.agent.runtime.domain.capability.CapabilityQuerySchema;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
@@ -51,7 +50,7 @@ class ContextIssuerTest {
                 .extracting(handle -> handle.value())
                 .containsExactly("attempt-1:C1", "attempt-1:C2");
         assertThat(initial.issuedCapabilities().values())
-                .extracting(CapabilityDescriptor::name)
+                .extracting(CapabilityPolicy::name)
                 .containsExactly("alpha", "zeta");
         assertThat(initial.issuedCandidates().keySet())
                 .extracting(handle -> handle.value())
@@ -163,14 +162,13 @@ class ContextIssuerTest {
                 .hasMessageContaining("duplicate evidence");
     }
 
-    private CapabilityDescriptor capability(String name) {
-        return new CapabilityDescriptor(
+    private CapabilityPolicy capability(String name) {
+        return new CapabilityPolicy(
                 name,
                 "v1",
                 Set.of(CandidateKind.REPOSITORY),
                 1,
-                10,
-                new CapabilityQuerySchema(List.of()));
+                10);
     }
 
     private RevisionVector pin(RepositoryId id, RepositoryRevision revision) {

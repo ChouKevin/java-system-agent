@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.application;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
@@ -44,7 +44,7 @@ public final class ContextIssuer {
             AnalysisRunId runId,
             AnalysisAttemptId attemptId,
             RevisionVector revisions,
-            List<CapabilityDescriptor> capabilities,
+            List<CapabilityPolicy> capabilities,
             List<RepositoryDescriptor> repositories) {
         Objects.requireNonNull(repositories, "repository catalog must not be null");
         List<RepositoryDescriptor> validatedRepositories = repositories.stream()
@@ -73,8 +73,8 @@ public final class ContextIssuer {
             RevisionVector revisions) {
         Objects.requireNonNull(currentAttempt, "current run attempt must not be null");
         HandleBinding binding = binding(runId, currentAttempt.attemptId(), revisions);
-        Map<CapabilityHandle, CapabilityDescriptor> capabilities = new LinkedHashMap<>();
-        for (Map.Entry<CapabilityHandle, CapabilityDescriptor> entry
+        Map<CapabilityHandle, CapabilityPolicy> capabilities = new LinkedHashMap<>();
+        for (Map.Entry<CapabilityHandle, CapabilityPolicy> entry
                 : currentAttempt.issuedCapabilities().entrySet()) {
             CapabilityHandle handle = new CapabilityHandle(entry.getKey().value(), binding);
             capabilities.put(handle, entry.getValue());
@@ -148,25 +148,25 @@ public final class ContextIssuer {
         return new CapabilityIssue(context, observations);
     }
 
-    private Map<CapabilityHandle, CapabilityDescriptor> issueCapabilities(
+    private Map<CapabilityHandle, CapabilityPolicy> issueCapabilities(
             HandleBinding binding,
-            List<CapabilityDescriptor> values) {
+            List<CapabilityPolicy> values) {
         Objects.requireNonNull(values, "capability catalog must not be null");
-        List<CapabilityDescriptor> sorted = values.stream()
+        List<CapabilityPolicy> sorted = values.stream()
                 .map(value -> Objects.requireNonNull(value, "capability catalog must not contain null"))
-                .sorted(Comparator.comparing(CapabilityDescriptor::name)
-                        .thenComparing(CapabilityDescriptor::version))
+                .sorted(Comparator.comparing(CapabilityPolicy::name)
+                        .thenComparing(CapabilityPolicy::version))
                 .toList();
         Set<CapabilityIdentity> identities = new LinkedHashSet<>();
-        for (CapabilityDescriptor value : sorted) {
+        for (CapabilityPolicy value : sorted) {
             CapabilityIdentity identity = new CapabilityIdentity(value.name(), value.version());
             if (!identities.add(identity)) {
                 throw protocolFailure("capability catalog contains duplicate name and version");
             }
         }
-        Map<CapabilityHandle, CapabilityDescriptor> issued = new LinkedHashMap<>();
+        Map<CapabilityHandle, CapabilityPolicy> issued = new LinkedHashMap<>();
         int ordinal = 1;
-        for (CapabilityDescriptor value : sorted) {
+        for (CapabilityPolicy value : sorted) {
             CapabilityHandle handle = new CapabilityHandle(prefix(binding) + "C" + ordinal, binding);
             issued.put(handle, value);
             ordinal++;

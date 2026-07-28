@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.port.out;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 
@@ -12,7 +12,7 @@ import java.util.Objects;
  * runtime 驗證動作後交給語意查詢 adapter 的型別化請求
  */
 public record CapabilityInvocation(
-        CapabilityDescriptor capability,
+        CapabilityPolicy capability,
         List<IssuedCandidate> candidates,
         String question,
         Map<String, String> arguments,

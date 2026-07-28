@@ -1,6 +1,6 @@
 package com.java.system.agent.model.action;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityDescriptor;
+import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
 import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
@@ -20,7 +20,7 @@ import java.util.Objects;
 public final class AgentActionPromptRenderer {
 
     public static final String SYSTEM_INSTRUCTION = """
-            Choose exactly one QUERY, ANSWER, or CLARIFY action.
+            Choose exactly one registered tool call for QUERY, or one textual ANSWER or CLARIFY response, never both.
             Use only issued opaque handles.
             Preserve the candidate subset and order you intend.
             Express unresolved uncertainty in answer statements, observations, or clarification.
@@ -41,11 +41,10 @@ public final class AgentActionPromptRenderer {
             prompt.append("assistant: ").append(turn.assistantMessage()).append('\n');
         }
         prompt.append("Capabilities:\n");
-        for (Map.Entry<CapabilityHandle, CapabilityDescriptor> entry : context.issuedCapabilities().entrySet()) {
-            CapabilityDescriptor descriptor = entry.getValue();
+        for (Map.Entry<CapabilityHandle, CapabilityPolicy> entry : context.issuedCapabilities().entrySet()) {
+            CapabilityPolicy descriptor = entry.getValue();
             prompt.append("- ").append(entry.getKey().value()).append(": ").append(descriptor.name())
-                    .append("@ ").append(descriptor.version()).append(" schema=")
-                    .append(descriptor.querySchema()).append('\n');
+                    .append("@ ").append(descriptor.version()).append('\n');
         }
         prompt.append("Candidates:\n");
         for (Map.Entry<CandidateHandle, IssuedCandidate> entry : context.issuedCandidates().entrySet()) {
