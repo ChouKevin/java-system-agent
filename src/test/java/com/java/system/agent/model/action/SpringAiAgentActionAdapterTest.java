@@ -151,6 +151,16 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
+    void mapsNullFixedToolArgumentsToInvalidToolInputForNormalActionRejection() {
+        CountingChatModel model = new CountingChatModel(toolCall("agent_request_clarification", null));
+
+        AgentActionProposal proposal = adapter(model).nextAction(context());
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
     void mapsTypeAndDeclarativeToolInputFailuresToInvalidToolInput() {
         CountingChatModel unknownEnum = new CountingChatModel(toolCall("agent_submit_answer", """
                 {"statements":[{"statementId":"statement-1","type":"UNKNOWN","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}

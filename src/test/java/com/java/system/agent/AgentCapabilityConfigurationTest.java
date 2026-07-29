@@ -64,6 +64,20 @@ class AgentCapabilityConfigurationTest {
     }
 
     @Test
+    void startupRegistryVerifiesTheNestedAnswerStatementSchemaContract() throws Exception {
+        PlanningToolRegistry registry = registry();
+        JsonNode statement = schemasByToolName(registry).get("agent_submit_answer")
+                .path("properties").path("statements").path("items");
+
+        assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(statement.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
+        assertThat(statement.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
+        assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
+                .isEqualTo(1);
+    }
+
+    @Test
     void maps_blank_registered_candidate_handle_to_invalid_tool_input_before_its_mapper() {
         PlanningToolRegistry registry = registry();
         CapabilityPolicy policy = registry.availableCapabilities().stream()

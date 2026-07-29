@@ -31,7 +31,9 @@ public final class StrictPlanningToolDecoder {
     }
 
     public <I> I decode(String rawInput, Class<I> inputType) {
-        Objects.requireNonNull(rawInput, "planning tool raw input must not be null");
+        if (Objects.isNull(rawInput)) {
+            throw new PlanningToolInputException();
+        }
         Objects.requireNonNull(inputType, "planning tool input type must not be null");
         if (rawInput.getBytes(StandardCharsets.UTF_8).length > MAX_UTF8_BYTES) {
             throw new PlanningToolInputException();

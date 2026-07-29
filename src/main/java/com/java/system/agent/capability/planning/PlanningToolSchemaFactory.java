@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.ai.util.json.schema.JsonSchemaGenerator;
 
 import java.lang.annotation.Annotation;
@@ -18,6 +19,7 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -77,7 +79,8 @@ public final class PlanningToolSchemaFactory {
         for (RecordComponent component : inputType.getRecordComponents()) {
             ObjectNode property = object(properties.path(component.getName()), "planning schema property " + component.getName());
             JsonProperty jsonProperty = component.getAccessor().getAnnotation(JsonProperty.class);
-            if (Objects.nonNull(jsonProperty) && jsonProperty.required()) {
+            if ((Objects.nonNull(jsonProperty) && jsonProperty.required())
+                    || Objects.nonNull(component.getAccessor().getAnnotation(NotNull.class))) {
                 addRequired(required, component.getName());
             }
             enrichType(component.getAccessor().getAnnotatedReturnType(), component.getAccessor().getAnnotations(), property);
@@ -107,6 +110,9 @@ public final class PlanningToolSchemaFactory {
                 values.add(((Enum<?>) value).name());
             }
         }
+        if (rawType.isRecord()) {
+            enrichRecordSchema(rawType, schema);
+        }
         if (Collection.class.isAssignableFrom(rawType) && type instanceof AnnotatedParameterizedType parameterized) {
             AnnotatedType[] arguments = parameterized.getAnnotatedActualTypeArguments();
             if (arguments.length != 1) {
@@ -129,9 +135,120 @@ public final class PlanningToolSchemaFactory {
 
     private void verifyContract(Class<?> inputType, JsonNode registeredSchema) throws Exception {
         JsonNode canonical = canonicalSchemaNode(inputType);
+        verifyRecordContract(inputType, object(registeredSchema, "registered planning schema root"));
         if (!canonical.equals(registeredSchema)) {
             throw new IllegalArgumentException(
                     "registered planning schema differs from the canonical input contract for " + inputType.getName());
+        }
+    }
+
+    private static void verifyRecordContract(Class<?> inputType, ObjectNode schema) {
+        if (!inputType.isRecord()) {
+            throw new IllegalArgumentException("planning schema input type must be a record");
+        }
+        if (!schema.path("additionalProperties").isBoolean() || schema.path("additionalProperties").asBoolean()) {
+            throw new IllegalArgumentException("planning schema object must be closed");
+        }
+        ObjectNode properties = object(schema.path("properties"), "planning schema properties");
+        JsonNode required = schema.path("required");
+        for (RecordComponent component : inputType.getRecordComponents()) {
+            ObjectNode property = object(properties.path(component.getName()),
+                    "planning schema property " + component.getName());
+            JsonProperty jsonProperty = component.getAccessor().getAnnotation(JsonProperty.class);
+            if ((Objects.nonNull(jsonProperty) && jsonProperty.required())
+                    || Objects.nonNull(component.getAccessor().getAnnotation(NotNull.class))) {
+                if (!containsText(required, component.getName())) {
+                    throw new IllegalArgumentException("planning required property is absent from schema");
+                }
+            }
+            verifyTypeContract(component.getAccessor().getAnnotatedReturnType(),
+                    component.getAccessor().getAnnotations(), property);
+        }
+    }
+
+    private static void verifyTypeContract(AnnotatedType type, Annotation[] annotations, ObjectNode schema) {
+        Class<?> rawType = rawType(type.getType());
+        Min min = annotation(annotations, Min.class);
+        Max max = annotation(annotations, Max.class);
+        if (Objects.nonNull(min) && schema.path("minimum").asLong(Long.MIN_VALUE) != min.value()) {
+            throw new IllegalArgumentException("planning minimum constraint is absent from schema");
+        }
+        if (Objects.nonNull(max) && schema.path("maximum").asLong(Long.MAX_VALUE) != max.value()) {
+            throw new IllegalArgumentException("planning maximum constraint is absent from schema");
+        }
+        if (Objects.nonNull(annotation(annotations, NotBlank.class))) {
+            if (schema.path("minLength").asInt() < 1 || !NONBLANK_PATTERN.equals(schema.path("pattern").asText())) {
+                throw new IllegalArgumentException("planning nonblank constraint is absent from schema");
+            }
+        }
+        if (Objects.nonNull(annotation(annotations, NotEmpty.class))) {
+            verifyNotEmptyContract(rawType, schema);
+        }
+        if (requiresNonNull(annotations) && permitsNull(schema)) {
+            throw new IllegalArgumentException("planning nullability constraint is absent from schema");
+        }
+        if (rawType.isEnum()) {
+            verifyEnumContract(rawType, schema);
+        }
+        if (rawType.isRecord()) {
+            verifyRecordContract(rawType, schema);
+        }
+        if (Collection.class.isAssignableFrom(rawType) && type instanceof AnnotatedParameterizedType parameterized) {
+            AnnotatedType[] arguments = parameterized.getAnnotatedActualTypeArguments();
+            if (arguments.length != 1) {
+                throw new IllegalArgumentException("planning collection input must have exactly one element type");
+            }
+            AnnotatedType elementType = arguments[0];
+            verifyTypeContract(elementType, elementType.getAnnotations(),
+                    object(schema.path("items"), "planning schema collection item"));
+        }
+    }
+
+    private static void verifyNotEmptyContract(Class<?> rawType, ObjectNode schema) {
+        if (Collection.class.isAssignableFrom(rawType) && schema.path("minItems").asInt() < 1) {
+            throw new IllegalArgumentException("planning collection size constraint is absent from schema");
+        }
+        if (CharSequence.class.isAssignableFrom(rawType) && schema.path("minLength").asInt() < 1) {
+            throw new IllegalArgumentException("planning string size constraint is absent from schema");
+        }
+    }
+
+    private static boolean requiresNonNull(Annotation[] annotations) {
+        return Objects.nonNull(annotation(annotations, NotNull.class))
+                || Objects.nonNull(annotation(annotations, NotBlank.class))
+                || Objects.nonNull(annotation(annotations, NotEmpty.class));
+    }
+
+    private static boolean permitsNull(JsonNode schema) {
+        if ("null".equals(schema.path("type").asText())) {
+            return true;
+        }
+        for (String branch : List.of("type", "anyOf", "oneOf")) {
+            JsonNode values = schema.path(branch);
+            if (values.isArray() && containsText(values, "null")) {
+                return true;
+            }
+            if (values.isArray()) {
+                for (JsonNode value : values) {
+                    if ("null".equals(value.path("type").asText())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void verifyEnumContract(Class<?> rawType, ObjectNode schema) {
+        ArrayNode values = array(schema.path("enum"), "planning schema enum");
+        Object[] expected = rawType.getEnumConstants();
+        if (values.size() != expected.length) {
+            throw new IllegalArgumentException("planning enum constraint is absent from schema");
+        }
+        for (Object value : expected) {
+            if (!containsText(values, ((Enum<?>) value).name())) {
+                throw new IllegalArgumentException("planning enum constraint is absent from schema");
+            }
         }
     }
 
@@ -189,5 +306,12 @@ public final class PlanningToolSchemaFactory {
             throw new IllegalArgumentException(description + " must be an object");
         }
         return (ObjectNode) node;
+    }
+
+    private static ArrayNode array(JsonNode node, String description) {
+        if (!node.isArray()) {
+            throw new IllegalArgumentException(description + " must be an array");
+        }
+        return (ArrayNode) node;
     }
 }

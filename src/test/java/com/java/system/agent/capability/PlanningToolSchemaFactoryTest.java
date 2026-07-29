@@ -11,6 +11,7 @@ import com.java.system.agent.codebase.planning.ListEntryPointsPlanningInput;
 import com.java.system.agent.codebase.planning.LookupApiRoutePlanningInput;
 import com.java.system.agent.codebase.planning.OutgoingCallGraphPlanningInput;
 import com.java.system.agent.codebase.planning.SuggestApiRoutePlanningInput;
+import com.java.system.agent.model.action.planning.SubmitAnswerPlanningInput;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -49,6 +50,24 @@ class PlanningToolSchemaFactoryTest {
             assertThat(root.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
                     .isGreaterThanOrEqualTo(1);
         }
+    }
+
+    @Test
+    void generates_closed_nested_answer_statement_constraints_from_the_record_contract() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode schema = mapper.readTree(new PlanningToolSchemaFactory(mapper).schemaFor(SubmitAnswerPlanningInput.class));
+        JsonNode statement = schema.path("properties").path("statements").path("items");
+
+        assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(statement.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
+        assertThat(statement.path("properties").path("statementId").path("minLength").asInt()).isEqualTo(1);
+        assertThat(statement.path("properties").path("statementId").path("pattern").asText()).isEqualTo(".*\\S.*");
+        assertThat(statement.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
+        assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
+                .isEqualTo(1);
+        assertThat(statement.path("properties").path("observationIds").path("items").path("minLength").asInt())
+                .isEqualTo(1);
     }
 
     @Test
@@ -96,13 +115,18 @@ class PlanningToolSchemaFactoryTest {
         type.putArray("anyOf").addObject().put("type", "string");
         type.withArray("anyOf").addObject().put("type", "null");
 
+        ObjectNode changedNestedConstraint = canonical(factory, mapper, SubmitAnswerPlanningInput.class);
+        ((ObjectNode) changedNestedConstraint.path("properties").path("statements").path("items")
+                .path("properties").path("text")).put("minLength", 0);
+
         return List.of(
                 new TamperedSchema(ListEntryPointsPlanningInput.class, extraRequired),
                 new TamperedSchema(ListEntryPointsPlanningInput.class, extraProperty),
                 new TamperedSchema(ListEntryPointsPlanningInput.class, extraEnumValue),
                 new TamperedSchema(ListEntryPointsPlanningInput.class, changedCollectionLimit),
                 new TamperedSchema(SuggestApiRoutePlanningInput.class, changedRange),
-                new TamperedSchema(ListEntryPointsPlanningInput.class, explicitNullBranch));
+                new TamperedSchema(ListEntryPointsPlanningInput.class, explicitNullBranch),
+                new TamperedSchema(SubmitAnswerPlanningInput.class, changedNestedConstraint));
     }
 
     private static ObjectNode canonical(PlanningToolSchemaFactory factory, ObjectMapper mapper, Class<?> inputType) throws Exception {
