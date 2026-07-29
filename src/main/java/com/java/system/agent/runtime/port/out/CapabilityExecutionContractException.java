@@ -7,4 +7,8 @@ public final class CapabilityExecutionContractException extends IllegalStateExce
     public CapabilityExecutionContractException(String message) {
         super(message);
     }
+
+    public CapabilityExecutionContractException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

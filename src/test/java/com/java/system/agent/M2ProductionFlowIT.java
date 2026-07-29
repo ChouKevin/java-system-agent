@@ -139,6 +139,7 @@ class M2ProductionFlowIT {
     void resetFlowState() {
         server.reset();
         callTimeline.clear();
+        chatModel.reset();
     }
 
     @Test
@@ -147,7 +148,8 @@ class M2ProductionFlowIT {
         assertThat(transactionTemplate).isNotNull();
         assertThat(flyway.info().current()).isNotNull();
 
-        assertThat(sourceAcceptance.accept(event()).admission()).isPresent();
+        assertThat(sourceAcceptance.accept(event(
+                "answer", "Which entry point remains unresolved?")).admission()).isPresent();
 
         server.expect(requestTo("http://semantic.test/v1/repositories"))
                 .andExpect(method(GET))
@@ -159,7 +161,7 @@ class M2ProductionFlowIT {
                 .andExpect(header("X-Api-Token", "m2-token"))
                 .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_REVISION))
                 .andRespond(withSuccess(repositoryStatusJson(), APPLICATION_JSON));
-        server.expect(requestTo("http://semantic.test/v1/repositories/demo/entry-points"))
+        server.expect(requestTo("http://semantic.test/v1/repositories/demo/entry-points?types=API"))
                 .andExpect(method(GET))
                 .andExpect(header("X-Api-Token", "m2-token"))
                 .andExpect(request -> callTimeline.record(CallTimeline.HTTP_LIST_ENTRY_POINTS))
@@ -169,7 +171,7 @@ class M2ProductionFlowIT {
         InboxMessage enqueued = claim.message();
         String attemptId = enqueued.runId().value() + ":A1";
         chatModel.enqueue(CallTimeline.LLM_QUERY_ACTION, queryToolCall(attemptId));
-        chatModel.enqueue(CallTimeline.LLM_ANSWER_ACTION, answerJson(attemptId));
+        chatModel.enqueue(CallTimeline.LLM_ANSWER_ACTION, answerToolCall(attemptId));
         chatModel.enqueue(CallTimeline.LLM_VERIFIER, verdictJson());
         InboxProcessingOutcome outcome = processor.process(claim, NOW);
 
@@ -178,8 +180,8 @@ class M2ProductionFlowIT {
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(5);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(4);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(7);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(6);
         assertThat(deliveryStatuses(enqueued)).containsExactly(
                 "FINAL_RESPONSE:WAITING_FOR_RECEIPT", "RECEIPT:PENDING");
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
@@ -229,13 +231,52 @@ class M2ProductionFlowIT {
         server.verify();
     }
 
-    private static NormalizedSourceEvent event() {
-        String sourceText = "<@agent> Which entry point remains unresolved?";
+    @Test
+    void processesOneClaimedMessageThroughTheProductionClarificationPlanningToolFlow() {
+        assertThat(sourceAcceptance.accept(event(
+                "clarification", "Which repository should I inspect?")).admission()).isPresent();
+        server.expect(requestTo("http://semantic.test/v1/repositories"))
+                .andExpect(method(GET))
+                .andExpect(header("X-Api-Token", "m2-token"))
+                .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_CATALOG))
+                .andRespond(withSuccess(repositoryCatalogJson(), APPLICATION_JSON));
+
+        InboxClaim claim = inbox.claimNext(NOW).orElseThrow();
+        InboxMessage enqueued = claim.message();
+        chatModel.enqueue(CallTimeline.LLM_CLARIFY_ACTION, clarificationToolCall());
+
+        InboxProcessingOutcome outcome = processor.process(claim, NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.COMPLETED);
+        assertThat(inboxStatus(enqueued)).isEqualTo(InboxMessageStatus.COMPLETED.name());
+        AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
+        assertThat(state.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(7);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(6);
+        assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
+                "WAITING_FOR_RECEIPT",
+                "CLARIFICATION",
+                "INCONCLUSIVE",
+                "Which repository should I inspect?",
+                PARTICIPANT.sourceType(),
+                PARTICIPANT.participantKey()));
+        assertThat(chatModel.prompts())
+                .extracting(Prompt::getSystemMessage)
+                .extracting(SystemMessage::getText)
+                .containsExactly(AgentActionPromptRenderer.SYSTEM_INSTRUCTION);
+        assertThat(callTimeline.calls()).containsExactly(
+                CallTimeline.HTTP_REPOSITORY_CATALOG,
+                CallTimeline.LLM_CLARIFY_ACTION);
+        server.verify();
+    }
+
+    private static NormalizedSourceEvent event(String suffix, String question) {
+        String sourceText = "<@agent> " + question;
         return new NormalizedSourceEvent(
-                "slack", new TransportEventId("event-1"), new SourceMessageId("message-1"),
-                new SessionSourceRef("slack", "channel-1:thread-1"), PARTICIPANT, sourceText,
-                "Which entry point remains unresolved?", SourcePayloadFingerprintV1.fromCanonicalFields(
-                        "workspace-1", "channel-1", "message-1", "thread-1", "U123456", sourceText), NOW);
+                "slack", new TransportEventId("event-" + suffix), new SourceMessageId("message-" + suffix),
+                new SessionSourceRef("slack", "channel-1:thread-" + suffix), PARTICIPANT, sourceText,
+                question, SourcePayloadFingerprintV1.fromCanonicalFields(
+                        "workspace-1", "channel-1", "message-" + suffix, "thread-" + suffix, "U123456", sourceText), NOW);
     }
 
     private String inboxStatus(InboxMessage message) {
@@ -343,17 +384,37 @@ class M2ProductionFlowIT {
                 .toolCalls(List.of(new AssistantMessage.ToolCall(
                         "call-1",
                         "function",
-                        "codebase.list-entry-points",
+                        "codebase_list_entry_points",
                         """
-                                {"candidateHandles":["%s:R1"],"questionToResolve":"Find the unresolved entry point","rationale":"inspect the repository entry points"}
+                                {"candidateHandles":["%s:R1"],"questionToResolve":"Find the unresolved entry point","rationale":"inspect the repository entry points","type":"API"}
                                 """.formatted(attemptId))))
                 .build();
     }
 
-    private static String answerJson(String attemptId) {
-        return """
-                {"type":"ANSWER","query":null,"answer":{"statements":[{"statementId":"limitation-1","type":"LIMITATION","text":"OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND","claimId":null,"citationHandles":[],"observationIds":["%s:O1"]}]},"clarify":null}
-                """.formatted(attemptId);
+    private static AssistantMessage answerToolCall(String attemptId) {
+        return AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall(
+                        "call-2",
+                        "function",
+                        "agent_submit_answer",
+                        """
+                                {"statements":[{"statementId":"limitation-1","type":"LIMITATION","text":"OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND","citationHandles":[],"observationIds":["%s:O1"]}]}
+                                """.formatted(attemptId))))
+                .build();
+    }
+
+    private static AssistantMessage clarificationToolCall() {
+        return AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall(
+                        "call-1",
+                        "function",
+                        "agent_request_clarification",
+                        """
+                                {"question":"Which repository should I inspect?","candidateHandles":[],"reason":"repository scope is ambiguous"}
+                                """)))
+                .build();
     }
 
     private static String verdictJson() {

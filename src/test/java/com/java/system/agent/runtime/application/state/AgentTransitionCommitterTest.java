@@ -96,7 +96,7 @@ class AgentTransitionCommitterTest {
 
     private AgentRunState initialState() {
         return AgentRunState.initial(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
-                new AttemptBudget(2, 0, 2, 0, 2, 0, 2, 0, 1, 0),
+                new AttemptBudget(2, 0, 2, 0, 2, 0, 2, 0),
                 new RunRequestIdentity("session-1", new ParticipantRef("test", "participant-1"), "question"));
     }
 

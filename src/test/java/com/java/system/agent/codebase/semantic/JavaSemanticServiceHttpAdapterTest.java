@@ -16,7 +16,13 @@ import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionFailureCode;
-import com.java.system.agent.runtime.port.out.CapabilityInvocation;
+import com.java.system.agent.capability.spi.CapabilityExecutionContext;
+import com.java.system.agent.codebase.planning.EntryPointType;
+import com.java.system.agent.codebase.planning.IncomingCallGraphExecutionInput;
+import com.java.system.agent.codebase.planning.ListEntryPointsExecutionInput;
+import com.java.system.agent.codebase.planning.LookupApiRouteExecutionInput;
+import com.java.system.agent.codebase.planning.OutgoingCallGraphExecutionInput;
+import com.java.system.agent.codebase.planning.SuggestApiRouteExecutionInput;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionFailureCode;
 import com.java.system.agent.codebase.semantic.dto.SemanticDtos;
@@ -96,15 +102,15 @@ class JavaSemanticServiceHttpAdapterTest {
 
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
-        assertThat(adapter.listEntryPoints(repositoryInvocation("codebase.list-entry-points", Map.of("type", "API"))))
+        assertThat(adapter.listEntryPoints(repositoryContext("codebase_list_entry_points"), new ListEntryPointsExecutionInput(EntryPointType.API)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
-        assertThat(adapter.lookupApiRoute(repositoryInvocation("codebase.lookup-api-route", Map.of("apiPath", "/orders"))))
+        assertThat(adapter.lookupApiRoute(repositoryContext("codebase_lookup_api_route"), new LookupApiRouteExecutionInput("/orders", null)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
-        assertThat(adapter.suggestApiRoute(repositoryInvocation("codebase.suggest-api-route", Map.of("apiPath", "/orders", "limit", "3"))))
+        assertThat(adapter.suggestApiRoute(repositoryContext("codebase_suggest_api_route"), new SuggestApiRouteExecutionInput("/orders", null, 3)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
-        assertThat(adapter.outgoingCallGraph(targetInvocation("codebase.outgoing-call-graph")))
+        assertThat(adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"), new OutgoingCallGraphExecutionInput(1)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
-        assertThat(adapter.incomingCallGraph(targetInvocation("codebase.incoming-call-graph")))
+        assertThat(adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"), new IncomingCallGraphExecutionInput(1)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         client.server().verify();
     }
@@ -123,13 +129,13 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         CapabilityExecutionResult.Failed external = (CapabilityExecutionResult.Failed) adapter.lookupApiRoute(
-                repositoryInvocation("codebase.lookup-api-route", Map.of("apiPath", "/orders")));
+                repositoryContext("codebase_lookup_api_route"), new LookupApiRouteExecutionInput("/orders", null));
         CapabilityExecutionResult.Failed transport = (CapabilityExecutionResult.Failed) adapter.suggestApiRoute(
-                repositoryInvocation("codebase.suggest-api-route", Map.of("apiPath", "/orders", "limit", "3")));
+                repositoryContext("codebase_suggest_api_route"), new SuggestApiRouteExecutionInput("/orders", null, 3));
 
         assertThat(external.failure().code()).isEqualTo(CapabilityExecutionFailureCode.TIMEOUT);
         assertThat(transport.failure().code()).isEqualTo(CapabilityExecutionFailureCode.TIMEOUT);
-        assertThatThrownBy(() -> adapter.listEntryPoints(repositoryInvocation("codebase.list-entry-points", Map.of())))
+        assertThatThrownBy(() -> adapter.listEntryPoints(repositoryContext("codebase_list_entry_points"), new ListEntryPointsExecutionInput(null)))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
@@ -171,7 +177,7 @@ class JavaSemanticServiceHttpAdapterTest {
                         """, MediaType.APPLICATION_JSON));
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
-        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetInvocation("codebase.outgoing-call-graph")))
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"), new OutgoingCallGraphExecutionInput(1)))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
@@ -190,7 +196,7 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         assertThatThrownBy(adapter::availableRepositories).isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetInvocation("codebase.outgoing-call-graph")))
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"), new OutgoingCallGraphExecutionInput(1)))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
@@ -201,7 +207,7 @@ class JavaSemanticServiceHttpAdapterTest {
                 """;
     }
 
-    private static CapabilityInvocation repositoryInvocation(String name, Map<String, String> arguments) {
+    private static CapabilityExecutionContext repositoryContext(String name) {
         RepositoryId repositoryId = new RepositoryId("orders");
         RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
@@ -209,11 +215,11 @@ class JavaSemanticServiceHttpAdapterTest {
                 new CandidateHandle("candidate-1", new HandleBinding(new AnalysisRunId("run-1"),
                         new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.REPOSITORY),
                 new RepositoryCandidate(repositoryId, "Orders"));
-        return new CapabilityInvocation(descriptor(name, CandidateKind.REPOSITORY), List.of(candidate),
-                "Find orders", arguments, revisions);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(candidate),
+                "Find orders", revisions);
     }
 
-    private static CapabilityInvocation targetInvocation(String name) {
+    private static CapabilityExecutionContext targetContext(String name) {
         RepositoryId repositoryId = new RepositoryId("orders");
         RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
@@ -223,8 +229,8 @@ class JavaSemanticServiceHttpAdapterTest {
                 new CandidateHandle("candidate-2", new HandleBinding(new AnalysisRunId("run-1"),
                         new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.SEMANTIC_TARGET),
                 new SemanticTargetCandidate(repositoryId, revision, target, "Order lookup"));
-        return new CapabilityInvocation(descriptor(name, CandidateKind.SEMANTIC_TARGET), List.of(candidate),
-                "Trace orders", Map.of("depth", "1"), revisions);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), List.of(candidate),
+                "Trace orders", revisions);
     }
 
     private static CapabilityPolicy descriptor(String name, CandidateKind candidateKind) {

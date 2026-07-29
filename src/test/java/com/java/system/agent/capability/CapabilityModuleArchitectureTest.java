@@ -19,17 +19,17 @@ class CapabilityModuleArchitectureTest {
     static final ArchRule CAPABILITY_IMPLEMENTATION_DEPENDS_ONLY_ON_ITS_OWN_TYPES_AND_RUNTIME_CONTRACTS = classes()
             .that().resideInAPackage("..capability..")
             .and().doNotHaveSimpleName("package-info")
-            .and().resideOutsideOfPackage("..capability.tool..")
+            .and().resideOutsideOfPackage("..capability.planning..")
             .should().onlyDependOnClassesThat()
             .resideInAnyPackage("java..", "..capability..",
                     "..runtime.domain..", "..runtime.port.out..");
 
     @ArchTest
-    static final ArchRule CAPABILITY_TOOL_DEPENDS_ON_SPRING_AI_JACKSON_AND_RUNTIME_CONTRACTS = classes()
-            .that().resideInAPackage("..capability.tool..")
+    static final ArchRule CAPABILITY_PLANNING_DEPENDS_ON_SPRING_AI_JACKSON_AND_RUNTIME_CONTRACTS = classes()
+            .that().resideInAPackage("..capability.planning..")
             .and().doNotHaveSimpleName("package-info")
             .should().onlyDependOnClassesThat()
-            .resideInAnyPackage("java..", "com.fasterxml.jackson..", "org.springframework..", "..capability..",
+            .resideInAnyPackage("java..", "com.fasterxml.jackson..", "jakarta..", "org.springframework..", "..capability..",
                     "..runtime.domain..", "..runtime.port.out..");
 
     @ArchTest

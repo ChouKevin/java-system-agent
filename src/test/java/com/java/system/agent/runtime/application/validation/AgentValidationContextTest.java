@@ -53,7 +53,7 @@ class AgentValidationContextTest {
     private static AgentValidationContext context(Map<CandidateHandle, IssuedCandidate> candidates,
             Map<EvidenceHandle, IssuedEvidence> evidence, Map<ObservationId, AgentObservation> observations) {
         return new AgentValidationContext(Map.of(), candidates, evidence, observations, binding(),
-                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0), false);
+                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0));
     }
 
     private static HandleBinding binding() {

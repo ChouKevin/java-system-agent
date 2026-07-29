@@ -117,7 +117,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentTransition transition = reducer.reduce(
                 persisted,
                 new AgentEvent.ActionRejected(persisted.runId(), persisted.currentAttempt().attemptId(),
-                        persisted.stateRevision(), Optional.empty(), "action was rejected", false));
+                        persisted.stateRevision(), Optional.empty(), "action was rejected"));
 
         AgentRunState published = transitions.commit(transition);
 
@@ -148,7 +148,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentTransition transition = reducer.reduce(
                 persisted,
                 new AgentEvent.ActionRejected(persisted.runId(), persisted.currentAttempt().attemptId(),
-                        persisted.stateRevision(), Optional.empty(), "action was rejected", false));
+                        persisted.stateRevision(), Optional.empty(), "action was rejected"));
         AgentRunState forgedCandidate = withRequestIdentity(
                 transition.candidateState(),
                 new RunRequestIdentity(
@@ -200,7 +200,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentTransition transition = reducer.reduce(
                 persisted,
                 new AgentEvent.ActionRejected(persisted.runId(), persisted.currentAttempt().attemptId(),
-                        persisted.stateRevision(), Optional.empty(), "action was rejected", false));
+                        persisted.stateRevision(), Optional.empty(), "action was rejected"));
         jdbcClient.sql("DROP TABLE agent_run_event").update();
 
         assertThatThrownBy(() -> transitions.commit(transition)).isInstanceOf(JdbcPersistenceException.class);
@@ -231,8 +231,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                                 PARTICIPANT,
                                 persisted.requestIdentity().questionText(),
                                 "Which repository should be used?",
-                                ConversationTurnType.CLARIFICATION),
-                        false));
+                                ConversationTurnType.CLARIFICATION)));
 
         assertThat(cancellations.isCancellationRequested(persisted.runId())).isTrue();
         assertThat(cancellations.isCancellationRequested(new AnalysisRunId("missing-run"))).isFalse();
@@ -282,7 +281,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentRunState initial = AgentRunState.initial(
                 runId,
                 attemptId,
-                new AttemptBudget(5, 0, 4, 0, 3, 0, 2, 0, 2, 0),
+                new AttemptBudget(5, 0, 4, 0, 3, 0, 2, 0),
                 identity);
         AgentTransition runStarted = reducer.reduce(initial, new AgentEvent.RunStarted(runId, attemptId, 0));
         AgentTransition attemptStarted = reducer.reduce(
@@ -316,8 +315,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                                 PARTICIPANT,
                                 persisted.requestIdentity().questionText(),
                                 "Which repository should be used?",
-                                ConversationTurnType.CLARIFICATION),
-                        false));
+                                ConversationTurnType.CLARIFICATION)));
     }
 
     private AgentRunState withRequestIdentity(AgentRunState state, RunRequestIdentity identity) {
@@ -331,6 +329,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 state.rejectedActionCount(),
                 state.stateRevision(),
                 state.finalOutcome(),
+                state.runtimeNoticeReason(),
+                state.failureReason(),
                 state.pendingTerminalResponse(),
                 state.pendingAnswerVerification(),
                 identity);

@@ -80,8 +80,7 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
     }
 
     record ActionRejected(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
-                          Optional<AgentAction> originalAction, String description,
-                          boolean finalResponseMode) implements AgentEvent {
+                          Optional<AgentAction> originalAction, String description) implements AgentEvent {
         public ActionRejected {
             validateEnvelope(runId, attemptId, expectedStateRevision);
             Objects.requireNonNull(originalAction, "rejected original action must not be null");
@@ -132,8 +131,7 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
 
     record AnswerAccepted(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
                           AnswerDocument document, AnswerAcceptance acceptance,
-                          SessionId sessionId, ConversationTurn turn,
-                          boolean finalResponseMode) implements AgentEvent {
+                          SessionId sessionId, ConversationTurn turn) implements AgentEvent {
         public AnswerAccepted {
             validateEnvelope(runId, attemptId, expectedStateRevision);
             Objects.requireNonNull(document, "accepted answer document must not be null");
@@ -169,8 +167,7 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
 
     record ClarificationAccepted(AnalysisRunId runId, AnalysisAttemptId attemptId,
                                  long expectedStateRevision, ClarifyAction action,
-                                 SessionId sessionId, ConversationTurn turn,
-                                 boolean finalResponseMode) implements AgentEvent {
+                                 SessionId sessionId, ConversationTurn turn) implements AgentEvent {
         public ClarificationAccepted {
             validateEnvelope(runId, attemptId, expectedStateRevision);
             Objects.requireNonNull(action, "accepted clarification action must not be null");
@@ -184,20 +181,18 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
     }
 
     record RunConcluded(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
-                        RunOutcome outcome, boolean runtimeFixedResponse) implements AgentEvent {
-        public RunConcluded(
-                AnalysisRunId runId,
-                AnalysisAttemptId attemptId,
-                long expectedStateRevision,
-                RunOutcome outcome) {
-            this(runId, attemptId, expectedStateRevision, outcome, false);
-        }
-
+                        RunOutcome outcome, Optional<RuntimeNoticeReason> runtimeNoticeReason,
+                        Optional<RunFailureReason> failureReason) implements AgentEvent {
         public RunConcluded {
             validateEnvelope(runId, attemptId, expectedStateRevision);
             Objects.requireNonNull(outcome, "run outcome must not be null");
-            if (outcome == RunOutcome.COMPLETED && runtimeFixedResponse) {
-                throw new IllegalArgumentException("completed run cannot use a runtime fixed response");
+            runtimeNoticeReason = Objects.requireNonNull(runtimeNoticeReason, "runtime notice reason must not be null");
+            failureReason = Objects.requireNonNull(failureReason, "run failure reason must not be null");
+            if (runtimeNoticeReason.isPresent() && outcome != RunOutcome.INCONCLUSIVE) {
+                throw new IllegalArgumentException("runtime notice requires an inconclusive conclusion");
+            }
+            if (failureReason.isPresent() && outcome != RunOutcome.FAILED) {
+                throw new IllegalArgumentException("failure reason requires a failed conclusion");
             }
         }
     }

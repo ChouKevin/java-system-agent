@@ -1,42 +1,26 @@
 package com.java.system.agent.codebase.executor;
 
+import com.java.system.agent.capability.spi.CapabilityExecutionContext;
 import com.java.system.agent.capability.spi.CapabilityExecutor;
+import com.java.system.agent.codebase.planning.LookupApiRouteExecutionInput;
 import com.java.system.agent.codebase.semantic.JavaSemanticServiceHttpAdapter;
-import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
-import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
-import com.java.system.agent.runtime.port.out.CapabilityInvocation;
 
 import java.util.Objects;
 
 /**
  * 將 lookup-api-route capability 精確委派到 Java Semantic Service 的單一 read operation
  */
-public final class LookupApiRouteExecutor implements CapabilityExecutor {
+public final class LookupApiRouteExecutor implements CapabilityExecutor<LookupApiRouteExecutionInput> {
 
-    private final CapabilityPolicy capability;
     private final JavaSemanticServiceHttpAdapter adapter;
 
-    public LookupApiRouteExecutor(CapabilityPolicy capability, JavaSemanticServiceHttpAdapter adapter) {
-        this.capability = Objects.requireNonNull(capability, "capability must not be null");
+    public LookupApiRouteExecutor(JavaSemanticServiceHttpAdapter adapter) {
         this.adapter = Objects.requireNonNull(adapter, "Java Semantic Service adapter must not be null");
     }
 
     @Override
-    public CapabilityPolicy capability() {
-        return capability;
-    }
-
-    @Override
-    public CapabilityExecutionResult execute(CapabilityInvocation invocation) {
-        requireExactCapability(invocation);
-        return adapter.lookupApiRoute(invocation);
-    }
-
-    private void requireExactCapability(CapabilityInvocation invocation) {
-        Objects.requireNonNull(invocation, "capability invocation must not be null");
-        if (!capability.equals(invocation.capability())) {
-            throw new CapabilityExecutionContractException("capability invocation does not match lookup-api-route executor");
-        }
+    public CapabilityExecutionResult execute(CapabilityExecutionContext context, LookupApiRouteExecutionInput input) {
+        return adapter.lookupApiRoute(context, input);
     }
 }

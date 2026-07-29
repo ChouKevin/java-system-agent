@@ -1,8 +1,7 @@
 package com.java.system.agent.model.action;
 
-import com.java.system.agent.capability.tool.CapabilityToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.model.ModelTransportFailureClassifier;
-import com.java.system.agent.model.action.dto.AgentActionResponse;
 import com.java.system.agent.runtime.domain.action.AgentAction;
 import com.java.system.agent.runtime.domain.action.AnswerAction;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
@@ -10,13 +9,13 @@ import com.java.system.agent.runtime.domain.action.QueryAction;
 import com.java.system.agent.runtime.port.out.AgentActionPort;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentActionTransportException;
+import com.java.system.agent.runtime.port.out.AgentActionContractException;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
 import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import org.springframework.ai.chat.client.AdvisorParams;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.util.StringUtils;
 
@@ -27,7 +26,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * 以 request-scoped Spring AI tool callback 或文字結構輸出取得下一個 runtime action 的外部 adapter
+ * 以 request-scoped Spring AI planning tool callback 取得下一個 runtime action 的外部 adapter
  */
 public final class SpringAiAgentActionAdapter implements AgentActionPort {
 
@@ -36,22 +35,18 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
     private static final Logger LOGGER = Logger.getLogger(SpringAiAgentActionAdapter.class.getName());
 
     private final ChatClient chatClient;
-    private final CapabilityToolRegistry toolRegistry;
-    private final BeanOutputConverter<AgentActionResponse> converter;
+    private final PlanningToolRegistry toolRegistry;
     private final AgentActionPromptRenderer promptRenderer;
-    private final AgentActionResponseInterpreter interpreter;
 
-    public SpringAiAgentActionAdapter(ChatClient chatClient, CapabilityToolRegistry toolRegistry) {
-        this(chatClient, toolRegistry, new AgentActionPromptRenderer(), new AgentActionResponseInterpreter());
+    public SpringAiAgentActionAdapter(ChatClient chatClient, PlanningToolRegistry toolRegistry) {
+        this(chatClient, toolRegistry, new AgentActionPromptRenderer());
     }
 
-    SpringAiAgentActionAdapter(ChatClient chatClient, CapabilityToolRegistry toolRegistry,
-                               AgentActionPromptRenderer promptRenderer, AgentActionResponseInterpreter interpreter) {
+    SpringAiAgentActionAdapter(ChatClient chatClient, PlanningToolRegistry toolRegistry,
+                               AgentActionPromptRenderer promptRenderer) {
         this.chatClient = Objects.requireNonNull(chatClient, "chat client must not be null");
-        this.toolRegistry = Objects.requireNonNull(toolRegistry, "capability tool registry must not be null");
+        this.toolRegistry = Objects.requireNonNull(toolRegistry, "planning tool registry must not be null");
         this.promptRenderer = Objects.requireNonNull(promptRenderer, "action prompt renderer must not be null");
-        this.interpreter = Objects.requireNonNull(interpreter, "action response interpreter must not be null");
-        this.converter = new BeanOutputConverter<>(AgentActionResponse.class);
     }
 
     @Override
@@ -69,7 +64,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
                         .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false))
                         .options(options)
                         .system(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
-                        .user(promptRenderer.render(context, converter.getFormat()))
+                        .user(promptRenderer.render(context))
                         .call()
                         .chatClientResponse();
             } catch (ExternalExecutionDeferredException exception) {
@@ -92,23 +87,19 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             AssistantMessage assistant = Objects.requireNonNull(response, "chat client response must not be null")
                     .chatResponse().getResult().getOutput();
             List<AssistantMessage.ToolCall> toolCalls = assistant.getToolCalls();
-            if (!toolCalls.isEmpty()) {
-                if (toolCalls.size() != 1 || StringUtils.hasText(assistant.getText())) {
-                    return malformed();
-                }
-                return toolRegistry.interpretToolCall(toolCalls.getFirst(), context);
-            }
-            if (!StringUtils.hasText(assistant.getText())) {
+            if (toolCalls.size() != 1 || StringUtils.hasText(assistant.getText())) {
                 return malformed();
             }
-            return interpreter.interpret(converter.convert(assistant.getText()), context);
+            return toolRegistry.interpretToolCall(toolCalls.getFirst(), context);
+        } catch (AgentActionContractException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             return malformed();
         }
     }
 
     private static AgentActionProposal.Malformed malformed() {
-        return new AgentActionProposal.Malformed(AgentActionResponseInterpreter.MALFORMED_DESCRIPTION);
+        return new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE");
     }
 
     private static String actionType(AgentActionProposal proposal) {

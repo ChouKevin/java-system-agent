@@ -31,6 +31,6 @@ class FakeAgentActionAdapterTest {
         return new AgentPromptContext("question", SessionHistory.empty(), new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"), Map.of(), Map.of(), Map.of(),
                 Map.of(), Optional.empty(),
-                new AttemptBudget(2, 0, 2, 0, 2, 0, 2, 0, 1, 0), false);
+                new AttemptBudget(2, 0, 2, 0, 2, 0, 2, 0));
     }
 }

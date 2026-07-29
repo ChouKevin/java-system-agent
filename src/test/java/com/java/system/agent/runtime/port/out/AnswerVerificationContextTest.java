@@ -11,6 +11,7 @@ import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
 import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
 import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
@@ -51,33 +52,54 @@ class AnswerVerificationContextTest {
     }
 
     @Test
-    void rejects_values_tampered_behind_an_existing_handle_or_observation_id() {
+    void compares_reissued_evidence_and_observations_by_opaque_reference_values() {
         IssuedEvidence cited = evidence("evidence-1", "cited");
         AgentObservation referenced = observation("observation-1", "referenced");
         IssuedEvidence tamperedEvidence = evidence("evidence-1", "tampered");
         AgentObservation tamperedObservation = observation("observation-1", "tampered");
 
-        assertThatThrownBy(() -> new AnswerVerificationContext(
+        AnswerVerificationContext context = new AnswerVerificationContext(
                 "question", SessionHistory.empty(), document(cited, referenced),
-                List.of(cited), List.of(referenced), List.of(tamperedEvidence), List.of(referenced)))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new AnswerVerificationContext(
+                List.of(cited), List.of(referenced), List.of(tamperedEvidence), List.of(referenced));
+        assertThat(context.citedEvidence()).containsExactly(tamperedEvidence);
+        AnswerVerificationContext reissuedObservationContext = new AnswerVerificationContext(
                 "question", SessionHistory.empty(), document(cited, referenced),
-                List.of(cited), List.of(referenced), List.of(cited), List.of(tamperedObservation)))
-                .isInstanceOf(IllegalArgumentException.class);
+                List.of(cited), List.of(referenced), List.of(cited), List.of(tamperedObservation));
+        assertThat(reissuedObservationContext.referencedObservations()).containsExactly(tamperedObservation);
+    }
+
+    @Test
+    void accepts_exact_citation_values_when_evidence_is_reissued_with_a_new_binding() {
+        IssuedEvidence cited = evidence("evidence-1", "cited");
+        IssuedEvidence reissued = evidence("evidence-1", "reissued", "attempt-2");
+        AgentObservation referenced = observation("observation-1", "referenced");
+
+        AnswerVerificationContext context = new AnswerVerificationContext(
+                "question", SessionHistory.empty(), document(new EvidenceHandleRef("evidence-1"), referenced),
+                List.of(reissued), List.of(referenced), List.of(reissued), List.of(referenced));
+
+        assertThat(context.citedEvidence()).containsExactly(reissued);
     }
 
     private AnswerDocument document(IssuedEvidence evidence, AgentObservation observation) {
+        return document(new EvidenceHandleRef(evidence.handle().value()), observation);
+    }
+
+    private AnswerDocument document(EvidenceHandleRef evidence, AgentObservation observation) {
         return new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.QUESTION, "answer", Optional.empty(),
-                Set.of(evidence.handle()), Set.of(observation.id()))));
+                Set.of(evidence), Set.of(observation.id()))));
     }
 
     private IssuedEvidence evidence(String handleValue, String content) {
+        return evidence(handleValue, content, "attempt-1");
+    }
+
+    private IssuedEvidence evidence(String handleValue, String content, String attemptId) {
         RepositoryId repositoryId = new RepositoryId("repo-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
         HandleBinding binding = new HandleBinding(
-                new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
+                new AnalysisRunId("run-1"), new AnalysisAttemptId(attemptId),
                 RevisionVector.empty().pin(repositoryId, revision));
         return new IssuedEvidence(new EvidenceHandle(handleValue, binding), new EvidenceRef(
                 "semantic", repositoryId, revision,
