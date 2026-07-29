@@ -72,6 +72,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -176,6 +177,35 @@ class SpringAiAgentActionAdapterTest {
         assertThat(blankProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(unknownEnum.calls()).isEqualTo(1);
         assertThat(blankQuestion.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsInvalidNestedAnswerStatementsBeforeExecutingAnswerMapper() {
+        AtomicInteger mapperCalls = new AtomicInteger();
+        CountingChatModel missingType = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"statements":[{"statementId":"statement-1","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                """));
+        CountingChatModel nullType = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"statements":[{"statementId":"statement-1","type":null,"text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                """));
+        CountingChatModel blankCitation = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":[" "],"observationIds":[]}]}
+                """));
+
+        AgentActionProposal missingTypeProposal = adapter(missingType, input -> failIfAnswerMapperExecutes(mapperCalls))
+                .nextAction(answerContext());
+        AgentActionProposal nullTypeProposal = adapter(nullType, input -> failIfAnswerMapperExecutes(mapperCalls))
+                .nextAction(answerContext());
+        AgentActionProposal blankCitationProposal = adapter(blankCitation,
+                input -> failIfAnswerMapperExecutes(mapperCalls)).nextAction(answerContext());
+
+        assertThat(missingTypeProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(nullTypeProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(blankCitationProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(mapperCalls).hasValue(0);
+        assertThat(missingType.calls()).isEqualTo(1);
+        assertThat(nullType.calls()).isEqualTo(1);
+        assertThat(blankCitation.calls()).isEqualTo(1);
     }
 
     @Test
@@ -357,7 +387,13 @@ class SpringAiAgentActionAdapterTest {
     }
 
     private static SpringAiAgentActionAdapter adapter(CountingChatModel model) {
-        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry(new ToolInputMapper()));
+        return adapter(model, new SubmitAnswerPlanningMapper());
+    }
+
+    private static SpringAiAgentActionAdapter adapter(
+            CountingChatModel model,
+            Function<SubmitAnswerPlanningInput, AnswerAction> answerMapper) {
+        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry(new ToolInputMapper(), answerMapper));
     }
 
     private static SpringAiAgentActionAdapter contractDefectAdapter(CountingChatModel model) {
@@ -367,6 +403,12 @@ class SpringAiAgentActionAdapterTest {
     }
 
     private static PlanningToolRegistry registry(QueryPlanningMapper<ToolInput, ToolInput> mapper) {
+        return registry(mapper, new SubmitAnswerPlanningMapper());
+    }
+
+    private static PlanningToolRegistry registry(
+            QueryPlanningMapper<ToolInput, ToolInput> mapper,
+            Function<SubmitAnswerPlanningInput, AnswerAction> answerMapper) {
         CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
         CapabilityPolicy unissuedPolicy = new CapabilityPolicy("codebase_lookup_api_route", "v1",
                 Set.of(CandidateKind.REPOSITORY), 1, 2);
@@ -379,12 +421,17 @@ class SpringAiAgentActionAdapterTest {
                 PlanningToolRegistry.registration(unissuedPolicy, ToolInput.class, ToolInput.class, mapper, executor,
                         schemaFactory),
                 new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
-                        new SubmitAnswerPlanningMapper(), schemaFactory),
+                        answerMapper, schemaFactory),
                 new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
                         new RequestClarificationPlanningMapper(), schemaFactory)), new StrictPlanningToolDecoder(
                 objectMapper, Validation.buildDefaultValidatorFactory().getValidator()),
                 new CanonicalCapabilityPayloadCodec(objectMapper), schemaFactory);
         return registry;
+    }
+
+    private static AnswerAction failIfAnswerMapperExecutes(AtomicInteger mapperCalls) {
+        mapperCalls.incrementAndGet();
+        throw new AssertionError("answer mapper must not execute for invalid planning input");
     }
 
     private static AssistantMessage toolCall(String name, String arguments) {
