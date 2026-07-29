@@ -14,6 +14,10 @@ import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
+import com.java.system.agent.runtime.domain.action.AnswerAction;
+import com.java.system.agent.runtime.domain.action.ClarifyAction;
+import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.tool.ToolCallback;
@@ -44,8 +48,15 @@ class AgentCapabilityConfigurationTest {
         assertThat(required(schemas, "codebase_list_entry_points")).doesNotContain("type");
         assertThat(required(schemas, "codebase_outgoing_call_graph")).doesNotContain("depth");
         assertThat(required(schemas, "codebase_incoming_call_graph")).doesNotContain("depth");
-        assertThat(schemas).hasSize(5);
-        for (JsonNode schema : schemas.values()) {
+        assertThat(schemas).hasSize(7).containsKeys("agent_submit_answer", "agent_request_clarification");
+        assertThat(required(schemas, "agent_submit_answer")).containsExactly("statements");
+        assertThat(required(schemas, "agent_request_clarification"))
+                .containsExactlyInAnyOrder("question", "candidateHandles", "reason");
+        for (Map.Entry<String, JsonNode> entry : schemas.entrySet()) {
+            if (!entry.getKey().startsWith("codebase_")) {
+                continue;
+            }
+            JsonNode schema = entry.getValue();
             assertThat(schema.path("required")).extracting(JsonNode::asText).contains("candidateHandles");
             assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
                     .isGreaterThanOrEqualTo(1);
@@ -67,6 +78,30 @@ class AgentCapabilityConfigurationTest {
                         """), context);
 
         assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+    }
+
+    @Test
+    void mapsFixedPlanningToolsWithoutResolvingRawIssuedHandleReferences() {
+        PlanningToolRegistry registry = registry();
+        AgentPromptContext context = contextFor(List.of());
+
+        AgentActionProposal answerProposal = registry.interpretToolCall(new AssistantMessage.ToolCall(
+                "call-1", "function", "agent_submit_answer", """
+                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"The route is called by checkout","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}]}
+                        """), context);
+        AgentActionProposal clarifyProposal = registry.interpretToolCall(new AssistantMessage.ToolCall(
+                "call-2", "function", "agent_request_clarification", """
+                        {"question":"Which repository?","candidateHandles":["candidate-2","candidate-1"],"reason":"The route scope is ambiguous"}
+                        """), context);
+
+        assertThat(answerProposal).isInstanceOf(AgentActionProposal.Proposed.class);
+        AnswerAction answer = (AnswerAction) ((AgentActionProposal.Proposed) answerProposal).action();
+        assertThat(answer.document().statements().getFirst().citations())
+                .extracting(EvidenceHandleRef::value).containsExactly("evidence-unknown");
+        assertThat(clarifyProposal).isInstanceOf(AgentActionProposal.Proposed.class);
+        ClarifyAction clarify = (ClarifyAction) ((AgentActionProposal.Proposed) clarifyProposal).action();
+        assertThat(clarify.candidates()).extracting(CandidateHandleRef::value)
+                .containsExactly("candidate-2", "candidate-1");
     }
 
     private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry) throws Exception {

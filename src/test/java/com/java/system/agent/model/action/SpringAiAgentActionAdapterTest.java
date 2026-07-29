@@ -2,6 +2,8 @@ package com.java.system.agent.model.action;
 
 import com.google.genai.errors.ClientException;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
+import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
 import com.java.system.agent.capability.planning.QueryPlanningMapper;
@@ -41,11 +43,16 @@ import com.java.system.agent.runtime.domain.observation.ObservationId;
 import com.java.system.agent.runtime.domain.observation.ObservationSource;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentActionTransportException;
+import com.java.system.agent.runtime.port.out.AgentActionContractException;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
 import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
 import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
+import com.java.system.agent.model.action.planning.RequestClarificationPlanningInput;
+import com.java.system.agent.model.action.planning.RequestClarificationPlanningMapper;
+import com.java.system.agent.model.action.planning.SubmitAnswerPlanningInput;
+import com.java.system.agent.model.action.planning.SubmitAnswerPlanningMapper;
 import jakarta.validation.Validation;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -90,7 +97,41 @@ class SpringAiAgentActionAdapterTest {
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.capability().value()).isEqualTo("cap-1");
         assertThat(action.candidates()).extracting(CandidateHandleRef::value).containsExactly("candidate-2", "candidate-1");
-        assertThat(action.payload().value()).isEqualTo("{}");
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void mapsAnswerToolAndPreservesRawEvidenceReferenceValuesWithExactlyOneModelCall() {
+        CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "agent_submit_answer", """
+                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}]}
+                        """)))
+                .build());
+
+        AgentActionProposal proposal = adapter(model).nextAction(answerContext());
+
+        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
+        AnswerAction action = (AnswerAction) ((AgentActionProposal.Proposed) proposal).action();
+        assertThat(action.document().statements().getFirst().citations())
+                .extracting(EvidenceHandleRef::value).containsExactly("evidence-unknown");
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void mapsClarifyToolAndPreservesModelCandidateOrderWithExactlyOneModelCall() {
+        CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "agent_request_clarification", """
+                        {"question":"Which repository?","candidateHandles":["candidate-2","candidate-1"],"reason":"The route scope is ambiguous"}
+                        """)))
+                .build());
+
+        AgentActionProposal proposal = adapter(model).nextAction(context());
+
+        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
+        ClarifyAction action = (ClarifyAction) ((AgentActionProposal.Proposed) proposal).action();
+        assertThat(action.candidates()).extracting(CandidateHandleRef::value).containsExactly("candidate-2", "candidate-1");
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -110,6 +151,24 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
+    void mapsTypeAndDeclarativeToolInputFailuresToInvalidToolInput() {
+        CountingChatModel unknownEnum = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"statements":[{"statementId":"statement-1","type":"UNKNOWN","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                """));
+        CountingChatModel blankQuestion = new CountingChatModel(toolCall("agent_request_clarification", """
+                {"question":" ","candidateHandles":[],"reason":"The route scope is ambiguous"}
+                """));
+
+        AgentActionProposal enumProposal = adapter(unknownEnum).nextAction(answerContext());
+        AgentActionProposal blankProposal = adapter(blankQuestion).nextAction(context());
+
+        assertThat(enumProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(blankProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(unknownEnum.calls()).isEqualTo(1);
+        assertThat(blankQuestion.calls()).isEqualTo(1);
+    }
+
+    @Test
     void mapsMixedTextAndToolCallToMalformedWithoutAnotherModelCall() {
         CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
                 .content("I will query it")
@@ -125,33 +184,67 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
-    void mapsImpossibleEnvelopeToSanitizedMalformedWithoutAnotherCall() {
-        CountingChatModel model = new CountingChatModel("""
-                {"type":"QUERY","query":null,"answer":null,"clarify":null}
-                """);
-        SpringAiAgentActionAdapter adapter = adapter(model);
+    void acceptsWhitespaceOnlyAssistantTextAlongsideExactlyOneIssuedToolCall() {
+        CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
+                .content(" \n\t ")
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "callers", """
+                        {"candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","rationale":"Trace callers"}
+                        """)))
+                .build());
 
-        AgentActionProposal proposal = adapter.nextAction(context());
+        AgentActionProposal proposal = adapter(model).nextAction(context());
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         assertThat(model.calls()).isEqualTo(1);
     }
 
     @Test
-    void rejectsContradictoryMultiPayloadEnvelopeWithoutAnotherCall() {
-        CountingChatModel model = new CountingChatModel("""
-                {"type":"QUERY","query":{"capabilityHandle":"cap-1","candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","arguments":{"depth":"2"},"rationale":"Trace callers"},"answer":null,"clarify":{"question":"Which repository?","candidateHandles":["candidate-1"],"reason":"Ambiguous"}}
-                """);
-        SpringAiAgentActionAdapter adapter = adapter(model);
+    void rejectsZeroOrMultipleToolCallsWithoutAnotherModelCall() {
+        CountingChatModel zeroToolCalls = new CountingChatModel(AssistantMessage.builder().content("").build());
+        CountingChatModel multipleToolCalls = new CountingChatModel(AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(
+                        new AssistantMessage.ToolCall("call-1", "function", "callers", "{}"),
+                        new AssistantMessage.ToolCall("call-2", "function", "callers", "{}")))
+                .build());
 
-        AgentActionProposal proposal = adapter.nextAction(context());
+        AgentActionProposal zeroProposal = adapter(zeroToolCalls).nextAction(context());
+        AgentActionProposal multipleProposal = adapter(multipleToolCalls).nextAction(context());
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(zeroProposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(multipleProposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(zeroToolCalls.calls()).isEqualTo(1);
+        assertThat(multipleToolCalls.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsUnknownOrUnissuedToolNamesWithoutAnotherModelCall() {
+        CountingChatModel unknownTool = new CountingChatModel(toolCall("unknown_tool", "{}"));
+        CountingChatModel unissuedTool = new CountingChatModel(toolCall("codebase_lookup_api_route", "{}"));
+
+        AgentActionProposal unknownProposal = adapter(unknownTool).nextAction(context());
+        AgentActionProposal unissuedProposal = adapter(unissuedTool).nextAction(context());
+
+        assertThat(unknownProposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(unissuedProposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(unknownTool.calls()).isEqualTo(1);
+        assertThat(unissuedTool.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void letsRegistryContractDefectsEscapeWithoutAnotherModelCall() {
+        CountingChatModel model = new CountingChatModel(toolCall("callers", """
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","rationale":"Trace callers"}
+                """));
+
+        assertThatThrownBy(() -> contractDefectAdapter(model).nextAction(context()))
+                .isInstanceOf(AgentActionContractException.class)
+                .hasMessage("planning tool registry contract failed");
         assertThat(model.calls()).isEqualTo(1);
     }
 
     @Test
-    void mapsAnswerWithExactCitationAndObservationReferences() {
+    void rejectsTextualAnswerEnvelopeWithoutAnotherModelCall() {
         CountingChatModel model = new CountingChatModel("""
                 {"type":"ANSWER","query":null,"answer":{"statements":[{"statementId":"statement-1","type":"FACT","text":"It is called by checkout","claimId":"claim-1","citationHandles":["evidence-1"],"observationIds":["observation-1"]}]},"clarify":null}
                 """);
@@ -159,16 +252,12 @@ class SpringAiAgentActionAdapterTest {
 
         AgentActionProposal proposal = adapter.nextAction(answerContext());
 
-        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
-        AnswerAction action = (AnswerAction) ((AgentActionProposal.Proposed) proposal).action();
-        assertThat(action.document().statements()).hasSize(1);
-        assertThat(action.document().statements().getFirst().citations()).extracting(EvidenceHandleRef::value).containsExactly("evidence-1");
-        assertThat(action.document().statements().getFirst().observationIds()).extracting(ObservationId::value).containsExactly("observation-1");
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
         assertThat(model.calls()).isEqualTo(1);
     }
 
     @Test
-    void mapsClarifyWithModelCandidateOrder() {
+    void rejectsTextualClarifyEnvelopeWithoutAnotherModelCall() {
         CountingChatModel model = new CountingChatModel("""
                 {"type":"CLARIFY","query":null,"answer":null,"clarify":{"question":"Which repository?","candidateHandles":["candidate-2","candidate-1"],"reason":"The route is ambiguous"}}
                 """);
@@ -176,10 +265,7 @@ class SpringAiAgentActionAdapterTest {
 
         AgentActionProposal proposal = adapter.nextAction(context());
 
-        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
-        ClarifyAction action = (ClarifyAction) ((AgentActionProposal.Proposed) proposal).action();
-        assertThat(action.candidates()).extracting(CandidateHandleRef::value).containsExactly("candidate-2", "candidate-1");
-        assertThat(action.question()).isEqualTo("Which repository?");
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -202,7 +288,7 @@ class SpringAiAgentActionAdapterTest {
 
     @Test
     void rendersActionContextInFixedOrderAndWithoutMemoryInstructions() {
-        String prompt = new AgentActionPromptRenderer().render(context(), "response-schema");
+        String prompt = new AgentActionPromptRenderer().render(context());
 
         assertThat(prompt.indexOf("Original question")).isLessThan(prompt.indexOf("Session turns"));
         assertThat(prompt.indexOf("Session turns")).isLessThan(prompt.indexOf("Capabilities"));
@@ -211,8 +297,7 @@ class SpringAiAgentActionAdapterTest {
         assertThat(prompt.indexOf("Evidence")).isLessThan(prompt.indexOf("Observations"));
         assertThat(prompt.indexOf("Observations")).isLessThan(prompt.indexOf("Latest rejection"));
         assertThat(prompt.indexOf("Latest rejection")).isLessThan(prompt.indexOf("Remaining budget"));
-        assertThat(prompt.indexOf("Remaining budget")).isLessThan(prompt.indexOf("Response contract"));
-        assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION).contains("Use only issued opaque handles", "registered tool call")
+        assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION).contains("Use only issued opaque handles", "exactly one registered planning tool call")
                 .doesNotContain("memory", "advisor");
     }
 
@@ -262,16 +347,39 @@ class SpringAiAgentActionAdapterTest {
     }
 
     private static SpringAiAgentActionAdapter adapter(CountingChatModel model) {
+        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry(new ToolInputMapper()));
+    }
+
+    private static SpringAiAgentActionAdapter contractDefectAdapter(CountingChatModel model) {
+        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry(input -> {
+            throw new IllegalStateException("broken mapper");
+        }));
+    }
+
+    private static PlanningToolRegistry registry(QueryPlanningMapper<ToolInput, ToolInput> mapper) {
         CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
+        CapabilityPolicy unissuedPolicy = new CapabilityPolicy("codebase_lookup_api_route", "v1",
+                Set.of(CandidateKind.REPOSITORY), 1, 2);
         CapabilityExecutor<ToolInput> executor = (context, input) ->
                 new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
-        ObjectMapper mapper = new ObjectMapper();
-        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(mapper);
+        ObjectMapper objectMapper = new ObjectMapper();
+        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(objectMapper);
         PlanningToolRegistry registry = new PlanningToolRegistry(List.of(PlanningToolRegistry.registration(
-                policy, ToolInput.class, ToolInput.class, new ToolInputMapper(), executor,
-                schemaFactory)), new StrictPlanningToolDecoder(
-                mapper, Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(mapper), schemaFactory);
-        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry);
+                policy, ToolInput.class, ToolInput.class, mapper, executor, schemaFactory),
+                PlanningToolRegistry.registration(unissuedPolicy, ToolInput.class, ToolInput.class, mapper, executor,
+                        schemaFactory),
+                new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
+                        new SubmitAnswerPlanningMapper(), schemaFactory),
+                new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
+                        new RequestClarificationPlanningMapper(), schemaFactory)), new StrictPlanningToolDecoder(
+                objectMapper, Validation.buildDefaultValidatorFactory().getValidator()),
+                new CanonicalCapabilityPayloadCodec(objectMapper), schemaFactory);
+        return registry;
+    }
+
+    private static AssistantMessage toolCall(String name, String arguments) {
+        return AssistantMessage.builder().content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", name, arguments))).build();
     }
 
     private AgentPromptContext context() {

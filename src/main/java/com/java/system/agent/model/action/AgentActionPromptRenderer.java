@@ -20,7 +20,8 @@ import java.util.Objects;
 public final class AgentActionPromptRenderer {
 
     public static final String SYSTEM_INSTRUCTION = """
-            Choose exactly one registered tool call for QUERY, or one textual ANSWER or CLARIFY response, never both.
+            Choose exactly one registered planning tool call for QUERY, ANSWER, or CLARIFY.
+            Do not emit a preamble, explanation, trailing prose, or any text outside that one function call.
             Use only issued opaque handles.
             Preserve the candidate subset and order you intend.
             Express unresolved uncertainty in answer statements, observations, or clarification.
@@ -30,9 +31,8 @@ public final class AgentActionPromptRenderer {
     /**
      * 依 runtime collection 的既有順序輸出明確 action context
      */
-    public String render(AgentPromptContext context, String responseContract) {
+    public String render(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        Objects.requireNonNull(responseContract, "action response contract must not be null");
         StringBuilder prompt = new StringBuilder();
         section(prompt, "Original question", context.originalQuestion());
         prompt.append("Session turns:\n");
@@ -63,7 +63,6 @@ public final class AgentActionPromptRenderer {
         }
         section(prompt, "Latest rejection", context.latestRejection().orElse("none"));
         section(prompt, "Remaining budget", remainingBudget(context));
-        section(prompt, "Response contract", responseContract);
         return prompt.toString();
     }
 

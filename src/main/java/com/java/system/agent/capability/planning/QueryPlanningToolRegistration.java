@@ -1,12 +1,15 @@
 package com.java.system.agent.capability.planning;
 
 import com.java.system.agent.capability.spi.CapabilityExecutor;
+import com.java.system.agent.runtime.domain.action.AgentAction;
+import com.java.system.agent.runtime.domain.action.QueryAction;
 import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
+import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
+import com.java.system.agent.runtime.port.out.AgentPromptContext;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.DefaultToolDefinition;
-import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.Objects;
+import java.util.Map;
 
 /**
  * 將一個 QUERY policy、planning mapper、payload type 與 typed executor 綁為唯一擴充單位
@@ -34,7 +37,8 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
         this.executor = Objects.requireNonNull(executor, "capability executor must not be null");
         PlanningToolSchemaFactory requiredSchemaFactory = Objects.requireNonNull(
                 schemaFactory, "planning schema factory must not be null");
-        this.callback = new SchemaToolCallback(policy.name(), requiredSchemaFactory.schemaFor(planningInputType));
+        this.callback = PlanningToolRegistration.callback(policy.name(), "Agent QUERY capability",
+                requiredSchemaFactory.schemaFor(planningInputType));
     }
 
     @Override
@@ -50,6 +54,23 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
     @Override
     public ToolCallback callback() {
         return callback;
+    }
+
+    @Override
+    public boolean isIssued(AgentPromptContext context) {
+        return context.issuedCapabilities().containsValue(policy);
+    }
+
+    @Override
+    public AgentAction toAction(P input, AgentPromptContext context, CanonicalCapabilityPayloadCodec payloadCodec) {
+        CapabilityHandle capability = context.issuedCapabilities().entrySet().stream()
+                .filter(entry -> entry.getValue().equals(policy))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("planning tool was not issued"));
+        QueryPlanningSelection<E> selection = mapper.map(input);
+        return new QueryAction(capability, selection.candidateReferences(), selection.questionToResolve(),
+                payloadCodec.encode(selection.executionInput()), selection.rationale());
     }
 
     public CapabilityPolicy policy() {
@@ -68,23 +89,4 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
         return executor;
     }
 
-    /**
-     * 由 registration 依 planning input canonical schema 建立的 provider callback
-     */
-    private record SchemaToolCallback(ToolDefinition definition) implements ToolCallback {
-
-        SchemaToolCallback(String name, String schema) {
-            this(DefaultToolDefinition.builder().name(name).description("Agent QUERY capability").inputSchema(schema).build());
-        }
-
-        @Override
-        public ToolDefinition getToolDefinition() {
-            return definition;
-        }
-
-        @Override
-        public String call(String toolInput) {
-            return toolInput;
-        }
-    }
 }

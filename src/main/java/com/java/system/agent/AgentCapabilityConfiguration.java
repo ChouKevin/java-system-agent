@@ -2,6 +2,8 @@ package com.java.system.agent;
 
 import com.java.system.agent.capability.dispatch.CapabilityExecutionDispatcher;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
+import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
@@ -26,6 +28,10 @@ import com.java.system.agent.codebase.planning.OutgoingCallGraphPlanningMapper;
 import com.java.system.agent.codebase.planning.SuggestApiRouteExecutionInput;
 import com.java.system.agent.codebase.planning.SuggestApiRoutePlanningInput;
 import com.java.system.agent.codebase.planning.SuggestApiRoutePlanningMapper;
+import com.java.system.agent.model.action.planning.RequestClarificationPlanningInput;
+import com.java.system.agent.model.action.planning.RequestClarificationPlanningMapper;
+import com.java.system.agent.model.action.planning.SubmitAnswerPlanningInput;
+import com.java.system.agent.model.action.planning.SubmitAnswerPlanningMapper;
 import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionPort;
@@ -53,13 +59,18 @@ public final class AgentCapabilityConfiguration {
         CapabilityPolicy outgoingCallGraph = policy("codebase_outgoing_call_graph", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
         CapabilityPolicy incomingCallGraph = policy("codebase_incoming_call_graph", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
         PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(objectMapper);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(objectMapper);
         return new PlanningToolRegistry(List.of(
                 PlanningToolRegistry.registration(listEntryPoints, ListEntryPointsPlanningInput.class, ListEntryPointsExecutionInput.class, new ListEntryPointsPlanningMapper(), new ListEntryPointsExecutor(adapter), schemaFactory),
                 PlanningToolRegistry.registration(lookupApiRoute, LookupApiRoutePlanningInput.class, LookupApiRouteExecutionInput.class, new LookupApiRoutePlanningMapper(), new LookupApiRouteExecutor(adapter), schemaFactory),
                 PlanningToolRegistry.registration(suggestApiRoute, SuggestApiRoutePlanningInput.class, SuggestApiRouteExecutionInput.class, new SuggestApiRoutePlanningMapper(), new SuggestApiRouteExecutor(adapter), schemaFactory),
                 PlanningToolRegistry.registration(outgoingCallGraph, OutgoingCallGraphPlanningInput.class, OutgoingCallGraphExecutionInput.class, new OutgoingCallGraphPlanningMapper(), new OutgoingCallGraphExecutor(adapter), schemaFactory),
-                PlanningToolRegistry.registration(incomingCallGraph, IncomingCallGraphPlanningInput.class, IncomingCallGraphExecutionInput.class, new IncomingCallGraphPlanningMapper(), new IncomingCallGraphExecutor(adapter), schemaFactory)),
-                new StrictPlanningToolDecoder(objectMapper, validator), new CanonicalCapabilityPayloadCodec(objectMapper), schemaFactory);
+                PlanningToolRegistry.registration(incomingCallGraph, IncomingCallGraphPlanningInput.class, IncomingCallGraphExecutionInput.class, new IncomingCallGraphPlanningMapper(), new IncomingCallGraphExecutor(adapter), schemaFactory),
+                new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
+                        new SubmitAnswerPlanningMapper(), schemaFactory),
+                new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
+                        new RequestClarificationPlanningMapper(), schemaFactory)),
+                new StrictPlanningToolDecoder(objectMapper, validator), payloadCodec, schemaFactory);
     }
 
     @Bean
