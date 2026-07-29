@@ -11,7 +11,6 @@ import com.java.system.agent.interaction.domain.delivery.DeliveryProcessingOutco
 import com.java.system.agent.interaction.domain.delivery.DeliveryStatus;
 import com.java.system.agent.interaction.domain.delivery.DeliveryTransportResult;
 import com.java.system.agent.interaction.port.out.DeliveryOutboxPort;
-import com.java.system.agent.interaction.port.out.DeliveryTransportPort;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import org.junit.jupiter.api.Test;

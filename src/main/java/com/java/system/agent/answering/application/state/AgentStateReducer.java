@@ -1,8 +1,5 @@
 package com.java.system.agent.answering.application.state;
 
-import com.java.system.agent.answering.domain.handle.CapabilityHandle;
-import com.java.system.agent.answering.domain.handle.CandidateHandle;
-import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
@@ -16,7 +13,6 @@ import com.java.system.agent.answering.domain.run.PendingAnswerVerification;
 import com.java.system.agent.answering.domain.run.RunAttempt;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunFailureReason;
-import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
@@ -110,11 +106,11 @@ public final class AgentStateReducer {
         validateRevisionExtension(state.currentAttempt().revisionVector(), event.revisions());
         validateBinding(state.runId(), state.currentAttempt().attemptId(), event.revisions(),
                 event.capabilities().keySet().stream()
-                .map(CapabilityHandle::binding).toList());
+                .map(capabilityHandle -> capabilityHandle.binding()).toList());
         validateBinding(state.runId(), state.currentAttempt().attemptId(), event.revisions(),
-                event.candidates().keySet().stream().map(CandidateHandle::binding).toList());
+                event.candidates().keySet().stream().map(candidateHandle -> candidateHandle.binding()).toList());
         validateBinding(state.runId(), state.currentAttempt().attemptId(), event.revisions(),
-                event.evidence().keySet().stream().map(EvidenceHandle::binding).toList());
+                event.evidence().keySet().stream().map(evidenceHandle -> evidenceHandle.binding()).toList());
         validateObservationBindings(state.runId(), state.currentAttempt().attemptId(), event.revisions(),
                 event.observations().values());
         RunAttempt attempt = state.currentAttempt().withIssuedContext(event.revisions(), event.capabilities(),
@@ -399,9 +395,9 @@ public final class AgentStateReducer {
             Iterable<AgentObservation> observations) {
         for (AgentObservation observation : observations) {
             validateBinding(runId, attemptId, revisions,
-                    observation.candidateHandles().stream().map(CandidateHandle::binding).toList());
+                    observation.candidateHandles().stream().map(candidateHandle -> candidateHandle.binding()).toList());
             validateBinding(runId, attemptId, revisions,
-                    observation.evidenceHandles().stream().map(EvidenceHandle::binding).toList());
+                    observation.evidenceHandles().stream().map(evidenceHandle -> evidenceHandle.binding()).toList());
         }
     }
 
@@ -422,16 +418,16 @@ public final class AgentStateReducer {
 
     private void validateAttemptContextRunId(AgentRunState state, RunAttempt attempt) {
         validateRunId(state.runId(), attempt.issuedCapabilities().keySet().stream()
-                .map(CapabilityHandle::binding).toList());
+                .map(capabilityHandle -> capabilityHandle.binding()).toList());
         validateRunId(state.runId(), attempt.issuedCandidates().keySet().stream()
-                .map(CandidateHandle::binding).toList());
+                .map(candidateHandle -> candidateHandle.binding()).toList());
         validateRunId(state.runId(), attempt.issuedEvidence().keySet().stream()
-                .map(EvidenceHandle::binding).toList());
+                .map(evidenceHandle -> evidenceHandle.binding()).toList());
         for (AgentObservation observation : attempt.observations().values()) {
             validateRunId(state.runId(), observation.candidateHandles().stream()
-                    .map(CandidateHandle::binding).toList());
+                    .map(candidateHandle -> candidateHandle.binding()).toList());
             validateRunId(state.runId(), observation.evidenceHandles().stream()
-                    .map(EvidenceHandle::binding).toList());
+                    .map(evidenceHandle -> evidenceHandle.binding()).toList());
         }
     }
 

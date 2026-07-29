@@ -3,9 +3,7 @@ package com.java.system.agent.model.verification;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
-import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
-import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 
 import java.util.Comparator;
@@ -80,11 +78,11 @@ public final class AnswerVerificationPromptRenderer {
     }
 
     private static String sortedEvidenceHandles(AnswerStatement statement) {
-        return statement.citations().stream().map(EvidenceHandleRef::value).sorted().collect(Collectors.joining(", "));
+        return statement.citations().stream().map(evidenceHandleReference -> evidenceHandleReference.value()).sorted().collect(Collectors.joining(", "));
     }
 
     private static String sortedObservationIds(AnswerStatement statement) {
-        return statement.observationIds().stream().map(ObservationId::value).sorted().collect(Collectors.joining(", "));
+        return statement.observationIds().stream().map(observationId -> observationId.value()).sorted().collect(Collectors.joining(", "));
     }
 
     private static void section(StringBuilder prompt, String label, String content) {

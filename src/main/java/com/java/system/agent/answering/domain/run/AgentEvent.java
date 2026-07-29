@@ -1,5 +1,7 @@
 package com.java.system.agent.answering.domain.run;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
@@ -28,6 +30,25 @@ import java.util.Optional;
 /**
  * Agent Run append-only lifecycle 可以接受的事件
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "event_type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = AgentEvent.RunStarted.class, name = "RUN_STARTED"),
+        @JsonSubTypes.Type(value = AgentEvent.AttemptStarted.class, name = "ATTEMPT_STARTED"),
+        @JsonSubTypes.Type(value = AgentEvent.ContextIssued.class, name = "CONTEXT_ISSUED"),
+        @JsonSubTypes.Type(value = AgentEvent.ActionAccepted.class, name = "ACTION_ACCEPTED"),
+        @JsonSubTypes.Type(value = AgentEvent.ActionRejected.class, name = "ACTION_REJECTED"),
+        @JsonSubTypes.Type(value = AgentEvent.QueryBudgetConsumed.class, name = "QUERY_BUDGET_CONSUMED"),
+        @JsonSubTypes.Type(value = AgentEvent.ObservationRecorded.class, name = "OBSERVATION_RECORDED"),
+        @JsonSubTypes.Type(value = AgentEvent.AttemptInvalidated.class, name = "ATTEMPT_INVALIDATED"),
+        @JsonSubTypes.Type(value = AgentEvent.AnswerProposed.class, name = "ANSWER_PROPOSED"),
+        @JsonSubTypes.Type(value = AgentEvent.AnswerAccepted.class, name = "ANSWER_ACCEPTED"),
+        @JsonSubTypes.Type(value = AgentEvent.AnswerRejected.class, name = "ANSWER_REJECTED"),
+        @JsonSubTypes.Type(
+                value = AgentEvent.AnswerVerificationAbandoned.class,
+                name = "ANSWER_VERIFICATION_ABANDONED"),
+        @JsonSubTypes.Type(value = AgentEvent.ClarificationAccepted.class, name = "CLARIFICATION_ACCEPTED"),
+        @JsonSubTypes.Type(value = AgentEvent.RunConcluded.class, name = "RUN_CONCLUDED")
+})
 public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.AttemptStarted,
         AgentEvent.ContextIssued, AgentEvent.ActionAccepted, AgentEvent.ActionRejected,
         AgentEvent.QueryBudgetConsumed, AgentEvent.ObservationRecorded, AgentEvent.AttemptInvalidated,

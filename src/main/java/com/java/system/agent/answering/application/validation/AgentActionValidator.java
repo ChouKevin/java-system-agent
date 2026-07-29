@@ -155,7 +155,7 @@ public final class AgentActionValidator {
 
     private static boolean hasDuplicateCandidateValues(List<CandidateHandleRef> candidates) {
         Set<String> seen = new HashSet<>();
-        return candidates.stream().map(CandidateHandleRef::value).anyMatch(value -> !seen.add(value));
+        return candidates.stream().map(candidateHandleReference -> candidateHandleReference.value()).anyMatch(value -> !seen.add(value));
     }
 
     private static boolean allCandidatesMatchRevision(List<IssuedCandidate> candidates, AgentValidationContext context) {

@@ -43,8 +43,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -209,8 +207,8 @@ class M2ProductionFlowIT {
                     "OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND");
         });
         assertThat(chatModel.prompts())
-                .extracting(Prompt::getSystemMessage)
-                .extracting(SystemMessage::getText)
+                .extracting(prompt -> prompt.getSystemMessage())
+                .extracting(systemMessage -> systemMessage.getText())
                 .containsExactly(
                         AgentActionPromptRenderer.SYSTEM_INSTRUCTION,
                         AgentActionPromptRenderer.SYSTEM_INSTRUCTION,
@@ -261,8 +259,8 @@ class M2ProductionFlowIT {
                 PARTICIPANT.sourceType(),
                 PARTICIPANT.participantKey()));
         assertThat(chatModel.prompts())
-                .extracting(Prompt::getSystemMessage)
-                .extracting(SystemMessage::getText)
+                .extracting(prompt -> prompt.getSystemMessage())
+                .extracting(systemMessage -> systemMessage.getText())
                 .containsExactly(AgentActionPromptRenderer.SYSTEM_INSTRUCTION);
         assertThat(callTimeline.calls()).containsExactly(
                 CallTimeline.HTTP_REPOSITORY_CATALOG,

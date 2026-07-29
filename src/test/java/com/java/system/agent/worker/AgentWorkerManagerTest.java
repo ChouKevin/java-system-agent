@@ -262,9 +262,9 @@ class AgentWorkerManagerTest {
 
         assertThat(inboxEntered.await(1, TimeUnit.SECONDS)).isTrue();
         assertThat(deliveryEntered.await(1, TimeUnit.SECONDS)).isTrue();
-        assertThat(inboxThread.get()).isNotNull().matches(Thread::isDaemon).extracting(Thread::getName)
+        assertThat(inboxThread.get()).isNotNull().matches(threadValue -> threadValue.isDaemon()).extracting(threadValue -> threadValue.getName())
                 .isEqualTo("agent-inbox-worker");
-        assertThat(deliveryThread.get()).isNotNull().matches(Thread::isDaemon).extracting(Thread::getName)
+        assertThat(deliveryThread.get()).isNotNull().matches(threadValue -> threadValue.isDaemon()).extracting(threadValue -> threadValue.getName())
                 .isEqualTo("agent-delivery-worker");
 
         manager.stop();

@@ -49,7 +49,6 @@ import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
-import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;

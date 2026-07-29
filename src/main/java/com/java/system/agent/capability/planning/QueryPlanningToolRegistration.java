@@ -8,7 +8,6 @@ import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
 import java.util.Objects;
-import java.util.Map;
 
 /**
  * 將一個 QUERY policy、planning mapper、payload type 與 typed executor 綁為唯一擴充單位
@@ -61,7 +60,7 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
     public AgentAction toAction(P input, AgentPromptContext context) {
         CapabilityHandle capability = context.issuedCapabilities().entrySet().stream()
                 .filter(entry -> entry.getValue().equals(policy))
-                .map(Map.Entry::getKey)
+                .map(mapEntry -> mapEntry.getKey())
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("planning tool was not issued"));
         QueryPlanningSelection<E> selection = mapper.map(input);

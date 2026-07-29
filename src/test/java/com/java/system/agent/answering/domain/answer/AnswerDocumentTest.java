@@ -1,10 +1,6 @@
 package com.java.system.agent.answering.domain.answer;
 
-import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.observation.ObservationId;
-import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
-import com.java.system.agent.answering.domain.run.AnalysisRunId;
-import com.java.system.agent.answering.domain.scope.RevisionVector;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

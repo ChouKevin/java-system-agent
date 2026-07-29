@@ -31,9 +31,9 @@ class SpringAiPlanningToolSchemaFactoryTest {
         JsonNode root = mapper.readTree(schema);
 
         assertThat(root.path("additionalProperties").asBoolean()).isFalse();
-        assertThat(root.path("properties").path("type").path("enum")).extracting(JsonNode::asText)
+        assertThat(root.path("properties").path("type").path("enum")).extracting(jsonNode -> jsonNode.asText())
                 .contains(EntryPointType.API.name());
-        assertThat(root.path("required")).extracting(JsonNode::asText)
+        assertThat(root.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .contains("candidateHandles", "questionToResolve", "rationale");
         assertThat(root.path("properties").fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("candidateHandles", "questionToResolve", "rationale", "type");
@@ -49,7 +49,7 @@ class SpringAiPlanningToolSchemaFactoryTest {
         for (Class<?> inputType : registeredInputTypes()) {
             JsonNode root = mapper.readTree(factory.createSchema(inputType));
 
-            assertThat(root.path("required")).extracting(JsonNode::asText).contains("candidateHandles");
+            assertThat(root.path("required")).extracting(jsonNode -> jsonNode.asText()).contains("candidateHandles");
             assertThat(root.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
                     .isGreaterThanOrEqualTo(1);
         }
@@ -62,7 +62,7 @@ class SpringAiPlanningToolSchemaFactoryTest {
         JsonNode statement = schema.path("properties").path("statements").path("items");
 
         assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
-        assertThat(statement.path("required")).extracting(JsonNode::asText)
+        assertThat(statement.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
         assertThat(statement.path("properties").path("statementId").path("minLength").asInt()).isEqualTo(1);
         assertThat(statement.path("properties").path("statementId").path("pattern").asText()).isEqualTo(".*\\S.*");

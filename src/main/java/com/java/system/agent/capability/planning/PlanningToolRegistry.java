@@ -50,7 +50,7 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
 
     @Override
     public List<CapabilityPolicy> availableCapabilities() {
-        return queryRegistrations.values().stream().map(QueryPlanningToolRegistration::policy).toList();
+        return queryRegistrations.values().stream().map(queryRegistration -> queryRegistration.policy()).toList();
     }
 
     /**
@@ -175,7 +175,7 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
                     requiredProvider.registrations(), "planning tool provider registrations must not be null");
             registrations.addAll(providedRegistrations);
         }
-        registrations.sort(Comparator.comparing(PlanningToolRegistration::name));
+        registrations.sort(Comparator.comparing(planningToolRegistration -> planningToolRegistration.name()));
         return List.copyOf(registrations);
     }
 

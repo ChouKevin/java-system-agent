@@ -64,7 +64,7 @@ class FakeSessionAdapterTest {
                 "也包含退款流程", "退款流程如下", ConversationTurnType.ANSWER));
 
         assertThat(adapter.read(sessionId).turns())
-                .extracting(ConversationTurn::participant)
+                .extracting(conversationTurn -> conversationTurn.participant())
                 .containsExactly(alice, bob);
     }
 

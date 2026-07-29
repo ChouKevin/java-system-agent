@@ -50,7 +50,7 @@ public final class PostgresAgentOperationsAdapter implements AgentOperationsPort
                     .param("observedAt", Timestamp.from(observedAt))
                     .query(Timestamp.class)
                     .optional()
-                    .map(Timestamp::toInstant)
+                    .map(timestamp -> timestamp.toInstant())
                     .map(createdAt -> ageAt(createdAt, observedAt));
             Map<DeliveryStatus, Optional<Duration>> deliveryAges = deliveryAges(observedAt);
             return new DurableAgentOperationsSnapshot(observedAt, inboxAge, deliveryAges);

@@ -1,5 +1,7 @@
 package com.java.system.agent.answering.domain.run;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
@@ -12,6 +14,11 @@ import java.util.Objects;
 /**
  * 已接受但尚未完成 session append 的終端回應
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "terminal_type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = PendingTerminalResponse.Answer.class, name = "ANSWER"),
+        @JsonSubTypes.Type(value = PendingTerminalResponse.Clarification.class, name = "CLARIFICATION")
+})
 public sealed interface PendingTerminalResponse permits PendingTerminalResponse.Answer,
         PendingTerminalResponse.Clarification {
 

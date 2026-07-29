@@ -13,7 +13,6 @@ import com.java.system.agent.capability.planning.RequestClarificationPlanningMap
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningMapper;
-import com.java.system.agent.capability.spi.CapabilityExecutionContext;
 import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
@@ -51,11 +50,9 @@ import com.java.system.agent.answering.port.out.AgentActionContractException;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
-import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import jakarta.validation.Validation;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.ai.chat.client.ChatClient;
@@ -102,7 +99,7 @@ class SpringAiAgentActionAdapterTest {
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.capability().value()).isEqualTo("cap-1");
-        assertThat(action.candidates()).extracting(CandidateHandleRef::value).containsExactly("candidate-2", "candidate-1");
+        assertThat(action.candidates()).extracting(candidateHandleReference -> candidateHandleReference.value()).containsExactly("candidate-2", "candidate-1");
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -120,7 +117,7 @@ class SpringAiAgentActionAdapterTest {
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         AnswerAction action = (AnswerAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.document().statements().getFirst().citations())
-                .extracting(EvidenceHandleRef::value).containsExactly("evidence-unknown");
+                .extracting(evidenceHandleReference -> evidenceHandleReference.value()).containsExactly("evidence-unknown");
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -137,7 +134,7 @@ class SpringAiAgentActionAdapterTest {
 
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         ClarifyAction action = (ClarifyAction) ((AgentActionProposal.Proposed) proposal).action();
-        assertThat(action.candidates()).extracting(CandidateHandleRef::value).containsExactly("candidate-2", "candidate-1");
+        assertThat(action.candidates()).extracting(candidateHandleReference -> candidateHandleReference.value()).containsExactly("candidate-2", "candidate-1");
         assertThat(model.calls()).isEqualTo(1);
     }
 

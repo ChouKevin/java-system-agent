@@ -32,7 +32,6 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.net.SocketTimeoutException;
 

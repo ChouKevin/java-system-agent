@@ -1,6 +1,11 @@
 package com.java.system.agent.answering.domain.scope;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -29,6 +34,21 @@ public final class RevisionVector {
 
     public static RevisionVector empty() {
         return new RevisionVector(new TreeMap<>());
+    }
+
+    @JsonCreator
+    public static RevisionVector fromEntries(@JsonProperty("entries") List<Entry> entries) {
+        Objects.requireNonNull(entries, "revision entries must not be null");
+        RevisionVector revisionVector = empty();
+        Set<RepositoryId> repositoryIds = new HashSet<>();
+        for (Entry entry : entries) {
+            Entry checkedEntry = Objects.requireNonNull(entry, "revision entry must not be null");
+            if (!repositoryIds.add(checkedEntry.repositoryId())) {
+                throw new IllegalArgumentException("revision entries must not contain duplicate repository IDs");
+            }
+            revisionVector = revisionVector.pin(checkedEntry.repositoryId(), checkedEntry.revision());
+        }
+        return revisionVector;
     }
 
     public RevisionVector pin(RepositoryId repositoryId, RepositoryRevision revision) {
@@ -62,6 +82,13 @@ public final class RevisionVector {
         return List.copyOf(revisions.keySet());
     }
 
+    @JsonProperty("entries")
+    public List<Entry> entries() {
+        List<Entry> entries = new ArrayList<>();
+        revisions.forEach((repositoryId, revision) -> entries.add(new Entry(repositoryId, revision)));
+        return List.copyOf(entries);
+    }
+
     /**
      * 找出相對於 {@code previous} 發生 revision 變動的 repository
      *
@@ -90,5 +117,16 @@ public final class RevisionVector {
     @Override
     public int hashCode() {
         return revisions.hashCode();
+    }
+
+    /**
+     * 一筆 repository 與釘選 revision 的值
+     */
+    public record Entry(RepositoryId repositoryId, RepositoryRevision revision) {
+
+        public Entry {
+            Objects.requireNonNull(repositoryId, "repository ID must not be null");
+            Objects.requireNonNull(revision, "repository revision must not be null");
+        }
     }
 }

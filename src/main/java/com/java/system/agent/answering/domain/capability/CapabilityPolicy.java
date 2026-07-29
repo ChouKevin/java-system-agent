@@ -1,7 +1,11 @@
 package com.java.system.agent.answering.domain.capability;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -15,6 +19,16 @@ public record CapabilityPolicy(
         Set<CandidateKind> acceptedCandidateKinds,
         int minimumCandidates,
         int maximumCandidates) {
+
+    @JsonCreator
+    public CapabilityPolicy(
+            @JsonProperty("name") String name,
+            @JsonProperty("version") String version,
+            @JsonProperty("accepted_candidate_kinds") List<CandidateKind> acceptedCandidateKinds,
+            @JsonProperty("minimum_candidates") int minimumCandidates,
+            @JsonProperty("maximum_candidates") int maximumCandidates) {
+        this(name, version, uniqueCandidateKinds(acceptedCandidateKinds), minimumCandidates, maximumCandidates);
+    }
 
     public CapabilityPolicy {
         Objects.requireNonNull(name, "capability name must not be null");
@@ -32,5 +46,16 @@ public record CapabilityPolicy(
         if (minimumCandidates < 0 || maximumCandidates < minimumCandidates) {
             throw new IllegalArgumentException("capability candidate cardinality is incoherent");
         }
+    }
+
+    private static Set<CandidateKind> uniqueCandidateKinds(List<CandidateKind> candidateKinds) {
+        Objects.requireNonNull(candidateKinds, "accepted candidate kinds must not be null");
+        Set<CandidateKind> uniqueKinds = new LinkedHashSet<>();
+        for (CandidateKind candidateKind : candidateKinds) {
+            if (!uniqueKinds.add(Objects.requireNonNull(candidateKind, "accepted candidate kind must not be null"))) {
+                throw new IllegalArgumentException("accepted candidate kinds must not contain duplicates");
+            }
+        }
+        return uniqueKinds;
     }
 }

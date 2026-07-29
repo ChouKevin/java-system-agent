@@ -154,8 +154,8 @@ public final class ContextIssuer {
         Objects.requireNonNull(values, "capability catalog must not be null");
         List<CapabilityPolicy> sorted = values.stream()
                 .map(value -> Objects.requireNonNull(value, "capability catalog must not contain null"))
-                .sorted(Comparator.comparing(CapabilityPolicy::name)
-                        .thenComparing(CapabilityPolicy::version))
+                .sorted(Comparator.comparing((CapabilityPolicy capabilityPolicy) -> capabilityPolicy.name())
+                        .thenComparing(capabilityPolicy -> capabilityPolicy.version()))
                 .toList();
         Set<CapabilityIdentity> identities = new LinkedHashSet<>();
         for (CapabilityPolicy value : sorted) {
@@ -254,7 +254,7 @@ public final class ContextIssuer {
         for (AnalysisCandidate reference : references) {
             CandidateHandle handle = issued.values().stream()
                     .filter(candidate -> candidate.candidate().equals(reference))
-                    .map(IssuedCandidate::handle)
+                    .map(issuedCandidate -> issuedCandidate.handle())
                     .findFirst()
                     .orElseThrow(() -> protocolFailure(
                             "capability observation references a candidate outside the same result"));
@@ -270,7 +270,7 @@ public final class ContextIssuer {
         for (EvidenceRef reference : references) {
             EvidenceHandle handle = issued.values().stream()
                     .filter(evidence -> evidence.evidence().equals(reference))
-                    .map(IssuedEvidence::handle)
+                    .map(issuedEvidence -> issuedEvidence.handle())
                     .findFirst()
                     .orElseThrow(() -> protocolFailure(
                             "capability observation references evidence outside the same result"));
@@ -350,7 +350,7 @@ public final class ContextIssuer {
             RunAttempt currentAttempt,
             List<AnalysisCandidate> candidates) {
         Set<AnalysisCandidate> previouslyIssued = currentAttempt.issuedCandidates().values().stream()
-                .map(IssuedCandidate::candidate)
+                .map(issuedCandidate -> issuedCandidate.candidate())
                 .collect(Collectors.toSet());
         for (AnalysisCandidate candidate : candidates) {
             if (previouslyIssued.contains(candidate)) {
@@ -363,7 +363,7 @@ public final class ContextIssuer {
             RunAttempt currentAttempt,
             List<EvidenceRef> evidence) {
         Set<EvidenceRef> previouslyIssued = currentAttempt.issuedEvidence().values().stream()
-                .map(IssuedEvidence::evidence)
+                .map(issuedEvidence -> issuedEvidence.evidence())
                 .collect(Collectors.toSet());
         for (EvidenceRef value : evidence) {
             if (previouslyIssued.contains(value)) {

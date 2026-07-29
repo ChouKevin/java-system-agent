@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.answering.domain.run.AgentEvent;
+import com.java.system.agent.persistence.document.AgentPersistenceDocuments.AttemptStartedDocument;
+import com.java.system.agent.persistence.document.AgentPersistenceDocuments.ContextIssuedDocument;
 
 import java.util.Objects;
 
@@ -12,23 +14,33 @@ import java.util.Objects;
  */
 public final class AgentEventDocumentCodec {
 
-    private static final int SCHEMA_VERSION = 6;
+    private static final int SCHEMA_VERSION = 7;
 
     private final ObjectMapper objectMapper;
-    private final AgentValueDocumentMapper mapper;
+    private final AgentDocumentMapper mapper;
 
     public AgentEventDocumentCodec(ObjectMapper objectMapper) {
-        this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper must not be null");
-        this.mapper = new AgentValueDocumentMapper(this.objectMapper);
+        Objects.requireNonNull(objectMapper, "object mapper must not be null");
+        this.objectMapper = StrictPersistenceObjectMapper.create();
+        this.mapper = new AgentDocumentMapper();
     }
 
     public VersionedJsonDocument encode(AgentEvent event) {
         Objects.requireNonNull(event, "agent event must not be null");
         try {
-            return new VersionedJsonDocument(SCHEMA_VERSION, mapper.eventNode(event));
+            JsonNode payload;
+            if (event instanceof AgentEvent.ContextIssued contextIssued) {
+                payload = objectMapper.valueToTree(mapper.contextIssuedDocument(contextIssued));
+            } else if (event instanceof AgentEvent.AttemptStarted attemptStarted) {
+                payload = objectMapper.valueToTree(mapper.attemptStartedDocument(attemptStarted));
+            } else {
+                String json = objectMapper.writerFor(AgentEvent.class).writeValueAsString(event);
+                payload = objectMapper.readTree(json);
+            }
+            return new VersionedJsonDocument(SCHEMA_VERSION, payload);
         } catch (PersistenceDocumentException exception) {
             throw exception;
-        } catch (RuntimeException exception) {
+        } catch (JsonProcessingException | RuntimeException exception) {
             throw new PersistenceDocumentException("cannot encode agent event document");
         }
     }
@@ -49,14 +61,10 @@ public final class AgentEventDocumentCodec {
             throw new PersistenceDocumentException("unsupported event document schema version");
         }
         try {
-            String payloadType = mapper.eventTypeFrom(payload);
-            if (!relationalEventType.equals(payloadType)) {
-                throw new PersistenceDocumentException("relational event type does not match event payload");
-            }
-            return mapper.eventFrom(payload, payloadType);
+            return decodePayload(relationalEventType, payload);
         } catch (PersistenceDocumentException exception) {
             throw exception;
-        } catch (RuntimeException exception) {
+        } catch (JsonProcessingException | RuntimeException exception) {
             throw new PersistenceDocumentException("invalid event document payload");
         }
     }
@@ -64,11 +72,42 @@ public final class AgentEventDocumentCodec {
     public AgentEvent decode(String relationalEventType, int schemaVersion, String payload) {
         Objects.requireNonNull(payload, "event document JSON must not be null");
         try {
-            return decode(relationalEventType, schemaVersion, objectMapper.readTree(payload));
+            if (schemaVersion != SCHEMA_VERSION) {
+                throw new PersistenceDocumentException("unsupported event document schema version");
+            }
+            JsonNode document = objectMapper.readTree(payload);
+            if (Objects.isNull(document)) {
+                throw new PersistenceDocumentException("invalid event document JSON");
+            }
+            return decodePayload(relationalEventType, document);
         } catch (PersistenceDocumentException exception) {
             throw exception;
         } catch (JsonProcessingException | RuntimeException exception) {
             throw new PersistenceDocumentException("invalid event document JSON");
         }
+    }
+
+    private AgentEvent decodePayload(String relationalEventType, JsonNode payload) throws JsonProcessingException {
+        String payloadType = payloadEventType(payload);
+        if (!relationalEventType.equals(payloadType)) {
+            throw new PersistenceDocumentException("relational event type does not match event payload");
+        }
+        if ("CONTEXT_ISSUED".equals(payloadType)) {
+            ContextIssuedDocument document = objectMapper.treeToValue(payload, ContextIssuedDocument.class);
+            return mapper.contextIssued(document);
+        }
+        if ("ATTEMPT_STARTED".equals(payloadType)) {
+            AttemptStartedDocument document = objectMapper.treeToValue(payload, AttemptStartedDocument.class);
+            return mapper.attemptStarted(document);
+        }
+        return objectMapper.treeToValue(payload, AgentEvent.class);
+    }
+
+    private String payloadEventType(JsonNode payload) {
+        JsonNode eventType = payload.get("event_type");
+        if (Objects.isNull(eventType) || !eventType.isTextual() || eventType.textValue().isBlank()) {
+            throw new PersistenceDocumentException("event document requires a textual event type");
+        }
+        return eventType.textValue();
     }
 }

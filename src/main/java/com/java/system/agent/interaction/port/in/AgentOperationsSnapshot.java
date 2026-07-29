@@ -23,10 +23,10 @@ public record AgentOperationsSnapshot(
         Objects.requireNonNull(oldestDeliveryAgeByStatus, "oldest delivery ages must not be null");
         Objects.requireNonNull(workerState, "worker state must not be null");
         oldestDeliveryAgeByStatus = Map.copyOf(oldestDeliveryAgeByStatus);
-        if (oldestEligibleInboxAge.stream().anyMatch(Duration::isNegative)
+        if (oldestEligibleInboxAge.stream().anyMatch(duration -> duration.isNegative())
                 || oldestDeliveryAgeByStatus.values().stream()
-                .flatMap(Optional::stream)
-                .anyMatch(Duration::isNegative)) {
+                .flatMap(optionalValue -> optionalValue.stream())
+                .anyMatch(duration -> duration.isNegative())) {
             throw new IllegalArgumentException("operations ages must not be negative");
         }
     }

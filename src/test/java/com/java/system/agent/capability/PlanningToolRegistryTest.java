@@ -57,7 +57,7 @@ class PlanningToolRegistryTest {
 
         PlanningToolRegistry registry = registry(List.of(codeIntelligenceProvider, coreProvider));
 
-        assertThat(registry.registrations()).extracting(PlanningToolRegistration::name).containsExactly(
+        assertThat(registry.registrations()).extracting(planningToolRegistration -> planningToolRegistration.name()).containsExactly(
                 "agent_request_clarification",
                 "agent_submit_answer",
                 "codebase_incoming_call_graph",
@@ -95,7 +95,7 @@ class PlanningToolRegistryTest {
         AgentPromptContext context = context();
 
         List<String> issuedNames = registry.issuedRegistrations(context).stream()
-                .map(PlanningToolRegistration::name).toList();
+                .map(planningToolRegistration -> planningToolRegistration.name()).toList();
         AgentActionProposal unknown = registry.interpretToolCall("unknown_tool", "{}", context);
         AgentActionProposal unissued = registry.interpretToolCall("query_tool", "{}", context);
 

@@ -50,7 +50,7 @@ class ContextIssuerTest {
                 .extracting(handle -> handle.value())
                 .containsExactly("attempt-1:C1", "attempt-1:C2");
         assertThat(initial.issuedCapabilities().values())
-                .extracting(CapabilityPolicy::name)
+                .extracting(capabilityPolicy -> capabilityPolicy.name())
                 .containsExactly("alpha", "zeta");
         assertThat(initial.issuedCandidates().keySet())
                 .extracting(handle -> handle.value())

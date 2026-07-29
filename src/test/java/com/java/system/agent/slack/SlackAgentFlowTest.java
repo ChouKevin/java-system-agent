@@ -42,11 +42,8 @@ import com.java.system.agent.answering.application.validation.AnswerDocumentVali
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
-import com.java.system.agent.answering.domain.conversation.ConversationTurn;
-import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
-import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentTransition;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
@@ -75,7 +72,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.LinkedHashMap;
@@ -161,7 +157,7 @@ class SlackAgentFlowTest {
 
         ArgumentCaptor<ChatPostMessageRequest> requests = ArgumentCaptor.forClass(ChatPostMessageRequest.class);
         verify(methods, times(4)).chatPostMessage(requests.capture());
-        assertThat(requests.getAllValues()).extracting(ChatPostMessageRequest::getText).containsExactly(
+        assertThat(requests.getAllValues()).extracting(slackRequest -> slackRequest.getText()).containsExactly(
                 "<@UA> 已接收",
                 "<@UB> 已接收",
                 "<@UA> Please clarify Alice",
@@ -169,8 +165,8 @@ class SlackAgentFlowTest {
         assertThat(store.deliveries()).filteredOn(message -> message.kind() == DeliveryKind.FINAL_RESPONSE)
                 .allSatisfy(finalMessage -> assertThat(store.deliveries().indexOf(finalMessage)).isGreaterThan(
                         store.deliveryIndex(finalMessage.inboxMessageId(), DeliveryKind.RECEIPT)));
-        assertThat(sessions.read(alice.sessionId()).turns()).extracting(ConversationTurn::participant)
-                .extracting(ParticipantRef::participantKey).containsExactly("UA", "UB");
+        assertThat(sessions.read(alice.sessionId()).turns()).extracting(conversationTurn -> conversationTurn.participant())
+                .extracting(participantRef -> participantRef.participantKey()).containsExactly("UA", "UB");
     }
 
     private static AgentActionProposal clarification(String question) {
@@ -286,7 +282,7 @@ class SlackAgentFlowTest {
                     .filter(message -> message.status() == InboxMessageStatus.PENDING)
                     .filter(message -> !message.availableAt().isAfter(now))
                     .filter(this::isSessionHead)
-                    .min(Comparator.comparing(InboxMessage::availableAt));
+                    .min(Comparator.comparing(inboxMessage -> inboxMessage.availableAt()));
             if (next.isEmpty()) {
                 return Optional.empty();
             }
@@ -343,7 +339,7 @@ class SlackAgentFlowTest {
             Optional<DeliveryMessage> next = deliveries.values().stream()
                     .filter(message -> message.status() == DeliveryStatus.PENDING)
                     .filter(message -> !message.nextAttemptAt().isAfter(now))
-                    .min(Comparator.comparing(DeliveryMessage::nextAttemptAt));
+                    .min(Comparator.comparing(deliveryMessage -> deliveryMessage.nextAttemptAt()));
             if (next.isEmpty()) {
                 return Optional.empty();
             }

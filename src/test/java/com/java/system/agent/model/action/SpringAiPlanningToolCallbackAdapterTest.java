@@ -18,8 +18,6 @@ import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +41,7 @@ class SpringAiPlanningToolCallbackAdapterTest {
                 RequestClarificationPlanningInput.class.getName(), SubmitAnswerPlanningInput.class.getName());
         assertThat(schemaFactory.verified()).allSatisfy(verified ->
                 assertThat(verified.projectedSchema()).contains("\"additionalProperties\":false"));
-        assertThat(adapter.issuedCallbacks(context())).extracting(ToolCallback::getToolDefinition)
+        assertThat(adapter.issuedCallbacks(context())).extracting(toolCallback -> toolCallback.getToolDefinition())
                 .extracting(definition -> definition.name())
                 .containsExactly("agent_request_clarification", "agent_submit_answer");
     }

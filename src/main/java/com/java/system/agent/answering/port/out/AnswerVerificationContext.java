@@ -3,7 +3,6 @@ package com.java.system.agent.answering.port.out;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
-import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 
@@ -53,7 +52,7 @@ public record AnswerVerificationContext(String question, SessionHistory sessionH
         Set<String> expectedEvidenceValues = new LinkedHashSet<>();
         Set<ObservationId> expectedObservationIds = new LinkedHashSet<>();
         document.statements().forEach(statement -> {
-            expectedEvidenceValues.addAll(statement.citations().stream().map(EvidenceHandleRef::value).toList());
+            expectedEvidenceValues.addAll(statement.citations().stream().map(evidenceHandleReference -> evidenceHandleReference.value()).toList());
             expectedObservationIds.addAll(statement.observationIds());
         });
         if (!availableEvidenceValues.containsAll(citedEvidenceValues)

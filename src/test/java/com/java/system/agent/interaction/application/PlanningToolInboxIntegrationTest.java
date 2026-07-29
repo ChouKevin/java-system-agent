@@ -60,7 +60,6 @@ import com.java.system.agent.answering.port.in.AnswerQuestionResult;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.messages.AssistantMessage;
 
 import java.time.Instant;
 import java.util.ArrayList;

@@ -46,7 +46,7 @@ class SessionHistoryTest {
         SessionHistory sessionHistory = new SessionHistory(List.of(first, second));
 
         assertThat(sessionHistory.turns())
-                .extracting(ConversationTurn::participant)
+                .extracting(conversationTurn -> conversationTurn.participant())
                 .containsExactly(ALICE, BOB);
     }
 

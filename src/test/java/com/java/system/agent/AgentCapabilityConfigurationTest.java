@@ -23,8 +23,6 @@ import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
-import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
-import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import jakarta.validation.Validation;
@@ -61,7 +59,7 @@ class AgentCapabilityConfigurationTest {
                 continue;
             }
             JsonNode schema = entry.getValue();
-            assertThat(schema.path("required")).extracting(JsonNode::asText).contains("candidateHandles");
+            assertThat(schema.path("required")).extracting(jsonNode -> jsonNode.asText()).contains("candidateHandles");
             assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
                     .isGreaterThanOrEqualTo(1);
         }
@@ -74,7 +72,7 @@ class AgentCapabilityConfigurationTest {
                 .path("properties").path("statements").path("items");
 
         assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
-        assertThat(statement.path("required")).extracting(JsonNode::asText)
+        assertThat(statement.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
         assertThat(statement.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
         assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
@@ -112,10 +110,10 @@ class AgentCapabilityConfigurationTest {
         assertThat(answerProposal).isInstanceOf(AgentActionProposal.Proposed.class);
         AnswerAction answer = (AnswerAction) ((AgentActionProposal.Proposed) answerProposal).action();
         assertThat(answer.document().statements().getFirst().citations())
-                .extracting(EvidenceHandleRef::value).containsExactly("evidence-unknown");
+                .extracting(evidenceHandleReference -> evidenceHandleReference.value()).containsExactly("evidence-unknown");
         assertThat(clarifyProposal).isInstanceOf(AgentActionProposal.Proposed.class);
         ClarifyAction clarify = (ClarifyAction) ((AgentActionProposal.Proposed) clarifyProposal).action();
-        assertThat(clarify.candidates()).extracting(CandidateHandleRef::value)
+        assertThat(clarify.candidates()).extracting(candidateHandleReference -> candidateHandleReference.value())
                 .containsExactly("candidate-2", "candidate-1");
     }
 
@@ -188,6 +186,6 @@ class AgentCapabilityConfigurationTest {
 
     private static List<String> required(Map<String, JsonNode> schemas, String toolName) {
         JsonNode schema = schemas.get(toolName);
-        return schema.path("required").valueStream().map(JsonNode::textValue).toList();
+        return schema.path("required").valueStream().map(jsonNode -> jsonNode.textValue()).toList();
     }
 }

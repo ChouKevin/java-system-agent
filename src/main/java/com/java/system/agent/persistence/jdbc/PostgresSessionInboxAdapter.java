@@ -9,7 +9,6 @@ import com.java.system.agent.interaction.domain.InboxMessageStatus;
 import com.java.system.agent.interaction.domain.SessionSourceRef;
 import com.java.system.agent.interaction.domain.SourceMessageId;
 import com.java.system.agent.interaction.domain.delivery.DeliveryFailure;
-import com.java.system.agent.interaction.domain.delivery.DeliveryKind;
 import com.java.system.agent.interaction.domain.delivery.DeliveryStatus;
 import com.java.system.agent.interaction.port.out.InboxIdentityGenerator;
 import com.java.system.agent.interaction.port.out.SessionInboxPort;
@@ -218,8 +217,8 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
                   AND claimed_at = :claimedAt
                 """)
                 .param("status", status.name())
-                .param("failureCode", failure.map(InboxFailure::code).orElse(null))
-                .param("failureDescription", failure.map(InboxFailure::description).orElse(null))
+                .param("failureCode", failure.map(inboxFailure -> inboxFailure.code()).orElse(null))
+                .param("failureDescription", failure.map(inboxFailure -> inboxFailure.description()).orElse(null))
                 .param("transitionedAt", Timestamp.from(transitionedAt))
                 .param("inboxMessageId", message.inboxMessageId().value())
                 .param("runId", message.runId().value())
@@ -250,9 +249,9 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
                   AND claimed_at = :claimedAt
                 """)
                 .param("availableAt", Timestamp.from(availableAt))
-                .param("deferReason", deferReason.map(Enum::name).orElse(null))
-                .param("failureCode", Optional.ofNullable(failure).map(InboxFailure::code).orElse(null))
-                .param("failureDescription", Optional.ofNullable(failure).map(InboxFailure::description).orElse(null))
+                .param("deferReason", deferReason.map(enumValue -> enumValue.name()).orElse(null))
+                .param("failureCode", Optional.ofNullable(failure).map(inboxFailure -> inboxFailure.code()).orElse(null))
+                .param("failureDescription", Optional.ofNullable(failure).map(inboxFailure -> inboxFailure.description()).orElse(null))
                 .param("inboxMessageId", message.inboxMessageId().value())
                 .param("runId", message.runId().value())
                 .param("sessionId", message.sessionId().value())
@@ -295,8 +294,8 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
                 .param("responseText", responseText)
                 .param("status", finalState.status().name())
                 .param("createdAt", Timestamp.from(createdAt))
-                .param("failureCategory", finalState.failure().map(DeliveryFailure::category).orElse(null))
-                .param("failureDescription", finalState.failure().map(DeliveryFailure::description).orElse(null))
+                .param("failureCategory", finalState.failure().map(deliveryFailure -> deliveryFailure.category()).orElse(null))
+                .param("failureDescription", finalState.failure().map(deliveryFailure -> deliveryFailure.description()).orElse(null))
                 .update();
         requireSingleAffectedRow(insertedRows);
     }
@@ -331,7 +330,7 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
         String deferReason = resultSet.getString("defer_reason");
         Optional<InboxFailure> lastFailure = Optional.ofNullable(failureCode)
                 .map(code -> new InboxFailure(code, failureDescription));
-        Optional<Instant> claimedAt = Optional.ofNullable(resultSet.getTimestamp("claimed_at")).map(Timestamp::toInstant);
+        Optional<Instant> claimedAt = Optional.ofNullable(resultSet.getTimestamp("claimed_at")).map(timestamp -> timestamp.toInstant());
         return new InboxMessage(
                 new InboxMessageId(resultSet.getString("inbox_message_id")),
                 new SessionSourceRef(resultSet.getString("source_type"), resultSet.getString("source_key")),

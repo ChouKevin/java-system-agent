@@ -32,7 +32,6 @@ import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
-import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
@@ -380,7 +379,7 @@ public final class ValidatedAgentLoop {
         RunAttempt initialContext = contextIssuer.issueInitial(
                 request.runId(), attemptId, RevisionVector.empty(), capabilityCatalog, repositoryCatalog);
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
-                .map(RepositoryDescriptor::repositoryId)
+                .map(repositoryDescriptor -> repositoryDescriptor.repositoryId())
                 .collect(Collectors.toUnmodifiableSet());
         return new BootstrapPreparation(
                 initialState, initialContext, sessionHistory, capabilityCatalog, repositoryCatalog, catalogRepositoryIds);
@@ -409,7 +408,7 @@ public final class ValidatedAgentLoop {
         List<CapabilityPolicy> capabilityCatalog = loadCapabilityCatalog(persistedState);
         List<RepositoryDescriptor> repositoryCatalog = loadRepositoryCatalog(persistedState);
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
-                .map(RepositoryDescriptor::repositoryId)
+                .map(repositoryDescriptor -> repositoryDescriptor.repositoryId())
                 .collect(Collectors.toUnmodifiableSet());
         AgentRunState restarted = restartPersistedAttempt(request, persistedState);
         RunAttempt restartedContext;
@@ -610,7 +609,7 @@ public final class ValidatedAgentLoop {
             Set<RepositoryId> catalogRepositoryIds) {
         AgentRunState state = currentState;
         List<String> selectedHandleValues = action.candidates().stream()
-                .map(CandidateHandleRef::value)
+                .map(candidateHandleReference -> candidateHandleReference.value())
                 .toList();
         RevisionResolution revisionResolution;
         try {
@@ -1448,7 +1447,7 @@ public final class ValidatedAgentLoop {
             QueryAction action) {
         return attempt.issuedCapabilities().entrySet().stream()
                 .filter(entry -> entry.getKey().value().equals(action.capability().value()))
-                .map(Map.Entry::getValue)
+                .map(mapEntry -> mapEntry.getValue())
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("accepted capability is absent after context reissue"));
     }

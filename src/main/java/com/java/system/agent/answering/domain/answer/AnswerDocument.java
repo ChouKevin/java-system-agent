@@ -21,5 +21,5 @@ public record AnswerDocument(List<AnswerStatement> statements) {
             if (!statementIds.add(statement.statementId())) throw new IllegalArgumentException("answer document statement IDs must be unique");
         }
     }
-    public String renderParagraphs() { return statements.stream().map(AnswerStatement::text).collect(Collectors.joining("\n\n")); }
+    public String renderParagraphs() { return statements.stream().map(statement -> statement.text()).collect(Collectors.joining("\n\n")); }
 }

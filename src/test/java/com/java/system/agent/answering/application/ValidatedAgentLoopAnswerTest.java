@@ -104,11 +104,11 @@ class ValidatedAgentLoopAnswerTest {
                 .containsExactly("AnswerAccepted", "RunConcluded");
         assertThat(session.read(new SessionId("session-1")).turns())
                 .singleElement()
-                .extracting(ConversationTurn::assistantMessage)
+                .extracting(conversationTurn -> conversationTurn.assistantMessage())
                 .isEqualTo("Verified answer");
         assertThat(session.read(new SessionId("session-1")).turns())
                 .singleElement()
-                .extracting(ConversationTurn::participant)
+                .extracting(conversationTurn -> conversationTurn.participant())
                 .isEqualTo(PARTICIPANT);
     }
 
@@ -137,7 +137,7 @@ class ValidatedAgentLoopAnswerTest {
         assertThat(result.responseText()).isEqualTo("Rewritten answer");
         assertThat(session.read(new SessionId("session-1")).turns())
                 .singleElement()
-                .extracting(ConversationTurn::assistantMessage)
+                .extracting(conversationTurn -> conversationTurn.assistantMessage())
                 .isEqualTo("Rewritten answer");
     }
 

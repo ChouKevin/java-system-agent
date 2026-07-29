@@ -130,7 +130,7 @@ These are enforced by tests, not convention:
 
 - **`answering` depends on no other module.** Its `package-info.java` declares `@ApplicationModule(allowedDependencies = {})`, and `ApplicationModularityTests` asserts it has no direct dependencies.
 - **`answering` exposes exactly three named interfaces**: `domain`, `port-in`, `port-out`, via `@NamedInterface(value = "domain", propagate = true)` and the two port packages. `application` and everything else stays module-internal.
-- **`answering.domain` classes depend only on the JDK and their own packages**; inbound and outbound ports depend only on the JDK and answering domain. `AnsweringKernelArchitectureTest` enforces all four rules.
+- **`answering.domain` classes depend only on the JDK, their own packages, and minimal `com.fasterxml.jackson.annotation` metadata**; no other Jackson or framework package is allowed. Inbound and outbound ports depend only on the JDK and answering domain. `AnsweringKernelArchitectureTest` enforces all four rules.
 - **`interaction` depends only on `answering :: domain` and `answering :: port-in`.** It exposes `domain`,
   `port-in`, and `port-out`; its application code remains internal and framework-free.
 - **`persistence` depends only on exposed answering and interaction contracts.** It exposes no named

@@ -14,11 +14,11 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 class AnsweringKernelArchitectureTest {
 
     @ArchTest
-    static final ArchRule DOMAIN_DEPENDS_ONLY_ON_JDK_AND_DOMAIN = classes()
+    static final ArchRule DOMAIN_DEPENDS_ONLY_ON_JDK_DOMAIN_AND_JACKSON_ANNOTATIONS = classes()
             .that().resideInAPackage("..answering.domain..")
             .and().doNotHaveSimpleName("package-info")
             .should().onlyDependOnClassesThat()
-            .resideInAnyPackage("java..", "..answering.domain..");
+            .resideInAnyPackage("java..", "..answering.domain..", "com.fasterxml.jackson.annotation..");
 
     @ArchTest
     static final ArchRule DOMAIN_DOES_NOT_DEPEND_ON_APPLICATION_OR_PORTS = noClasses()

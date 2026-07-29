@@ -43,7 +43,7 @@ class AnswerQuestionResultTest {
     }
 
     private static AnswerQuestionResult result(RunOutcome outcome, Optional<AnswerDocument> answerDocument) {
-        String response = answerDocument.map(AnswerDocument::renderParagraphs).orElse("response");
+        String response = answerDocument.map(document -> document.renderParagraphs()).orElse("response");
         RunResponseKind kind = answerDocument.isPresent()
                 ? RunResponseKind.ANSWER
                 : RunResponseKind.RUNTIME_NOTICE;

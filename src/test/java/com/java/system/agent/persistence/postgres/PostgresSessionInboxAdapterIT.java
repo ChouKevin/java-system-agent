@@ -90,7 +90,7 @@ class PostgresSessionInboxAdapterIT extends PostgresIntegrationTestSupport {
             List<Optional<InboxClaim>> claims = List.of(
                     first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
 
-            assertThat(claims).filteredOn(Optional::isPresent).hasSize(1);
+            assertThat(claims).filteredOn(optionalValue -> optionalValue.isPresent()).hasSize(1);
             assertThat(inbox.claimNext(NOW)).isEmpty();
         } finally {
             executor.shutdownNow();

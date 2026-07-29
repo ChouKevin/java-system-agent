@@ -77,7 +77,7 @@ class ApplicationModularityTests {
     void answeringKernelShouldExposeOnlyContractPackages() {
         Set<String> exposed = requireAnswering().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
-                .map(NamedInterface::getName)
+                .map(namedInterface -> namedInterface.getName())
                 .collect(Collectors.toSet());
 
         assertEquals(Set.of("domain", "port-in", "port-out"), exposed,
@@ -121,7 +121,7 @@ class ApplicationModularityTests {
     void interactionShouldExposeOnlyContractPackages() {
         Set<String> exposed = requireInteraction().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
-                .map(NamedInterface::getName)
+                .map(namedInterface -> namedInterface.getName())
                 .collect(Collectors.toSet());
 
         assertEquals(Set.of("domain", "port-in", "port-out"), exposed,
@@ -145,7 +145,7 @@ class ApplicationModularityTests {
     void persistenceShouldExposeNoNamedInterface() {
         Set<String> exposed = requirePersistence().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
-                .map(NamedInterface::getName)
+                .map(namedInterface -> namedInterface.getName())
                 .collect(Collectors.toSet());
 
         assertTrue(exposed.isEmpty(), "Persistence implementation packages must remain internal");
@@ -185,7 +185,7 @@ class ApplicationModularityTests {
     void capabilityShouldExposeExecutorSpi() {
         Set<String> exposed = requireCapability().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
-                .map(NamedInterface::getName)
+                .map(namedInterface -> namedInterface.getName())
                 .collect(Collectors.toSet());
 
         assertEquals(Set.of("executor-spi", "planning"), exposed,
@@ -207,7 +207,7 @@ class ApplicationModularityTests {
     void slackShouldExposeNoNamedInterface() {
         Set<String> exposed = requireSlack().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
-                .map(NamedInterface::getName)
+                .map(namedInterface -> namedInterface.getName())
                 .collect(Collectors.toSet());
 
         assertTrue(exposed.isEmpty(), "Slack implementation packages must remain internal");

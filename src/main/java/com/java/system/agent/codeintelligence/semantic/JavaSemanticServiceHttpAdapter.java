@@ -10,11 +10,9 @@ import com.java.system.agent.codeintelligence.planning.ListEntryPointsExecutionI
 import com.java.system.agent.codeintelligence.planning.LookupApiRouteExecutionInput;
 import com.java.system.agent.codeintelligence.planning.OutgoingCallGraphExecutionInput;
 import com.java.system.agent.codeintelligence.planning.SuggestApiRouteExecutionInput;
-import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
-import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailure;
@@ -142,7 +140,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             EntryPointType type = input.type();
             SemanticDtos.EntryPointsResponse response = restClient.get()
                     .uri(uriBuilder -> uriBuilder.path("/v1/repositories/{repoId}/entry-points")
-                            .queryParamIfPresent("types", Optional.ofNullable(type).map(EntryPointType::name))
+                            .queryParamIfPresent("types", Optional.ofNullable(type).map(entryPointType -> entryPointType.name()))
                             .build(repository.repositoryId().value()))
                     .retrieve().body(SemanticDtos.EntryPointsResponse.class);
             return resultMapper.listEntryPoints(resultInvocation(context), requiredResponse(response, "entry-points"));
