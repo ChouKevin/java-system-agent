@@ -8,6 +8,7 @@ import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunFailureReason;
 import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
 import com.java.system.agent.runtime.domain.run.RuntimeNoticeReason;
 import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
@@ -27,29 +28,29 @@ class AgentPersistenceCodecTest {
     private final AgentEventDocumentCodec eventCodec = new AgentEventDocumentCodec(new ObjectMapper());
 
     @Test
-    void writes_and_reads_only_schema_six_state_documents() {
+    void writes_and_reads_only_schema_seven_state_documents() {
         AgentRunState state = AgentRunState.initial(runId(), attemptId(), budget(), identity());
 
         VersionedJsonDocument document = stateCodec.encode(state);
 
-        assertThat(document.schemaVersion()).isEqualTo(6);
+        assertThat(document.schemaVersion()).isEqualTo(7);
         assertThat(stateCodec.decode(document)).isEqualTo(state);
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(5, document.payload())))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(6, document.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported state document schema version");
     }
 
     @Test
-    void writes_runtime_notice_reason_without_removed_final_response_budget_fields() {
+    void writes_terminal_reasons_without_removed_final_response_budget_fields() {
         AgentEvent event = new AgentEvent.RunConcluded(runId(), attemptId(), 0, RunOutcome.INCONCLUSIVE,
-                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED));
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty());
 
         VersionedJsonDocument eventDocument = eventCodec.encode(event);
         ObjectNode state = (ObjectNode) stateCodec.encode(AgentRunState.initial(runId(), attemptId(), budget(), identity()))
                 .payload();
         ObjectNode serializedBudget = (ObjectNode) state.path("budget");
 
-        assertThat(eventDocument.schemaVersion()).isEqualTo(5);
+        assertThat(eventDocument.schemaVersion()).isEqualTo(6);
         assertThat(eventDocument.payload().path("runtime_notice_reason").asText())
                 .isEqualTo("AGENT_STEP_BUDGET_EXHAUSTED");
         assertThat(eventCodec.decode(eventCodec.eventType(event), eventDocument)).isEqualTo(event);
@@ -60,12 +61,23 @@ class AgentPersistenceCodecTest {
     }
 
     @Test
+    void writes_and_reads_a_failed_planning_tool_contract_reason() {
+        AgentEvent event = new AgentEvent.RunConcluded(runId(), attemptId(), 0, RunOutcome.FAILED,
+                Optional.empty(), Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT));
+
+        VersionedJsonDocument document = eventCodec.encode(event);
+
+        assertThat(document.payload().path("failure_reason").asText()).isEqualTo("PLANNING_TOOL_CONTRACT");
+        assertThat(eventCodec.decode(eventCodec.eventType(event), document)).isEqualTo(event);
+    }
+
+    @Test
     void rejects_old_event_schema_documents() {
         AgentEvent event = new AgentEvent.RunStarted(runId(), attemptId(), 0);
         VersionedJsonDocument document = eventCodec.encode(event);
 
         assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event),
-                new VersionedJsonDocument(4, document.payload())))
+                new VersionedJsonDocument(5, document.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported event document schema version");
     }

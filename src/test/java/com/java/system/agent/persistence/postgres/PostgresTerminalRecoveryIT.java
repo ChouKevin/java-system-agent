@@ -51,9 +51,12 @@ import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
+import com.java.system.agent.runtime.port.out.AgentActionContractException;
 import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
 import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.runtime.port.out.SessionPort;
@@ -115,6 +118,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                         "workspace-1", "channel-1", "message-1", "thread-1", "U123456", sourceText), NOW));
         InboxClaim first = inbox.claimNext(NOW).orElseThrow();
         inbox.deferForCapacity(first, NOW.plusSeconds(10));
+        assertThat(inboxStatus(first.message().inboxMessageId())).isEqualTo(InboxMessageStatus.PENDING.name());
         InboxClaim capacity = inbox.claimNext(NOW.plusSeconds(10)).orElseThrow();
 
         assertThat(inbox.recoverInterrupted(NOW.plusSeconds(11))).isEqualTo(1);
@@ -123,6 +127,56 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThat(capacity.message().attemptCount()).isEqualTo(1);
         assertThat(recovered.message().attemptCount()).isEqualTo(1);
         assertThat(recovered.message().deferReason()).contains(InboxDeferReason.MODEL_CAPACITY);
+    }
+
+    @Test
+    void releases_the_next_same_session_message_after_a_terminal_planning_tool_contract_failure() {
+        admit("event-planning-first", "message-planning-first", "planning-session", "first question");
+        admit("event-planning-second", "message-planning-second", "planning-session", "second question");
+        InboxClaim firstClaim = inbox.claimNext(NOW).orElseThrow();
+        AtomicInteger failedActionCalls = new AtomicInteger();
+        SessionInboxProcessor failingProcessor = new SessionInboxProcessor(
+                inbox, planningContractService(failedActionCalls), budget(), InboxRetryPolicy.defaults());
+
+        assertThat(failingProcessor.process(firstClaim, NOW)).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(failedActionCalls).hasValue(1);
+        assertThat(inboxStatus(firstClaim.message().inboxMessageId())).isEqualTo(InboxMessageStatus.FAILED.name());
+
+        InboxClaim secondClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
+        AtomicInteger successfulActionCalls = new AtomicInteger();
+        SessionInboxProcessor successfulProcessor = new SessionInboxProcessor(
+                inbox, clarificationService(successfulActionCalls, sessions), budget(), InboxRetryPolicy.defaults());
+
+        assertThat(secondClaim.message().sourceMessageId()).isEqualTo(new SourceMessageId("message-planning-second"));
+        assertThat(successfulProcessor.process(secondClaim, NOW.plusSeconds(1)))
+                .isEqualTo(InboxProcessingOutcome.COMPLETED);
+        assertThat(successfulActionCalls).hasValue(1);
+        assertThat(inboxStatus(secondClaim.message().inboxMessageId())).isEqualTo(InboxMessageStatus.COMPLETED.name());
+    }
+
+    @Test
+    void reconciles_a_crashed_planning_contract_failure_without_replaying_the_model_or_executor() {
+        admit("event-planning-crash", "message-planning-crash", "planning-crash", "crash question");
+        InboxClaim interruptedClaim = inbox.claimNext(NOW).orElseThrow();
+        AtomicInteger actionCalls = new AtomicInteger();
+        AnalysisApplicationService service = planningContractService(actionCalls);
+
+        assertThatThrownBy(() -> service.answer(command(interruptedClaim.message())))
+                .isInstanceOf(AnswerExecutionContractException.class)
+                .extracting(exception -> ((AnswerExecutionContractException) exception).failure())
+                .isEqualTo(AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT);
+        assertThat(actionCalls).hasValue(1);
+        assertThat(inboxStatus(interruptedClaim.message().inboxMessageId())).isEqualTo(InboxMessageStatus.PROCESSING.name());
+
+        assertThat(inbox.recoverInterrupted(NOW.plusSeconds(1))).isEqualTo(1);
+        InboxClaim recoveredClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, service, budget(), InboxRetryPolicy.defaults());
+
+        assertThat(processor.process(recoveredClaim, NOW.plusSeconds(1))).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(actionCalls).hasValue(1);
+        assertThat(inboxStatus(recoveredClaim.message().inboxMessageId())).isEqualTo(InboxMessageStatus.FAILED.name());
+        assertThat(inboxFailureCode(recoveredClaim.message().inboxMessageId())).isEqualTo("PLANNING_TOOL_CONTRACT");
     }
 
     @Test
@@ -246,6 +300,35 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         return new AnalysisApplicationService(loop);
     }
 
+    private AnalysisApplicationService planningContractService(AtomicInteger actionCalls) {
+        ValidatedAgentLoop loop = new ValidatedAgentLoop(
+                context -> {
+                    actionCalls.incrementAndGet();
+                    throw new AgentActionContractException("planning registry contract failed", null);
+                },
+                query -> {
+                    throw new AssertionError("planning contract failure must not execute a semantic query");
+                },
+                (mode, context) -> {
+                    throw new AssertionError("planning contract failure must not verify an answer");
+                },
+                AnswerVerificationMode.LLM,
+                sessions,
+                new FakeRepositoryCatalogAdapter(),
+                new FakeCapabilityCatalogAdapter(),
+                repositoryId -> {
+                    throw new AssertionError("planning contract failure must not resolve a repository revision");
+                },
+                new FakeCancellationAdapter(),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-planning-failure")),
+                new AgentActionValidator(),
+                new AnswerDocumentValidator(),
+                new AnswerVerdictValidator(),
+                new AgentTransitionCommitter(new AgentStateReducer(), transitions),
+                new ContextIssuer());
+        return new AnalysisApplicationService(loop);
+    }
+
     private AnalysisApplicationService pendingVerificationService(AtomicInteger actionCalls, AtomicInteger verifierCalls) {
         ValidatedAgentLoop loop = new ValidatedAgentLoop(
                 context -> {
@@ -314,6 +397,17 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     private String inboxStatus(InboxMessageId inboxMessageId) {
         return jdbcClient.sql("""
                 SELECT status
+                FROM session_inbox
+                WHERE inbox_message_id = :inboxMessageId
+                """)
+                .param("inboxMessageId", inboxMessageId.value())
+                .query(String.class)
+                .single();
+    }
+
+    private String inboxFailureCode(InboxMessageId inboxMessageId) {
+        return jdbcClient.sql("""
+                SELECT last_error_code
                 FROM session_inbox
                 WHERE inbox_message_id = :inboxMessageId
                 """)

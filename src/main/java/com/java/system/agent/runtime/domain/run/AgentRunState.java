@@ -19,6 +19,7 @@ public record AgentRunState(
         long stateRevision,
         Optional<RunOutcome> finalOutcome,
         Optional<RuntimeNoticeReason> runtimeNoticeReason,
+        Optional<RunFailureReason> failureReason,
         Optional<PendingTerminalResponse> pendingTerminalResponse,
         Optional<PendingAnswerVerification> pendingAnswerVerification,
         RunRequestIdentity requestIdentity) {
@@ -30,6 +31,7 @@ public record AgentRunState(
         Objects.requireNonNull(budget, "agent run budget must not be null");
         Objects.requireNonNull(finalOutcome, "run final outcome must not be null");
         Objects.requireNonNull(runtimeNoticeReason, "runtime notice reason must not be null");
+        Objects.requireNonNull(failureReason, "run failure reason must not be null");
         Objects.requireNonNull(pendingTerminalResponse, "pending terminal response must not be null");
         Objects.requireNonNull(pendingAnswerVerification, "pending answer verification must not be null");
         Objects.requireNonNull(requestIdentity, "run request identity must not be null");
@@ -48,9 +50,16 @@ public record AgentRunState(
         if (status != AgentRunStatus.CONCLUDED && runtimeNoticeReason.isPresent()) {
             throw new IllegalArgumentException("unconcluded agent run cannot have a runtime notice reason");
         }
+        if (status != AgentRunStatus.CONCLUDED && failureReason.isPresent()) {
+            throw new IllegalArgumentException("unconcluded agent run cannot have a failure reason");
+        }
         if (runtimeNoticeReason.isPresent()
                 && (finalOutcome.isEmpty() || finalOutcome.orElseThrow() != RunOutcome.INCONCLUSIVE)) {
             throw new IllegalArgumentException("runtime notice requires an inconclusive terminal run");
+        }
+        if (failureReason.isPresent()
+                && (finalOutcome.isEmpty() || finalOutcome.orElseThrow() != RunOutcome.FAILED)) {
+            throw new IllegalArgumentException("failure reason requires a failed terminal run");
         }
         if (status != AgentRunStatus.RUNNING && status != AgentRunStatus.CONCLUDED
                 && pendingTerminalResponse.isPresent()) {
@@ -109,7 +118,7 @@ public record AgentRunState(
             RunRequestIdentity requestIdentity) {
         return new AgentRunState(runId, AgentRunStatus.STARTING, RunAttempt.empty(firstAttemptId),
                 firstAttemptSequence, budget,
-                0, 0, 0, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), requestIdentity);
+                0, 0, 0, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), requestIdentity);
     }
 
     public static AgentRunState initial(

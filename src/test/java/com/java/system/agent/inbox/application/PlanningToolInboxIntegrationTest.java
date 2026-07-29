@@ -53,6 +53,9 @@ import com.java.system.agent.runtime.port.out.CapabilityExecutionPort;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractFailure;
+import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -70,6 +73,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * planning tool contract defect 跨越 loop 與 inbox 的 terminal failure 整合測試
@@ -142,6 +146,47 @@ class PlanningToolInboxIntegrationTest {
         assertThat(transitions.state(new AnalysisRunId("run-1")).finalOutcome()).contains(RunOutcome.FAILED);
     }
 
+    @Test
+    void recovers_a_durable_planning_tool_contract_failure_without_replaying_external_ports() {
+        AtomicInteger modelInvocations = new AtomicInteger();
+        AtomicInteger executorInvocations = new AtomicInteger();
+        RecordingTransitions transitions = new RecordingTransitions();
+        PlanningToolRegistry registry = registry(input -> new QueryPlanningSelection<>(
+                List.of(), input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
+        ValidatedAgentLoop loop = loop(
+                context -> {
+                    modelInvocations.incrementAndGet();
+                    return new AgentActionProposal.Proposed(new QueryAction(
+                            context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
+                            List.of(), "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
+                }, registry::execute, registry, transitions);
+        AnalysisApplicationService service = new AnalysisApplicationService(loop);
+        InboxClaim interruptedClaim = claim();
+
+        assertThatThrownBy(() -> service.answer(new AnswerQuestionCommand(
+                interruptedClaim.message().runId(), interruptedClaim.message().sessionId(),
+                interruptedClaim.message().participant(), interruptedClaim.message().questionText(),
+                BUDGET)))
+                .isInstanceOf(AnswerExecutionContractException.class)
+                .extracting(exception -> ((AnswerExecutionContractException) exception).failure())
+                .isEqualTo(AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT);
+        assertThat(transitions.state(new AnalysisRunId("run-1")).finalOutcome()).contains(RunOutcome.FAILED);
+        assertThat(modelInvocations).hasValue(1);
+        assertThat(executorInvocations).hasValue(0);
+
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, service, BUDGET, InboxRetryPolicy.defaults());
+        InboxClaim recoveredClaim = claim(2);
+
+        assertThat(processor.process(recoveredClaim, NOW.plusSeconds(1))).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(inbox.failure).isEqualTo(InboxFailure.PLANNING_TOOL_CONTRACT);
+        assertThat(inbox.failedClaim).isEqualTo(recoveredClaim);
+        assertThat(inbox.retriedClaim).isNull();
+        assertThat(modelInvocations).hasValue(1);
+        assertThat(executorInvocations).hasValue(0);
+    }
+
     private static ValidatedAgentLoop loop(
             AgentActionPort actionPort,
             CapabilityExecutionPort executionPort,
@@ -181,11 +226,15 @@ class PlanningToolInboxIntegrationTest {
     }
 
     private static InboxClaim claim() {
+        return claim(1);
+    }
+
+    private static InboxClaim claim(int attemptCount) {
         return new InboxClaim(new InboxMessage(
                 new InboxMessageId("inbox-1"), new SessionSourceRef("slack", "channel-1:thread-1"),
                 new SourceMessageId("message-1"), new SessionId("session-1"), 0, new AnalysisRunId("run-1"),
                 new ParticipantRef("slack", "U123456"), "<@bot> question", "question", InboxMessageStatus.PROCESSING,
-                1, NOW, Optional.of(NOW), Optional.<InboxDeferReason>empty(), Optional.empty()));
+                attemptCount, NOW, Optional.of(NOW), Optional.<InboxDeferReason>empty(), Optional.empty()));
     }
 
     private record PlanningInput(

@@ -28,7 +28,7 @@ class AgentEventPayloadTest {
     @Test
     void preserves_typed_runtime_notice_reason() {
         AgentEvent.RunConcluded concluded = new AgentEvent.RunConcluded(runId(), attemptId(), 0,
-                RunOutcome.INCONCLUSIVE, Optional.of(RuntimeNoticeReason.INSUFFICIENT_VERIFIABLE_INFORMATION));
+                RunOutcome.INCONCLUSIVE, Optional.of(RuntimeNoticeReason.INSUFFICIENT_VERIFIABLE_INFORMATION), Optional.empty());
 
         assertThat(concluded.runtimeNoticeReason()).contains(RuntimeNoticeReason.INSUFFICIENT_VERIFIABLE_INFORMATION);
     }

@@ -181,19 +181,19 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
     }
 
     record RunConcluded(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
-                        RunOutcome outcome, Optional<RuntimeNoticeReason> runtimeNoticeReason) implements AgentEvent {
-        public RunConcluded(
-                AnalysisRunId runId,
-                AnalysisAttemptId attemptId,
-                long expectedStateRevision,
-                RunOutcome outcome) {
-            this(runId, attemptId, expectedStateRevision, outcome, Optional.empty());
-        }
-
+                        RunOutcome outcome, Optional<RuntimeNoticeReason> runtimeNoticeReason,
+                        Optional<RunFailureReason> failureReason) implements AgentEvent {
         public RunConcluded {
             validateEnvelope(runId, attemptId, expectedStateRevision);
             Objects.requireNonNull(outcome, "run outcome must not be null");
             runtimeNoticeReason = Objects.requireNonNull(runtimeNoticeReason, "runtime notice reason must not be null");
+            failureReason = Objects.requireNonNull(failureReason, "run failure reason must not be null");
+            if (runtimeNoticeReason.isPresent() && outcome != RunOutcome.INCONCLUSIVE) {
+                throw new IllegalArgumentException("runtime notice requires an inconclusive conclusion");
+            }
+            if (failureReason.isPresent() && outcome != RunOutcome.FAILED) {
+                throw new IllegalArgumentException("failure reason requires a failed conclusion");
+            }
         }
     }
 

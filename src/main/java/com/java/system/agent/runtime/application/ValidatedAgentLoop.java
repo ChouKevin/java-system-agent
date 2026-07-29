@@ -45,6 +45,7 @@ import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunFailureReason;
 import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.domain.run.PendingTerminalResponse;
 import com.java.system.agent.runtime.domain.run.PendingAnswerVerification;
@@ -269,7 +270,8 @@ public final class ValidatedAgentLoop {
                         actionPort.nextAction(prompt(request, sessionHistory, state, latestRejection)),
                         "agent action port must return a proposal");
             } catch (AgentActionContractException exception) {
-                concludeIntegrationFailure(state, request, exception);
+                concludeIntegrationFailure(
+                        state, request, exception, Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT));
                 throw new AnswerExecutionContractException(
                         AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
                         "planning tool contract failed", exception);
@@ -561,6 +563,12 @@ public final class ValidatedAgentLoop {
     }
 
     private AgentLoopResult concludedResult(AgentRunState state) {
+        if (state.failureReason().map(RunFailureReason.PLANNING_TOOL_CONTRACT::equals).orElse(false)) {
+            throw new AnswerExecutionContractException(
+                    AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
+                    "planning tool contract failed",
+                    null);
+        }
         RunOutcome outcome = state.finalOutcome().orElseThrow();
         if (state.pendingTerminalResponse().isPresent()) {
             PendingTerminalResponse pending = state.pendingTerminalResponse().orElseThrow();
@@ -710,7 +718,8 @@ public final class ValidatedAgentLoop {
             capabilityExecutionResultCategory = capabilityExecutionResultCategory(result);
         } catch (CapabilityExecutionContractException exception) {
             capabilityExecutionResultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
-            concludeIntegrationFailure(state, request, exception);
+            concludeIntegrationFailure(
+                    state, request, exception, Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT));
             throw new AnswerExecutionContractException(
                     AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
                     "planning tool contract failed", exception);
@@ -1050,11 +1059,19 @@ public final class ValidatedAgentLoop {
             AgentRunState state,
             AgentLoopRequest request,
             RuntimeException exception) {
+        return concludeIntegrationFailure(state, request, exception, Optional.empty());
+    }
+
+    private AgentLoopResult concludeIntegrationFailure(
+            AgentRunState state,
+            AgentLoopRequest request,
+            RuntimeException exception,
+            Optional<RunFailureReason> failureReason) {
         try {
             AgentRunState abandoned = state.pendingAnswerVerification().isPresent()
                     ? abandonAnswerVerification(state, AnswerVerificationAbandonReason.INTEGRATION_CONTRACT_FAILURE)
                     : state;
-            return conclude(abandoned, request, RunOutcome.FAILED, FAILED_RESPONSE, Optional.empty());
+            return conclude(abandoned, request, RunOutcome.FAILED, FAILED_RESPONSE, Optional.empty(), failureReason);
         } catch (AgentTransitionConflictException | AgentLoopException | AgentRunInProgressException commitFailure) {
             AnswerExecutionContractException contractFailure = new AnswerExecutionContractException(
                     "integration contract failure could not be concluded", commitFailure);
@@ -1287,12 +1304,23 @@ public final class ValidatedAgentLoop {
             RunOutcome outcome,
             String responseText,
             Optional<AnswerDocument> document) {
+        return conclude(state, request, outcome, responseText, document, Optional.empty());
+    }
+
+    private AgentLoopResult conclude(
+            AgentRunState state,
+            AgentLoopRequest request,
+            RunOutcome outcome,
+            String responseText,
+            Optional<AnswerDocument> document,
+            Optional<RunFailureReason> failureReason) {
         AgentRunState concluded = commit(state, new AgentEvent.RunConcluded(
                 state.runId(),
                 state.currentAttempt().attemptId(),
                 state.stateRevision(),
                 outcome,
-                Optional.empty()));
+                Optional.empty(),
+                failureReason));
         return loopResult(concluded, responseText, document);
     }
 
@@ -1302,7 +1330,7 @@ public final class ValidatedAgentLoop {
             RuntimeNoticeReason reason) {
         AgentRunState concluded = commit(state, new AgentEvent.RunConcluded(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
-                RunOutcome.INCONCLUSIVE, Optional.of(reason)));
+                RunOutcome.INCONCLUSIVE, Optional.of(reason), Optional.empty()));
         return loopResult(concluded, runtimeNoticeResponse(Optional.of(reason), RunOutcome.INCONCLUSIVE), Optional.empty());
     }
 

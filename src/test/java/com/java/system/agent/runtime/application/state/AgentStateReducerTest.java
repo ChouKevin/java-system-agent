@@ -8,6 +8,7 @@ import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunFailureReason;
 import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
 import com.java.system.agent.runtime.domain.run.RuntimeNoticeReason;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,7 @@ class AgentStateReducerTest {
 
         AgentRunState reduced = reducer.reduce(state, new AgentEvent.RunConcluded(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), RunOutcome.INCONCLUSIVE,
-                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED))).candidateState();
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty())).candidateState();
 
         assertThat(reduced.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(reduced.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
@@ -54,9 +55,20 @@ class AgentStateReducerTest {
 
         assertThatThrownBy(() -> reducer.reduce(state, new AgentEvent.RunConcluded(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), RunOutcome.FAILED,
-                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED))))
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("runtime notice");
+    }
+
+    @Test
+    void persists_planning_tool_contract_failure_only_for_a_failed_conclusion() {
+        AgentRunState state = runningState();
+
+        AgentRunState reduced = reducer.reduce(state, new AgentEvent.RunConcluded(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), RunOutcome.FAILED,
+                Optional.empty(), Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT))).candidateState();
+
+        assertThat(reduced.failureReason()).contains(RunFailureReason.PLANNING_TOOL_CONTRACT);
     }
 
     private AgentRunState runningState() {

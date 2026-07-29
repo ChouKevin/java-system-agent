@@ -870,6 +870,7 @@ class ValidatedAgentLoopAnswerTest {
                 state.stateRevision(),
                 state.finalOutcome(),
                 state.runtimeNoticeReason(),
+                state.failureReason(),
                 state.pendingTerminalResponse(),
                 Optional.empty(),
                 state.requestIdentity());

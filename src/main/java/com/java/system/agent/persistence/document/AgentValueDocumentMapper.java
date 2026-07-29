@@ -60,6 +60,7 @@ import com.java.system.agent.runtime.domain.run.PendingAnswerVerification;
 import com.java.system.agent.runtime.domain.run.AnswerVerificationAbandonReason;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunFailureReason;
 import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
 import com.java.system.agent.runtime.domain.run.RuntimeNoticeReason;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
@@ -100,6 +101,7 @@ final class AgentValueDocumentMapper {
         node.put("state_revision", state.stateRevision());
         putOptionalEnum(node, "final_outcome", state.finalOutcome());
         putOptionalEnum(node, "runtime_notice_reason", state.runtimeNoticeReason());
+        putOptionalEnum(node, "failure_reason", state.failureReason());
         putOptionalNode(node, "pending_terminal_response", state.pendingTerminalResponse().map(this::pendingNode));
         putOptionalNode(node, "pending_answer_verification", state.pendingAnswerVerification().map(this::pendingVerificationNode));
         node.set("request_identity", requestIdentityNode(state.requestIdentity()));
@@ -110,13 +112,15 @@ final class AgentValueDocumentMapper {
         ObjectNode node = object(payload);
         requireExactFields(node, "state_type", "run_id", "status", "current_attempt", "attempt_sequence", "budget",
                 "accepted_action_count", "rejected_action_count", "state_revision", "final_outcome", "runtime_notice_reason",
+                "failure_reason",
                 "pending_terminal_response", "pending_answer_verification", "request_identity");
         requireDiscriminator(node, "state_type", "AGENT_RUN_STATE", "unsupported state document discriminator");
         return new AgentRunState(runId(node, "run_id"), enumField(node, "status", AgentRunStatus.class),
                 attemptFrom(required(node, "current_attempt")), intField(node, "attempt_sequence"),
                 budgetFrom(required(node, "budget")),
                 longField(node, "accepted_action_count"), longField(node, "rejected_action_count"), longField(node, "state_revision"),
-                optionalEnum(node, "final_outcome", RunOutcome.class), optionalEnum(node, "runtime_notice_reason", RuntimeNoticeReason.class), optionalNode(node, "pending_terminal_response").map(this::pendingFrom),
+                optionalEnum(node, "final_outcome", RunOutcome.class), optionalEnum(node, "runtime_notice_reason", RuntimeNoticeReason.class),
+                optionalEnum(node, "failure_reason", RunFailureReason.class), optionalNode(node, "pending_terminal_response").map(this::pendingFrom),
                 optionalNode(node, "pending_answer_verification").map(this::pendingVerificationFrom),
                 requestIdentityFrom(required(node, "request_identity")));
     }
@@ -166,6 +170,7 @@ final class AgentValueDocumentMapper {
             case AgentEvent.RunConcluded value -> {
                 node.put("outcome", value.outcome().name());
                 putOptionalEnum(node, "runtime_notice_reason", value.runtimeNoticeReason());
+                putOptionalEnum(node, "failure_reason", value.failureReason());
             }
         }
         return node;
@@ -341,13 +346,15 @@ final class AgentValueDocumentMapper {
                         "attempt_id",
                         "expected_state_revision",
                         "outcome",
-                        "runtime_notice_reason");
+                        "runtime_notice_reason",
+                        "failure_reason");
                 yield new AgentEvent.RunConcluded(
                         runId,
                         attemptId,
                         expectedRevision,
                         enumField(node, "outcome", RunOutcome.class),
-                        optionalEnum(node, "runtime_notice_reason", RuntimeNoticeReason.class));
+                        optionalEnum(node, "runtime_notice_reason", RuntimeNoticeReason.class),
+                        optionalEnum(node, "failure_reason", RunFailureReason.class));
             }
             default -> throw new PersistenceDocumentException("unsupported event document discriminator");
         };

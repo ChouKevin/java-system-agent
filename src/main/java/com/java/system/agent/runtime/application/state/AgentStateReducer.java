@@ -15,6 +15,7 @@ import com.java.system.agent.runtime.domain.run.PendingTerminalResponse;
 import com.java.system.agent.runtime.domain.run.PendingAnswerVerification;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
+import com.java.system.agent.runtime.domain.run.RunFailureReason;
 import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
 import com.java.system.agent.runtime.domain.answer.AnswerAcceptance;
 import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
@@ -257,7 +258,7 @@ public final class AgentStateReducer {
         validateConclusion(state, event);
         return next(state, AgentRunStatus.CONCLUDED, state.currentAttempt(), state.attemptSequence(), state.budget(),
                 state.acceptedActionCount(), state.rejectedActionCount(), state.pendingTerminalResponse(),
-                Optional.of(event.outcome()), Optional.empty(), event.runtimeNoticeReason());
+                Optional.of(event.outcome()), Optional.empty(), event.runtimeNoticeReason(), event.failureReason());
     }
 
     private void validateConclusion(AgentRunState state, AgentEvent.RunConcluded event) {
@@ -269,6 +270,9 @@ public final class AgentStateReducer {
                 if (event.runtimeNoticeReason().isPresent()) {
                     throw new IllegalArgumentException("completed agent run cannot carry a runtime notice");
                 }
+                if (event.failureReason().isPresent()) {
+                    throw new IllegalArgumentException("completed agent run cannot carry a failure reason");
+                }
                 validateExpectedOutcome(state.pendingTerminalResponse().orElseThrow(), event.outcome());
             }
             case INCONCLUSIVE -> {
@@ -276,16 +280,26 @@ public final class AgentStateReducer {
                     if (event.runtimeNoticeReason().isPresent()) {
                         throw new IllegalArgumentException("accepted terminal response cannot carry a runtime notice");
                     }
+                    if (event.failureReason().isPresent()) {
+                        throw new IllegalArgumentException("accepted terminal response cannot carry a failure reason");
+                    }
                     validateExpectedOutcome(state.pendingTerminalResponse().orElseThrow(), event.outcome());
                 } else if (event.runtimeNoticeReason().isEmpty()) {
                     throw new IllegalArgumentException(
                             "inconclusive agent run requires a pending terminal response or runtime notice");
                 }
             }
-            case FAILED, CANCELLED -> {
+            case FAILED -> {
                 if (state.pendingTerminalResponse().isPresent() || event.runtimeNoticeReason().isPresent()) {
                     throw new IllegalArgumentException(
-                            "failed or cancelled agent run cannot carry terminal content or a runtime notice");
+                            "failed agent run cannot carry terminal content or a runtime notice");
+                }
+            }
+            case CANCELLED -> {
+                if (state.pendingTerminalResponse().isPresent() || event.runtimeNoticeReason().isPresent()
+                        || event.failureReason().isPresent()) {
+                    throw new IllegalArgumentException(
+                            "cancelled agent run cannot carry terminal content, a runtime notice, or a failure reason");
                 }
             }
         }
@@ -337,7 +351,7 @@ public final class AgentStateReducer {
                                Optional<PendingAnswerVerification> pendingAnswerVerification) {
         return new AgentRunState(state.runId(), status, attempt, attemptSequence, budget,
                 acceptedActionCount, rejectedActionCount,
-                state.stateRevision() + 1, finalOutcome, state.runtimeNoticeReason(), pendingTerminalResponse, pendingAnswerVerification,
+                state.stateRevision() + 1, finalOutcome, state.runtimeNoticeReason(), state.failureReason(), pendingTerminalResponse, pendingAnswerVerification,
                 state.requestIdentity());
     }
 
@@ -347,10 +361,11 @@ public final class AgentStateReducer {
                                Optional<PendingTerminalResponse> pendingTerminalResponse,
                                Optional<RunOutcome> finalOutcome,
                                Optional<PendingAnswerVerification> pendingAnswerVerification,
-                               Optional<com.java.system.agent.runtime.domain.run.RuntimeNoticeReason> runtimeNoticeReason) {
+                               Optional<com.java.system.agent.runtime.domain.run.RuntimeNoticeReason> runtimeNoticeReason,
+                               Optional<RunFailureReason> failureReason) {
         return new AgentRunState(state.runId(), status, attempt, attemptSequence, budget,
                 acceptedActionCount, rejectedActionCount,
-                state.stateRevision() + 1, finalOutcome, runtimeNoticeReason, pendingTerminalResponse,
+                state.stateRevision() + 1, finalOutcome, runtimeNoticeReason, failureReason, pendingTerminalResponse,
                 pendingAnswerVerification, state.requestIdentity());
     }
 
