@@ -399,8 +399,7 @@ class SpringAiAgentActionAdapterTest {
                 Set.of(CandidateKind.REPOSITORY), 1, 2);
         CapabilityExecutor<ToolInput> executor = (context, input) ->
                 new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
-        ObjectMapper objectMapper = new ObjectMapper();
-        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(objectMapper);
+        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory();
         PlanningToolRegistry registry = new PlanningToolRegistry(List.of(PlanningToolRegistry.registration(
                 policy, ToolInput.class, ToolInput.class, mapper, executor, schemaFactory),
                 PlanningToolRegistry.registration(unissuedPolicy, ToolInput.class, ToolInput.class, mapper, executor,
@@ -409,8 +408,8 @@ class SpringAiAgentActionAdapterTest {
                         answerMapper, schemaFactory),
                 new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
                         new RequestClarificationPlanningMapper(), schemaFactory)), new StrictPlanningToolDecoder(
-                objectMapper, Validation.buildDefaultValidatorFactory().getValidator()),
-                new CanonicalCapabilityPayloadCodec(objectMapper), schemaFactory);
+                Validation.buildDefaultValidatorFactory().getValidator()),
+                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()), schemaFactory);
         return registry;
     }
 

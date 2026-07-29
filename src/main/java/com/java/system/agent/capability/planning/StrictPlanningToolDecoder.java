@@ -1,11 +1,7 @@
 package com.java.system.agent.capability.planning;
 
-import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 
@@ -23,8 +19,8 @@ public final class StrictPlanningToolDecoder {
     private final ObjectMapper mapper;
     private final Validator validator;
 
-    public StrictPlanningToolDecoder(ObjectMapper mapper, Validator validator) {
-        this.mapper = strictMapper(Objects.requireNonNull(mapper, "planning mapper must not be null"));
+    public StrictPlanningToolDecoder(Validator validator) {
+        this.mapper = PlanningProtocolObjectMapper.create();
         this.validator = Objects.requireNonNull(validator, "planning validator must not be null");
     }
 
@@ -56,16 +52,5 @@ public final class StrictPlanningToolDecoder {
             throw new PlanningToolInputException();
         }
         input.forEach(StrictPlanningToolDecoder::rejectExplicitNulls);
-    }
-
-    private static ObjectMapper strictMapper(ObjectMapper source) {
-        return JsonMapper.builder(source.getFactory().copy())
-                .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
-                .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-                .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
-                .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
-                .build();
     }
 }

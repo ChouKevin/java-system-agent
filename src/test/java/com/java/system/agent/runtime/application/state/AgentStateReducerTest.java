@@ -41,11 +41,11 @@ class AgentStateReducerTest {
 
         AgentRunState reduced = reducer.reduce(state, new AgentEvent.RunConcluded(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), RunOutcome.INCONCLUSIVE,
-                Optional.of(RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED))).candidateState();
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED))).candidateState();
 
         assertThat(reduced.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(reduced.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
-        assertThat(reduced.runtimeNoticeReason()).contains(RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED);
+        assertThat(reduced.runtimeNoticeReason()).contains(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED);
     }
 
     @Test
@@ -54,7 +54,7 @@ class AgentStateReducerTest {
 
         assertThatThrownBy(() -> reducer.reduce(state, new AgentEvent.RunConcluded(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), RunOutcome.FAILED,
-                Optional.of(RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED))))
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("runtime notice");
     }

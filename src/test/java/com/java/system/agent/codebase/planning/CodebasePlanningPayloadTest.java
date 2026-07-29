@@ -1,8 +1,8 @@
 package com.java.system.agent.codebase.planning;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
+import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,7 +14,8 @@ class CodebasePlanningPayloadTest {
 
     @Test
     void decodesMissingOptionalEntryPointTypeFromCanonicalPayload() {
-        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(new ObjectMapper());
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
         CapabilityInputPayload payload = codec.encode(new ListEntryPointsExecutionInput(null));
 
         ListEntryPointsExecutionInput decoded = codec.decode(payload, ListEntryPointsExecutionInput.class);

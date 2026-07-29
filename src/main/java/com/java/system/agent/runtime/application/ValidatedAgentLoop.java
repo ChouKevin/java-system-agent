@@ -73,6 +73,7 @@ import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableExcep
 import com.java.system.agent.runtime.port.out.AnswerVerificationContractException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.runtime.port.out.CapabilityCatalogPort;
 import com.java.system.agent.runtime.port.out.SessionPort;
 import com.java.system.agent.runtime.port.out.RepositoryCatalogPort;
@@ -258,8 +259,9 @@ public final class ValidatedAgentLoop {
             if (cancellationPort.isCancellationRequested(request.runId())) {
                 return conclude(state, request, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty());
             }
-            if (normalBudgetExhausted(state.budget())) {
-                return concludeRuntimeNotice(state, request, RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED);
+            Optional<RuntimeNoticeReason> exhaustedBudgetReason = exhaustedBudgetReason(state.budget());
+            if (exhaustedBudgetReason.isPresent()) {
+                return concludeRuntimeNotice(state, request, exhaustedBudgetReason.orElseThrow());
             }
             AgentActionProposal proposal;
             try {
@@ -269,7 +271,7 @@ public final class ValidatedAgentLoop {
             } catch (AgentActionContractException exception) {
                 concludeIntegrationFailure(state, request, exception);
                 throw new AnswerExecutionContractException(
-                        com.java.system.agent.runtime.port.in.AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
+                        AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
                         "planning tool contract failed", exception);
             } catch (ExternalExecutionDeferredException exception) {
                 throw deferredExecution(exception);
@@ -580,7 +582,9 @@ public final class ValidatedAgentLoop {
             case INCONCLUSIVE -> switch (reason.orElseThrow(
                     () -> new IllegalStateException("inconclusive runtime notice requires a reason"))) {
                 case INSUFFICIENT_VERIFIABLE_INFORMATION -> INCONCLUSIVE_RESPONSE;
-                case PLANNING_BUDGET_EXHAUSTED -> PLANNING_BUDGET_EXHAUSTED_RESPONSE;
+                case AGENT_STEP_BUDGET_EXHAUSTED,
+                        QUERY_EXECUTION_BUDGET_EXHAUSTED,
+                        ACTION_REJECTION_BUDGET_EXHAUSTED -> PLANNING_BUDGET_EXHAUSTED_RESPONSE;
             };
             case FAILED -> FAILED_RESPONSE;
             case CANCELLED -> CANCELLED_RESPONSE;
@@ -706,7 +710,10 @@ public final class ValidatedAgentLoop {
             capabilityExecutionResultCategory = capabilityExecutionResultCategory(result);
         } catch (CapabilityExecutionContractException exception) {
             capabilityExecutionResultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
-            return integrationContractFailure(request, state, attemptSequence, exception);
+            concludeIntegrationFailure(state, request, exception);
+            throw new AnswerExecutionContractException(
+                    AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
+                    "planning tool contract failed", exception);
         } finally {
             logLifecycleOperation(
                     state,
@@ -1453,10 +1460,17 @@ public final class ValidatedAgentLoop {
         return "answer verifier rejected the proposed document";
     }
 
-    private boolean normalBudgetExhausted(AttemptBudget budget) {
-        return !budget.hasAgentStepRemaining()
-                || !budget.hasQueryExecutionRemaining()
-                || !budget.hasActionRejectionRemaining();
+    private Optional<RuntimeNoticeReason> exhaustedBudgetReason(AttemptBudget budget) {
+        if (!budget.hasAgentStepRemaining()) {
+            return Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED);
+        }
+        if (!budget.hasQueryExecutionRemaining()) {
+            return Optional.of(RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED);
+        }
+        if (!budget.hasActionRejectionRemaining()) {
+            return Optional.of(RuntimeNoticeReason.ACTION_REJECTION_BUDGET_EXHAUSTED);
+        }
+        return Optional.empty();
     }
 
     private static String capabilityExecutionResultCategory(CapabilityExecutionResult result) {

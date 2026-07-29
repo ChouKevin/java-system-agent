@@ -31,8 +31,8 @@ public final class PlanningToolSchemaFactory {
 
     private final ObjectMapper mapper;
 
-    public PlanningToolSchemaFactory(ObjectMapper mapper) {
-        this.mapper = Objects.requireNonNull(mapper, "planning schema mapper must not be null");
+    public PlanningToolSchemaFactory() {
+        this.mapper = PlanningProtocolObjectMapper.create();
     }
 
     public String schemaFor(Class<?> inputType) {
@@ -253,10 +253,21 @@ public final class PlanningToolSchemaFactory {
     }
 
     private static void closeObjects(JsonNode node) {
-        if (node.isObject()) {
-            ((ObjectNode) node).put("additionalProperties", false);
+        if (!node.isObject()) {
+            node.forEach(PlanningToolSchemaFactory::closeObjects);
+            return;
         }
-        node.forEach(PlanningToolSchemaFactory::closeObjects);
+        ObjectNode object = (ObjectNode) node;
+        if (object.path("type").isTextual() && "object".equals(object.path("type").asText())) {
+            object.put("additionalProperties", false);
+        }
+        object.fields().forEachRemaining(entry -> {
+            if (!"properties".equals(entry.getKey()) && !"$defs".equals(entry.getKey())) {
+                closeObjects(entry.getValue());
+            } else if (entry.getValue().isObject()) {
+                entry.getValue().fields().forEachRemaining(property -> closeObjects(property.getValue()));
+            }
+        });
     }
 
     private static ArrayNode required(ObjectNode root) {

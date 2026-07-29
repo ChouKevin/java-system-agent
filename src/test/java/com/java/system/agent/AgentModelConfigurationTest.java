@@ -120,9 +120,9 @@ class AgentModelConfigurationTest {
     }
 
     private static PlanningToolRegistry planningToolRegistry() {
-        ObjectMapper mapper = new ObjectMapper();
-        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(mapper);
+        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory();
         return new PlanningToolRegistry(List.of(), new StrictPlanningToolDecoder(
-                mapper, Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(mapper), schemaFactory);
+                Validation.buildDefaultValidatorFactory().getValidator()),
+                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()), schemaFactory);
     }
 }

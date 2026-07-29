@@ -1,7 +1,6 @@
 package com.java.system.agent.capability;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
@@ -67,8 +66,7 @@ class PlanningToolRegistryTest {
     }
 
     private static PlanningToolRegistry registry() {
-        ObjectMapper mapper = new ObjectMapper();
-        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(mapper);
+        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory();
         CapabilityPolicy policy = new CapabilityPolicy("query_tool", "v1", Set.of(CandidateKind.REPOSITORY), 0, 1);
         QueryPlanningMapper<TestInput, TestInput> queryMapper = input ->
                 new QueryPlanningSelection<>(List.of(), input.questionToResolve(), input.rationale(), input);
@@ -80,8 +78,8 @@ class PlanningToolRegistryTest {
                         new SubmitAnswerPlanningMapper(), schemaFactory),
                 new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
                         new RequestClarificationPlanningMapper(), schemaFactory)),
-                new StrictPlanningToolDecoder(mapper, Validation.buildDefaultValidatorFactory().getValidator()),
-                new CanonicalCapabilityPayloadCodec(mapper), schemaFactory);
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()),
+                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()), schemaFactory);
     }
 
     private static AgentPromptContext context() {

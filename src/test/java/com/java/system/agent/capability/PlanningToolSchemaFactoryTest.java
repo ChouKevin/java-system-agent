@@ -28,7 +28,7 @@ class PlanningToolSchemaFactoryTest {
     @Test
     void generates_a_closed_schema_from_the_planning_input_type() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        String schema = new PlanningToolSchemaFactory(mapper).schemaFor(ListEntryPointsPlanningInput.class);
+        String schema = new PlanningToolSchemaFactory().schemaFor(ListEntryPointsPlanningInput.class);
         JsonNode root = mapper.readTree(schema);
 
         assertThat(root.path("additionalProperties").asBoolean()).isFalse();
@@ -36,12 +36,16 @@ class PlanningToolSchemaFactoryTest {
                 .contains(EntryPointType.API.name());
         assertThat(root.path("required")).extracting(JsonNode::asText)
                 .contains("candidateHandles", "questionToResolve", "rationale");
+        assertThat(root.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("candidateHandles", "questionToResolve", "rationale", "type");
+        assertThat(root.at("/properties/additionalProperties").isMissingNode()).isTrue();
+        assertThat(root.at("/$defs/additionalProperties").isMissingNode()).isTrue();
     }
 
     @Test
     void generates_required_nonblank_candidate_handles_for_every_registered_input_type() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        PlanningToolSchemaFactory factory = new PlanningToolSchemaFactory(mapper);
+        PlanningToolSchemaFactory factory = new PlanningToolSchemaFactory();
 
         for (Class<?> inputType : registeredInputTypes()) {
             JsonNode root = mapper.readTree(factory.schemaFor(inputType));
@@ -55,7 +59,7 @@ class PlanningToolSchemaFactoryTest {
     @Test
     void generates_closed_nested_answer_statement_constraints_from_the_record_contract() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        JsonNode schema = mapper.readTree(new PlanningToolSchemaFactory(mapper).schemaFor(SubmitAnswerPlanningInput.class));
+        JsonNode schema = mapper.readTree(new PlanningToolSchemaFactory().schemaFor(SubmitAnswerPlanningInput.class));
         JsonNode statement = schema.path("properties").path("statements").path("items");
 
         assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
@@ -68,12 +72,15 @@ class PlanningToolSchemaFactoryTest {
                 .isEqualTo(1);
         assertThat(statement.path("properties").path("observationIds").path("items").path("minLength").asInt())
                 .isEqualTo(1);
+        assertThat(statement.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("statementId", "type", "text", "claimId", "citationHandles", "observationIds");
+        assertThat(statement.at("/properties/additionalProperties").isMissingNode()).isTrue();
     }
 
     @Test
     void rejects_every_registered_schema_that_differs_from_the_canonical_input_contract() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        PlanningToolSchemaFactory factory = new PlanningToolSchemaFactory(mapper);
+        PlanningToolSchemaFactory factory = new PlanningToolSchemaFactory();
 
         for (TamperedSchema tampered : tamperedSchemas(factory, mapper)) {
             assertThatIllegalArgumentException()
@@ -84,7 +91,7 @@ class PlanningToolSchemaFactoryTest {
     @Test
     void accepts_the_schema_it_generates_for_every_registered_input_type() {
         ObjectMapper mapper = new ObjectMapper();
-        PlanningToolSchemaFactory factory = new PlanningToolSchemaFactory(mapper);
+        PlanningToolSchemaFactory factory = new PlanningToolSchemaFactory();
 
         for (Class<?> inputType : registeredInputTypes()) {
             assertThatCode(() -> factory.verifyRegisteredSchema(inputType, factory.schemaFor(inputType)))

@@ -1,7 +1,12 @@
 package com.java.system.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.codebase.semantic.JavaSemanticServiceHttpAdapter;
 import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
@@ -39,7 +44,7 @@ class AgentCapabilityConfigurationTest {
     @Test
     void advertisesRequiredArgumentsFromActualLookupAndSuggestToolDefinitions() throws Exception {
         PlanningToolRegistry registry = new AgentCapabilityConfiguration().planningToolRegistry(
-                mock(JavaSemanticServiceHttpAdapter.class), new ObjectMapper(),
+                mock(JavaSemanticServiceHttpAdapter.class),
                 Validation.buildDefaultValidatorFactory().getValidator());
         Map<String, JsonNode> schemas = schemasByToolName(registry);
 
@@ -118,6 +123,35 @@ class AgentCapabilityConfigurationTest {
                 .containsExactly("candidate-2", "candidate-1");
     }
 
+    @Test
+    void isolates_planning_schema_and_decoder_from_a_customized_host_object_mapper() throws Exception {
+        ObjectMapper hostMapper = new ObjectMapper()
+                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+                .registerModule(new SimpleModule().addDeserializer(String.class,
+                        new JsonDeserializer<>() {
+                            @Override
+                            public String deserialize(JsonParser parser, DeserializationContext context) {
+                                return "host-customized";
+                            }
+                        }));
+        PlanningToolRegistry registry = registry();
+        CapabilityPolicy policy = registry.availableCapabilities().stream()
+                .filter(value -> value.name().equals("codebase_lookup_api_route"))
+                .findFirst()
+                .orElseThrow();
+
+        JsonNode schema = schemasByToolName(registry, List.of(policy)).get(policy.name());
+        AgentActionProposal proposal = registry.interpretToolCall(new AssistantMessage.ToolCall("call-1", "function",
+                policy.name(), """
+                        {"candidateHandles":["candidate-1"],"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
+                        """), contextFor(List.of(policy)));
+
+        assertThat(hostMapper.getPropertyNamingStrategy()).isEqualTo(PropertyNamingStrategies.SNAKE_CASE);
+        assertThat(schema.path("properties").has("apiPath")).isTrue();
+        assertThat(schema.path("properties").has("api_path")).isFalse();
+        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
+    }
+
     private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry) throws Exception {
         return schemasByToolName(registry, registry.availableCapabilities());
     }
@@ -146,7 +180,7 @@ class AgentCapabilityConfigurationTest {
 
     private static PlanningToolRegistry registry() {
         return new AgentCapabilityConfiguration().planningToolRegistry(
-                mock(JavaSemanticServiceHttpAdapter.class), new ObjectMapper(),
+                mock(JavaSemanticServiceHttpAdapter.class),
                 Validation.buildDefaultValidatorFactory().getValidator());
     }
 

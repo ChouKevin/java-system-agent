@@ -34,6 +34,8 @@ import com.java.system.agent.runtime.port.out.AgentTransitionPort;
 import com.java.system.agent.runtime.port.out.RepositoryDescriptor;
 import com.java.system.agent.runtime.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -41,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,13 +52,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ValidatedAgentLoopTest {
 
-    @Test
-    void returns_inconclusive_runtime_notice_before_requesting_another_planning_action() {
+    @ParameterizedTest
+    @MethodSource("exhaustedBudgets")
+    void retains_the_exact_exhausted_budget_category_while_returning_the_same_sanitized_notice(
+            AttemptBudget budget,
+            RuntimeNoticeReason expectedReason) {
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(transitions);
         AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
                 new ParticipantRef("test", "participant"), "How does this flow work?",
-                new AttemptBudget(1, 1, 1, 0, 1, 0, 1, 0));
+                budget);
 
         AgentLoopResult result = loop.execute(request);
 
@@ -64,7 +70,17 @@ class ValidatedAgentLoopTest {
         assertThat(result.responseText()).isEqualTo(ValidatedAgentLoop.PLANNING_BUDGET_EXHAUSTED_RESPONSE);
         assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance).singleElement()
                 .satisfies(event -> assertThat(((AgentEvent.RunConcluded) event).runtimeNoticeReason())
-                        .contains(RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED));
+                        .contains(expectedReason));
+    }
+
+    private static Stream<org.junit.jupiter.params.provider.Arguments> exhaustedBudgets() {
+        return Stream.of(
+                org.junit.jupiter.params.provider.Arguments.of(
+                        new AttemptBudget(1, 1, 1, 0, 1, 0, 1, 0), RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED),
+                org.junit.jupiter.params.provider.Arguments.of(
+                        new AttemptBudget(1, 0, 1, 1, 1, 0, 1, 0), RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED),
+                org.junit.jupiter.params.provider.Arguments.of(
+                        new AttemptBudget(1, 0, 1, 0, 1, 1, 1, 0), RuntimeNoticeReason.ACTION_REJECTION_BUDGET_EXHAUSTED));
     }
 
     private static ValidatedAgentLoop loop(RecordingTransitionPort transitions) {

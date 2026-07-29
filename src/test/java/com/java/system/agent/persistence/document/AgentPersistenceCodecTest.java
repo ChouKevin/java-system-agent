@@ -42,7 +42,7 @@ class AgentPersistenceCodecTest {
     @Test
     void writes_runtime_notice_reason_without_removed_final_response_budget_fields() {
         AgentEvent event = new AgentEvent.RunConcluded(runId(), attemptId(), 0, RunOutcome.INCONCLUSIVE,
-                Optional.of(RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED));
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED));
 
         VersionedJsonDocument eventDocument = eventCodec.encode(event);
         ObjectNode state = (ObjectNode) stateCodec.encode(AgentRunState.initial(runId(), attemptId(), budget(), identity()))
@@ -51,7 +51,7 @@ class AgentPersistenceCodecTest {
 
         assertThat(eventDocument.schemaVersion()).isEqualTo(5);
         assertThat(eventDocument.payload().path("runtime_notice_reason").asText())
-                .isEqualTo("PLANNING_BUDGET_EXHAUSTED");
+                .isEqualTo("AGENT_STEP_BUDGET_EXHAUSTED");
         assertThat(eventCodec.decode(eventCodec.eventType(event), eventDocument)).isEqualTo(event);
         assertThat(serializedBudget.fieldNames()).toIterable().containsExactlyInAnyOrder(
                 "max_agent_steps", "used_agent_steps", "max_query_executions", "used_query_executions",

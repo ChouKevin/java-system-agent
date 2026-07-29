@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
 import com.java.system.agent.capability.planning.PlanningToolInputException;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import jakarta.validation.Validation;
@@ -15,6 +17,7 @@ import jakarta.validation.constraints.NotNull;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -24,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class StrictPlanningToolDecoderTest {
 
-    private final StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(new ObjectMapper(),
+    private final StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(
             Validation.buildDefaultValidatorFactory().getValidator());
 
     @Test
@@ -78,6 +81,19 @@ class StrictPlanningToolDecoderTest {
         assertThatThrownBy(() -> decoder.decode(
                 "{\"candidateHandles\":[\" \"],\"required\":\"value\",\"limit\":2}", Input.class))
                 .isInstanceOf(PlanningToolInputException.class);
+    }
+
+    @Test
+    void planning_protocol_components_do_not_accept_a_host_object_mapper() {
+        assertThat(Arrays.stream(StrictPlanningToolDecoder.class.getConstructors())
+                .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes())))
+                .doesNotContain(ObjectMapper.class);
+        assertThat(Arrays.stream(PlanningToolSchemaFactory.class.getConstructors())
+                .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes())))
+                .doesNotContain(ObjectMapper.class);
+        assertThat(Arrays.stream(CanonicalCapabilityPayloadCodec.class.getConstructors())
+                .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes())))
+                .doesNotContain(ObjectMapper.class);
     }
 
     private record Input(

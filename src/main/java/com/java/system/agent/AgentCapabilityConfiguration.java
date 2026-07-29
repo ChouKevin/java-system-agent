@@ -38,7 +38,6 @@ import com.java.system.agent.runtime.port.out.CapabilityExecutionPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Validator;
 
 import java.util.List;
@@ -52,14 +51,14 @@ import java.util.Set;
 public final class AgentCapabilityConfiguration {
 
     @Bean
-    PlanningToolRegistry planningToolRegistry(JavaSemanticServiceHttpAdapter adapter, ObjectMapper objectMapper, Validator validator) {
+    PlanningToolRegistry planningToolRegistry(JavaSemanticServiceHttpAdapter adapter, Validator validator) {
         CapabilityPolicy listEntryPoints = policy("codebase_list_entry_points", Set.of(CandidateKind.REPOSITORY), 1, 1);
         CapabilityPolicy lookupApiRoute = policy("codebase_lookup_api_route", Set.of(CandidateKind.REPOSITORY), 0, 1);
         CapabilityPolicy suggestApiRoute = policy("codebase_suggest_api_route", Set.of(CandidateKind.REPOSITORY), 0, 1);
         CapabilityPolicy outgoingCallGraph = policy("codebase_outgoing_call_graph", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
         CapabilityPolicy incomingCallGraph = policy("codebase_incoming_call_graph", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
-        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(objectMapper);
-        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(objectMapper);
+        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory();
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(validator);
         return new PlanningToolRegistry(List.of(
                 PlanningToolRegistry.registration(listEntryPoints, ListEntryPointsPlanningInput.class, ListEntryPointsExecutionInput.class, new ListEntryPointsPlanningMapper(), new ListEntryPointsExecutor(adapter), schemaFactory),
                 PlanningToolRegistry.registration(lookupApiRoute, LookupApiRoutePlanningInput.class, LookupApiRouteExecutionInput.class, new LookupApiRoutePlanningMapper(), new LookupApiRouteExecutor(adapter), schemaFactory),
@@ -70,7 +69,7 @@ public final class AgentCapabilityConfiguration {
                         new SubmitAnswerPlanningMapper(), schemaFactory),
                 new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
                         new RequestClarificationPlanningMapper(), schemaFactory)),
-                new StrictPlanningToolDecoder(objectMapper, validator), payloadCodec, schemaFactory);
+                new StrictPlanningToolDecoder(validator), payloadCodec, schemaFactory);
     }
 
     @Bean

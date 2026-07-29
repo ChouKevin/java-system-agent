@@ -5,5 +5,7 @@ package com.java.system.agent.runtime.domain.run;
  */
 public enum RuntimeNoticeReason {
     INSUFFICIENT_VERIFIABLE_INFORMATION,
-    PLANNING_BUDGET_EXHAUSTED
+    AGENT_STEP_BUDGET_EXHAUSTED,
+    QUERY_EXECUTION_BUDGET_EXHAUSTED,
+    ACTION_REJECTION_BUDGET_EXHAUSTED
 }

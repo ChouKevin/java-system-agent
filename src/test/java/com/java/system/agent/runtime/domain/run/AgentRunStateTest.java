@@ -26,12 +26,12 @@ class AgentRunStateTest {
         RunAttempt attempt = RunAttempt.empty(new AnalysisAttemptId("attempt-1"));
         AgentRunState state = new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.CONCLUDED, attempt,
                 1, budget(), 0, 0, 1, Optional.of(RunOutcome.INCONCLUSIVE),
-                Optional.of(RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED), Optional.empty(), Optional.empty(), identity());
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty(), Optional.empty(), identity());
 
-        assertThat(state.runtimeNoticeReason()).contains(RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED);
+        assertThat(state.runtimeNoticeReason()).contains(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED);
         assertThatIllegalArgumentException().isThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"),
                 AgentRunStatus.CONCLUDED, attempt, 1, budget(), 0, 0, 1, Optional.of(RunOutcome.FAILED),
-                Optional.of(RuntimeNoticeReason.PLANNING_BUDGET_EXHAUSTED), Optional.empty(), Optional.empty(), identity()));
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty(), Optional.empty(), identity()));
     }
 
     private static AttemptBudget budget() {
