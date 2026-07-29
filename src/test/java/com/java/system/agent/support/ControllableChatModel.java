@@ -58,6 +58,14 @@ public final class ControllableChatModel implements ChatModel {
         return List.copyOf(prompts);
     }
 
+    /**
+     * 清除測試案例之間保留的 scripted response 與 prompt
+     */
+    public synchronized void reset() {
+        responses.clear();
+        prompts.clear();
+    }
+
     @Override
     public synchronized ChatResponse call(Prompt prompt) {
         Objects.requireNonNull(prompt, "chat prompt must not be null");

@@ -16,7 +16,7 @@ public record AnswerStatementPlanningInput(
         @JsonProperty(required = true) @NotBlank String statementId,
         @JsonProperty(required = true) @NotNull StatementType type,
         @JsonProperty(required = true) @NotBlank String text,
-        @JsonProperty(required = false) @JsonSetter(nulls = Nulls.FAIL) String claimId,
+        @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String claimId,
         @JsonProperty(required = true) @NotNull Set<@NotBlank String> citationHandles,
         @JsonProperty(required = true) @NotNull Set<@NotBlank String> observationIds) {
 }

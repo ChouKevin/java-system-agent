@@ -161,35 +161,35 @@ class ApplicationModularityTests {
     }
 
     @Test
-    @DisplayName("model module should declare only runtime and capability tool-registry dependencies")
+    @DisplayName("model module should declare only runtime and capability planning dependencies")
     void modelShouldDeclareOnlyIntendedModuleDependencies() {
-        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: tool-registry"),
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: planning"),
                 allowedDependenciesOf(requireModel()),
-                "Model module must depend only on runtime contracts and capability tool registry");
+                "Model module must depend only on runtime contracts and capability planning registry");
         assertEquals(Set.of("runtime", "capability"), directDependenciesOf(requireModel()),
                 "Model module must directly depend only on runtime and capability");
     }
 
     @Test
-    @DisplayName("codebase module should declare only runtime and capability executor dependencies")
+    @DisplayName("codebase module should declare only runtime, capability executor, and planning dependencies")
     void codebaseShouldDeclareOnlyIntendedModuleDependencies() {
-        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: executor-spi"),
+        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: executor-spi", "capability :: planning"),
                 allowedDependenciesOf(requireCodebase()),
-                "Codebase module must depend only on runtime contracts and capability executor SPI");
+                "Codebase module must depend only on runtime contracts, capability executor SPI, and planning contract");
         assertEquals(Set.of("runtime", "capability"), directDependenciesOf(requireCodebase()),
                 "Codebase module must directly depend only on runtime and capability");
     }
 
     @Test
-    @DisplayName("capability module should expose executor SPI and tool registry")
+    @DisplayName("capability module should expose executor SPI and unified planning registry")
     void capabilityShouldExposeExecutorSpi() {
         Set<String> exposed = requireCapability().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
                 .map(NamedInterface::getName)
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("executor-spi", "tool-registry"), exposed,
-                "Capability module must expose exactly its executor SPI and tool registry");
+        assertEquals(Set.of("executor-spi", "planning"), exposed,
+                "Capability module must expose exactly its executor SPI and unified planning registry");
     }
 
     @Test

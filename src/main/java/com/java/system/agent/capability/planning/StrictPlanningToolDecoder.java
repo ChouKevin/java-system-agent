@@ -1,7 +1,6 @@
 package com.java.system.agent.capability.planning;
 
 import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
@@ -13,7 +12,6 @@ import jakarta.validation.Validator;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Set;
-import java.lang.reflect.RecordComponent;
 
 /**
  * 規劃工具唯一的嚴格 JSON 解碼邊界，先限制原始 UTF-8 再反序列化與 Bean Validation
@@ -39,7 +37,7 @@ public final class StrictPlanningToolDecoder {
             throw new PlanningToolInputException();
         }
         try {
-            rejectExplicitOptionalNulls(mapper.readTree(rawInput), inputType);
+            rejectExplicitNulls(mapper.readTree(rawInput));
             I input = mapper.readValue(rawInput, inputType);
             Set<ConstraintViolation<I>> violations = validator.validate(input);
             if (!violations.isEmpty()) {
@@ -53,16 +51,11 @@ public final class StrictPlanningToolDecoder {
         }
     }
 
-    private static void rejectExplicitOptionalNulls(JsonNode input, Class<?> inputType) {
-        if (!input.isObject() || !inputType.isRecord()) {
-            return;
+    private static void rejectExplicitNulls(JsonNode input) {
+        if (input.isNull()) {
+            throw new PlanningToolInputException();
         }
-        for (RecordComponent component : inputType.getRecordComponents()) {
-            JsonSetter setter = component.getAccessor().getAnnotation(JsonSetter.class);
-            if (Objects.nonNull(setter) && input.has(component.getName()) && input.path(component.getName()).isNull()) {
-                throw new PlanningToolInputException();
-            }
-        }
+        input.forEach(StrictPlanningToolDecoder::rejectExplicitNulls);
     }
 
     private static ObjectMapper strictMapper(ObjectMapper source) {

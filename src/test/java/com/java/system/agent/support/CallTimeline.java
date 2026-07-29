@@ -14,6 +14,7 @@ public final class CallTimeline {
     public static final String HTTP_REPOSITORY_REVISION = "HTTP repository revision";
     public static final String HTTP_LIST_ENTRY_POINTS = "HTTP list-entry-points capability";
     public static final String LLM_ANSWER_ACTION = "LLM answer action";
+    public static final String LLM_CLARIFY_ACTION = "LLM clarify action";
     public static final String LLM_VERIFIER = "LLM verifier";
 
     private final List<String> calls = new ArrayList<>();

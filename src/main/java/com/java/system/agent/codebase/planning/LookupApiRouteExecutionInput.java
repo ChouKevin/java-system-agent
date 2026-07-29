@@ -10,5 +10,5 @@ import jakarta.validation.constraints.NotBlank;
  */
 public record LookupApiRouteExecutionInput(
         @NotBlank String apiPath,
-        @JsonProperty(required = false) @JsonSetter(nulls = Nulls.FAIL) String httpMethod) {
+        @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String httpMethod) {
 }

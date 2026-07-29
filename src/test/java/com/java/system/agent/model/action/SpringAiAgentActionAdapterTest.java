@@ -284,23 +284,8 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
-    void rejectsTextualAnswerEnvelopeWithoutAnotherModelCall() {
-        CountingChatModel model = new CountingChatModel("""
-                {"type":"ANSWER","query":null,"answer":{"statements":[{"statementId":"statement-1","type":"FACT","text":"It is called by checkout","claimId":"claim-1","citationHandles":["evidence-1"],"observationIds":["observation-1"]}]},"clarify":null}
-                """);
-        SpringAiAgentActionAdapter adapter = adapter(model);
-
-        AgentActionProposal proposal = adapter.nextAction(answerContext());
-
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
-        assertThat(model.calls()).isEqualTo(1);
-    }
-
-    @Test
-    void rejectsTextualClarifyEnvelopeWithoutAnotherModelCall() {
-        CountingChatModel model = new CountingChatModel("""
-                {"type":"CLARIFY","query":null,"answer":null,"clarify":{"question":"Which repository?","candidateHandles":["candidate-2","candidate-1"],"reason":"The route is ambiguous"}}
-                """);
+    void rejectsTextOnlyResponseWithoutAnotherModelCall() {
+        CountingChatModel model = new CountingChatModel("I need more context before selecting a planning tool");
         SpringAiAgentActionAdapter adapter = adapter(model);
 
         AgentActionProposal proposal = adapter.nextAction(context());

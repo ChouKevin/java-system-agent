@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.capability.planning.PlanningToolInputException;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import jakarta.validation.Validation;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -32,6 +33,19 @@ class StrictPlanningToolDecoderTest {
 
         assertThat(input.optional()).isNull();
         assertThatThrownBy(() -> decoder.decode("{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"optional\":null,\"limit\":2}", Input.class))
+                .isInstanceOf(PlanningToolInputException.class);
+    }
+
+    @Test
+    void accepts_missing_nested_optional_field_but_rejects_explicit_null() {
+        NestedInput input = decoder.decode("""
+                {"nested":{"required":"value"}}
+                """, NestedInput.class);
+
+        assertThat(input.nested().optional()).isNull();
+        assertThatThrownBy(() -> decoder.decode("""
+                {"nested":{"required":"value","optional":null}}
+                """, NestedInput.class))
                 .isInstanceOf(PlanningToolInputException.class);
     }
 
@@ -71,5 +85,13 @@ class StrictPlanningToolDecoderTest {
             @JsonProperty(required = true) @NotBlank String required,
             @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String optional,
             @JsonProperty(required = true) @Min(1) @Max(3) int limit) {
+    }
+
+    private record NestedInput(@JsonProperty(required = true) @NotNull @Valid Nested nested) {
+    }
+
+    private record Nested(
+            @JsonProperty(required = true) @NotBlank String required,
+            @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String optional) {
     }
 }

@@ -12,6 +12,6 @@ import jakarta.validation.constraints.NotBlank;
  */
 public record SuggestApiRouteExecutionInput(
         @NotBlank String apiPath,
-        @JsonProperty(required = false) @JsonSetter(nulls = Nulls.FAIL) String httpMethod,
+        @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String httpMethod,
         @Min(1) @Max(20) int limit) {
 }
