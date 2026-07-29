@@ -3,7 +3,7 @@ package com.java.system.agent.runtime.port.out;
 import com.java.system.agent.runtime.domain.answer.AnswerDocument;
 import com.java.system.agent.runtime.domain.conversation.SessionHistory;
 import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
-import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationId;
 
@@ -46,34 +46,32 @@ public record AnswerVerificationContext(String question, SessionHistory sessionH
     private static void validate(AnswerDocument document, List<IssuedEvidence> availableEvidence,
                                  List<AgentObservation> availableObservations, List<IssuedEvidence> citedEvidence,
                                  List<AgentObservation> referencedObservations) {
-        Set<EvidenceHandle> availableEvidenceHandles = evidenceHandles(availableEvidence, "available evidence");
+        Set<String> availableEvidenceValues = evidenceValues(availableEvidence, "available evidence");
         Set<ObservationId> availableObservationIds = observationIds(availableObservations, "available observation");
-        Set<EvidenceHandle> citedEvidenceHandles = evidenceHandles(citedEvidence, "cited evidence");
+        Set<String> citedEvidenceValues = evidenceValues(citedEvidence, "cited evidence");
         Set<ObservationId> referencedObservationIds = observationIds(referencedObservations, "referenced observation");
-        Set<EvidenceHandle> expectedEvidenceHandles = new LinkedHashSet<>();
+        Set<String> expectedEvidenceValues = new LinkedHashSet<>();
         Set<ObservationId> expectedObservationIds = new LinkedHashSet<>();
         document.statements().forEach(statement -> {
-            expectedEvidenceHandles.addAll(statement.citations());
+            expectedEvidenceValues.addAll(statement.citations().stream().map(EvidenceHandleRef::value).toList());
             expectedObservationIds.addAll(statement.observationIds());
         });
-        if (!availableEvidenceHandles.containsAll(citedEvidenceHandles)
+        if (!availableEvidenceValues.containsAll(citedEvidenceValues)
                 || !availableObservationIds.containsAll(referencedObservationIds)
-                || !availableEvidence.containsAll(citedEvidence)
-                || !availableObservations.containsAll(referencedObservations)
-                || !expectedEvidenceHandles.equals(citedEvidenceHandles)
+                || !expectedEvidenceValues.equals(citedEvidenceValues)
                 || !expectedObservationIds.equals(referencedObservationIds)) {
             throw new IllegalArgumentException("verification context must contain exact available document references");
         }
     }
 
-    private static Set<EvidenceHandle> evidenceHandles(List<IssuedEvidence> evidence, String description) {
-        Set<EvidenceHandle> handles = new LinkedHashSet<>();
+    private static Set<String> evidenceValues(List<IssuedEvidence> evidence, String description) {
+        Set<String> values = new LinkedHashSet<>();
         for (IssuedEvidence value : evidence) {
-            if (!handles.add(value.handle())) {
-                throw new IllegalArgumentException(description + " handles must be unique");
+            if (!values.add(value.handle().value())) {
+                throw new IllegalArgumentException(description + " handle values must be unique");
             }
         }
-        return handles;
+        return values;
     }
 
     private static Set<ObservationId> observationIds(List<AgentObservation> observations, String description) {

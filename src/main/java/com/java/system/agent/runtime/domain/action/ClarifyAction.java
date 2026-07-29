@@ -1,14 +1,15 @@
 package com.java.system.agent.runtime.domain.action;
 
-import com.java.system.agent.runtime.domain.handle.CandidateHandle;
+import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
 
 import java.util.List;
 import java.util.Objects;
 
 /**
- * 請使用者在既有候選範圍內補充資訊的動作
+ * 模型請使用者在候選參考範圍內補充資訊的未驗證動作
+ * 問題、候選參考與理由來自模型，候選必須由 runtime 以本輪 issued 值解析
  */
-public record ClarifyAction(String question, List<CandidateHandle> candidates, String reason) implements AgentAction {
+public record ClarifyAction(String question, List<CandidateHandleRef> candidates, String reason) implements AgentAction {
     public ClarifyAction {
         Objects.requireNonNull(question, "clarify action question must not be null");
         Objects.requireNonNull(candidates, "clarify action candidates must not be null");

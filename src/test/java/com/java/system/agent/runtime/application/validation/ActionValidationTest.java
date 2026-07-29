@@ -9,22 +9,24 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
+/**
+ * 動作驗證結果完整性測試
+ */
 class ActionValidationTest {
 
     @Test
-    void should_require_an_original_action_for_accepted_results() {
-        assertThatNullPointerException().isThrownBy(() -> new ActionValidation.Accepted(null));
+    void requires_original_action_and_resolved_candidates_for_accepted_results() {
+        assertThatNullPointerException().isThrownBy(() -> new ActionValidation.Accepted(null, List.of()));
+        assertThatNullPointerException().isThrownBy(() -> new ActionValidation.Accepted(action(), null));
     }
 
     @Test
-    void should_require_a_complete_rejected_result_shape() {
+    void requires_a_complete_rejected_result_shape() {
         AgentAction action = action();
 
         assertThatNullPointerException().isThrownBy(() -> new ActionValidation.Rejected(null, "rejected", action));
         assertThatNullPointerException().isThrownBy(() -> new ActionValidation.Rejected(
                 ActionRejectionCode.UNKNOWN_ACTION, null, action));
-        assertThatNullPointerException().isThrownBy(() -> new ActionValidation.Rejected(
-                ActionRejectionCode.UNKNOWN_ACTION, "rejected", null));
         assertThatIllegalArgumentException().isThrownBy(() -> new ActionValidation.Rejected(
                 ActionRejectionCode.UNKNOWN_ACTION, " ", action));
     }

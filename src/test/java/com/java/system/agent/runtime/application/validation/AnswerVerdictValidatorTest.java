@@ -10,6 +10,7 @@ import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.answer.StatementVerdict;
 import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
 import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
@@ -101,7 +102,7 @@ class AnswerVerdictValidatorTest {
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), RevisionVector.empty());
         EvidenceHandle evidence = new EvidenceHandle("evidence-" + id, binding);
         return new AnswerStatement(new StatementId(id), StatementType.FACT, "Fact " + id,
-                Optional.of(new ClaimId("claim-" + id)), Set.of(evidence), Set.of());
+                Optional.of(new ClaimId("claim-" + id)), Set.of(new EvidenceHandleRef(evidence.value())), Set.of());
     }
 
     private static AnswerVerdict verdict(AnswerDisposition disposition, String id, StatementVerdictStatus status) {

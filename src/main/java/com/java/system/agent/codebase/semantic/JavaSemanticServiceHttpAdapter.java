@@ -3,11 +3,19 @@ package com.java.system.agent.codebase.semantic;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codebase.semantic.dto.SemanticDtos;
+import com.java.system.agent.capability.spi.CapabilityExecutionContext;
+import com.java.system.agent.codebase.planning.EntryPointType;
+import com.java.system.agent.codebase.planning.IncomingCallGraphExecutionInput;
+import com.java.system.agent.codebase.planning.ListEntryPointsExecutionInput;
+import com.java.system.agent.codebase.planning.LookupApiRouteExecutionInput;
+import com.java.system.agent.codebase.planning.OutgoingCallGraphExecutionInput;
+import com.java.system.agent.codebase.planning.SuggestApiRouteExecutionInput;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.runtime.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
+import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionFailure;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionFailureCode;
@@ -29,7 +37,6 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.net.SocketTimeoutException;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -121,20 +128,24 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         }
     }
 
-    public CapabilityExecutionResult listEntryPoints(CapabilityInvocation invocation) {
-        return observeCapabilityOperation(ENTRY_POINTS_OPERATION, () -> listEntryPointsInternal(invocation));
+    public CapabilityExecutionResult listEntryPoints(
+            CapabilityExecutionContext context,
+            ListEntryPointsExecutionInput input) {
+        return observeCapabilityOperation(ENTRY_POINTS_OPERATION, () -> listEntryPointsInternal(context, input));
     }
 
-    private CapabilityExecutionResult listEntryPointsInternal(CapabilityInvocation invocation) {
-        RepositoryCandidate repository = selectedRepository(invocation);
+    private CapabilityExecutionResult listEntryPointsInternal(
+            CapabilityExecutionContext context,
+            ListEntryPointsExecutionInput input) {
+        RepositoryCandidate repository = selectedRepository(context);
         try {
-            String type = invocation.arguments().get("type");
+            EntryPointType type = input.type();
             SemanticDtos.EntryPointsResponse response = restClient.get()
                     .uri(uriBuilder -> uriBuilder.path("/v1/repositories/{repoId}/entry-points")
-                            .queryParamIfPresent("types", optionalText(type))
+                            .queryParamIfPresent("types", Optional.ofNullable(type).map(EntryPointType::name))
                             .build(repository.repositoryId().value()))
                     .retrieve().body(SemanticDtos.EntryPointsResponse.class);
-            return resultMapper.listEntryPoints(invocation, requiredResponse(response, "entry-points"));
+            return resultMapper.listEntryPoints(resultInvocation(context), requiredResponse(response, "entry-points"));
         } catch (RestClientResponseException exception) {
             return errorMapper.capability(errorResponse(exception), ENTRY_POINTS_OPERATION);
         } catch (ResourceAccessException exception) {
@@ -146,28 +157,30 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         }
     }
 
-    public CapabilityExecutionResult lookupApiRoute(CapabilityInvocation invocation) {
-        return observeCapabilityOperation(LOOKUP_OPERATION, () -> apiRoute(invocation, LOOKUP_OPERATION, false));
+    public CapabilityExecutionResult lookupApiRoute(CapabilityExecutionContext context, LookupApiRouteExecutionInput input) {
+        return observeCapabilityOperation(LOOKUP_OPERATION, () -> lookupApiRouteInternal(context, input));
     }
 
-    public CapabilityExecutionResult suggestApiRoute(CapabilityInvocation invocation) {
-        return observeCapabilityOperation(SUGGEST_OPERATION, () -> apiRoute(invocation, SUGGEST_OPERATION, true));
+    public CapabilityExecutionResult suggestApiRoute(CapabilityExecutionContext context, SuggestApiRouteExecutionInput input) {
+        return observeCapabilityOperation(SUGGEST_OPERATION, () -> suggestApiRouteInternal(context, input));
     }
 
-    public CapabilityExecutionResult outgoingCallGraph(CapabilityInvocation invocation) {
-        return observeCapabilityOperation(OUTGOING_OPERATION, () -> outgoingCallGraphInternal(invocation));
+    public CapabilityExecutionResult outgoingCallGraph(CapabilityExecutionContext context, OutgoingCallGraphExecutionInput input) {
+        return observeCapabilityOperation(OUTGOING_OPERATION, () -> outgoingCallGraphInternal(context, input));
     }
 
-    private CapabilityExecutionResult outgoingCallGraphInternal(CapabilityInvocation invocation) {
-        SemanticTargetCandidate target = selectedTarget(invocation);
+    private CapabilityExecutionResult outgoingCallGraphInternal(
+            CapabilityExecutionContext context,
+            OutgoingCallGraphExecutionInput input) {
+        SemanticTargetCandidate target = selectedTarget(context);
         try {
             SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
-                    target.repositoryId().value(), target.analyzedRevision().value(), requestedDepth(invocation),
+                    target.repositoryId().value(), target.analyzedRevision().value(), input.depth(),
                     resultMapper.methodTarget(target.semanticTarget()));
             SemanticDtos.OutgoingCallGraphResponse response = restClient.post()
                     .uri("/v1/analyses/call-graphs/outgoing").body(request).retrieve()
                     .body(SemanticDtos.OutgoingCallGraphResponse.class);
-            return resultMapper.outgoingCallGraph(invocation, requiredResponse(response, "outgoing call graph"));
+            return resultMapper.outgoingCallGraph(resultInvocation(context), requiredResponse(response, "outgoing call graph"));
         } catch (RestClientResponseException exception) {
             return errorMapper.capability(errorResponse(exception), OUTGOING_OPERATION);
         } catch (ResourceAccessException exception) {
@@ -179,20 +192,22 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         }
     }
 
-    public CapabilityExecutionResult incomingCallGraph(CapabilityInvocation invocation) {
-        return observeCapabilityOperation(INCOMING_OPERATION, () -> incomingCallGraphInternal(invocation));
+    public CapabilityExecutionResult incomingCallGraph(CapabilityExecutionContext context, IncomingCallGraphExecutionInput input) {
+        return observeCapabilityOperation(INCOMING_OPERATION, () -> incomingCallGraphInternal(context, input));
     }
 
-    private CapabilityExecutionResult incomingCallGraphInternal(CapabilityInvocation invocation) {
-        SemanticTargetCandidate target = selectedTarget(invocation);
+    private CapabilityExecutionResult incomingCallGraphInternal(
+            CapabilityExecutionContext context,
+            IncomingCallGraphExecutionInput input) {
+        SemanticTargetCandidate target = selectedTarget(context);
         try {
             SemanticDtos.AnalyzeIncomingCallGraphRequest request = new SemanticDtos.AnalyzeIncomingCallGraphRequest(
-                    target.repositoryId().value(), target.analyzedRevision().value(), requestedDepth(invocation),
+                    target.repositoryId().value(), target.analyzedRevision().value(), input.depth(),
                     resultMapper.methodTarget(target.semanticTarget()));
             SemanticDtos.IncomingCallGraphResponse response = restClient.post()
                     .uri("/v1/analyses/call-graphs/incoming").body(request).retrieve()
                     .body(SemanticDtos.IncomingCallGraphResponse.class);
-            return resultMapper.incomingCallGraph(invocation, requiredResponse(response, "incoming call graph"));
+            return resultMapper.incomingCallGraph(resultInvocation(context), requiredResponse(response, "incoming call graph"));
         } catch (RestClientResponseException exception) {
             return errorMapper.capability(errorResponse(exception), INCOMING_OPERATION);
         } catch (ResourceAccessException exception) {
@@ -204,21 +219,33 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         }
     }
 
-    private CapabilityExecutionResult apiRoute(CapabilityInvocation invocation, String operation, boolean suggested) {
+    private CapabilityExecutionResult lookupApiRouteInternal(CapabilityExecutionContext context, LookupApiRouteExecutionInput input) {
+        return apiRoute(context, input.apiPath(), input.httpMethod(), Optional.empty(), LOOKUP_OPERATION);
+    }
+
+    private CapabilityExecutionResult suggestApiRouteInternal(CapabilityExecutionContext context, SuggestApiRouteExecutionInput input) {
+        return apiRoute(context, input.apiPath(), input.httpMethod(), Optional.of(input.limit()), SUGGEST_OPERATION);
+    }
+
+    private CapabilityExecutionResult apiRoute(
+            CapabilityExecutionContext context,
+            String apiPath,
+            String httpMethod,
+            Optional<Integer> limit,
+            String operation) {
         try {
-            Optional<RepositoryCandidate> repository = optionalRepository(invocation);
-            Map<String, String> arguments = invocation.arguments();
+            Optional<RepositoryCandidate> repository = optionalRepository(context);
             SemanticDtos.ApiRouteCandidatesResponse response;
-            if (suggested) {
+            if (limit.isPresent()) {
                 response = restClient.post().uri("/v1/api-routes/suggest")
-                        .body(new SemanticDtos.ApiRouteSuggestRequest(requiredArgument(arguments, "apiPath"),
-                                arguments.get("httpMethod"), repository.map(candidate -> candidate.repositoryId().value())
-                                        .orElse(null), Integer.valueOf(requiredArgument(arguments, "limit"))))
+                        .body(new SemanticDtos.ApiRouteSuggestRequest(apiPath,
+                                httpMethod, repository.map(candidate -> candidate.repositoryId().value())
+                                        .orElse(null), limit.orElseThrow()))
                         .retrieve().body(SemanticDtos.ApiRouteCandidatesResponse.class);
             } else {
                 response = restClient.post().uri("/v1/api-routes/lookup")
-                        .body(new SemanticDtos.ApiRouteLookupRequest(requiredArgument(arguments, "apiPath"),
-                                arguments.get("httpMethod"), repository.map(candidate -> candidate.repositoryId().value())
+                        .body(new SemanticDtos.ApiRouteLookupRequest(apiPath,
+                                httpMethod, repository.map(candidate -> candidate.repositoryId().value())
                                         .orElse(null)))
                         .retrieve().body(SemanticDtos.ApiRouteCandidatesResponse.class);
             }
@@ -319,46 +346,38 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                 && StringUtils.hasText(cause.getMessage()) && cause.getMessage().toLowerCase().contains("timeout"));
     }
 
-    private RepositoryCandidate selectedRepository(CapabilityInvocation invocation) {
-        Optional<RepositoryCandidate> selected = optionalRepository(invocation);
+    private RepositoryCandidate selectedRepository(CapabilityExecutionContext context) {
+        Optional<RepositoryCandidate> selected = optionalRepository(context);
         if (selected.isEmpty()) {
             throw contract("capability requires exactly one repository candidate");
         }
         return selected.orElseThrow();
     }
 
-    private Optional<RepositoryCandidate> optionalRepository(CapabilityInvocation invocation) {
-        Objects.requireNonNull(invocation, "capability invocation must not be null");
-        if (invocation.candidates().isEmpty()) {
+    private Optional<RepositoryCandidate> optionalRepository(CapabilityExecutionContext context) {
+        Objects.requireNonNull(context, "capability execution context must not be null");
+        if (context.candidates().isEmpty()) {
             return Optional.empty();
         }
-        if (invocation.candidates().size() != 1
-                || !(invocation.candidates().getFirst().candidate() instanceof RepositoryCandidate repository)) {
+        if (context.candidates().size() != 1
+                || !(context.candidates().getFirst().candidate() instanceof RepositoryCandidate repository)) {
             throw contract("capability repository candidates must contain at most one repository");
         }
         return Optional.of(repository);
     }
 
-    private SemanticTargetCandidate selectedTarget(CapabilityInvocation invocation) {
-        Objects.requireNonNull(invocation, "capability invocation must not be null");
-        if (invocation.candidates().size() != 1
-                || !(invocation.candidates().getFirst().candidate() instanceof SemanticTargetCandidate target)) {
+    private SemanticTargetCandidate selectedTarget(CapabilityExecutionContext context) {
+        Objects.requireNonNull(context, "capability execution context must not be null");
+        if (context.candidates().size() != 1
+                || !(context.candidates().getFirst().candidate() instanceof SemanticTargetCandidate target)) {
             throw contract("call graph requires exactly one semantic target candidate");
         }
         return target;
     }
 
-    private int requestedDepth(CapabilityInvocation invocation) {
-        String depth = invocation.arguments().get("depth");
-        return StringUtils.hasText(depth) ? Integer.parseInt(depth) : 2;
-    }
-
-    private String requiredArgument(Map<String, String> arguments, String name) {
-        String value = arguments.get(name);
-        if (!StringUtils.hasText(value)) {
-            throw contract("runtime invocation is missing required argument " + name);
-        }
-        return value.trim();
+    private CapabilityInvocation resultInvocation(CapabilityExecutionContext context) {
+        return new CapabilityInvocation(context.capability(), context.candidates(), context.question(),
+                new CapabilityInputPayload("{}"), context.expectedRevisions());
     }
 
     private Optional<String> optionalText(String value) {

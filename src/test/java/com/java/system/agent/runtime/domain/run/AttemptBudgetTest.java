@@ -5,24 +5,24 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
+/**
+ * Attempt 預算只保留正常規劃與查詢計數的測試
+ */
 class AttemptBudgetTest {
 
     @Test
-    void should_keep_final_answer_reserve_separate_from_normal_and_query_capacity() {
-        AttemptBudget budget = new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0);
+    void consumes_normal_and_query_capacity_independently() {
+        AttemptBudget budget = new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0);
 
-        AttemptBudget normalStep = budget.consumeAgentStep();
-        AttemptBudget query = normalStep.consumeQueryExecution();
-        AttemptBudget finalResponse = budget.consumeFinalAnswer();
+        AttemptBudget query = budget.consumeAgentStep().consumeQueryExecution();
 
-        assertThat(query.usedFinalAnswers()).isZero();
-        assertThat(finalResponse.usedFinalAnswers()).isEqualTo(1);
-        assertThatIllegalArgumentException().isThrownBy(finalResponse::consumeFinalAnswer);
+        assertThat(query.usedAgentSteps()).isEqualTo(1);
+        assertThat(query.usedQueryExecutions()).isEqualTo(1);
     }
 
     @Test
-    void should_reject_overconsumption_of_each_independent_counter() {
-        AttemptBudget budget = new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0);
+    void rejects_overconsumption_of_each_remaining_counter() {
+        AttemptBudget budget = new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0);
 
         assertThatIllegalArgumentException().isThrownBy(() -> budget.consumeAgentStep().consumeAgentStep());
         assertThatIllegalArgumentException().isThrownBy(() -> budget.consumeQueryExecution().consumeQueryExecution());

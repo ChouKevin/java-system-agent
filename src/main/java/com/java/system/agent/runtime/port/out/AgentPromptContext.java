@@ -32,8 +32,7 @@ public record AgentPromptContext(
         Map<EvidenceHandle, IssuedEvidence> issuedEvidence,
         Map<ObservationId, AgentObservation> observations,
         Optional<String> latestRejection,
-        AttemptBudget budget,
-        boolean finalResponseMode) {
+        AttemptBudget budget) {
 
     public AgentPromptContext {
         Objects.requireNonNull(originalQuestion, "original question must not be null");
