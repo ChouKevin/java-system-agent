@@ -177,6 +177,10 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThat(actionCalls).hasValue(1);
         assertThat(inboxStatus(recoveredClaim.message().inboxMessageId())).isEqualTo(InboxMessageStatus.FAILED.name());
         assertThat(inboxFailureCode(recoveredClaim.message().inboxMessageId())).isEqualTo("PLANNING_TOOL_CONTRACT");
+        String recoveredFinalResponse = finalResponse(recoveredClaim.message().inboxMessageId());
+        assertThat(recoveredFinalResponse).isEqualTo("RUNTIME_NOTICE:FAILED:處理失敗，請稍後再試");
+        assertThat(recoveredFinalResponse).doesNotContain(
+                "AnswerExecutionContractException", "PLANNING_TOOL_CONTRACT", "planning registry contract failed", "provider", "tool");
     }
 
     @Test
