@@ -15,8 +15,6 @@ import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
 import com.java.system.agent.runtime.port.out.CapabilityInvocation;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.DefaultToolDefinition;
-import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.LinkedHashMap;
 import java.util.HashSet;
@@ -88,9 +86,8 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
             QueryPlanningMapper<P, E> mapper,
             CapabilityExecutor<E> executor,
             PlanningToolSchemaFactory schemaFactory) {
-        String schema = schemaFactory.schemaFor(planningInputType);
-        ToolCallback callback = new SchemaToolCallback(policy.name(), schema);
-        return new QueryPlanningToolRegistration<>(policy, planningInputType, executionInputType, mapper, executor, callback);
+        return new QueryPlanningToolRegistration<>(
+                policy, planningInputType, executionInputType, mapper, executor, schemaFactory);
     }
 
     private <P, E> QueryAction interpret(
@@ -169,20 +166,4 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
     private record CapabilityIdentity(String name, String version) {
     }
 
-    private record SchemaToolCallback(ToolDefinition definition) implements ToolCallback {
-
-        SchemaToolCallback(String name, String schema) {
-            this(DefaultToolDefinition.builder().name(name).description("Agent QUERY capability").inputSchema(schema).build());
-        }
-
-        @Override
-        public ToolDefinition getToolDefinition() {
-            return definition;
-        }
-
-        @Override
-        public String call(String toolInput) {
-            return toolInput;
-        }
-    }
 }

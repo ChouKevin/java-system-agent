@@ -55,12 +55,17 @@ public final class PlanningToolSchemaFactory {
     }
 
     private JsonNode schemaNodeFor(Class<?> inputType) throws Exception {
+        JsonNode root = canonicalSchemaNode(inputType);
+        verifyContract(inputType, root);
+        return root;
+    }
+
+    private JsonNode canonicalSchemaNode(Class<?> inputType) throws Exception {
         Objects.requireNonNull(inputType, "planning schema input type must not be null");
         JsonNode root = mapper.readTree(JsonSchemaGenerator.generateForType(inputType));
         enrichRecordSchema(inputType, object(root, "planning schema root"));
         closeObjects(root);
-        verifyContract(inputType, root);
-        return root;
+        return mapper.readTree(mapper.writeValueAsString(root));
     }
 
     private static void enrichRecordSchema(Class<?> inputType, ObjectNode root) {
@@ -112,61 +117,6 @@ public final class PlanningToolSchemaFactory {
         }
     }
 
-    private static void verifyContract(Class<?> inputType, JsonNode root) {
-        ObjectNode rootObject = object(root, "planning schema root");
-        verifyClosedObjects(rootObject);
-        if (!inputType.isRecord()) {
-            throw new IllegalArgumentException("planning schema input type must be a record");
-        }
-        ObjectNode properties = object(rootObject.path("properties"), "planning schema properties");
-        JsonNode required = rootObject.path("required");
-        for (RecordComponent component : inputType.getRecordComponents()) {
-            ObjectNode property = object(properties.path(component.getName()), "planning schema property " + component.getName());
-            JsonProperty jsonProperty = component.getAccessor().getAnnotation(JsonProperty.class);
-            boolean expectedRequired = Objects.nonNull(jsonProperty) && jsonProperty.required();
-            if (required(required, component.getName()) != expectedRequired) {
-                throw new IllegalArgumentException("planning schema required contract differs for " + component.getName());
-            }
-            verifyType(component.getAccessor().getAnnotatedReturnType(), component.getAccessor().getAnnotations(), property);
-        }
-    }
-
-    private static void verifyType(AnnotatedType type, Annotation[] annotations, ObjectNode schema) {
-        Class<?> rawType = rawType(type.getType());
-        if (allowsNull(schema)) {
-            throw new IllegalArgumentException("planning schema must reject explicit null");
-        }
-        Min min = annotation(annotations, Min.class);
-        Max max = annotation(annotations, Max.class);
-        if (Objects.nonNull(min) && schema.path("minimum").asLong(Long.MIN_VALUE) != min.value()) {
-            throw new IllegalArgumentException("planning schema minimum differs from input constraint");
-        }
-        if (Objects.nonNull(max) && schema.path("maximum").asLong(Long.MAX_VALUE) != max.value()) {
-            throw new IllegalArgumentException("planning schema maximum differs from input constraint");
-        }
-        if (Objects.nonNull(annotation(annotations, NotBlank.class))
-                && (schema.path("minLength").asInt() < 1 || !NONBLANK_PATTERN.equals(schema.path("pattern").asText()))) {
-            throw new IllegalArgumentException("planning schema string constraint differs from input constraint");
-        }
-        if (Objects.nonNull(annotation(annotations, NotEmpty.class))) {
-            verifyNotEmpty(rawType, schema);
-        }
-        if (rawType.isEnum()) {
-            for (Object value : rawType.getEnumConstants()) {
-                if (!containsText(schema.path("enum"), ((Enum<?>) value).name())) {
-                    throw new IllegalArgumentException("planning schema enum differs from input type");
-                }
-            }
-        }
-        if (Collection.class.isAssignableFrom(rawType) && type instanceof AnnotatedParameterizedType parameterized) {
-            AnnotatedType[] arguments = parameterized.getAnnotatedActualTypeArguments();
-            if (arguments.length != 1) {
-                throw new IllegalArgumentException("planning collection input must have exactly one element type");
-            }
-            verifyType(arguments[0], arguments[0].getAnnotations(), object(schema.path("items"), "planning schema collection item"));
-        }
-    }
-
     private static void applyNotEmpty(Class<?> rawType, ObjectNode schema) {
         if (Collection.class.isAssignableFrom(rawType)) {
             schema.put("minItems", 1);
@@ -177,12 +127,11 @@ public final class PlanningToolSchemaFactory {
         }
     }
 
-    private static void verifyNotEmpty(Class<?> rawType, ObjectNode schema) {
-        int length = Collection.class.isAssignableFrom(rawType)
-                ? schema.path("minItems").asInt()
-                : schema.path("minLength").asInt();
-        if (length < 1) {
-            throw new IllegalArgumentException("planning schema collection constraint differs from input constraint");
+    private void verifyContract(Class<?> inputType, JsonNode registeredSchema) throws Exception {
+        JsonNode canonical = canonicalSchemaNode(inputType);
+        if (!canonical.equals(registeredSchema)) {
+            throw new IllegalArgumentException(
+                    "registered planning schema differs from the canonical input contract for " + inputType.getName());
         }
     }
 
@@ -191,13 +140,6 @@ public final class PlanningToolSchemaFactory {
             ((ObjectNode) node).put("additionalProperties", false);
         }
         node.forEach(PlanningToolSchemaFactory::closeObjects);
-    }
-
-    private static void verifyClosedObjects(JsonNode node) {
-        if (node.isObject() && node.path("type").asText().equals("object") && node.path("additionalProperties").asBoolean(true)) {
-            throw new IllegalArgumentException("planning schema object must be closed");
-        }
-        node.forEach(PlanningToolSchemaFactory::verifyClosedObjects);
     }
 
     private static ArrayNode required(ObjectNode root) {
@@ -214,29 +156,9 @@ public final class PlanningToolSchemaFactory {
         }
     }
 
-    private static boolean required(JsonNode values, String name) {
-        return containsText(values, name);
-    }
-
     private static boolean containsText(JsonNode values, String expected) {
         for (JsonNode value : values) {
             if (expected.equals(value.asText())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean allowsNull(JsonNode schema) {
-        if (schema.path("type").isArray() && containsText(schema.path("type"), "null")) {
-            return true;
-        }
-        return schema.path("type").asText().equals("null") || containsNull(schema.path("enum"));
-    }
-
-    private static boolean containsNull(JsonNode values) {
-        for (JsonNode value : values) {
-            if (value.isNull()) {
                 return true;
             }
         }

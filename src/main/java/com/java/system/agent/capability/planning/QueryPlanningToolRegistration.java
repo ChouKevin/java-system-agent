@@ -3,6 +3,8 @@ package com.java.system.agent.capability.planning;
 import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.DefaultToolDefinition;
+import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.Objects;
 
@@ -24,16 +26,15 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
             Class<E> executionInputType,
             QueryPlanningMapper<P, E> mapper,
             CapabilityExecutor<E> executor,
-            ToolCallback callback) {
+            PlanningToolSchemaFactory schemaFactory) {
         this.policy = Objects.requireNonNull(policy, "planning registration policy must not be null");
         this.planningInputType = Objects.requireNonNull(planningInputType, "planning input type must not be null");
         this.executionInputType = Objects.requireNonNull(executionInputType, "execution input type must not be null");
         this.mapper = Objects.requireNonNull(mapper, "planning mapper must not be null");
         this.executor = Objects.requireNonNull(executor, "capability executor must not be null");
-        this.callback = Objects.requireNonNull(callback, "planning callback must not be null");
-        if (!policy.name().equals(callback.getToolDefinition().name())) {
-            throw new IllegalArgumentException("planning callback name must equal capability policy name");
-        }
+        PlanningToolSchemaFactory requiredSchemaFactory = Objects.requireNonNull(
+                schemaFactory, "planning schema factory must not be null");
+        this.callback = new SchemaToolCallback(policy.name(), requiredSchemaFactory.schemaFor(planningInputType));
     }
 
     @Override
@@ -65,5 +66,25 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
 
     public CapabilityExecutor<E> executor() {
         return executor;
+    }
+
+    /**
+     * 由 registration 依 planning input canonical schema 建立的 provider callback
+     */
+    private record SchemaToolCallback(ToolDefinition definition) implements ToolCallback {
+
+        SchemaToolCallback(String name, String schema) {
+            this(DefaultToolDefinition.builder().name(name).description("Agent QUERY capability").inputSchema(schema).build());
+        }
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return definition;
+        }
+
+        @Override
+        public String call(String toolInput) {
+            return toolInput;
+        }
     }
 }
