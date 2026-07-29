@@ -1,7 +1,7 @@
 package com.java.system.agent.persistence.jdbc;
 
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.port.out.AnalysisCancellationPort;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.port.out.AnalysisCancellationPort;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.util.Objects;

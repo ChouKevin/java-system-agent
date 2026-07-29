@@ -1,12 +1,12 @@
 package com.java.system.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.java.system.agent.codebase.semantic.JavaSemanticServiceHttpAdapter;
-import com.java.system.agent.inbox.application.SessionInboxProcessor;
-import com.java.system.agent.inbox.port.in.AcceptSourceEventUseCase;
-import com.java.system.agent.runtime.port.in.AnswerQuestionUseCase;
-import com.java.system.agent.runtime.port.out.AgentActionPort;
-import com.java.system.agent.runtime.port.out.AnswerVerificationPort;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.interaction.application.SessionInboxProcessor;
+import com.java.system.agent.interaction.port.in.AcceptSourceEventUseCase;
+import com.java.system.agent.answering.port.in.AnswerQuestionUseCase;
+import com.java.system.agent.answering.port.out.AgentActionPort;
+import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;

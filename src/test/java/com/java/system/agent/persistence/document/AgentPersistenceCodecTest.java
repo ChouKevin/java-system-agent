@@ -1,20 +1,68 @@
 package com.java.system.agent.persistence.document;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.java.system.agent.runtime.domain.run.AgentEvent;
-import com.java.system.agent.runtime.domain.run.AgentRunState;
-import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.AttemptBudget;
-import com.java.system.agent.runtime.domain.run.RunOutcome;
-import com.java.system.agent.runtime.domain.run.RunFailureReason;
-import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
-import com.java.system.agent.runtime.domain.run.RuntimeNoticeReason;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
+import com.java.system.agent.answering.domain.answer.AnswerDisposition;
+import com.java.system.agent.answering.domain.answer.AnswerDocument;
+import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.AnswerVerdict;
+import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
+import com.java.system.agent.answering.domain.answer.StatementId;
+import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
+import com.java.system.agent.answering.domain.candidate.RouteCandidate;
+import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
+import com.java.system.agent.answering.domain.conversation.ConversationTurn;
+import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.observation.AgentObservation;
+import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.domain.run.AgentEvent;
+import com.java.system.agent.answering.domain.run.AgentRunState;
+import com.java.system.agent.answering.domain.run.AgentRunStatus;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.AnswerVerificationAbandonReason;
+import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.PendingAnswerVerification;
+import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
+import com.java.system.agent.answering.domain.run.RunFailureReason;
+import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.domain.run.RunRequestIdentity;
+import com.java.system.agent.answering.domain.run.RuntimeNoticeReason;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,16 +76,39 @@ class AgentPersistenceCodecTest {
     private final AgentEventDocumentCodec eventCodec = new AgentEventDocumentCodec(new ObjectMapper());
 
     @Test
-    void writes_and_reads_only_schema_seven_state_documents() {
+    void writes_and_reads_only_schema_eight_state_documents() {
         AgentRunState state = AgentRunState.initial(runId(), attemptId(), budget(), identity());
 
         VersionedJsonDocument document = stateCodec.encode(state);
 
-        assertThat(document.schemaVersion()).isEqualTo(7);
+        assertThat(document.schemaVersion()).isEqualTo(8);
         assertThat(stateCodec.decode(document)).isEqualTo(state);
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(6, document.payload())))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(7, document.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported state document schema version");
+    }
+
+    @Test
+    void isolates_persistence_schema_from_host_object_mapper_modules() {
+        ObjectMapper hostObjectMapper = new ObjectMapper();
+        SimpleModule hostModule = new SimpleModule();
+        hostModule.addSerializer(AnalysisRunId.class, new JsonSerializer<>() {
+            @Override
+            public void serialize(
+                    AnalysisRunId value,
+                    JsonGenerator generator,
+                    SerializerProvider serializers) throws IOException {
+                generator.writeString("host-overridden-run-id");
+            }
+        });
+        hostObjectMapper.registerModule(hostModule);
+        AgentStateDocumentCodec isolatedCodec = new AgentStateDocumentCodec(hostObjectMapper);
+        AgentRunState state = AgentRunState.initial(runId(), attemptId(), budget(), identity());
+
+        VersionedJsonDocument document = isolatedCodec.encode(state);
+
+        assertThat(document.payload().path("run_id").path("value").asText()).isEqualTo("run-1");
+        assertThat(isolatedCodec.decode(document)).isEqualTo(state);
     }
 
     @Test
@@ -50,7 +121,7 @@ class AgentPersistenceCodecTest {
                 .payload();
         ObjectNode serializedBudget = (ObjectNode) state.path("budget");
 
-        assertThat(eventDocument.schemaVersion()).isEqualTo(6);
+        assertThat(eventDocument.schemaVersion()).isEqualTo(7);
         assertThat(eventDocument.payload().path("runtime_notice_reason").asText())
                 .isEqualTo("AGENT_STEP_BUDGET_EXHAUSTED");
         assertThat(eventCodec.decode(eventCodec.eventType(event), eventDocument)).isEqualTo(event);
@@ -77,9 +148,253 @@ class AgentPersistenceCodecTest {
         VersionedJsonDocument document = eventCodec.encode(event);
 
         assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event),
-                new VersionedJsonDocument(5, document.payload())))
+                new VersionedJsonDocument(6, document.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported event document schema version");
+    }
+
+    @Test
+    void preserves_terminal_and_pending_verification_state_variants() {
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
+                StatementType.UNCERTAINTY, "uncertain", Optional.empty(), Set.of(), Set.of())));
+        ConversationTurn answerTurn = new ConversationTurn(
+                runId(), identity().participant(), "question", document.renderParagraphs(), ConversationTurnType.ANSWER);
+        PendingTerminalResponse pendingAnswer = new PendingTerminalResponse.Answer(
+                new SessionId("session-1"), answerTurn, document, AnswerAcceptance.contractOnly());
+        AgentRunState terminal = new AgentRunState(runId(), AgentRunStatus.CONCLUDED,
+                AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
+                Optional.of(RunOutcome.COMPLETED), Optional.empty(), Optional.empty(), Optional.of(pendingAnswer),
+                Optional.empty(), identity());
+        ClarifyAction clarification = new ClarifyAction("clarify", List.of(), "reason");
+        ConversationTurn clarificationTurn = new ConversationTurn(
+                runId(), identity().participant(), "question", "clarify", ConversationTurnType.CLARIFICATION);
+        PendingTerminalResponse pendingClarification = new PendingTerminalResponse.Clarification(
+                new SessionId("session-1"), clarificationTurn, clarification);
+        AgentRunState clarificationTerminal = new AgentRunState(runId(), AgentRunStatus.CONCLUDED,
+                AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
+                Optional.of(RunOutcome.INCONCLUSIVE), Optional.empty(), Optional.empty(),
+                Optional.of(pendingClarification), Optional.empty(), identity());
+        PendingAnswerVerification pending = new PendingAnswerVerification(attemptId(), RevisionVector.empty(), document,
+                AnswerVerificationMode.LLM);
+        AgentRunState verificationPending = new AgentRunState(runId(), AgentRunStatus.RUNNING,
+                AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(pending), identity());
+
+        assertThat(stateCodec.decode(stateCodec.encode(terminal))).isEqualTo(terminal);
+        assertThat(stateCodec.decode(stateCodec.encode(clarificationTerminal))).isEqualTo(clarificationTerminal);
+        assertThat(stateCodec.decode(stateCodec.encode(verificationPending))).isEqualTo(verificationPending);
+        AgentEvent event = new AgentEvent.AnswerProposed(runId(), attemptId(), 1, pending);
+        assertThat(eventCodec.decode(eventCodec.eventType(event), eventCodec.encode(event))).isEqualTo(event);
+    }
+
+    @Test
+    void preserves_every_event_discriminator() {
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
+                StatementType.UNCERTAINTY, "uncertain", Optional.empty(), Set.of(), Set.of())));
+        PendingAnswerVerification proposal = new PendingAnswerVerification(
+                attemptId(), RevisionVector.empty(), document, AnswerVerificationMode.LLM);
+        ConversationTurn answerTurn = new ConversationTurn(
+                runId(), identity().participant(), "question", document.renderParagraphs(), ConversationTurnType.ANSWER);
+        ClarifyAction clarification = new ClarifyAction("clarify", List.of(), "reason");
+        ConversationTurn clarificationTurn = new ConversationTurn(
+                runId(), identity().participant(), "question", "clarify", ConversationTurnType.CLARIFICATION);
+        AgentObservation observation = new AgentObservation(
+                new ObservationId("observation-1"),
+                ObservationSource.RUNTIME,
+                ObservationCode.ACTION_REJECTED,
+                "description",
+                Set.of(),
+                Set.of(),
+                "runtime");
+        AnswerVerdict rejected = new AnswerVerdict(
+                AnswerDisposition.REJECTED, List.of(), List.of(), List.of(), List.of("rejected"));
+        List<AgentEvent> events = List.of(
+                new AgentEvent.RunStarted(runId(), attemptId(), 0),
+                new AgentEvent.AttemptStarted(
+                        runId(), attemptId(), 0,
+                        AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt()),
+                new AgentEvent.ContextIssued(
+                        runId(), attemptId(), 0, RevisionVector.empty(), Map.of(), Map.of(), Map.of(), Map.of()),
+                new AgentEvent.ActionAccepted(runId(), attemptId(), 0, clarification),
+                new AgentEvent.ActionRejected(runId(), attemptId(), 0, Optional.empty(), "rejected"),
+                new AgentEvent.QueryBudgetConsumed(runId(), attemptId(), 0),
+                new AgentEvent.ObservationRecorded(runId(), attemptId(), 0, observation),
+                new AgentEvent.AttemptInvalidated(runId(), attemptId(), 0, "revision changed", true),
+                new AgentEvent.AnswerProposed(runId(), attemptId(), 0, proposal),
+                new AgentEvent.AnswerAccepted(
+                        runId(), attemptId(), 0, document, AnswerAcceptance.contractOnly(),
+                        new SessionId("session-1"), answerTurn),
+                new AgentEvent.AnswerRejected(runId(), attemptId(), 0, rejected),
+                new AgentEvent.AnswerVerificationAbandoned(
+                        runId(), attemptId(), 0, AnswerVerificationAbandonReason.RETRY_EXHAUSTED),
+                new AgentEvent.ClarificationAccepted(
+                        runId(), attemptId(), 0, clarification, new SessionId("session-1"), clarificationTurn),
+                new AgentEvent.RunConcluded(
+                        runId(), attemptId(), 0, RunOutcome.FAILED,
+                        Optional.empty(), Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT)));
+
+        for (AgentEvent event : events) {
+            assertThat(eventCodec.decode(eventCodec.eventType(event), eventCodec.encode(event))).isEqualTo(event);
+        }
+    }
+
+    @Test
+    void preserves_all_action_discriminators() {
+        HandleBinding binding = new HandleBinding(runId(), attemptId(), RevisionVector.empty());
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
+                StatementType.UNCERTAINTY, "uncertain", Optional.empty(), Set.of(), Set.of())));
+        List<AgentAction> actions = List.of(
+                new QueryAction(new CapabilityHandle("capability-1", binding), List.of(), "question",
+                        new CapabilityInputPayload("{}"), "reason"),
+                new AnswerAction(document),
+                new ClarifyAction("clarify", List.of(), "reason")
+        );
+
+        for (AgentAction action : actions) {
+            AgentEvent event = new AgentEvent.ActionAccepted(runId(), attemptId(), 0, action);
+            assertThat(eventCodec.decode(eventCodec.eventType(event), eventCodec.encode(event))).isEqualTo(event);
+        }
+    }
+
+    @Test
+    void rejects_unknown_missing_null_and_coerced_event_properties() {
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0,"unexpected":true}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"}}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":null,"attempt_id":{"value":"attempt-1"},"expected_state_revision":0}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":null}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":"0"}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0.5}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":"","attempt_id":{"value":"attempt-1"},"expected_state_revision":0}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+    }
+
+    @Test
+    void rejects_duplicate_trailing_and_relationally_mismatched_event_discriminators() {
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"run_id":{"value":"run-2"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0} {}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class);
+        assertThatThrownBy(() -> eventCodec.decode("RUN_CONCLUDED", 7,
+                """
+                        {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0}
+                        """))
+                .isInstanceOf(PersistenceDocumentException.class)
+                .hasMessage("relational event type does not match event payload");
+    }
+
+    @Test
+    void rejects_duplicate_map_and_set_entries_before_domain_construction() {
+        RepositoryId repositoryId = new RepositoryId("repository-1");
+        RepositoryRevision revision = new RepositoryRevision("revision-1");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(runId(), attemptId(), revisions);
+        CapabilityHandle handle = new CapabilityHandle("capability-1", binding);
+        CapabilityPolicy policy = new CapabilityPolicy(
+                "lookup", "v1", Set.of(CandidateKind.REPOSITORY), 0, 1);
+        CandidateHandle repositoryHandle = new CandidateHandle("candidate-1", binding, CandidateKind.REPOSITORY);
+        CandidateHandle routeHandle = new CandidateHandle("candidate-2", binding, CandidateKind.ROUTE);
+        CandidateHandle semanticHandle = new CandidateHandle("candidate-3", binding, CandidateKind.SEMANTIC_TARGET);
+        Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
+        candidates.put(repositoryHandle, new IssuedCandidate(
+                repositoryHandle, new RepositoryCandidate(repositoryId, "repository")));
+        candidates.put(routeHandle, new IssuedCandidate(
+                routeHandle, new RouteCandidate(repositoryId, revision, "/route", "route")));
+        candidates.put(semanticHandle, new IssuedCandidate(semanticHandle, new SemanticTargetCandidate(
+                repositoryId, revision,
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Example", Optional.empty()),
+                "semantic target")));
+        AgentObservation observation = new AgentObservation(
+                new ObservationId("observation-1"), ObservationSource.RUNTIME, ObservationCode.ACTION_REJECTED,
+                "description", Set.of(), Set.of(), "runtime");
+        AgentEvent event = new AgentEvent.ContextIssued(runId(), attemptId(), 0, revisions,
+                Map.of(handle, policy), candidates, Map.of(), Map.of(observation.id(), observation));
+        VersionedJsonDocument document = eventCodec.encode(event);
+
+        AgentEvent.ContextIssued decoded = (AgentEvent.ContextIssued) eventCodec.decode(
+                eventCodec.eventType(event), document);
+        assertThat(decoded).isEqualTo(event);
+        assertThat(decoded.candidates().keySet()).containsExactly(repositoryHandle, routeHandle, semanticHandle);
+
+        ObjectNode duplicateMap = document.payload().deepCopy();
+        ArrayNode capabilities = (ArrayNode) duplicateMap.path("capabilities");
+        capabilities.add(capabilities.get(0).deepCopy());
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 7, duplicateMap))
+                .isInstanceOf(PersistenceDocumentException.class);
+
+        ObjectNode mismatchedObservation = document.payload().deepCopy();
+        ObjectNode observationKey = (ObjectNode) mismatchedObservation.path("observations").path(0).path("key");
+        observationKey.put("value", "observation-2");
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 7, mismatchedObservation))
+                .isInstanceOf(PersistenceDocumentException.class);
+
+        ObjectNode duplicateRevision = document.payload().deepCopy();
+        ArrayNode revisionEntries = (ArrayNode) duplicateRevision.path("revisions").path("entries");
+        revisionEntries.add(revisionEntries.get(0).deepCopy());
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 7, duplicateRevision))
+                .isInstanceOf(PersistenceDocumentException.class);
+
+        ObjectNode duplicateSet = document.payload().deepCopy();
+        ArrayNode acceptedKinds = (ArrayNode) duplicateSet.path("capabilities").path(0)
+                .path("value").path("accepted_candidate_kinds");
+        acceptedKinds.add("REPOSITORY");
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 7, duplicateSet))
+                .isInstanceOf(PersistenceDocumentException.class);
+
+        AgentObservation observationWithCandidate = new AgentObservation(
+                new ObservationId("observation-2"), ObservationSource.RUNTIME, ObservationCode.ACTION_REJECTED,
+                "description", Set.of(repositoryHandle), Set.of(), "runtime");
+        AgentEvent observationEvent = new AgentEvent.ObservationRecorded(
+                runId(), attemptId(), 0, observationWithCandidate);
+        ObjectNode duplicateObservationSet = eventCodec.encode(observationEvent).payload().deepCopy();
+        ArrayNode candidateHandles = (ArrayNode) duplicateObservationSet.path("observation").path("candidate_handles");
+        candidateHandles.add(candidateHandles.get(0).deepCopy());
+        assertThatThrownBy(() -> eventCodec.decode(
+                eventCodec.eventType(observationEvent), 7, duplicateObservationSet))
+                .isInstanceOf(PersistenceDocumentException.class);
+
+        AnswerDocument answer = new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.UNCERTAINTY, "uncertain", Optional.empty(), Set.of(),
+                Set.of(new ObservationId("observation-1")))));
+        AgentEvent answerEvent = new AgentEvent.ActionAccepted(runId(), attemptId(), 0, new AnswerAction(answer));
+        ObjectNode duplicateAnswerSet = eventCodec.encode(answerEvent).payload().deepCopy();
+        ArrayNode observationIds = (ArrayNode) duplicateAnswerSet.path("action").path("document")
+                .path("statements").path(0).path("observation_ids");
+        observationIds.add(observationIds.get(0).deepCopy());
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(answerEvent), 7, duplicateAnswerSet))
+                .isInstanceOf(PersistenceDocumentException.class);
     }
 
     private static AnalysisRunId runId() {

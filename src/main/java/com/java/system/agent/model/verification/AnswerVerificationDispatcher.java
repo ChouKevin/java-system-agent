@@ -1,9 +1,9 @@
 package com.java.system.agent.model.verification;
 
-import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
-import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
-import com.java.system.agent.runtime.port.out.AnswerVerificationPort;
-import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
+import com.java.system.agent.answering.port.out.AnswerVerificationPort;
+import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 
 import java.util.EnumMap;
 import java.util.Map;

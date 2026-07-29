@@ -2,16 +2,16 @@ package com.java.system.agent.model.action;
 
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.model.ModelTransportFailureClassifier;
-import com.java.system.agent.runtime.domain.action.AgentAction;
-import com.java.system.agent.runtime.domain.action.AnswerAction;
-import com.java.system.agent.runtime.domain.action.ClarifyAction;
-import com.java.system.agent.runtime.domain.action.QueryAction;
-import com.java.system.agent.runtime.port.out.AgentActionPort;
-import com.java.system.agent.runtime.port.out.AgentActionProposal;
-import com.java.system.agent.runtime.port.out.AgentActionTransportException;
-import com.java.system.agent.runtime.port.out.AgentActionContractException;
-import com.java.system.agent.runtime.port.out.AgentPromptContext;
-import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.port.out.AgentActionPort;
+import com.java.system.agent.answering.port.out.AgentActionProposal;
+import com.java.system.agent.answering.port.out.AgentActionTransportException;
+import com.java.system.agent.answering.port.out.AgentActionContractException;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
+import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import org.springframework.ai.chat.client.AdvisorParams;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -26,7 +26,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * 以 request-scoped Spring AI planning tool callback 取得下一個 runtime action 的外部 adapter
+ * 以 request-scoped Spring AI planning tool callback 取得下一個 answering action 的外部 adapter
  */
 public final class SpringAiAgentActionAdapter implements AgentActionPort {
 
@@ -36,16 +36,29 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
 
     private final ChatClient chatClient;
     private final PlanningToolRegistry toolRegistry;
+    private final SpringAiPlanningToolCallbackAdapter callbackAdapter;
     private final AgentActionPromptRenderer promptRenderer;
 
     public SpringAiAgentActionAdapter(ChatClient chatClient, PlanningToolRegistry toolRegistry) {
-        this(chatClient, toolRegistry, new AgentActionPromptRenderer());
+        this(chatClient, toolRegistry, new SpringAiPlanningToolCallbackAdapter(
+                toolRegistry, new SpringAiPlanningToolSchemaFactory()));
     }
 
-    SpringAiAgentActionAdapter(ChatClient chatClient, PlanningToolRegistry toolRegistry,
+    public SpringAiAgentActionAdapter(
+            ChatClient chatClient,
+            PlanningToolRegistry toolRegistry,
+            SpringAiPlanningToolCallbackAdapter callbackAdapter) {
+        this(chatClient, toolRegistry, callbackAdapter, new AgentActionPromptRenderer());
+    }
+
+    SpringAiAgentActionAdapter(
+            ChatClient chatClient,
+            PlanningToolRegistry toolRegistry,
+            SpringAiPlanningToolCallbackAdapter callbackAdapter,
                                AgentActionPromptRenderer promptRenderer) {
         this.chatClient = Objects.requireNonNull(chatClient, "chat client must not be null");
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "planning tool registry must not be null");
+        this.callbackAdapter = Objects.requireNonNull(callbackAdapter, "planning tool callback adapter must not be null");
         this.promptRenderer = Objects.requireNonNull(promptRenderer, "action prompt renderer must not be null");
     }
 
@@ -58,7 +71,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         try {
             ChatClientResponse response;
             try {
-                List<org.springframework.ai.tool.ToolCallback> callbacks = toolRegistry.issuedCallbacks(context);
+                List<org.springframework.ai.tool.ToolCallback> callbacks = callbackAdapter.issuedCallbacks(context);
                 ToolCallingChatOptions.Builder<?> options = ToolCallingChatOptions.builder().toolCallbacks(callbacks);
                 response = chatClient.prompt()
                         .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false))
@@ -90,7 +103,8 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             if (toolCalls.size() != 1 || StringUtils.hasText(assistant.getText())) {
                 return malformed();
             }
-            return toolRegistry.interpretToolCall(toolCalls.getFirst(), context);
+            AssistantMessage.ToolCall toolCall = toolCalls.getFirst();
+            return toolRegistry.interpretToolCall(toolCall.name(), toolCall.arguments(), context);
         } catch (AgentActionContractException exception) {
             throw exception;
         } catch (RuntimeException exception) {

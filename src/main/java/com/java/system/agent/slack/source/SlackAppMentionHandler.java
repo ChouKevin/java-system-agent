@@ -1,7 +1,7 @@
 package com.java.system.agent.slack.source;
 
-import com.java.system.agent.inbox.domain.NormalizedSourceEvent;
-import com.java.system.agent.inbox.port.in.AcceptSourceEventUseCase;
+import com.java.system.agent.interaction.domain.NormalizedSourceEvent;
+import com.java.system.agent.interaction.port.in.AcceptSourceEventUseCase;
 import com.java.system.agent.slack.SlackLifecycleMetrics;
 import com.slack.api.app_backend.events.payload.EventsApiPayload;
 import com.slack.api.bolt.context.builtin.EventContext;

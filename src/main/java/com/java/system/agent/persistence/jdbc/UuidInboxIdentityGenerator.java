@@ -1,9 +1,9 @@
 package com.java.system.agent.persistence.jdbc;
 
-import com.java.system.agent.inbox.domain.InboxMessageId;
-import com.java.system.agent.inbox.port.out.InboxIdentityGenerator;
-import com.java.system.agent.runtime.domain.conversation.SessionId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.interaction.domain.InboxMessageId;
+import com.java.system.agent.interaction.port.out.InboxIdentityGenerator;
+import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
 
 import java.util.UUID;
 

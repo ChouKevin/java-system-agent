@@ -1,6 +1,6 @@
 package com.java.system.agent.capability.spi;
 
-import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 
 /**
  * 以 registration policy 識別的 capability 專屬型別化 read executor

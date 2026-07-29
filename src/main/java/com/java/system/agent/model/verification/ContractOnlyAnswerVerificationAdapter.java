@@ -1,13 +1,13 @@
 package com.java.system.agent.model.verification;
 
-import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
-import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
-import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
+import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 
 import java.util.Objects;
 
 /**
- * 不呼叫模型而只確認既有 runtime contract 的 verifier 策略
+ * 不呼叫模型而只確認既有 answering contract 的 verifier 策略
  */
 public final class ContractOnlyAnswerVerificationAdapter implements AnswerVerificationStrategy {
 

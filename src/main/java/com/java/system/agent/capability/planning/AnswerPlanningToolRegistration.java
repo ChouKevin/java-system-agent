@@ -1,9 +1,8 @@
 package com.java.system.agent.capability.planning;
 
-import com.java.system.agent.runtime.domain.action.AgentAction;
-import com.java.system.agent.runtime.domain.action.AnswerAction;
-import com.java.system.agent.runtime.port.out.AgentPromptContext;
-import org.springframework.ai.tool.ToolCallback;
+import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 
 import java.util.Objects;
 import java.util.function.Function;
@@ -16,20 +15,14 @@ public final class AnswerPlanningToolRegistration<I> implements PlanningToolRegi
     private final String name;
     private final Class<I> planningInputType;
     private final Function<I, AnswerAction> mapper;
-    private final ToolCallback callback;
 
     public AnswerPlanningToolRegistration(
             String name,
             Class<I> planningInputType,
-            Function<I, AnswerAction> mapper,
-            PlanningToolSchemaFactory schemaFactory) {
+            Function<I, AnswerAction> mapper) {
         this.name = Objects.requireNonNull(name, "answer planning tool name must not be null");
         this.planningInputType = Objects.requireNonNull(planningInputType, "answer planning input type must not be null");
         this.mapper = Objects.requireNonNull(mapper, "answer planning mapper must not be null");
-        PlanningToolSchemaFactory requiredSchemaFactory = Objects.requireNonNull(
-                schemaFactory, "planning schema factory must not be null");
-        this.callback = PlanningToolRegistration.callback(name, "Agent ANSWER action",
-                requiredSchemaFactory.schemaFor(planningInputType));
     }
 
     @Override
@@ -38,17 +31,17 @@ public final class AnswerPlanningToolRegistration<I> implements PlanningToolRegi
     }
 
     @Override
+    public String description() {
+        return "Agent ANSWER action";
+    }
+
+    @Override
     public Class<I> planningInputType() {
         return planningInputType;
     }
 
     @Override
-    public ToolCallback callback() {
-        return callback;
-    }
-
-    @Override
-    public AgentAction toAction(I input, AgentPromptContext context, CanonicalCapabilityPayloadCodec payloadCodec) {
+    public AgentAction toAction(I input, AgentPromptContext context) {
         return mapper.apply(input);
     }
 }

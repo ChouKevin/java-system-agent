@@ -8,23 +8,22 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
-import com.java.system.agent.codebase.semantic.JavaSemanticServiceHttpAdapter;
-import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
-import com.java.system.agent.runtime.domain.conversation.SessionHistory;
-import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
-import com.java.system.agent.runtime.domain.handle.HandleBinding;
-import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.AttemptBudget;
-import com.java.system.agent.runtime.domain.scope.RevisionVector;
-import com.java.system.agent.runtime.port.out.AgentActionProposal;
-import com.java.system.agent.runtime.port.out.AgentPromptContext;
-import com.java.system.agent.runtime.domain.action.AnswerAction;
-import com.java.system.agent.runtime.domain.action.ClarifyAction;
-import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
-import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
+import com.java.system.agent.model.action.SpringAiPlanningToolCallbackAdapter;
+import com.java.system.agent.model.action.SpringAiPlanningToolSchemaFactory;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
+import com.java.system.agent.answering.port.out.AgentActionProposal;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
+import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.tool.ToolCallback;
 import jakarta.validation.Validation;
 
@@ -43,9 +42,7 @@ class AgentCapabilityConfigurationTest {
 
     @Test
     void advertisesRequiredArgumentsFromActualLookupAndSuggestToolDefinitions() throws Exception {
-        PlanningToolRegistry registry = new AgentCapabilityConfiguration().planningToolRegistry(
-                mock(JavaSemanticServiceHttpAdapter.class),
-                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = registry();
         Map<String, JsonNode> schemas = schemasByToolName(registry);
 
         assertThat(required(schemas, "codebase_lookup_api_route")).contains("apiPath").doesNotContain("httpMethod");
@@ -62,7 +59,7 @@ class AgentCapabilityConfigurationTest {
                 continue;
             }
             JsonNode schema = entry.getValue();
-            assertThat(schema.path("required")).extracting(JsonNode::asText).contains("candidateHandles");
+            assertThat(schema.path("required")).extracting(jsonNode -> jsonNode.asText()).contains("candidateHandles");
             assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
                     .isGreaterThanOrEqualTo(1);
         }
@@ -75,7 +72,7 @@ class AgentCapabilityConfigurationTest {
                 .path("properties").path("statements").path("items");
 
         assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
-        assertThat(statement.path("required")).extracting(JsonNode::asText)
+        assertThat(statement.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
         assertThat(statement.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
         assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
@@ -91,10 +88,9 @@ class AgentCapabilityConfigurationTest {
                 .orElseThrow();
         AgentPromptContext context = contextFor(List.of(policy));
 
-        AgentActionProposal proposal = registry.interpretToolCall(new AssistantMessage.ToolCall("call-1", "function",
-                policy.name(), """
+        AgentActionProposal proposal = registry.interpretToolCall(policy.name(), """
                         {"candidateHandles":[" "],"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
-                        """), context);
+                        """, context);
 
         assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
     }
@@ -104,22 +100,20 @@ class AgentCapabilityConfigurationTest {
         PlanningToolRegistry registry = registry();
         AgentPromptContext context = contextFor(List.of());
 
-        AgentActionProposal answerProposal = registry.interpretToolCall(new AssistantMessage.ToolCall(
-                "call-1", "function", "agent_submit_answer", """
+        AgentActionProposal answerProposal = registry.interpretToolCall("agent_submit_answer", """
                         {"statements":[{"statementId":"statement-1","type":"FACT","text":"The route is called by checkout","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}]}
-                        """), context);
-        AgentActionProposal clarifyProposal = registry.interpretToolCall(new AssistantMessage.ToolCall(
-                "call-2", "function", "agent_request_clarification", """
+                        """, context);
+        AgentActionProposal clarifyProposal = registry.interpretToolCall("agent_request_clarification", """
                         {"question":"Which repository?","candidateHandles":["candidate-2","candidate-1"],"reason":"The route scope is ambiguous"}
-                        """), context);
+                        """, context);
 
         assertThat(answerProposal).isInstanceOf(AgentActionProposal.Proposed.class);
         AnswerAction answer = (AnswerAction) ((AgentActionProposal.Proposed) answerProposal).action();
         assertThat(answer.document().statements().getFirst().citations())
-                .extracting(EvidenceHandleRef::value).containsExactly("evidence-unknown");
+                .extracting(evidenceHandleReference -> evidenceHandleReference.value()).containsExactly("evidence-unknown");
         assertThat(clarifyProposal).isInstanceOf(AgentActionProposal.Proposed.class);
         ClarifyAction clarify = (ClarifyAction) ((AgentActionProposal.Proposed) clarifyProposal).action();
-        assertThat(clarify.candidates()).extracting(CandidateHandleRef::value)
+        assertThat(clarify.candidates()).extracting(candidateHandleReference -> candidateHandleReference.value())
                 .containsExactly("candidate-2", "candidate-1");
     }
 
@@ -141,10 +135,9 @@ class AgentCapabilityConfigurationTest {
                 .orElseThrow();
 
         JsonNode schema = schemasByToolName(registry, List.of(policy)).get(policy.name());
-        AgentActionProposal proposal = registry.interpretToolCall(new AssistantMessage.ToolCall("call-1", "function",
-                policy.name(), """
+        AgentActionProposal proposal = registry.interpretToolCall(policy.name(), """
                         {"candidateHandles":["candidate-1"],"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
-                        """), contextFor(List.of(policy)));
+                        """, contextFor(List.of(policy)));
 
         assertThat(hostMapper.getPropertyNamingStrategy()).isEqualTo(PropertyNamingStrategies.SNAKE_CASE);
         assertThat(schema.path("properties").has("apiPath")).isTrue();
@@ -160,7 +153,9 @@ class AgentCapabilityConfigurationTest {
         AgentPromptContext context = contextFor(policies);
         ObjectMapper objectMapper = new ObjectMapper();
         LinkedHashMap<String, JsonNode> schemas = new LinkedHashMap<>();
-        for (ToolCallback callback : registry.issuedCallbacks(context)) {
+        SpringAiPlanningToolCallbackAdapter callbackAdapter = new SpringAiPlanningToolCallbackAdapter(
+                registry, new SpringAiPlanningToolSchemaFactory());
+        for (ToolCallback callback : callbackAdapter.issuedCallbacks(context)) {
             schemas.put(callback.getToolDefinition().name(), objectMapper.readTree(callback.getToolDefinition().inputSchema()));
         }
         return Map.copyOf(schemas);
@@ -179,13 +174,18 @@ class AgentCapabilityConfigurationTest {
     }
 
     private static PlanningToolRegistry registry() {
-        return new AgentCapabilityConfiguration().planningToolRegistry(
-                mock(JavaSemanticServiceHttpAdapter.class),
-                Validation.buildDefaultValidatorFactory().getValidator());
+        AgentCapabilityConfiguration configuration = new AgentCapabilityConfiguration();
+        jakarta.validation.Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+        com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec payloadCodec =
+                configuration.canonicalCapabilityPayloadCodec(validator);
+        return configuration.planningToolRegistry(List.of(
+                        configuration.corePlanningToolProvider(),
+                        configuration.codeIntelligencePlanningToolProvider(mock(JavaSemanticServiceHttpAdapter.class), payloadCodec)),
+                validator, payloadCodec);
     }
 
     private static List<String> required(Map<String, JsonNode> schemas, String toolName) {
         JsonNode schema = schemas.get(toolName);
-        return schema.path("required").valueStream().map(JsonNode::textValue).toList();
+        return schema.path("required").valueStream().map(jsonNode -> jsonNode.textValue()).toList();
     }
 }

@@ -1,21 +1,21 @@
 package com.java.system.agent.model.action;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
-import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
-import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
-import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
-import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
-import com.java.system.agent.runtime.domain.handle.CandidateHandle;
-import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
-import com.java.system.agent.runtime.domain.observation.AgentObservation;
-import com.java.system.agent.runtime.domain.observation.ObservationId;
-import com.java.system.agent.runtime.port.out.AgentPromptContext;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.conversation.ConversationTurn;
+import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.observation.AgentObservation;
+import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 
 import java.util.Map;
 import java.util.Objects;
 
 /**
- * 將 runtime 已發行 action context 穩定轉為單次模型提示
+ * 將 answering 已發行 action context 穩定轉為單次模型提示
  */
 public final class AgentActionPromptRenderer {
 
@@ -29,7 +29,7 @@ public final class AgentActionPromptRenderer {
             """;
 
     /**
-     * 依 runtime collection 的既有順序輸出明確 action context
+     * 依 answering collection 的既有順序輸出明確 action context
      */
     public String render(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");

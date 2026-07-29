@@ -1,18 +1,18 @@
 package com.java.system.agent.persistence.jdbc;
 
-import com.java.system.agent.inbox.domain.InboxMessageId;
-import com.java.system.agent.inbox.domain.SessionSourceRef;
-import com.java.system.agent.inbox.domain.delivery.DeliveryClaim;
-import com.java.system.agent.inbox.domain.delivery.DeliveryFailure;
-import com.java.system.agent.inbox.domain.delivery.DeliveryId;
-import com.java.system.agent.inbox.domain.delivery.DeliveryKind;
-import com.java.system.agent.inbox.domain.delivery.DeliveryMessage;
-import com.java.system.agent.inbox.domain.delivery.DeliveryStatus;
-import com.java.system.agent.inbox.port.out.DeliveryOutboxPort;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.RunOutcome;
-import com.java.system.agent.runtime.domain.run.RunResponseKind;
+import com.java.system.agent.interaction.domain.InboxMessageId;
+import com.java.system.agent.interaction.domain.SessionSourceRef;
+import com.java.system.agent.interaction.domain.delivery.DeliveryClaim;
+import com.java.system.agent.interaction.domain.delivery.DeliveryFailure;
+import com.java.system.agent.interaction.domain.delivery.DeliveryId;
+import com.java.system.agent.interaction.domain.delivery.DeliveryKind;
+import com.java.system.agent.interaction.domain.delivery.DeliveryMessage;
+import com.java.system.agent.interaction.domain.delivery.DeliveryStatus;
+import com.java.system.agent.interaction.port.out.DeliveryOutboxPort;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.domain.run.RunResponseKind;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.TransactionException;
@@ -193,8 +193,8 @@ public final class PostgresDeliveryOutboxAdapter implements DeliveryOutboxPort {
                 """)
                 .param("status", status.name())
                 .param("nextAttemptAt", Timestamp.from(nextAttemptAt))
-                .param("failureCategory", failure.map(DeliveryFailure::category).orElse(null))
-                .param("failureDescription", failure.map(DeliveryFailure::description).orElse(null))
+                .param("failureCategory", failure.map(deliveryFailure -> deliveryFailure.category()).orElse(null))
+                .param("failureDescription", failure.map(deliveryFailure -> deliveryFailure.description()).orElse(null))
                 .param("providerMessageId", providerMessageId.orElse(null))
                 .param("updatedAt", Timestamp.from(updatedAt))
                 .param("deliveryId", message.deliveryId().value())

@@ -1,6 +1,6 @@
 package com.java.system.agent.capability.planning;
 
-import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
+import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 
 import java.util.List;
 import java.util.Objects;

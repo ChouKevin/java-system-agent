@@ -1,0 +1,19 @@
+package com.java.system.agent.answering.application.validation;
+
+/**
+ * 動作契約被拒絕的第一個確定原因
+ */
+public enum ActionRejectionCode {
+    UNKNOWN_ACTION,
+    CROSS_ATTEMPT,
+    UNKNOWN_CANDIDATE,
+    UNKNOWN_CAPABILITY,
+    INCOMPATIBLE_CANDIDATE_KIND,
+    CARDINALITY,
+    DUPLICATE_CANDIDATE,
+    STALE_REVISION,
+    UNKNOWN_EVIDENCE,
+    UNKNOWN_OBSERVATION,
+    INVALID_ANSWER_DOCUMENT,
+    BUDGET_EXHAUSTED
+}

@@ -2,9 +2,9 @@ package com.java.system.agent.model.quota;
 
 import com.java.system.agent.model.ModelTransportFailureClassifier;
 import com.java.system.agent.model.ModelLifecycleMetrics;
-import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
-import com.java.system.agent.runtime.domain.run.ExecutionDeferralReason;
-import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.domain.run.ExecutionDeferral;
+import com.java.system.agent.answering.domain.run.ExecutionDeferralReason;
+import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;

@@ -1,8 +1,8 @@
 package com.java.system.agent.slack.delivery;
 
-import com.java.system.agent.inbox.domain.delivery.DeliveryMessage;
-import com.java.system.agent.inbox.domain.delivery.DeliveryTransportResult;
-import com.java.system.agent.inbox.port.out.DeliveryTransportPort;
+import com.java.system.agent.interaction.domain.delivery.DeliveryMessage;
+import com.java.system.agent.interaction.domain.delivery.DeliveryTransportResult;
+import com.java.system.agent.interaction.port.out.DeliveryTransportPort;
 import com.java.system.agent.slack.SlackLifecycleMetrics;
 import com.java.system.agent.slack.source.SlackDeliveryMetadataGuard;
 import com.java.system.agent.slack.source.SlackSourceIdentity;

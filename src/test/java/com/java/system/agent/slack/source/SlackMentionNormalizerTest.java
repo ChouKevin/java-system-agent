@@ -1,6 +1,6 @@
 package com.java.system.agent.slack.source;
 
-import com.java.system.agent.inbox.domain.NormalizedSourceEvent;
+import com.java.system.agent.interaction.domain.NormalizedSourceEvent;
 import com.slack.api.model.BotProfile;
 import com.slack.api.model.event.AppMentionEvent;
 import org.junit.jupiter.api.Test;

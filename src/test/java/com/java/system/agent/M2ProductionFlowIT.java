@@ -1,32 +1,32 @@
 package com.java.system.agent;
 
-import com.java.system.agent.inbox.application.SessionInboxProcessor;
-import com.java.system.agent.inbox.domain.InboxClaim;
-import com.java.system.agent.inbox.domain.InboxMessage;
-import com.java.system.agent.inbox.domain.InboxMessageStatus;
-import com.java.system.agent.inbox.domain.InboxProcessingOutcome;
-import com.java.system.agent.inbox.domain.NormalizedSourceEvent;
-import com.java.system.agent.inbox.domain.SessionSourceRef;
-import com.java.system.agent.inbox.domain.SourceMessageId;
-import com.java.system.agent.inbox.domain.SourcePayloadFingerprintV1;
-import com.java.system.agent.inbox.domain.TransportEventId;
-import com.java.system.agent.inbox.port.in.AcceptSourceEventUseCase;
+import com.java.system.agent.interaction.application.SessionInboxProcessor;
+import com.java.system.agent.interaction.domain.InboxClaim;
+import com.java.system.agent.interaction.domain.InboxMessage;
+import com.java.system.agent.interaction.domain.InboxMessageStatus;
+import com.java.system.agent.interaction.domain.InboxProcessingOutcome;
+import com.java.system.agent.interaction.domain.NormalizedSourceEvent;
+import com.java.system.agent.interaction.domain.SessionSourceRef;
+import com.java.system.agent.interaction.domain.SourceMessageId;
+import com.java.system.agent.interaction.domain.SourcePayloadFingerprintV1;
+import com.java.system.agent.interaction.domain.TransportEventId;
+import com.java.system.agent.interaction.port.in.AcceptSourceEventUseCase;
 import com.java.system.agent.model.action.AgentActionPromptRenderer;
 import com.java.system.agent.model.verification.AnswerVerificationPromptRenderer;
 import com.java.system.agent.persistence.jdbc.PostgresAgentTransitionAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionInboxAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionAdapter;
-import com.java.system.agent.runtime.domain.answer.AnswerVerificationBasis;
-import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
-import com.java.system.agent.runtime.domain.run.AgentRunState;
-import com.java.system.agent.runtime.domain.run.AgentRunStatus;
-import com.java.system.agent.runtime.domain.run.PendingTerminalResponse;
-import com.java.system.agent.runtime.domain.run.RunResponseKind;
-import com.java.system.agent.runtime.domain.run.RunOutcome;
-import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
-import com.java.system.agent.runtime.port.in.AnswerQuestionResult;
-import com.java.system.agent.runtime.port.in.AnswerQuestionUseCase;
+import com.java.system.agent.answering.domain.answer.AnswerVerificationBasis;
+import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.run.AgentRunState;
+import com.java.system.agent.answering.domain.run.AgentRunStatus;
+import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
+import com.java.system.agent.answering.domain.run.RunResponseKind;
+import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.port.in.AnswerQuestionCommand;
+import com.java.system.agent.answering.port.in.AnswerQuestionResult;
+import com.java.system.agent.answering.port.in.AnswerQuestionUseCase;
 import com.java.system.agent.support.CallTimeline;
 import com.java.system.agent.support.ControllableChatModel;
 import com.java.system.agent.support.M2IntegrationTestConfiguration;
@@ -43,8 +43,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -209,8 +207,8 @@ class M2ProductionFlowIT {
                     "OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND");
         });
         assertThat(chatModel.prompts())
-                .extracting(Prompt::getSystemMessage)
-                .extracting(SystemMessage::getText)
+                .extracting(prompt -> prompt.getSystemMessage())
+                .extracting(systemMessage -> systemMessage.getText())
                 .containsExactly(
                         AgentActionPromptRenderer.SYSTEM_INSTRUCTION,
                         AgentActionPromptRenderer.SYSTEM_INSTRUCTION,
@@ -261,8 +259,8 @@ class M2ProductionFlowIT {
                 PARTICIPANT.sourceType(),
                 PARTICIPANT.participantKey()));
         assertThat(chatModel.prompts())
-                .extracting(Prompt::getSystemMessage)
-                .extracting(SystemMessage::getText)
+                .extracting(prompt -> prompt.getSystemMessage())
+                .extracting(systemMessage -> systemMessage.getText())
                 .containsExactly(AgentActionPromptRenderer.SYSTEM_INSTRUCTION);
         assertThat(callTimeline.calls()).containsExactly(
                 CallTimeline.HTTP_REPOSITORY_CATALOG,

@@ -92,7 +92,7 @@ public final class ModelQuotaWindow {
     private Instant tokenCapacityRetryAt(Instant now, long estimatedTokens) {
         long remainingTokens = Math.addExact(minuteTokens, estimatedTokens);
         List<MinuteEntry> orderedEntries = minuteEntries.stream()
-                .sorted(Comparator.comparing(MinuteEntry::expiresAt))
+                .sorted(Comparator.comparing(minuteEntry -> minuteEntry.expiresAt()))
                 .toList();
         Instant retryAt = now.plus(MINUTE);
         for (MinuteEntry entry : orderedEntries) {
@@ -107,7 +107,7 @@ public final class ModelQuotaWindow {
 
     private Instant oldestExpiry() {
         return minuteEntries.stream()
-                .map(MinuteEntry::expiresAt)
+                .map(minuteEntry -> minuteEntry.expiresAt())
                 .min(Comparator.naturalOrder())
                 .orElseThrow(() -> new IllegalStateException("model quota minute window unexpectedly empty"));
     }

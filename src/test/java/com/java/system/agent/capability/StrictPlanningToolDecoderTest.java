@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
-import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
 import com.java.system.agent.capability.planning.PlanningToolInputException;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import jakarta.validation.Validation;
@@ -86,9 +85,6 @@ class StrictPlanningToolDecoderTest {
     @Test
     void planning_protocol_components_do_not_accept_a_host_object_mapper() {
         assertThat(Arrays.stream(StrictPlanningToolDecoder.class.getConstructors())
-                .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes())))
-                .doesNotContain(ObjectMapper.class);
-        assertThat(Arrays.stream(PlanningToolSchemaFactory.class.getConstructors())
                 .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes())))
                 .doesNotContain(ObjectMapper.class);
         assertThat(Arrays.stream(CanonicalCapabilityPayloadCodec.class.getConstructors())

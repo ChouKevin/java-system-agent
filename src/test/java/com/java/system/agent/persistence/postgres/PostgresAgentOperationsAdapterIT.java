@@ -1,16 +1,16 @@
 package com.java.system.agent.persistence.postgres;
 
-import com.java.system.agent.inbox.domain.NormalizedSourceEvent;
-import com.java.system.agent.inbox.domain.SessionSourceRef;
-import com.java.system.agent.inbox.domain.SourceMessageId;
-import com.java.system.agent.inbox.domain.SourceAdmission;
-import com.java.system.agent.inbox.domain.SourcePayloadFingerprintV1;
-import com.java.system.agent.inbox.domain.TransportEventId;
-import com.java.system.agent.inbox.domain.delivery.DeliveryStatus;
+import com.java.system.agent.interaction.domain.NormalizedSourceEvent;
+import com.java.system.agent.interaction.domain.SessionSourceRef;
+import com.java.system.agent.interaction.domain.SourceMessageId;
+import com.java.system.agent.interaction.domain.SourceAdmission;
+import com.java.system.agent.interaction.domain.SourcePayloadFingerprintV1;
+import com.java.system.agent.interaction.domain.TransportEventId;
+import com.java.system.agent.interaction.domain.delivery.DeliveryStatus;
 import com.java.system.agent.persistence.jdbc.PostgresAgentOperationsAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSourceAcceptanceAdapter;
 import com.java.system.agent.persistence.jdbc.UuidInboxIdentityGenerator;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;

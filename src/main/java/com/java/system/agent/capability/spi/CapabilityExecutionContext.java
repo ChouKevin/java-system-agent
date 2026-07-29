@@ -1,14 +1,14 @@
 package com.java.system.agent.capability.spi;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
-import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
-import com.java.system.agent.runtime.domain.scope.RevisionVector;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 
 import java.util.List;
 import java.util.Objects;
 
 /**
- * capability module 在 runtime 驗證後提供給型別化 executor 的共用執行脈絡
+ * capability module 在 answering 驗證後提供給型別化 executor 的共用執行脈絡
  */
 public record CapabilityExecutionContext(
         CapabilityPolicy capability,

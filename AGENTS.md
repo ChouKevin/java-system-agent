@@ -5,38 +5,41 @@
 This repository holds **two independent Maven projects** that share only versioned HTTP contracts and an opaque `repoId`. There is deliberately no `<modules>` aggregation and no parent POM: without aggregation, introducing a shared library would require a dependency visible in a pom diff. Build them separately.
 
 **Root project — the Agent.** A Spring Boot 4 / Java 21 Spring Modulith application.
-`src/main/java/com/java/system/agent/` contains `Application.java`, six Modulith modules, and
+`src/main/java/com/java/system/agent/` contains `Application.java`, eight Modulith modules, and
 profile-gated root configuration:
 
 ```
-runtime/
+answering/
   domain/       action/ answer/ candidate/ capability/ conversation/ evidence/ handle/
                 observation/ run/ scope/
   application/  state/ validation/ + ValidatedAgentLoop and AnalysisApplicationService
   port/         in/ out/
-inbox/
+interaction/
   domain/       immutable inbox message, source identity, status, and failure values
   application/  enqueue boundary, processor, and bounded retry policy
   port/         in/ out/
 persistence/
   document/     versioned Agent state/event JSON codecs
   jdbc/         PostgreSQL inbox, transition, cancellation, and session adapters
-capability/     fixed catalog, executor SPI/registry, and generic QUERY dispatcher
-codebase/       Java Semantic Service HTTP adapter and read-only executors
-model/          Spring AI action and answer-verification adapters
+capability/     framework-neutral PlanningToolProvider platform, registry, executor SPI, and generic QUERY dispatcher
+codeintelligence/
+                Java Semantic Service HTTP adapter, five read-only QUERY tools, and executors
+model/          Spring AI schema, callback, message, action, and answer-verification adapters
 Agent*Configuration.java
                 `agent-runtime` composition, properties, and replaceable infrastructure
 slack/           Socket Mode source normalization and Slack delivery transport
-worker/          profile-gated inbox and delivery lifecycle polling
+worker/          profile-gated interaction and delivery lifecycle polling
 ```
 
-`runtime.domain` groups immutable action-loop values. `ValidatedAgentLoop` is the only lifecycle
+`answering.domain` groups immutable action-loop values. `ValidatedAgentLoop` is the only lifecycle
 orchestrator; `AnalysisApplicationService` is only the public request/result mapping boundary.
 Session history is read once and append-only, while the append-only Agent event trace and atomic
-current-state snapshot are persisted separately. `inbox` serializes work by opaque session;
+current-state snapshot are persisted separately. `interaction` serializes work by opaque session;
 `persistence` implements infrastructure ports without becoming a named interface. `capability`
-depends on `runtime :: domain` and `runtime :: port-out`; `codebase` additionally consumes the
-capability executor SPI; `model` has the same runtime-only dependencies as `capability`.
+depends on `answering :: domain` and `answering :: port-out`; it owns the core ANSWER/CLARIFY
+planning tools. `codeintelligence` contributes the five read-only QUERY tools and additionally
+consumes the capability executor SPI and planning contract. `model` owns the Spring AI schema,
+callback, and message adapters while consuming answering contracts and `capability :: planning`.
 
 **`java-semantic-service/`** is a standalone Java 21 / Spring Boot service that owns repository lifecycle, JDT LS integration, and call-graph construction. It has its own `AGENTS.md`; read that before working in it.
 
@@ -62,14 +65,15 @@ one Agent worker, and one Slack-delivery worker.
 - PostgreSQL durably owns source admission, inbox rows, Agent state/events, append-only session
   history, and receipt/final delivery outbox rows. Slack transport is at-least-once from this
   application's perspective; the deployment contract remains one machine and one process.
-- Capability execution is read-only. The five built-ins are list entry points, lookup/suggest API
-  routes, and outgoing/incoming call graphs. Do not infer an external-state mutation contract.
+- Capability execution is read-only. `codeintelligence` contributes the five built-in QUERY tools:
+  list entry points, lookup/suggest API routes, and outgoing/incoming call graphs. Do not infer an
+  external-state mutation contract.
 
 The validated action-loop cutover is current:
 
-- The model proposes exactly one `QUERY`, `ANSWER`, or `CLARIFY` action and chooses any subset and order of runtime-issued capability and candidate handles.
+- The model proposes exactly one `QUERY`, `ANSWER`, or `CLARIFY` action and chooses any subset and order of answering-issued capability and candidate handles.
 - Deterministic validation rejects unknown, stale, out-of-scope, schema-incompatible, over-budget, uncited, or unsupported output before execution or persistence.
-- The runtime never adds, removes, replaces, or semantically ranks the model candidate list.
+- Answering never adds, removes, replaces, or semantically ranks the model candidate list.
 - Session history is append-only and trace is separate; the runtime never truncates, summarizes,
   deletes, reorders, or rewrites conversation.
 - There is no confidence, route score, or ranking. Uncertainty is expressed through typed observations, evidence, warnings, candidates, and descriptions.
@@ -118,26 +122,26 @@ mvn -f java-semantic-service/pom.xml clean test
 
 The normal root suite requires no Docker or external service. The `postgres-it` profile uses
 Testcontainers and requires Docker. `ApplicationModularityTests` exercises the Modulith contract;
-the runtime, inbox, and persistence architecture tests enforce their detailed package boundaries.
+the answering, interaction, and persistence architecture tests enforce their detailed package boundaries.
 
 ## Architecture Rules
 
 These are enforced by tests, not convention:
 
-- **`runtime` depends on no other module.** Its `package-info.java` declares `@ApplicationModule(allowedDependencies = {})`, and `ApplicationModularityTests` asserts it has no direct dependencies.
-- **`runtime` exposes exactly three named interfaces**: `domain`, `port-in`, `port-out`, via `@NamedInterface(value = "domain", propagate = true)` and the two port packages. `application` and everything else stays module-internal.
-- **`domain` classes depend only on the JDK and their own packages**; inbound and outbound ports depend only on the JDK and domain. `RuntimeKernelArchitectureTest` enforces all four rules.
-- **`inbox` depends only on `runtime :: domain` and `runtime :: port-in`.** It exposes `domain`,
+- **`answering` depends on no other module.** Its `package-info.java` declares `@ApplicationModule(allowedDependencies = {})`, and `ApplicationModularityTests` asserts it has no direct dependencies.
+- **`answering` exposes exactly three named interfaces**: `domain`, `port-in`, `port-out`, via `@NamedInterface(value = "domain", propagate = true)` and the two port packages. `application` and everything else stays module-internal.
+- **`answering.domain` classes depend only on the JDK, their own packages, and minimal `com.fasterxml.jackson.annotation` metadata**; no other Jackson or framework package is allowed. Inbound and outbound ports depend only on the JDK and answering domain. `AnsweringKernelArchitectureTest` enforces all four rules.
+- **`interaction` depends only on `answering :: domain` and `answering :: port-in`.** It exposes `domain`,
   `port-in`, and `port-out`; its application code remains internal and framework-free.
-- **`persistence` depends only on exposed runtime and inbox contracts.** It exposes no named
-  interface and never imports runtime/inbox application internals.
-- **The model chooses semantic action; validators enforce the contract.** The model chooses action,
-  candidate subset/order, capability, and uncertainty wording from runtime-issued opaque handles.
-  Runtime validation accepts or rejects catalog membership, schemas, revisions, budgets,
+- **`persistence` depends only on exposed answering and interaction contracts.** It exposes no named
+  interface and never imports answering/interaction application internals.
+- **The model chooses semantic action; answering validators enforce the contract.** The model chooses action,
+  candidate subset/order, capability, and uncertainty wording from answering-issued opaque handles.
+  Answering validation accepts or rejects catalog membership, schemas, revisions, budgets,
   cancellation, evidence citations, and verdicts.
 - **`AgentStateReducer` makes no semantic choice.** It is the only type that deterministically turns
   an accepted event into the next `AgentRunState`. `AgentTransitionCommitter` persists that event
-  and exactly its candidate state through one atomic port boundary. Runtime lifecycle policy, not
+  and exactly its candidate state through one atomic port boundary. Answering lifecycle policy, not
   the LLM, owns termination, revisions, and IDs.
 - **Future read operations extend `QUERY`; mutations require a new contract.** Java analysis, API
   reads, and log queries can use capability schemas. Any future external-state change requires an
@@ -167,7 +171,7 @@ Test behavior at domain-model boundaries rather than through scripted end-to-end
 
 For adequately covered refactors, keep the relevant tests green rather than inventing a failing test. Use RED-GREEN for new observable behavior and public contract changes.
 
-**Two V2 test fixtures live in `runtime/`**, at `src/test/java/com/java/system/agent/runtime/adapter/fake/`. Scoped test commands must include this directory.
+**Two V2 test fixtures live in `answering/`**, at `src/test/java/com/java/system/agent/answering/adapter/fake/`. Scoped test commands must include this directory.
 
 ## Commit & Pull Request Guidelines
 

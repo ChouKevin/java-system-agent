@@ -1,11 +1,11 @@
 package com.java.system.agent.worker;
 
-import com.java.system.agent.inbox.port.in.ProcessNextDeliveryUseCase;
-import com.java.system.agent.inbox.port.in.ProcessNextInboxUseCase;
-import com.java.system.agent.inbox.port.in.RecoverInterruptedWorkUseCase;
-import com.java.system.agent.inbox.port.in.StopClaimingUseCase;
-import com.java.system.agent.inbox.port.in.AgentOperationsSnapshot;
-import com.java.system.agent.inbox.port.in.ClaimRecoveryFailureException;
+import com.java.system.agent.interaction.port.in.ProcessNextDeliveryUseCase;
+import com.java.system.agent.interaction.port.in.ProcessNextInboxUseCase;
+import com.java.system.agent.interaction.port.in.RecoverInterruptedWorkUseCase;
+import com.java.system.agent.interaction.port.in.StopClaimingUseCase;
+import com.java.system.agent.interaction.port.in.AgentOperationsSnapshot;
+import com.java.system.agent.interaction.port.in.ClaimRecoveryFailureException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;

@@ -2,8 +2,8 @@ package com.java.system.agent.capability;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
-import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
-import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.Validation;

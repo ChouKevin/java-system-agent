@@ -16,6 +16,6 @@ class SlackModuleArchitectureTest {
     @ArchTest
     static final ArchRule nonSlackModulesDoNotDependOnSlackSdk = noClasses()
             .that().resideInAnyPackage(
-                    "..runtime..", "..inbox..", "..persistence..", "..model..", "..capability..", "..codebase..", "..worker..")
+                    "..answering..", "..interaction..", "..persistence..", "..model..", "..capability..", "..codeintelligence..", "..worker..")
             .should().dependOnClassesThat().resideInAnyPackage("com.slack.api..");
 }
