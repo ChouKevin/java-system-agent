@@ -136,9 +136,7 @@ public final class AgentStateReducer {
         if (state.pendingAnswerVerification().isPresent()) {
             throw new IllegalArgumentException("generic action rejection is illegal while answer verification is pending");
         }
-        AttemptBudget budget = event.finalResponseMode()
-                ? state.budget().consumeFinalAnswer()
-                : state.budget().consumeActionRejection();
+        AttemptBudget budget = state.budget().consumeActionRejection();
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), budget,
                 state.acceptedActionCount(), state.rejectedActionCount() + 1, state.pendingTerminalResponse(),
                 Optional.empty());
@@ -182,13 +180,10 @@ public final class AgentStateReducer {
         }
         PendingAnswerVerification pending = state.pendingAnswerVerification().orElseThrow();
         if (!pending.document().equals(event.document())
-                || pending.finalResponseMode() != event.finalResponseMode()
                 || !verificationBasisMatches(pending, event.acceptance())) {
             throw new IllegalArgumentException("accepted answer must match the pending answer verification checkpoint");
         }
-        AttemptBudget budget = pending.finalResponseMode()
-                ? state.budget().consumeFinalAnswer()
-                : state.budget().consumeAgentStep();
+        AttemptBudget budget = state.budget().consumeAgentStep();
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), budget,
                 state.acceptedActionCount() + 1, state.rejectedActionCount(),
                 Optional.of(new PendingTerminalResponse.Answer(
@@ -225,9 +220,7 @@ public final class AgentStateReducer {
             throw new IllegalArgumentException("answer rejection requires a pending answer verification checkpoint");
         }
         PendingAnswerVerification pending = state.pendingAnswerVerification().orElseThrow();
-        AttemptBudget budget = pending.finalResponseMode()
-                ? state.budget().consumeFinalAnswer()
-                : state.budget().consumeActionRejection();
+        AttemptBudget budget = state.budget().consumeActionRejection();
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), budget,
                 state.acceptedActionCount(), state.rejectedActionCount() + 1, Optional.empty(), Optional.empty(),
                 Optional.empty());
@@ -252,9 +245,7 @@ public final class AgentStateReducer {
         if (state.pendingTerminalResponse().isPresent()) {
             throw new IllegalArgumentException("agent run already has a pending terminal response");
         }
-        AttemptBudget budget = event.finalResponseMode()
-                ? state.budget().consumeFinalAnswer()
-                : state.budget().consumeAgentStep();
+        AttemptBudget budget = state.budget().consumeAgentStep();
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), budget,
                 state.acceptedActionCount() + 1, state.rejectedActionCount(),
                 Optional.of(new PendingTerminalResponse.Clarification(
@@ -264,9 +255,9 @@ public final class AgentStateReducer {
     private AgentRunState applyRunConcluded(AgentRunState state, AgentEvent.RunConcluded event) {
         requireInitialAttemptStarted(state);
         validateConclusion(state, event);
-        return next(state, AgentRunStatus.CONCLUDED, state.currentAttempt(), state.budget(),
+        return next(state, AgentRunStatus.CONCLUDED, state.currentAttempt(), state.attemptSequence(), state.budget(),
                 state.acceptedActionCount(), state.rejectedActionCount(), state.pendingTerminalResponse(),
-                Optional.of(event.outcome()), Optional.empty());
+                Optional.of(event.outcome()), Optional.empty(), event.runtimeNoticeReason());
     }
 
     private void validateConclusion(AgentRunState state, AgentEvent.RunConcluded event) {
@@ -275,26 +266,26 @@ public final class AgentStateReducer {
                 if (state.pendingTerminalResponse().isEmpty()) {
                     throw new IllegalArgumentException("completed agent run requires a pending answer response");
                 }
-                if (event.runtimeFixedResponse()) {
-                    throw new IllegalArgumentException("completed agent run cannot discard its accepted response");
+                if (event.runtimeNoticeReason().isPresent()) {
+                    throw new IllegalArgumentException("completed agent run cannot carry a runtime notice");
                 }
                 validateExpectedOutcome(state.pendingTerminalResponse().orElseThrow(), event.outcome());
             }
             case INCONCLUSIVE -> {
                 if (state.pendingTerminalResponse().isPresent()) {
-                    if (event.runtimeFixedResponse()) {
-                        throw new IllegalArgumentException("inconclusive agent run cannot discard its accepted response");
+                    if (event.runtimeNoticeReason().isPresent()) {
+                        throw new IllegalArgumentException("accepted terminal response cannot carry a runtime notice");
                     }
                     validateExpectedOutcome(state.pendingTerminalResponse().orElseThrow(), event.outcome());
-                } else if (!event.runtimeFixedResponse()) {
+                } else if (event.runtimeNoticeReason().isEmpty()) {
                     throw new IllegalArgumentException(
-                            "inconclusive agent run requires a pending terminal response or runtime fixed response");
+                            "inconclusive agent run requires a pending terminal response or runtime notice");
                 }
             }
             case FAILED, CANCELLED -> {
-                if (state.pendingTerminalResponse().isPresent() || !event.runtimeFixedResponse()) {
+                if (state.pendingTerminalResponse().isPresent() || event.runtimeNoticeReason().isPresent()) {
                     throw new IllegalArgumentException(
-                            "failed or cancelled agent run requires a runtime fixed response without terminal content");
+                            "failed or cancelled agent run cannot carry terminal content or a runtime notice");
                 }
             }
         }
@@ -346,8 +337,21 @@ public final class AgentStateReducer {
                                Optional<PendingAnswerVerification> pendingAnswerVerification) {
         return new AgentRunState(state.runId(), status, attempt, attemptSequence, budget,
                 acceptedActionCount, rejectedActionCount,
-                state.stateRevision() + 1, finalOutcome, pendingTerminalResponse, pendingAnswerVerification,
+                state.stateRevision() + 1, finalOutcome, state.runtimeNoticeReason(), pendingTerminalResponse, pendingAnswerVerification,
                 state.requestIdentity());
+    }
+
+    private AgentRunState next(AgentRunState state, AgentRunStatus status, RunAttempt attempt,
+                               int attemptSequence, AttemptBudget budget,
+                               long acceptedActionCount, long rejectedActionCount,
+                               Optional<PendingTerminalResponse> pendingTerminalResponse,
+                               Optional<RunOutcome> finalOutcome,
+                               Optional<PendingAnswerVerification> pendingAnswerVerification,
+                               Optional<com.java.system.agent.runtime.domain.run.RuntimeNoticeReason> runtimeNoticeReason) {
+        return new AgentRunState(state.runId(), status, attempt, attemptSequence, budget,
+                acceptedActionCount, rejectedActionCount,
+                state.stateRevision() + 1, finalOutcome, runtimeNoticeReason, pendingTerminalResponse,
+                pendingAnswerVerification, state.requestIdentity());
     }
 
     private void requireRunning(AgentRunState state) {

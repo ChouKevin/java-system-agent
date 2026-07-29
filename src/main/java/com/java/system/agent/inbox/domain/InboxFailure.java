@@ -16,6 +16,8 @@ public record InboxFailure(String code, String description) {
             "ANSWER_VERIFIER_UNAVAILABLE", "Answer verifier is unavailable");
     public static final InboxFailure ANSWER_INTEGRATION_CONTRACT = new InboxFailure(
             "ANSWER_INTEGRATION_CONTRACT", "Answer integration contract failed");
+    public static final InboxFailure PLANNING_TOOL_CONTRACT = new InboxFailure(
+            "PLANNING_TOOL_CONTRACT", "Planning tool contract failed");
     public static final InboxFailure ANSWER_UNEXPECTED = new InboxFailure(
             "ANSWER_UNEXPECTED", "Unexpected answer execution failure");
 

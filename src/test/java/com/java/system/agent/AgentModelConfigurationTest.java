@@ -1,6 +1,10 @@
 package com.java.system.agent;
 
-import com.java.system.agent.capability.tool.CapabilityToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
+import jakarta.validation.Validation;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.model.quota.ModelQuotaGate;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -21,7 +25,7 @@ class AgentModelConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(AgentModelConfiguration.class)
             .withBean(ChatModel.class, CountingChatModel::new)
-            .withBean(CapabilityToolRegistry.class, () -> new CapabilityToolRegistry(List.of()))
+            .withBean(PlanningToolRegistry.class, AgentModelConfigurationTest::planningToolRegistry)
             .withPropertyValues(
                     "spring.profiles.active=agent-runtime",
                     "agent.model.rate-limit.requests-per-minute=1",
@@ -81,7 +85,7 @@ class AgentModelConfigurationTest {
                 .withBean("primaryChatModel", ChatModel.class, CountingChatModel::new,
                         beanDefinition -> beanDefinition.setPrimary(true))
                 .withBean("secondaryChatModel", ChatModel.class, CountingChatModel::new)
-                .withBean(CapabilityToolRegistry.class, () -> new CapabilityToolRegistry(List.of()))
+                .withBean(PlanningToolRegistry.class, AgentModelConfigurationTest::planningToolRegistry)
                 .withPropertyValues(
                         "spring.profiles.active=agent-runtime",
                         "agent.model.rate-limit.requests-per-minute=15",
@@ -112,5 +116,11 @@ class AgentModelConfigurationTest {
         private int calls() {
             return calls;
         }
+    }
+
+    private static PlanningToolRegistry planningToolRegistry() {
+        ObjectMapper mapper = new ObjectMapper();
+        return new PlanningToolRegistry(List.of(), new StrictPlanningToolDecoder(
+                mapper, Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(mapper));
     }
 }

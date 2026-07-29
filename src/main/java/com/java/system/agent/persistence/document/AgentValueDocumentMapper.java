@@ -21,6 +21,7 @@ import com.java.system.agent.runtime.domain.answer.StatementType;
 import com.java.system.agent.runtime.domain.answer.StatementVerdict;
 import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
+import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.runtime.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
@@ -39,8 +40,10 @@ import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.domain.evidence.SourceRange;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
+import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
 import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
 import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
 import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
@@ -58,6 +61,7 @@ import com.java.system.agent.runtime.domain.run.AnswerVerificationAbandonReason;
 import com.java.system.agent.runtime.domain.run.RunAttempt;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
 import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
+import com.java.system.agent.runtime.domain.run.RuntimeNoticeReason;
 import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
@@ -95,6 +99,7 @@ final class AgentValueDocumentMapper {
         node.put("rejected_action_count", state.rejectedActionCount());
         node.put("state_revision", state.stateRevision());
         putOptionalEnum(node, "final_outcome", state.finalOutcome());
+        putOptionalEnum(node, "runtime_notice_reason", state.runtimeNoticeReason());
         putOptionalNode(node, "pending_terminal_response", state.pendingTerminalResponse().map(this::pendingNode));
         putOptionalNode(node, "pending_answer_verification", state.pendingAnswerVerification().map(this::pendingVerificationNode));
         node.set("request_identity", requestIdentityNode(state.requestIdentity()));
@@ -104,14 +109,14 @@ final class AgentValueDocumentMapper {
     AgentRunState stateFrom(JsonNode payload) {
         ObjectNode node = object(payload);
         requireExactFields(node, "state_type", "run_id", "status", "current_attempt", "attempt_sequence", "budget",
-                "accepted_action_count", "rejected_action_count", "state_revision", "final_outcome",
+                "accepted_action_count", "rejected_action_count", "state_revision", "final_outcome", "runtime_notice_reason",
                 "pending_terminal_response", "pending_answer_verification", "request_identity");
         requireDiscriminator(node, "state_type", "AGENT_RUN_STATE", "unsupported state document discriminator");
         return new AgentRunState(runId(node, "run_id"), enumField(node, "status", AgentRunStatus.class),
                 attemptFrom(required(node, "current_attempt")), intField(node, "attempt_sequence"),
                 budgetFrom(required(node, "budget")),
                 longField(node, "accepted_action_count"), longField(node, "rejected_action_count"), longField(node, "state_revision"),
-                optionalEnum(node, "final_outcome", RunOutcome.class), optionalNode(node, "pending_terminal_response").map(this::pendingFrom),
+                optionalEnum(node, "final_outcome", RunOutcome.class), optionalEnum(node, "runtime_notice_reason", RuntimeNoticeReason.class), optionalNode(node, "pending_terminal_response").map(this::pendingFrom),
                 optionalNode(node, "pending_answer_verification").map(this::pendingVerificationFrom),
                 requestIdentityFrom(required(node, "request_identity")));
     }
@@ -137,7 +142,6 @@ final class AgentValueDocumentMapper {
             case AgentEvent.ActionRejected value -> {
                 putOptionalNode(node, "original_action", value.originalAction().map(this::actionNode));
                 node.put("description", value.description());
-                node.put("final_response_mode", value.finalResponseMode());
             }
             case AgentEvent.QueryBudgetConsumed ignored -> { }
             case AgentEvent.ObservationRecorded value -> node.set("observation", observationNode(value.observation()));
@@ -151,7 +155,6 @@ final class AgentValueDocumentMapper {
                 node.set("acceptance", answerAcceptanceNode(value.acceptance()));
                 node.put("session_id", value.sessionId().value());
                 node.set("turn", conversationTurnNode(value.turn()));
-                node.put("final_response_mode", value.finalResponseMode());
             }
             case AgentEvent.AnswerRejected value -> node.set("verdict", answerVerdictNode(value.verdict()));
             case AgentEvent.AnswerVerificationAbandoned value -> node.put("reason", value.reason().name());
@@ -159,11 +162,10 @@ final class AgentValueDocumentMapper {
                 node.set("action", actionNode(value.action()));
                 node.put("session_id", value.sessionId().value());
                 node.set("turn", conversationTurnNode(value.turn()));
-                node.put("final_response_mode", value.finalResponseMode());
             }
             case AgentEvent.RunConcluded value -> {
                 node.put("outcome", value.outcome().name());
-                node.put("runtime_fixed_response", value.runtimeFixedResponse());
+                putOptionalEnum(node, "runtime_notice_reason", value.runtimeNoticeReason());
             }
         }
         return node;
@@ -244,15 +246,12 @@ final class AgentValueDocumentMapper {
                         "attempt_id",
                         "expected_state_revision",
                         "original_action",
-                        "description",
-                        "final_response_mode");
+                        "description");
                 yield new AgentEvent.ActionRejected(
                         runId,
                         attemptId,
                         expectedRevision,
-                        optionalNode(node, "original_action").map(this::actionFrom),
-                        text(node, "description"),
-                        booleanField(node, "final_response_mode"));
+                        optionalNode(node, "original_action").map(this::actionFrom), text(node, "description"));
             }
             case "QUERY_BUDGET_CONSUMED" -> {
                 requireExactFields(node, "event_type", "run_id", "attempt_id", "expected_state_revision");
@@ -298,17 +297,14 @@ final class AgentValueDocumentMapper {
                         "document",
                         "acceptance",
                         "session_id",
-                        "turn",
-                        "final_response_mode");
+                        "turn");
                 yield new AgentEvent.AnswerAccepted(
                         runId,
                         attemptId,
                         expectedRevision,
                         answerDocumentFrom(required(node, "document")),
                         answerAcceptanceFrom(required(node, "acceptance")),
-                        new SessionId(text(node, "session_id")),
-                        conversationTurnFrom(required(node, "turn")),
-                        booleanField(node, "final_response_mode"));
+                        new SessionId(text(node, "session_id")), conversationTurnFrom(required(node, "turn")));
             }
             case "ANSWER_REJECTED" -> {
                 requireExactFields(node, "event_type", "run_id", "attempt_id", "expected_state_revision", "verdict");
@@ -329,16 +325,13 @@ final class AgentValueDocumentMapper {
                         "expected_state_revision",
                         "action",
                         "session_id",
-                        "turn",
-                        "final_response_mode");
+                        "turn");
                 yield new AgentEvent.ClarificationAccepted(
                         runId,
                         attemptId,
                         expectedRevision,
                         clarifyActionFrom(required(node, "action")),
-                        new SessionId(text(node, "session_id")),
-                        conversationTurnFrom(required(node, "turn")),
-                        booleanField(node, "final_response_mode"));
+                        new SessionId(text(node, "session_id")), conversationTurnFrom(required(node, "turn")));
             }
             case "RUN_CONCLUDED" -> {
                 requireExactFields(
@@ -348,13 +341,13 @@ final class AgentValueDocumentMapper {
                         "attempt_id",
                         "expected_state_revision",
                         "outcome",
-                        "runtime_fixed_response");
+                        "runtime_notice_reason");
                 yield new AgentEvent.RunConcluded(
                         runId,
                         attemptId,
                         expectedRevision,
                         enumField(node, "outcome", RunOutcome.class),
-                        booleanField(node, "runtime_fixed_response"));
+                        optionalEnum(node, "runtime_notice_reason", RuntimeNoticeReason.class));
             }
             default -> throw new PersistenceDocumentException("unsupported event document discriminator");
         };
@@ -386,18 +379,16 @@ final class AgentValueDocumentMapper {
         node.put("max_query_executions", budget.maxQueryExecutions()); node.put("used_query_executions", budget.usedQueryExecutions());
         node.put("max_action_rejections", budget.maxActionRejections()); node.put("used_action_rejections", budget.usedActionRejections());
         node.put("max_revision_restarts", budget.maxRevisionRestarts()); node.put("used_revision_restarts", budget.usedRevisionRestarts());
-        node.put("final_answer_reserve", budget.finalAnswerReserve()); node.put("used_final_answers", budget.usedFinalAnswers());
         return node;
     }
 
     private AttemptBudget budgetFrom(JsonNode node) {
         ObjectNode object = object(node);
-        requireExactFields(object, "max_agent_steps", "used_agent_steps", "max_query_executions", "used_query_executions", "max_action_rejections", "used_action_rejections", "max_revision_restarts", "used_revision_restarts", "final_answer_reserve", "used_final_answers");
+        requireExactFields(object, "max_agent_steps", "used_agent_steps", "max_query_executions", "used_query_executions", "max_action_rejections", "used_action_rejections", "max_revision_restarts", "used_revision_restarts");
         return new AttemptBudget(intField(object, "max_agent_steps"), intField(object, "used_agent_steps"),
                 intField(object, "max_query_executions"), intField(object, "used_query_executions"),
                 intField(object, "max_action_rejections"), intField(object, "used_action_rejections"),
-                intField(object, "max_revision_restarts"), intField(object, "used_revision_restarts"),
-                intField(object, "final_answer_reserve"), intField(object, "used_final_answers"));
+                intField(object, "max_revision_restarts"), intField(object, "used_revision_restarts"));
     }
 
     private ObjectNode requestIdentityNode(RunRequestIdentity identity) {
@@ -643,15 +634,14 @@ final class AgentValueDocumentMapper {
         switch (action) {
             case QueryAction value -> {
                 node.put("action_type", "QUERY"); node.set("capability", capabilityHandleNode(value.capability()));
-                ArrayNode candidates = array(); for (CandidateHandle candidate : value.candidates()) { candidates.add(candidateHandleNode(candidate)); } node.set("candidates", candidates);
-                node.put("question_to_resolve", value.questionToResolve()); ObjectNode arguments = object();
-                for (Map.Entry<String, String> argument : value.arguments().entrySet()) { arguments.put(argument.getKey(), argument.getValue()); }
-                node.set("arguments", arguments); node.put("rationale", value.rationale());
+                ArrayNode candidates = array(); for (CandidateHandleRef candidate : value.candidates()) { candidates.add(candidate.value()); } node.set("candidates", candidates);
+                node.put("question_to_resolve", value.questionToResolve()); node.put("payload", value.payload().value());
+                node.put("rationale", value.rationale());
             }
             case AnswerAction value -> { node.put("action_type", "ANSWER"); node.set("document", answerDocumentNode(value.document())); }
             case ClarifyAction value -> {
                 node.put("action_type", "CLARIFY"); node.put("question", value.question());
-                ArrayNode candidates = array(); for (CandidateHandle candidate : value.candidates()) { candidates.add(candidateHandleNode(candidate)); } node.set("candidates", candidates); node.put("reason", value.reason());
+                ArrayNode candidates = array(); for (CandidateHandleRef candidate : value.candidates()) { candidates.add(candidate.value()); } node.set("candidates", candidates); node.put("reason", value.reason());
             }
         }
         return node;
@@ -667,7 +657,7 @@ final class AgentValueDocumentMapper {
                         "capability",
                         "candidates",
                         "question_to_resolve",
-                        "arguments",
+                        "payload",
                         "rationale");
                 yield queryActionFrom(object);
             }
@@ -683,12 +673,9 @@ final class AgentValueDocumentMapper {
     }
 
     private QueryAction queryActionFrom(ObjectNode node) {
-        List<CandidateHandle> candidates = candidateHandleList(required(node, "candidates")); LinkedHashMap<String, String> arguments = new LinkedHashMap<>();
-        ObjectNode argumentNode = object(required(node, "arguments")); argumentNode.properties().forEach(entry -> {
-            if (!entry.getValue().isTextual()) { throw new PersistenceDocumentException("invalid query action argument value"); }
-            arguments.put(entry.getKey(), entry.getValue().textValue());
-        });
-        return new QueryAction(capabilityHandleFrom(required(node, "capability")), candidates, text(node, "question_to_resolve"), arguments, text(node, "rationale"));
+        List<CandidateHandleRef> candidates = candidateHandleReferences(required(node, "candidates"));
+        return new QueryAction(capabilityHandleFrom(required(node, "capability")), candidates, text(node, "question_to_resolve"),
+                new CapabilityInputPayload(text(node, "payload")), text(node, "rationale"));
     }
 
     private ClarifyAction clarifyActionFrom(JsonNode node) {
@@ -701,7 +688,7 @@ final class AgentValueDocumentMapper {
                 "unsupported clarification action document discriminator");
         return new ClarifyAction(
                 text(object, "question"),
-                candidateHandleList(required(object, "candidates")),
+                candidateHandleReferences(required(object, "candidates")),
                 text(object, "reason"));
     }
 
@@ -720,15 +707,15 @@ final class AgentValueDocumentMapper {
     private ObjectNode answerStatementNode(AnswerStatement statement) {
         ObjectNode node = object(); node.put("statement_id", statement.statementId().value()); node.put("type", statement.type().name()); node.put("text", statement.text());
         putOptionalNode(node, "claim_id", statement.claimId().map(value -> object().put("value", value.value())));
-        ArrayNode citations = array(); for (EvidenceHandle citation : statement.citations()) { citations.add(evidenceHandleNode(citation)); } node.set("citations", citations);
+        ArrayNode citations = array(); for (EvidenceHandleRef citation : statement.citations()) { citations.add(citation.value()); } node.set("citations", citations);
         ArrayNode observations = array(); for (ObservationId id : statement.observationIds()) { observations.add(id.value()); } node.set("observation_ids", observations); return node;
     }
 
     private AnswerStatement answerStatementFrom(JsonNode node) {
-        ObjectNode object = object(node); LinkedHashSet<EvidenceHandle> citations = new LinkedHashSet<>();
+        ObjectNode object = object(node); LinkedHashSet<EvidenceHandleRef> citations = new LinkedHashSet<>();
         requireExactFields(object, "statement_id", "type", "text", "claim_id", "citations", "observation_ids");
         for (JsonNode citation : array(required(object, "citations"))) {
-            addUnique(citations, evidenceHandleFrom(citation));
+            addUnique(citations, new EvidenceHandleRef(text(citation)));
         }
         LinkedHashSet<ObservationId> observations = new LinkedHashSet<>();
         for (JsonNode id : array(required(object, "observation_ids"))) {
@@ -833,17 +820,15 @@ final class AgentValueDocumentMapper {
         node.put("attempt_id", pending.attemptId().value());
         node.set("revisions", revisionsNode(pending.revisions()));
         node.set("document", answerDocumentNode(pending.document()));
-        node.put("final_response_mode", pending.finalResponseMode());
         node.put("verification_mode", pending.verificationMode().name());
         return node;
     }
 
     private PendingAnswerVerification pendingVerificationFrom(JsonNode node) {
         ObjectNode object = object(node);
-        requireExactFields(object, "attempt_id", "revisions", "document", "final_response_mode", "verification_mode");
+        requireExactFields(object, "attempt_id", "revisions", "document", "verification_mode");
         return new PendingAnswerVerification(attemptId(object, "attempt_id"), revisionsFrom(required(object, "revisions")),
-                answerDocumentFrom(required(object, "document")), booleanField(object, "final_response_mode"),
-                enumField(object, "verification_mode", AnswerVerificationMode.class));
+                answerDocumentFrom(required(object, "document")), enumField(object, "verification_mode", AnswerVerificationMode.class));
     }
 
     private ObjectNode capabilityHandleNode(CapabilityHandle handle) { ObjectNode node = object(); node.put("value", handle.value()); node.set("binding", bindingNode(handle.binding())); return node; }
@@ -855,6 +840,14 @@ final class AgentValueDocumentMapper {
     private ObjectNode bindingNode(HandleBinding binding) { ObjectNode node = object(); node.put("run_id", binding.runId().value()); node.put("attempt_id", binding.attemptId().value()); node.set("revision_vector", revisionsNode(binding.revisionVector())); return node; }
     private HandleBinding bindingFrom(JsonNode node) { ObjectNode object = object(node); requireExactFields(object, "run_id", "attempt_id", "revision_vector"); return new HandleBinding(runId(object, "run_id"), attemptId(object, "attempt_id"), revisionsFrom(required(object, "revision_vector"))); }
     private List<CandidateHandle> candidateHandleList(JsonNode node) { List<CandidateHandle> handles = new ArrayList<>(); for (JsonNode handle : array(node)) { handles.add(candidateHandleFrom(handle)); } return handles; }
+
+    private List<CandidateHandleRef> candidateHandleReferences(JsonNode node) {
+        List<CandidateHandleRef> references = new ArrayList<>();
+        for (JsonNode handle : array(node)) {
+            references.add(new CandidateHandleRef(text(handle)));
+        }
+        return references;
+    }
 
     private ObjectNode object() { return objectMapper.createObjectNode(); }
     private ArrayNode array() { return objectMapper.createArrayNode(); }

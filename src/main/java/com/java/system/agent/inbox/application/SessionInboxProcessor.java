@@ -10,6 +10,7 @@ import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.run.RunOutcome;
 import com.java.system.agent.runtime.domain.run.RunResponseKind;
 import com.java.system.agent.runtime.port.in.AnswerExecutionContractException;
+import com.java.system.agent.runtime.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.runtime.port.in.AnalysisExecutionDeferredException;
 import com.java.system.agent.runtime.port.in.AnswerQuestionCommand;
 import com.java.system.agent.runtime.port.in.AnswerExecutionMode;
@@ -88,9 +89,12 @@ public final class SessionInboxProcessor {
             logFailure("ANSWER_VERIFIER_UNAVAILABLE", claimedMessage, exception);
             return retryOrFail(claim, InboxFailure.ANSWER_VERIFIER_UNAVAILABLE, now);
         } catch (AnswerExecutionContractException exception) {
-            logFailure("ANSWER_INTEGRATION_CONTRACT", claimedMessage, exception);
+            InboxFailure failure = exception.failure() == AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT
+                    ? InboxFailure.PLANNING_TOOL_CONTRACT
+                    : InboxFailure.ANSWER_INTEGRATION_CONTRACT;
+            logFailure(failure.code(), claimedMessage, exception);
             sessionInboxPort.failWithFinal(
-                    claim, InboxFailure.ANSWER_INTEGRATION_CONTRACT, safeResponse(RunOutcome.FAILED), now);
+                    claim, failure, safeResponse(RunOutcome.FAILED), now);
             return InboxProcessingOutcome.FAILED;
         } catch (Exception exception) {
             metrics.infrastructureFailure();

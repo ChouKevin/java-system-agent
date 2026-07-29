@@ -63,7 +63,6 @@ public final class AgentActionPromptRenderer {
         }
         section(prompt, "Latest rejection", context.latestRejection().orElse("none"));
         section(prompt, "Remaining budget", remainingBudget(context));
-        section(prompt, "Final-response mode", Boolean.toString(context.finalResponseMode()));
         section(prompt, "Response contract", responseContract);
         return prompt.toString();
     }
@@ -75,7 +74,6 @@ public final class AgentActionPromptRenderer {
     private static String remainingBudget(AgentPromptContext context) {
         return "agentSteps=" + (context.budget().maxAgentSteps() - context.budget().usedAgentSteps())
                 + ", queryExecutions=" + (context.budget().maxQueryExecutions() - context.budget().usedQueryExecutions())
-                + ", actionRejections=" + (context.budget().maxActionRejections() - context.budget().usedActionRejections())
-                + ", finalAnswers=" + (context.budget().finalAnswerReserve() - context.budget().usedFinalAnswers());
+                + ", actionRejections=" + (context.budget().maxActionRejections() - context.budget().usedActionRejections());
     }
 }

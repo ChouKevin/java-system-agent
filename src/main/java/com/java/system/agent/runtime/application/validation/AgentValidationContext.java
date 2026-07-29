@@ -19,8 +19,7 @@ import java.util.Objects;
  */
 public record AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> capabilities,
         Map<CandidateHandle, IssuedCandidate> candidates, Map<EvidenceHandle, IssuedEvidence> evidence,
-        Map<ObservationId, AgentObservation> observations, HandleBinding currentBinding, AttemptBudget budget,
-        boolean finalResponseMode) {
+        Map<ObservationId, AgentObservation> observations, HandleBinding currentBinding, AttemptBudget budget) {
     public AgentValidationContext {
         Objects.requireNonNull(capabilities, "capabilities must not be null");
         Objects.requireNonNull(candidates, "candidates must not be null");
@@ -35,6 +34,19 @@ public record AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> cap
         candidates = Map.copyOf(candidates);
         evidence = Map.copyOf(evidence);
         observations = Map.copyOf(observations);
+    }
+
+    /**
+     * 舊測試 fixture 的暫時建構相容入口，驗證不再有 final response mode
+     */
+    @Deprecated
+    public AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> capabilities,
+                                  Map<CandidateHandle, IssuedCandidate> candidates,
+                                  Map<EvidenceHandle, IssuedEvidence> evidence,
+                                  Map<ObservationId, AgentObservation> observations,
+                                  HandleBinding currentBinding, AttemptBudget budget,
+                                  boolean ignoredFinalResponseMode) {
+        this(capabilities, candidates, evidence, observations, currentBinding, budget);
     }
 
     private static void validateCandidateEntries(Map<CandidateHandle, IssuedCandidate> candidates) {

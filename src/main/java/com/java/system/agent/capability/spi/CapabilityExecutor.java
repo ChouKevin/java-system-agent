@@ -1,15 +1,11 @@
 package com.java.system.agent.capability.spi;
 
-import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
-import com.java.system.agent.runtime.port.out.CapabilityInvocation;
 
 /**
- * 一個已宣告 capability 的外部執行器 SPI，由 capability dispatcher 以精確 descriptor 路由
+ * 以 registration policy 識別的 capability 專屬型別化 read executor
  */
-public interface CapabilityExecutor {
+public interface CapabilityExecutor<E> {
 
-    CapabilityPolicy capability();
-
-    CapabilityExecutionResult execute(CapabilityInvocation invocation);
+    CapabilityExecutionResult execute(CapabilityExecutionContext context, E input);
 }

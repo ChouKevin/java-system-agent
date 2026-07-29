@@ -10,8 +10,7 @@ import java.util.Objects;
  * 已持久化且尚未取得 verifier 結果的回答 checkpoint
  */
 public record PendingAnswerVerification(AnalysisAttemptId attemptId, RevisionVector revisions,
-                                        AnswerDocument document, boolean finalResponseMode,
-                                        AnswerVerificationMode verificationMode) {
+                                        AnswerDocument document, AnswerVerificationMode verificationMode) {
     public PendingAnswerVerification {
         Objects.requireNonNull(attemptId, "pending answer verification attempt ID must not be null");
         Objects.requireNonNull(revisions, "pending answer verification revisions must not be null");

@@ -1,6 +1,6 @@
 package com.java.system.agent.runtime.domain.answer;
 
-import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.runtime.domain.observation.ObservationId;
 
 import java.util.Objects;
@@ -8,10 +8,10 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 新型回答文件中可被獨立驗證的一段文字
+ * 模型回答文件中可被獨立驗證的一段文字，citation 值必須由 runtime 依本輪 issued 證據解析
  */
 public record AnswerStatement(StatementId statementId, StatementType type, String text, Optional<ClaimId> claimId,
-        Set<EvidenceHandle> citations, Set<ObservationId> observationIds) {
+        Set<EvidenceHandleRef> citations, Set<ObservationId> observationIds) {
     public AnswerStatement {
         Objects.requireNonNull(statementId, "answer statement ID must not be null");
         Objects.requireNonNull(type, "answer statement type must not be null");

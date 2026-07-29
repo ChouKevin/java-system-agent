@@ -18,6 +18,7 @@ import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
 import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
 import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
@@ -257,10 +258,10 @@ class AnswerVerificationAdapterTest {
         AnswerDocument document = new AnswerDocument(List.of(
                 new AnswerStatement(new StatementId("statement-b"), StatementType.FACT, "Second fact",
                         Optional.of(new com.java.system.agent.runtime.domain.answer.ClaimId("claim-b")),
-                        Set.of(evidenceB, evidenceA), Set.of(observationB, observationA)),
+                        Set.of(new EvidenceHandleRef(evidenceB.value()), new EvidenceHandleRef(evidenceA.value())), Set.of(observationB, observationA)),
                 new AnswerStatement(new StatementId("statement-a"), StatementType.FACT, "First fact",
                         Optional.of(new com.java.system.agent.runtime.domain.answer.ClaimId("claim-a")),
-                        Set.of(evidenceA), Set.of(observationA))));
+                        Set.of(new EvidenceHandleRef(evidenceA.value())), Set.of(observationA))));
         IssuedEvidence issuedEvidenceB = new IssuedEvidence(evidenceB, evidence(repositoryId, revision, "Evidence B", "digest-b"));
         IssuedEvidence issuedEvidenceA = new IssuedEvidence(evidenceA, evidence(repositoryId, revision, "Evidence A", "digest-a"));
         AgentObservation observationValueB = observation(observationB, evidenceB, "Observation B");

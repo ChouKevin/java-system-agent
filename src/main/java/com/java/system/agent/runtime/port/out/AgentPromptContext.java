@@ -32,8 +32,7 @@ public record AgentPromptContext(
         Map<EvidenceHandle, IssuedEvidence> issuedEvidence,
         Map<ObservationId, AgentObservation> observations,
         Optional<String> latestRejection,
-        AttemptBudget budget,
-        boolean finalResponseMode) {
+        AttemptBudget budget) {
 
     public AgentPromptContext {
         Objects.requireNonNull(originalQuestion, "original question must not be null");
@@ -50,6 +49,20 @@ public record AgentPromptContext(
         issuedCandidates = immutableMap(issuedCandidates, "issued candidate");
         issuedEvidence = immutableMap(issuedEvidence, "issued evidence");
         observations = immutableMap(observations, "observation");
+    }
+
+    /**
+     * 舊測試 fixture 的暫時建構相容入口，runtime 不再支援 final response mode
+     */
+    @Deprecated
+    public AgentPromptContext(String originalQuestion, SessionHistory sessionHistory, AnalysisRunId runId,
+                              AnalysisAttemptId attemptId, Map<CapabilityHandle, CapabilityPolicy> issuedCapabilities,
+                              Map<CandidateHandle, IssuedCandidate> issuedCandidates,
+                              Map<EvidenceHandle, IssuedEvidence> issuedEvidence,
+                              Map<ObservationId, AgentObservation> observations, Optional<String> latestRejection,
+                              AttemptBudget budget, boolean ignoredFinalResponseMode) {
+        this(originalQuestion, sessionHistory, runId, attemptId, issuedCapabilities, issuedCandidates, issuedEvidence,
+                observations, latestRejection, budget);
     }
 
     private static String requiredText(String value) {

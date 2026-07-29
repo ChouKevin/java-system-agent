@@ -12,12 +12,9 @@ import com.java.system.agent.runtime.domain.answer.AnswerStatement;
 import com.java.system.agent.runtime.domain.answer.ClaimId;
 import com.java.system.agent.runtime.domain.answer.StatementId;
 import com.java.system.agent.runtime.domain.answer.StatementType;
-import com.java.system.agent.runtime.domain.candidate.CandidateKind;
-import com.java.system.agent.runtime.domain.handle.CandidateHandle;
-import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
-import com.java.system.agent.runtime.domain.handle.HandleBinding;
+import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.runtime.domain.observation.ObservationId;
-import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
 
@@ -56,13 +53,12 @@ public final class AgentActionResponseInterpreter {
     private AgentActionProposal proposedAnswer(AgentActionResponse response, AgentPromptContext context) {
         requireOnly(response, ActionResponseType.ANSWER);
         AnswerResponse answer = Objects.requireNonNull(response.answer(), "answer response must not be null");
-        HandleBinding binding = binding(context);
         List<AnswerStatement> statements = new ArrayList<>();
         for (AnswerStatementResponse statement : requiredList(answer.statements(), "answer statements")) {
             Objects.requireNonNull(statement, "answer statement must not be null");
             Optional<ClaimId> claimId = Optional.ofNullable(statement.claimId()).map(ClaimId::new);
             statements.add(new AnswerStatement(new StatementId(statement.statementId()), StatementType.valueOf(statement.type()),
-                    statement.text(), claimId, evidenceHandles(statement.citationHandles(), context, binding),
+                    statement.text(), claimId, evidenceHandles(statement.citationHandles()),
                     observationIds(statement.observationIds())));
         }
         return new AgentActionProposal.Proposed(new AnswerAction(new AnswerDocument(statements)));
@@ -72,7 +68,7 @@ public final class AgentActionResponseInterpreter {
         requireOnly(response, ActionResponseType.CLARIFY);
         ClarifyResponse clarify = Objects.requireNonNull(response.clarify(), "clarify response must not be null");
         return new AgentActionProposal.Proposed(new ClarifyAction(clarify.question(),
-                candidateHandles(clarify.candidateHandles(), context, binding(context)), clarify.reason()));
+                candidateHandles(clarify.candidateHandles()), clarify.reason()));
     }
 
     private static void requireOnly(AgentActionResponse response, ActionResponseType expected) {
@@ -84,42 +80,20 @@ public final class AgentActionResponseInterpreter {
         }
     }
 
-    private static List<CandidateHandle> candidateHandles(List<String> values, AgentPromptContext context,
-                                                           HandleBinding binding) {
-        List<CandidateHandle> handles = new ArrayList<>();
+    private static List<CandidateHandleRef> candidateHandles(List<String> values) {
+        List<CandidateHandleRef> handles = new ArrayList<>();
         for (String value : requiredList(values, "candidate handles")) {
-            handles.add(candidateHandle(value, context, binding));
+            handles.add(new CandidateHandleRef(requiredText(value, "candidate handle")));
         }
         return List.copyOf(handles);
     }
 
-    private static CandidateHandle candidateHandle(String value, AgentPromptContext context, HandleBinding binding) {
-        String requiredValue = requiredText(value, "candidate handle");
-        for (CandidateHandle handle : context.issuedCandidates().keySet()) {
-            if (handle.value().equals(requiredValue)) {
-                return handle;
-            }
-        }
-        return new CandidateHandle(requiredValue, binding, CandidateKind.REPOSITORY);
-    }
-
-    private static Set<EvidenceHandle> evidenceHandles(List<String> values, AgentPromptContext context,
-                                                        HandleBinding binding) {
-        Set<EvidenceHandle> handles = new LinkedHashSet<>();
+    private static Set<EvidenceHandleRef> evidenceHandles(List<String> values) {
+        Set<EvidenceHandleRef> handles = new LinkedHashSet<>();
         for (String value : requiredList(values, "citation handles")) {
-            handles.add(evidenceHandle(value, context, binding));
+            handles.add(new EvidenceHandleRef(requiredText(value, "evidence handle")));
         }
         return Set.copyOf(handles);
-    }
-
-    private static EvidenceHandle evidenceHandle(String value, AgentPromptContext context, HandleBinding binding) {
-        String requiredValue = requiredText(value, "evidence handle");
-        for (EvidenceHandle handle : context.issuedEvidence().keySet()) {
-            if (handle.value().equals(requiredValue)) {
-                return handle;
-            }
-        }
-        return new EvidenceHandle(requiredValue, binding);
     }
 
     private static Set<ObservationId> observationIds(List<String> values) {
@@ -143,7 +117,4 @@ public final class AgentActionResponseInterpreter {
         return value;
     }
 
-    private static HandleBinding binding(AgentPromptContext context) {
-        return new HandleBinding(context.runId(), context.attemptId(), RevisionVector.empty());
-    }
 }

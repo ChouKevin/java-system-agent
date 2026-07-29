@@ -1,8 +1,14 @@
 package com.java.system.agent.model.action;
 
 import com.google.genai.errors.ClientException;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
+import com.java.system.agent.capability.planning.QueryPlanningMapper;
+import com.java.system.agent.capability.planning.QueryPlanningSelection;
+import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
+import com.java.system.agent.capability.spi.CapabilityExecutionContext;
 import com.java.system.agent.capability.spi.CapabilityExecutor;
-import com.java.system.agent.capability.tool.CapabilityToolRegistry;
 import com.java.system.agent.runtime.domain.action.QueryAction;
 import com.java.system.agent.runtime.domain.action.AnswerAction;
 import com.java.system.agent.runtime.domain.action.ClarifyAction;
@@ -28,6 +34,7 @@ import com.java.system.agent.runtime.domain.scope.RepositoryId;
 import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
 import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
+import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.runtime.domain.observation.AgentObservation;
 import com.java.system.agent.runtime.domain.observation.ObservationCode;
 import com.java.system.agent.runtime.domain.observation.ObservationId;
@@ -37,7 +44,11 @@ import com.java.system.agent.runtime.port.out.AgentActionTransportException;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
 import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
 import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
-import com.java.system.agent.runtime.port.out.CapabilityInvocation;
+import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
+import jakarta.validation.Validation;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.ai.chat.client.ChatClient;
@@ -78,8 +89,8 @@ class SpringAiAgentActionAdapterTest {
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.capability().value()).isEqualTo("cap-1");
-        assertThat(action.candidates()).extracting(CandidateHandle::value).containsExactly("candidate-2", "candidate-1");
-        assertThat(action.arguments()).isEmpty();
+        assertThat(action.candidates()).extracting(CandidateHandleRef::value).containsExactly("candidate-2", "candidate-1");
+        assertThat(action.payload().value()).isEqualTo("{}");
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -94,7 +105,7 @@ class SpringAiAgentActionAdapterTest {
 
         AgentActionProposal proposal = adapter(model).nextAction(context());
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(CapabilityToolRegistry.INVALID_TOOL_INPUT));
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -151,7 +162,7 @@ class SpringAiAgentActionAdapterTest {
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         AnswerAction action = (AnswerAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.document().statements()).hasSize(1);
-        assertThat(action.document().statements().getFirst().citations()).extracting(EvidenceHandle::value).containsExactly("evidence-1");
+        assertThat(action.document().statements().getFirst().citations()).extracting(EvidenceHandleRef::value).containsExactly("evidence-1");
         assertThat(action.document().statements().getFirst().observationIds()).extracting(ObservationId::value).containsExactly("observation-1");
         assertThat(model.calls()).isEqualTo(1);
     }
@@ -167,7 +178,7 @@ class SpringAiAgentActionAdapterTest {
 
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         ClarifyAction action = (ClarifyAction) ((AgentActionProposal.Proposed) proposal).action();
-        assertThat(action.candidates()).extracting(CandidateHandle::value).containsExactly("candidate-2", "candidate-1");
+        assertThat(action.candidates()).extracting(CandidateHandleRef::value).containsExactly("candidate-2", "candidate-1");
         assertThat(action.question()).isEqualTo("Which repository?");
         assertThat(model.calls()).isEqualTo(1);
     }
@@ -200,8 +211,7 @@ class SpringAiAgentActionAdapterTest {
         assertThat(prompt.indexOf("Evidence")).isLessThan(prompt.indexOf("Observations"));
         assertThat(prompt.indexOf("Observations")).isLessThan(prompt.indexOf("Latest rejection"));
         assertThat(prompt.indexOf("Latest rejection")).isLessThan(prompt.indexOf("Remaining budget"));
-        assertThat(prompt.indexOf("Remaining budget")).isLessThan(prompt.indexOf("Final-response mode"));
-        assertThat(prompt.indexOf("Final-response mode")).isLessThan(prompt.indexOf("Response contract"));
+        assertThat(prompt.indexOf("Remaining budget")).isLessThan(prompt.indexOf("Response contract"));
         assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION).contains("Use only issued opaque handles", "registered tool call")
                 .doesNotContain("memory", "advisor");
     }
@@ -253,19 +263,13 @@ class SpringAiAgentActionAdapterTest {
 
     private static SpringAiAgentActionAdapter adapter(CountingChatModel model) {
         CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
-        CapabilityExecutor executor = new CapabilityExecutor() {
-            @Override
-            public CapabilityPolicy capability() {
-                return policy;
-            }
-
-            @Override
-            public CapabilityExecutionResult execute(CapabilityInvocation invocation) {
-                return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
-            }
-        };
-        CapabilityToolRegistry registry = new CapabilityToolRegistry(List.of(CapabilityToolRegistry.registration(
-                policy, CapabilityToolRegistry.decoder(), executor)));
+        CapabilityExecutor<ToolInput> executor = (context, input) ->
+                new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+        ObjectMapper mapper = new ObjectMapper();
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(PlanningToolRegistry.registration(
+                policy, ToolInput.class, ToolInput.class, new ToolInputMapper(), executor,
+                new PlanningToolSchemaFactory(mapper))), new StrictPlanningToolDecoder(
+                mapper, Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(mapper));
         return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry);
     }
 
@@ -282,7 +286,7 @@ class SpringAiAgentActionAdapterTest {
                 Map.of(capability, descriptor),
                 Map.of(firstCandidate, new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")),
                         secondCandidate, new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second"))),
-                Map.of(), Map.of(), java.util.Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0, 1, 0), false);
+                Map.of(), Map.of(), java.util.Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0));
     }
 
     private AgentPromptContext answerContext() {
@@ -299,9 +303,23 @@ class SpringAiAgentActionAdapterTest {
                 ObservationCode.PARTIAL_GRAPH, "Graph is partial", Set.of(), Set.of(evidenceHandle), "runtime");
         return new AgentPromptContext("Where is it called?", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
                 Map.of(evidenceHandle, new IssuedEvidence(evidenceHandle, evidence)), Map.of(observationId, observation),
-                Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0, 1, 0), false);
+                Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0));
     }
 
+    private record ToolInput(
+            @JsonProperty(required = true) List<String> candidateHandles,
+            @JsonProperty(required = true) String questionToResolve,
+            @JsonProperty(required = true) String rationale) {
+    }
+
+    private static final class ToolInputMapper implements QueryPlanningMapper<ToolInput, ToolInput> {
+
+        @Override
+        public QueryPlanningSelection<ToolInput> map(ToolInput input) {
+            return new QueryPlanningSelection<>(input.candidateHandles().stream().map(CandidateHandleRef::new).toList(),
+                    input.questionToResolve(), input.rationale(), input);
+        }
+    }
     private static final class CountingChatModel implements ChatModel {
 
         private final String response;
