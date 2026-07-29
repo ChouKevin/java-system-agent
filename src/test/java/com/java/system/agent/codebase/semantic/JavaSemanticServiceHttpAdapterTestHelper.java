@@ -3,6 +3,7 @@ package com.java.system.agent.codebase.semantic;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.candidate.SemanticTargetCandidate;
+import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
@@ -16,7 +17,6 @@ import com.java.system.agent.runtime.port.out.CapabilityInvocation;
 import com.java.system.agent.codebase.semantic.dto.SemanticDtos;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -47,6 +47,7 @@ final class JavaSemanticServiceHttpAdapterTestHelper {
                 new SemanticTargetCandidate(repositoryId, revision, target, "Order lookup"));
         CapabilityPolicy capability = new CapabilityPolicy("codebase.outgoing-call-graph", "v1",
                 Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
-        return new CapabilityInvocation(capability, List.of(candidate), "Trace orders", Map.of("depth", "1"), revisions);
+        return new CapabilityInvocation(capability, List.of(candidate), "Trace orders",
+                new CapabilityInputPayload("{\"depth\":1}"), revisions);
     }
 }

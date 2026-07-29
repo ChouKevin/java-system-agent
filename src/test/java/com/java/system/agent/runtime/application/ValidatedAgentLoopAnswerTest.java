@@ -806,7 +806,7 @@ class ValidatedAgentLoopAnswerTest {
                 sessionId,
                 PARTICIPANT,
                 question,
-                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0));
+                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0));
     }
 
     private AgentLoopRequest request(ParticipantRef participant, AnswerExecutionMode mode) {
@@ -816,26 +816,26 @@ class ValidatedAgentLoopAnswerTest {
                 new SessionId("session-1"),
                 participant,
                 "What is verified?",
-                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
+                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
                 mode,
                 attemptCount);
     }
 
     private AgentLoopRequest terminalRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.TERMINAL_RECONCILIATION, 4);
     }
 
     private AgentLoopRequest retryRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.RETRY, 2);
     }
 
     private AgentLoopRequest capacityResumeRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.CAPACITY_RESUME, 2);
     }
 
@@ -843,7 +843,7 @@ class ValidatedAgentLoopAnswerTest {
         AgentRunState initial = AgentRunState.initial(
                 new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"),
-                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0, 1, 0),
+                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
                 new com.java.system.agent.runtime.domain.run.RunRequestIdentity(
                         "session-1", PARTICIPANT, "What is verified?"));
         AgentStateReducer reducer = new AgentStateReducer();

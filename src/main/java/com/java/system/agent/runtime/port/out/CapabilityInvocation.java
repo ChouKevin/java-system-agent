@@ -37,12 +37,4 @@ public record CapabilityInvocation(
         return List.copyOf(values);
     }
 
-    /**
-     * 舊測試 fixture 的暫時建構相容入口，舊引數 map 不會傳入 runtime 或 executor
-     */
-    @Deprecated
-    public CapabilityInvocation(CapabilityPolicy capability, List<IssuedCandidate> candidates, String question,
-                                java.util.Map<String, String> ignoredArguments, RevisionVector expectedRevisions) {
-        this(capability, candidates, question, new CapabilityInputPayload("{}"), expectedRevisions);
-    }
 }

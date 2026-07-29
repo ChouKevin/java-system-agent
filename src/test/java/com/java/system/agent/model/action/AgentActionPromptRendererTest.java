@@ -31,7 +31,7 @@ class AgentActionPromptRendererTest {
         AgentPromptContext context = new AgentPromptContext(
                 "請查詢付款流程", history, new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
                 Map.of(), Map.of(), Map.of(), Map.of(), Optional.empty(),
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0), false);
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0));
 
         String prompt = new AgentActionPromptRenderer().render(context, "response contract");
 

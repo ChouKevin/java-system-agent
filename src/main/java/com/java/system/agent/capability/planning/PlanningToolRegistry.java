@@ -39,8 +39,10 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
     public PlanningToolRegistry(
             List<QueryPlanningToolRegistration<?, ?>> registrations,
             StrictPlanningToolDecoder decoder,
-            CanonicalCapabilityPayloadCodec payloadCodec) {
-        this.registrations = index(registrations);
+            CanonicalCapabilityPayloadCodec payloadCodec,
+            PlanningToolSchemaFactory schemaFactory) {
+        this.registrations = index(registrations, Objects.requireNonNull(
+                schemaFactory, "planning schema factory must not be null"));
         this.decoder = Objects.requireNonNull(decoder, "planning tool decoder must not be null");
         this.payloadCodec = Objects.requireNonNull(payloadCodec, "capability payload codec must not be null");
     }
@@ -140,13 +142,16 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
     }
 
     private static Map<CapabilityIdentity, QueryPlanningToolRegistration<?, ?>> index(
-            List<QueryPlanningToolRegistration<?, ?>> values) {
+            List<QueryPlanningToolRegistration<?, ?>> values,
+            PlanningToolSchemaFactory schemaFactory) {
         Objects.requireNonNull(values, "planning registrations must not be null");
         Map<CapabilityIdentity, QueryPlanningToolRegistration<?, ?>> result = new LinkedHashMap<>();
         java.util.Set<String> names = new HashSet<>();
         for (QueryPlanningToolRegistration<?, ?> registration : values) {
             QueryPlanningToolRegistration<?, ?> required = Objects.requireNonNull(
                     registration, "planning registration must not contain null");
+            schemaFactory.verifyRegisteredSchema(required.planningInputType(),
+                    required.callback().getToolDefinition().inputSchema());
             if (!TOOL_NAME.matcher(required.name()).matches()) {
                 throw new IllegalArgumentException("planning tool name must be canonical lowercase underscore text");
             }

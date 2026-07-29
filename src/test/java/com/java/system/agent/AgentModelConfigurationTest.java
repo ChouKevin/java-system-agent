@@ -2,6 +2,7 @@ package com.java.system.agent;
 
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import jakarta.validation.Validation;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -120,7 +121,8 @@ class AgentModelConfigurationTest {
 
     private static PlanningToolRegistry planningToolRegistry() {
         ObjectMapper mapper = new ObjectMapper();
+        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(mapper);
         return new PlanningToolRegistry(List.of(), new StrictPlanningToolDecoder(
-                mapper, Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(mapper));
+                mapper, Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(mapper), schemaFactory);
     }
 }

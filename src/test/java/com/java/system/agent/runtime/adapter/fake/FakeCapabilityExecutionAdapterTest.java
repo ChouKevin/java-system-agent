@@ -3,6 +3,7 @@ package com.java.system.agent.runtime.adapter.fake;
 import com.java.system.agent.runtime.domain.candidate.CandidateKind;
 import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
 import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
+import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
 import com.java.system.agent.runtime.domain.handle.CandidateHandle;
 import com.java.system.agent.runtime.domain.handle.HandleBinding;
@@ -17,7 +18,6 @@ import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,6 +60,6 @@ class FakeCapabilityExecutionAdapterTest {
                 new RepositoryCandidate(repositoryId, "repository candidate"));
         CapabilityPolicy capability = new CapabilityPolicy("lookup", "v1", Set.of(CandidateKind.REPOSITORY),
                 1, 1);
-        return new CapabilityInvocation(capability, List.of(candidate), "question", Map.of(), revisions);
+        return new CapabilityInvocation(capability, List.of(candidate), "question", new CapabilityInputPayload("{}"), revisions);
     }
 }

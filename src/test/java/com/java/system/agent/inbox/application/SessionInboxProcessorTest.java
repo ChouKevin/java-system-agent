@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SessionInboxProcessorTest {
 
     private static final Instant NOW = Instant.parse("2030-07-26T10:00:00Z");
-    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0);
+    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0);
 
     @ParameterizedTest
     @MethodSource("validTerminalResults")

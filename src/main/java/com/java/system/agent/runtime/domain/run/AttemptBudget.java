@@ -12,16 +12,6 @@ public record AttemptBudget(int maxAgentSteps, int usedAgentSteps, int maxQueryE
         validate(maxRevisionRestarts, usedRevisionRestarts, "revision restarts");
     }
 
-    /**
-     * 舊測試 fixture 的暫時建構相容入口，final response 額度不會保存或影響 runtime
-     */
-    @Deprecated
-    public AttemptBudget(int maxAgentSteps, int usedAgentSteps, int maxQueryExecutions, int usedQueryExecutions,
-                         int maxActionRejections, int usedActionRejections, int maxRevisionRestarts,
-                         int usedRevisionRestarts, int ignoredFinalAnswerReserve, int ignoredUsedFinalAnswers) {
-        this(maxAgentSteps, usedAgentSteps, maxQueryExecutions, usedQueryExecutions,
-                maxActionRejections, usedActionRejections, maxRevisionRestarts, usedRevisionRestarts);
-    }
     public AttemptBudget consumeAgentStep() { return copy(consume(maxAgentSteps, usedAgentSteps, "agent step"), usedQueryExecutions, usedActionRejections, usedRevisionRestarts); }
     public AttemptBudget consumeQueryExecution() { return copy(usedAgentSteps, consume(maxQueryExecutions, usedQueryExecutions, "query execution"), usedActionRejections, usedRevisionRestarts); }
     public AttemptBudget consumeActionRejection() { return copy(usedAgentSteps, usedQueryExecutions, consume(maxActionRejections, usedActionRejections, "action rejection"), usedRevisionRestarts); }

@@ -266,10 +266,11 @@ class SpringAiAgentActionAdapterTest {
         CapabilityExecutor<ToolInput> executor = (context, input) ->
                 new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
         ObjectMapper mapper = new ObjectMapper();
+        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory(mapper);
         PlanningToolRegistry registry = new PlanningToolRegistry(List.of(PlanningToolRegistry.registration(
                 policy, ToolInput.class, ToolInput.class, new ToolInputMapper(), executor,
-                new PlanningToolSchemaFactory(mapper))), new StrictPlanningToolDecoder(
-                mapper, Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(mapper));
+                schemaFactory)), new StrictPlanningToolDecoder(
+                mapper, Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(mapper), schemaFactory);
         return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry);
     }
 

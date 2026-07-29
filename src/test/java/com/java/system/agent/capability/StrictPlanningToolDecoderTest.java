@@ -10,7 +10,10 @@ import jakarta.validation.Validation;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,26 +28,46 @@ class StrictPlanningToolDecoderTest {
 
     @Test
     void accepts_missing_optional_field_but_rejects_explicit_null() {
-        Input input = decoder.decode("{\"required\":\"value\",\"limit\":2}", Input.class);
+        Input input = decoder.decode("{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"limit\":2}", Input.class);
 
         assertThat(input.optional()).isNull();
-        assertThatThrownBy(() -> decoder.decode("{\"required\":\"value\",\"optional\":null,\"limit\":2}", Input.class))
+        assertThatThrownBy(() -> decoder.decode("{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"optional\":null,\"limit\":2}", Input.class))
                 .isInstanceOf(PlanningToolInputException.class);
     }
 
     @Test
     void rejects_unknown_duplicate_trailing_and_coerced_input() {
-        assertThatThrownBy(() -> decoder.decode("{\"required\":\"value\",\"limit\":2,\"extra\":true}", Input.class))
+        assertThatThrownBy(() -> decoder.decode("{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"limit\":2,\"extra\":true}", Input.class))
                 .isInstanceOf(PlanningToolInputException.class);
-        assertThatThrownBy(() -> decoder.decode("{\"required\":\"value\",\"limit\":2,\"limit\":3}", Input.class))
+        assertThatThrownBy(() -> decoder.decode("{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"limit\":2,\"limit\":3}", Input.class))
                 .isInstanceOf(PlanningToolInputException.class);
-        assertThatThrownBy(() -> decoder.decode("{\"required\":\"value\",\"limit\":2} {}", Input.class))
+        assertThatThrownBy(() -> decoder.decode("{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"limit\":2} {}", Input.class))
                 .isInstanceOf(PlanningToolInputException.class);
-        assertThatThrownBy(() -> decoder.decode("{\"required\":\"value\",\"limit\":\"2\"}", Input.class))
+        assertThatThrownBy(() -> decoder.decode("{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"limit\":\"2\"}", Input.class))
+                .isInstanceOf(PlanningToolInputException.class);
+    }
+
+    @Test
+    void rejects_floating_point_values_for_integer_input() {
+        assertThatThrownBy(() -> decoder.decode(
+                "{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"limit\":1.5}", Input.class))
+                .isInstanceOf(PlanningToolInputException.class);
+    }
+
+    @Test
+    void rejects_missing_null_and_blank_required_candidate_handles() {
+        assertThatThrownBy(() -> decoder.decode("{\"required\":\"value\",\"limit\":2}", Input.class))
+                .isInstanceOf(PlanningToolInputException.class);
+        assertThatThrownBy(() -> decoder.decode(
+                "{\"candidateHandles\":null,\"required\":\"value\",\"limit\":2}", Input.class))
+                .isInstanceOf(PlanningToolInputException.class);
+        assertThatThrownBy(() -> decoder.decode(
+                "{\"candidateHandles\":[\" \"],\"required\":\"value\",\"limit\":2}", Input.class))
                 .isInstanceOf(PlanningToolInputException.class);
     }
 
     private record Input(
+            @JsonProperty(required = true) @NotNull List<@NotBlank String> candidateHandles,
             @JsonProperty(required = true) @NotBlank String required,
             @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String optional,
             @JsonProperty(required = true) @Min(1) @Max(3) int limit) {

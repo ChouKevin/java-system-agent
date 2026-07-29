@@ -281,7 +281,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentRunState initial = AgentRunState.initial(
                 runId,
                 attemptId,
-                new AttemptBudget(5, 0, 4, 0, 3, 0, 2, 0, 2, 0),
+                new AttemptBudget(5, 0, 4, 0, 3, 0, 2, 0),
                 identity);
         AgentTransition runStarted = reducer.reduce(initial, new AgentEvent.RunStarted(runId, attemptId, 0));
         AgentTransition attemptStarted = reducer.reduce(

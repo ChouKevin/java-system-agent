@@ -59,7 +59,7 @@ public final class AgentCapabilityConfiguration {
                 PlanningToolRegistry.registration(suggestApiRoute, SuggestApiRoutePlanningInput.class, SuggestApiRouteExecutionInput.class, new SuggestApiRoutePlanningMapper(), new SuggestApiRouteExecutor(adapter), schemaFactory),
                 PlanningToolRegistry.registration(outgoingCallGraph, OutgoingCallGraphPlanningInput.class, OutgoingCallGraphExecutionInput.class, new OutgoingCallGraphPlanningMapper(), new OutgoingCallGraphExecutor(adapter), schemaFactory),
                 PlanningToolRegistry.registration(incomingCallGraph, IncomingCallGraphPlanningInput.class, IncomingCallGraphExecutionInput.class, new IncomingCallGraphPlanningMapper(), new IncomingCallGraphExecutor(adapter), schemaFactory)),
-                new StrictPlanningToolDecoder(objectMapper, validator), new CanonicalCapabilityPayloadCodec(objectMapper));
+                new StrictPlanningToolDecoder(objectMapper, validator), new CanonicalCapabilityPayloadCodec(objectMapper), schemaFactory);
     }
 
     @Bean

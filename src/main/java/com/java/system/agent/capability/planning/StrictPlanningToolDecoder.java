@@ -69,6 +69,7 @@ public final class StrictPlanningToolDecoder {
                 .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                 .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
                 .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+                .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
                 .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
                 .build();
     }

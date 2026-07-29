@@ -291,7 +291,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     private AttemptBudget budget() {
-        return new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0);
+        return new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0);
     }
 
     private List<ConversationTurn> sessionTurns(SessionId sessionId) {

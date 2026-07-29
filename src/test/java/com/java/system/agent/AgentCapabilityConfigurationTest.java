@@ -12,8 +12,10 @@ import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
 import com.java.system.agent.runtime.domain.run.AnalysisRunId;
 import com.java.system.agent.runtime.domain.run.AttemptBudget;
 import com.java.system.agent.runtime.domain.scope.RevisionVector;
+import com.java.system.agent.runtime.port.out.AgentActionProposal;
 import com.java.system.agent.runtime.port.out.AgentPromptContext;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.tool.ToolCallback;
 import jakarta.validation.Validation;
 
@@ -42,24 +44,61 @@ class AgentCapabilityConfigurationTest {
         assertThat(required(schemas, "codebase_list_entry_points")).doesNotContain("type");
         assertThat(required(schemas, "codebase_outgoing_call_graph")).doesNotContain("depth");
         assertThat(required(schemas, "codebase_incoming_call_graph")).doesNotContain("depth");
+        assertThat(schemas).hasSize(5);
+        for (JsonNode schema : schemas.values()) {
+            assertThat(schema.path("required")).extracting(JsonNode::asText).contains("candidateHandles");
+            assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
+                    .isGreaterThanOrEqualTo(1);
+        }
+    }
+
+    @Test
+    void maps_blank_registered_candidate_handle_to_invalid_tool_input_before_its_mapper() {
+        PlanningToolRegistry registry = registry();
+        CapabilityPolicy policy = registry.availableCapabilities().stream()
+                .filter(value -> value.name().equals("codebase_lookup_api_route"))
+                .findFirst()
+                .orElseThrow();
+        AgentPromptContext context = contextFor(List.of(policy));
+
+        AgentActionProposal proposal = registry.interpretToolCall(new AssistantMessage.ToolCall("call-1", "function",
+                policy.name(), """
+                        {"candidateHandles":[" "],"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
+                        """), context);
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
     }
 
     private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry) throws Exception {
-        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), RevisionVector.empty());
-        LinkedHashMap<CapabilityHandle, CapabilityPolicy> policies = new LinkedHashMap<>();
-        int sequence = 1;
-        for (CapabilityPolicy policy : registry.availableCapabilities()) {
-            policies.put(new CapabilityHandle("capability-" + sequence, binding), policy);
-            sequence++;
-        }
-        AgentPromptContext context = new AgentPromptContext("Find routes", SessionHistory.empty(), binding.runId(), binding.attemptId(),
-                policies, Map.of(), Map.of(), Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0));
+        return schemasByToolName(registry, registry.availableCapabilities());
+    }
+
+    private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry, List<CapabilityPolicy> policies) throws Exception {
+        AgentPromptContext context = contextFor(policies);
         ObjectMapper objectMapper = new ObjectMapper();
         LinkedHashMap<String, JsonNode> schemas = new LinkedHashMap<>();
         for (ToolCallback callback : registry.issuedCallbacks(context)) {
             schemas.put(callback.getToolDefinition().name(), objectMapper.readTree(callback.getToolDefinition().inputSchema()));
         }
         return Map.copyOf(schemas);
+    }
+
+    private static AgentPromptContext contextFor(List<CapabilityPolicy> policies) {
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), RevisionVector.empty());
+        LinkedHashMap<CapabilityHandle, CapabilityPolicy> issuedCapabilities = new LinkedHashMap<>();
+        int sequence = 1;
+        for (CapabilityPolicy policy : policies) {
+            issuedCapabilities.put(new CapabilityHandle("capability-" + sequence, binding), policy);
+            sequence++;
+        }
+        return new AgentPromptContext("Find routes", SessionHistory.empty(), binding.runId(), binding.attemptId(),
+                issuedCapabilities, Map.of(), Map.of(), Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0));
+    }
+
+    private static PlanningToolRegistry registry() {
+        return new AgentCapabilityConfiguration().planningToolRegistry(
+                mock(JavaSemanticServiceHttpAdapter.class), new ObjectMapper(),
+                Validation.buildDefaultValidatorFactory().getValidator());
     }
 
     private static List<String> required(Map<String, JsonNode> schemas, String toolName) {
