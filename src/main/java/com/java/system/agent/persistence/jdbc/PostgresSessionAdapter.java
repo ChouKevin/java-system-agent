@@ -1,12 +1,12 @@
 package com.java.system.agent.persistence.jdbc;
 
-import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
-import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
-import com.java.system.agent.runtime.domain.conversation.SessionHistory;
-import com.java.system.agent.runtime.domain.conversation.SessionId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.port.out.SessionPort;
+import com.java.system.agent.answering.domain.conversation.ConversationTurn;
+import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.port.out.SessionPort;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.TransactionException;

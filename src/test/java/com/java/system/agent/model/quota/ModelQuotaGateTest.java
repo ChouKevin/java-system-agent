@@ -2,9 +2,9 @@ package com.java.system.agent.model.quota;
 
 import com.java.system.agent.AgentModelRateLimitProperties;
 import com.java.system.agent.model.ModelTransportFailureClassifier;
-import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
-import com.java.system.agent.runtime.domain.run.ExecutionDeferralReason;
-import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.domain.run.ExecutionDeferral;
+import com.java.system.agent.answering.domain.run.ExecutionDeferralReason;
+import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.ai.chat.messages.AssistantMessage;

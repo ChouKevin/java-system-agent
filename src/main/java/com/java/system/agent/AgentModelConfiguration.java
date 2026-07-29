@@ -1,7 +1,10 @@
 package com.java.system.agent;
 
 import com.java.system.agent.model.action.SpringAiAgentActionAdapter;
+import com.java.system.agent.model.action.SpringAiPlanningToolCallbackAdapter;
+import com.java.system.agent.model.action.SpringAiPlanningToolSchemaFactory;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
 import com.java.system.agent.model.quota.ModelInputTokenEstimator;
 import com.java.system.agent.model.quota.ModelQuotaGate;
 import com.java.system.agent.model.quota.ModelQuotaWindow;
@@ -9,8 +12,8 @@ import com.java.system.agent.model.quota.ModelRetryAfterExtractor;
 import com.java.system.agent.model.verification.AnswerVerificationDispatcher;
 import com.java.system.agent.model.verification.ContractOnlyAnswerVerificationAdapter;
 import com.java.system.agent.model.verification.SpringAiAnswerVerificationAdapter;
-import com.java.system.agent.runtime.port.out.AgentActionPort;
-import com.java.system.agent.runtime.port.out.AnswerVerificationPort;
+import com.java.system.agent.answering.port.out.AgentActionPort;
+import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.model.ModelLifecycleMetrics;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
@@ -97,9 +100,22 @@ public final class AgentModelConfiguration {
     }
 
     @Bean
+    PlanningToolSchemaFactory planningToolSchemaFactory() {
+        return new SpringAiPlanningToolSchemaFactory();
+    }
+
+    @Bean
+    SpringAiPlanningToolCallbackAdapter springAiPlanningToolCallbackAdapter(
+            PlanningToolRegistry registry,
+            PlanningToolSchemaFactory schemaFactory) {
+        return new SpringAiPlanningToolCallbackAdapter(registry, schemaFactory);
+    }
+
+    @Bean
     AgentActionPort agentActionPort(@Qualifier("agentActionChatClient") ChatClient chatClient,
-                                    PlanningToolRegistry registry) {
-        return new SpringAiAgentActionAdapter(chatClient, registry);
+                                    PlanningToolRegistry registry,
+                                    SpringAiPlanningToolCallbackAdapter callbackAdapter) {
+        return new SpringAiAgentActionAdapter(chatClient, registry, callbackAdapter);
     }
 
     @Bean

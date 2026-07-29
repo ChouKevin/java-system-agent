@@ -5,54 +5,54 @@ import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec
 import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
 import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
-import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
+import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.QueryPlanningMapper;
 import com.java.system.agent.capability.planning.QueryPlanningSelection;
+import com.java.system.agent.capability.planning.RequestClarificationPlanningInput;
+import com.java.system.agent.capability.planning.RequestClarificationPlanningMapper;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
+import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
+import com.java.system.agent.capability.planning.SubmitAnswerPlanningMapper;
 import com.java.system.agent.capability.spi.CapabilityExecutionContext;
 import com.java.system.agent.capability.spi.CapabilityExecutor;
-import com.java.system.agent.runtime.domain.action.QueryAction;
-import com.java.system.agent.runtime.domain.action.AnswerAction;
-import com.java.system.agent.runtime.domain.action.ClarifyAction;
-import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
-import com.java.system.agent.runtime.domain.candidate.CandidateKind;
-import com.java.system.agent.runtime.domain.candidate.IssuedCandidate;
-import com.java.system.agent.runtime.domain.candidate.RepositoryCandidate;
-import com.java.system.agent.runtime.domain.conversation.SessionHistory;
-import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
-import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
-import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
-import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
-import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
-import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
-import com.java.system.agent.runtime.domain.handle.CandidateHandle;
-import com.java.system.agent.runtime.domain.handle.HandleBinding;
-import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.AttemptBudget;
-import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
-import com.java.system.agent.runtime.domain.run.ExecutionDeferralReason;
-import com.java.system.agent.runtime.domain.scope.RepositoryId;
-import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
-import com.java.system.agent.runtime.domain.scope.RevisionVector;
-import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
-import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
-import com.java.system.agent.runtime.domain.observation.AgentObservation;
-import com.java.system.agent.runtime.domain.observation.ObservationCode;
-import com.java.system.agent.runtime.domain.observation.ObservationId;
-import com.java.system.agent.runtime.domain.observation.ObservationSource;
-import com.java.system.agent.runtime.port.out.AgentActionProposal;
-import com.java.system.agent.runtime.port.out.AgentActionTransportException;
-import com.java.system.agent.runtime.port.out.AgentActionContractException;
-import com.java.system.agent.runtime.port.out.AgentPromptContext;
-import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
-import com.java.system.agent.runtime.port.out.CapabilityExecutionResult;
-import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
-import com.java.system.agent.runtime.domain.handle.CandidateHandleRef;
-import com.java.system.agent.model.action.planning.RequestClarificationPlanningInput;
-import com.java.system.agent.model.action.planning.RequestClarificationPlanningMapper;
-import com.java.system.agent.model.action.planning.SubmitAnswerPlanningInput;
-import com.java.system.agent.model.action.planning.SubmitAnswerPlanningMapper;
+import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
+import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.evidence.ArtifactRef;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
+import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ExecutionDeferral;
+import com.java.system.agent.answering.domain.run.ExecutionDeferralReason;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
+import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
+import com.java.system.agent.answering.domain.observation.AgentObservation;
+import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.port.out.AgentActionProposal;
+import com.java.system.agent.answering.port.out.AgentActionTransportException;
+import com.java.system.agent.answering.port.out.AgentActionContractException;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
+import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import jakarta.validation.Validation;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -76,6 +76,11 @@ import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Spring AI action adapter 的結構輸出與單次 transport 邊界測試
@@ -239,6 +244,49 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
+    void extractsTheSingleToolNameAndRawArgumentsThroughTheNeutralRegistryProtocol() {
+        String rawArguments = """
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","rationale":"Trace callers"}
+                """;
+        AgentPromptContext promptContext = context();
+        PlanningToolRegistry registry = mock(PlanningToolRegistry.class);
+        SpringAiPlanningToolCallbackAdapter callbacks = mock(SpringAiPlanningToolCallbackAdapter.class);
+        when(callbacks.issuedCallbacks(promptContext)).thenReturn(List.of());
+        AgentActionProposal expected = new AgentActionProposal.Malformed("INVALID_TOOL_INPUT");
+        when(registry.interpretToolCall("callers", rawArguments, promptContext)).thenReturn(expected);
+        CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
+                .content(" \n\t ")
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "callers", rawArguments)))
+                .build());
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(
+                ChatClient.builder(model).build(), registry, callbacks);
+
+        AgentActionProposal proposal = adapter.nextAction(promptContext);
+
+        assertThat(proposal).isEqualTo(expected);
+        verify(registry).interpretToolCall(eq("callers"), eq(rawArguments), eq(promptContext));
+    }
+
+    @Test
+    void rejectsNonblankAssistantTextBeforeCallingTheNeutralRegistryProtocol() {
+        AgentPromptContext promptContext = context();
+        PlanningToolRegistry registry = mock(PlanningToolRegistry.class);
+        SpringAiPlanningToolCallbackAdapter callbacks = mock(SpringAiPlanningToolCallbackAdapter.class);
+        when(callbacks.issuedCallbacks(promptContext)).thenReturn(List.of());
+        CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
+                .content("I will query it")
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "callers", "{}")))
+                .build());
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(
+                ChatClient.builder(model).build(), registry, callbacks);
+
+        AgentActionProposal proposal = adapter.nextAction(promptContext);
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        verifyNoInteractions(registry);
+    }
+
+    @Test
     void rejectsZeroOrMultipleToolCallsWithoutAnotherModelCall() {
         CountingChatModel zeroToolCalls = new CountingChatModel(AssistantMessage.builder().content("").build());
         CountingChatModel multipleToolCalls = new CountingChatModel(AssistantMessage.builder()
@@ -399,17 +447,19 @@ class SpringAiAgentActionAdapterTest {
                 Set.of(CandidateKind.REPOSITORY), 1, 2);
         CapabilityExecutor<ToolInput> executor = (context, input) ->
                 new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
-        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory();
-        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(PlanningToolRegistry.registration(
-                policy, ToolInput.class, ToolInput.class, mapper, executor, schemaFactory),
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolProvider provider = () -> List.of(PlanningToolRegistry.registration(
+                policy, ToolInput.class, ToolInput.class, mapper, executor, payloadCodec),
                 PlanningToolRegistry.registration(unissuedPolicy, ToolInput.class, ToolInput.class, mapper, executor,
-                        schemaFactory),
+                        payloadCodec),
                 new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
-                        answerMapper, schemaFactory),
+                        answerMapper),
                 new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
-                        new RequestClarificationPlanningMapper(), schemaFactory)), new StrictPlanningToolDecoder(
+                        new RequestClarificationPlanningMapper()));
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(provider), new StrictPlanningToolDecoder(
                 Validation.buildDefaultValidatorFactory().getValidator()),
-                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()), schemaFactory);
+                payloadCodec);
         return registry;
     }
 

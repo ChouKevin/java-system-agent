@@ -2,16 +2,16 @@ package com.java.system.agent.persistence.document;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.java.system.agent.runtime.domain.run.AgentEvent;
-import com.java.system.agent.runtime.domain.run.AgentRunState;
-import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.AttemptBudget;
-import com.java.system.agent.runtime.domain.run.RunOutcome;
-import com.java.system.agent.runtime.domain.run.RunFailureReason;
-import com.java.system.agent.runtime.domain.run.RunRequestIdentity;
-import com.java.system.agent.runtime.domain.run.RuntimeNoticeReason;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.run.AgentEvent;
+import com.java.system.agent.answering.domain.run.AgentRunState;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.domain.run.RunFailureReason;
+import com.java.system.agent.answering.domain.run.RunRequestIdentity;
+import com.java.system.agent.answering.domain.run.RuntimeNoticeReason;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;

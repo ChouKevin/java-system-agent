@@ -1,6 +1,6 @@
 package com.java.system.agent;
 
-import com.java.system.agent.codebase.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;

@@ -1,16 +1,16 @@
 package com.java.system.agent;
 
-import com.java.system.agent.runtime.domain.action.AgentAction;
-import com.java.system.agent.runtime.domain.answer.AnswerDocument;
-import com.java.system.agent.runtime.domain.candidate.AnalysisCandidate;
-import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
-import com.java.system.agent.runtime.domain.conversation.SessionId;
-import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
-import com.java.system.agent.runtime.domain.handle.CandidateHandle;
-import com.java.system.agent.runtime.domain.observation.AgentObservation;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.AttemptBudget;
-import com.java.system.agent.runtime.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.answer.AnswerDocument;
+import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.observation.AgentObservation;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import org.junit.jupiter.api.DisplayName;
@@ -58,37 +58,37 @@ class ApplicationModularityTests {
                 .map(module -> module.getIdentifier().toString())
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("runtime", "inbox", "persistence", "capability", "model", "codebase", "slack", "worker"), moduleNames,
-                "Expected exactly the runtime, inbox, persistence, capability, model, codebase, slack, and worker modules");
+        assertEquals(Set.of("answering", "interaction", "persistence", "capability", "model", "codeintelligence", "slack", "worker"), moduleNames,
+                "Expected exactly the answering, interaction, persistence, capability, model, code intelligence, slack, and worker modules");
     }
 
     @Test
-    @DisplayName("agent v2 runtime kernel should depend on no other module")
-    void runtimeKernelShouldHaveNoModuleDependencies() {
-        ApplicationModule runtime = requireRuntime();
+    @DisplayName("agent v2 answering kernel should depend on no other module")
+    void answeringKernelShouldHaveNoModuleDependencies() {
+        ApplicationModule answering = requireAnswering();
 
-        assertTrue(runtime.getDirectDependencies(modules).isEmpty(),
-                () -> "Expected runtime kernel to have no module dependencies, but found: "
-                        + runtime.getDirectDependencies(modules).uniqueModules().toList());
+        assertTrue(answering.getDirectDependencies(modules).isEmpty(),
+                () -> "Expected answering kernel to have no module dependencies, but found: "
+                        + answering.getDirectDependencies(modules).uniqueModules().toList());
     }
 
     @Test
-    @DisplayName("runtime kernel should expose only its contract packages")
-    void runtimeKernelShouldExposeOnlyContractPackages() {
-        Set<String> exposed = requireRuntime().getNamedInterfaces().stream()
+    @DisplayName("answering kernel should expose only its contract packages")
+    void answeringKernelShouldExposeOnlyContractPackages() {
+        Set<String> exposed = requireAnswering().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
                 .map(NamedInterface::getName)
                 .collect(Collectors.toSet());
 
         assertEquals(Set.of("domain", "port-in", "port-out"), exposed,
-                "Runtime kernel must expose exactly its domain and port packages");
+                "Answering kernel must expose exactly its domain and port packages");
     }
 
     @Test
-    @DisplayName("runtime domain interface should contain shared domain values")
-    void runtimeDomainInterfaceShouldContainSharedDomainValues() {
-        NamedInterface domain = requireRuntime().getNamedInterfaces().getByName("domain")
-                .orElseThrow(() -> new IllegalStateException("Missing runtime domain interface"));
+    @DisplayName("answering domain interface should contain shared domain values")
+    void answeringDomainInterfaceShouldContainSharedDomainValues() {
+        NamedInterface domain = requireAnswering().getNamedInterfaces().getByName("domain")
+                .orElseThrow(() -> new IllegalStateException("Missing answering domain interface"));
 
         assertTrue(domain.contains(SessionId.class)
                         && domain.contains(AnalysisRunId.class)
@@ -101,43 +101,43 @@ class ApplicationModularityTests {
                         && domain.contains(CandidateHandle.class)
                         && domain.contains(AgentObservation.class)
                         && domain.contains(RepositoryId.class),
-                "Runtime domain interface must expose all domain values shared with adapters");
+                "Answering domain interface must expose all domain values shared with adapters");
     }
 
     @Test
-    @DisplayName("durable session inbox should depend only on runtime")
-    void inboxShouldHaveOnlyIntendedModuleDependencies() {
-        ApplicationModule inbox = requireInbox();
-        Set<String> dependencies = inbox.getDirectDependencies(modules).uniqueModules()
+    @DisplayName("durable session interaction should depend only on answering")
+    void interactionShouldHaveOnlyIntendedModuleDependencies() {
+        ApplicationModule interactionModule = requireInteraction();
+        Set<String> dependencies = interactionModule.getDirectDependencies(modules).uniqueModules()
                 .map(module -> module.getIdentifier().toString())
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("runtime"), dependencies,
-                "Inbox module must depend only on runtime exposed contracts");
+        assertEquals(Set.of("answering"), dependencies,
+                "Interaction module must depend only on answering exposed contracts");
     }
 
     @Test
-    @DisplayName("durable session inbox should expose only its contract packages")
-    void inboxShouldExposeOnlyContractPackages() {
-        Set<String> exposed = requireInbox().getNamedInterfaces().stream()
+    @DisplayName("durable session interaction should expose only its contract packages")
+    void interactionShouldExposeOnlyContractPackages() {
+        Set<String> exposed = requireInteraction().getNamedInterfaces().stream()
                 .filter(namedInterface -> !namedInterface.isUnnamed())
                 .map(NamedInterface::getName)
                 .collect(Collectors.toSet());
 
         assertEquals(Set.of("domain", "port-in", "port-out"), exposed,
-                "Inbox module must expose exactly its domain and port packages");
+                "Interaction module must expose exactly its domain and port packages");
     }
 
     @Test
-    @DisplayName("PostgreSQL persistence should depend only on exposed runtime and inbox contracts")
+    @DisplayName("PostgreSQL persistence should depend only on exposed answering and interaction contracts")
     void persistenceShouldHaveOnlyIntendedModuleDependencies() {
         ApplicationModule persistence = requirePersistence();
         Set<String> dependencies = persistence.getDirectDependencies(modules).uniqueModules()
                 .map(module -> module.getIdentifier().toString())
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("runtime", "inbox"), dependencies,
-                "Persistence module must depend only on runtime and inbox exposed contracts");
+        assertEquals(Set.of("answering", "interaction"), dependencies,
+                "Persistence module must depend only on answering and interaction exposed contracts");
     }
 
     @Test
@@ -152,32 +152,32 @@ class ApplicationModularityTests {
     }
 
     @Test
-    @DisplayName("capability module should declare only runtime domain and outbound dependencies")
+    @DisplayName("capability module should declare only answering domain and outbound dependencies")
     void capabilityShouldDeclareOnlyIntendedModuleDependencies() {
-        assertEquals(Set.of("runtime :: domain", "runtime :: port-out"), allowedDependenciesOf(requireCapability()),
-                "Capability module must depend only on runtime domain and outbound contracts");
-        assertEquals(Set.of("runtime"), directDependenciesOf(requireCapability()),
-                "Capability module must directly depend only on runtime");
+        assertEquals(Set.of("answering :: domain", "answering :: port-out"), allowedDependenciesOf(requireCapability()),
+                "Capability module must depend only on answering domain and outbound contracts");
+        assertEquals(Set.of("answering"), directDependenciesOf(requireCapability()),
+                "Capability module must directly depend only on answering");
     }
 
     @Test
-    @DisplayName("model module should declare only runtime and capability planning dependencies")
+    @DisplayName("model module should declare only answering and capability planning dependencies")
     void modelShouldDeclareOnlyIntendedModuleDependencies() {
-        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: planning"),
+        assertEquals(Set.of("answering :: domain", "answering :: port-out", "capability :: planning"),
                 allowedDependenciesOf(requireModel()),
-                "Model module must depend only on runtime contracts and capability planning registry");
-        assertEquals(Set.of("runtime", "capability"), directDependenciesOf(requireModel()),
-                "Model module must directly depend only on runtime and capability");
+                "Model module must depend only on answering contracts and capability planning registry");
+        assertEquals(Set.of("answering", "capability"), directDependenciesOf(requireModel()),
+                "Model module must directly depend only on answering and capability");
     }
 
     @Test
-    @DisplayName("codebase module should declare only runtime, capability executor, and planning dependencies")
-    void codebaseShouldDeclareOnlyIntendedModuleDependencies() {
-        assertEquals(Set.of("runtime :: domain", "runtime :: port-out", "capability :: executor-spi", "capability :: planning"),
-                allowedDependenciesOf(requireCodebase()),
-                "Codebase module must depend only on runtime contracts, capability executor SPI, and planning contract");
-        assertEquals(Set.of("runtime", "capability"), directDependenciesOf(requireCodebase()),
-                "Codebase module must directly depend only on runtime and capability");
+    @DisplayName("code intelligence module should declare only answering, capability executor, and planning dependencies")
+    void codeIntelligenceShouldDeclareOnlyIntendedModuleDependencies() {
+        assertEquals(Set.of("answering :: domain", "answering :: port-out", "capability :: executor-spi", "capability :: planning"),
+                allowedDependenciesOf(requireCodeIntelligence()),
+                "Code intelligence module must depend only on answering contracts, capability executor SPI, and planning contract");
+        assertEquals(Set.of("answering", "capability"), directDependenciesOf(requireCodeIntelligence()),
+                "Code intelligence module must directly depend only on answering and capability");
     }
 
     @Test
@@ -193,13 +193,13 @@ class ApplicationModularityTests {
     }
 
     @Test
-    @DisplayName("Slack transport should declare only inbox contracts and runtime domain values")
+    @DisplayName("Slack transport should declare only interaction contracts and answering domain values")
     void slackShouldDeclareOnlyIntendedModuleDependencies() {
-        assertEquals(Set.of("inbox :: domain", "inbox :: port-in", "inbox :: port-out", "runtime :: domain"),
+        assertEquals(Set.of("interaction :: domain", "interaction :: port-in", "interaction :: port-out", "answering :: domain"),
                 allowedDependenciesOf(requireSlack()),
-                "Slack must depend only on inbox contracts and transport-neutral runtime domain values");
-        assertEquals(Set.of("inbox", "runtime"), directDependenciesOf(requireSlack()),
-                "Slack must directly depend only on inbox and runtime");
+                "Slack must depend only on interaction contracts and transport-neutral answering domain values");
+        assertEquals(Set.of("interaction", "answering"), directDependenciesOf(requireSlack()),
+                "Slack must directly depend only on interaction and answering");
     }
 
     @Test
@@ -226,14 +226,14 @@ class ApplicationModularityTests {
                 .collect(Collectors.toSet());
     }
 
-    private ApplicationModule requireRuntime() {
-        return modules.getModuleByName("runtime")
-                .orElseThrow(() -> new IllegalStateException("Missing module: runtime"));
+    private ApplicationModule requireAnswering() {
+        return modules.getModuleByName("answering")
+                .orElseThrow(() -> new IllegalStateException("Missing module: answering"));
     }
 
-    private ApplicationModule requireInbox() {
-        return modules.getModuleByName("inbox")
-                .orElseThrow(() -> new IllegalStateException("Missing module: inbox"));
+    private ApplicationModule requireInteraction() {
+        return modules.getModuleByName("interaction")
+                .orElseThrow(() -> new IllegalStateException("Missing module: interaction"));
     }
 
     private ApplicationModule requirePersistence() {
@@ -251,9 +251,9 @@ class ApplicationModularityTests {
                 .orElseThrow(() -> new IllegalStateException("Missing module: model"));
     }
 
-    private ApplicationModule requireCodebase() {
-        return modules.getModuleByName("codebase")
-                .orElseThrow(() -> new IllegalStateException("Missing module: codebase"));
+    private ApplicationModule requireCodeIntelligence() {
+        return modules.getModuleByName("codeintelligence")
+                .orElseThrow(() -> new IllegalStateException("Missing module: code intelligence"));
     }
 
     private ApplicationModule requireSlack() {

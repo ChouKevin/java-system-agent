@@ -2,8 +2,8 @@ package com.java.system.agent.capability.planning;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.java.system.agent.runtime.domain.capability.CapabilityInputPayload;
-import com.java.system.agent.runtime.port.out.CapabilityExecutionContractException;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 

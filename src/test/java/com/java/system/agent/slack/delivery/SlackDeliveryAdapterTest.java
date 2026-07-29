@@ -1,16 +1,16 @@
 package com.java.system.agent.slack.delivery;
 
-import com.java.system.agent.inbox.domain.InboxMessageId;
-import com.java.system.agent.inbox.domain.SessionSourceRef;
-import com.java.system.agent.inbox.domain.delivery.DeliveryId;
-import com.java.system.agent.inbox.domain.delivery.DeliveryKind;
-import com.java.system.agent.inbox.domain.delivery.DeliveryMessage;
-import com.java.system.agent.inbox.domain.delivery.DeliveryStatus;
-import com.java.system.agent.inbox.domain.delivery.DeliveryTransportResult;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.RunOutcome;
-import com.java.system.agent.runtime.domain.run.RunResponseKind;
+import com.java.system.agent.interaction.domain.InboxMessageId;
+import com.java.system.agent.interaction.domain.SessionSourceRef;
+import com.java.system.agent.interaction.domain.delivery.DeliveryId;
+import com.java.system.agent.interaction.domain.delivery.DeliveryKind;
+import com.java.system.agent.interaction.domain.delivery.DeliveryMessage;
+import com.java.system.agent.interaction.domain.delivery.DeliveryStatus;
+import com.java.system.agent.interaction.domain.delivery.DeliveryTransportResult;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.domain.run.RunResponseKind;
 import com.java.system.agent.slack.source.SlackSourceIdentity;
 import com.java.system.agent.slack.source.SlackSourceIdentityCodec;
 import com.slack.api.methods.MethodsClient;

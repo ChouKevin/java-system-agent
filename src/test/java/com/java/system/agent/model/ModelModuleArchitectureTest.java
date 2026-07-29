@@ -8,7 +8,7 @@ import com.tngtech.archunit.lang.ArchRule;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 
 /**
- * Model 整合只依賴 Spring AI 與 runtime 已公開 domain 和 outbound contract 的邊界測試
+ * Model 整合只依賴 Spring AI 與 answering 已公開 domain 和 outbound contract 的邊界測試
  */
 @AnalyzeClasses(
         packages = "com.java.system.agent.model",
@@ -22,7 +22,7 @@ class ModelModuleArchitectureTest {
             .should().onlyDependOnClassesThat()
             .resideInAnyPackage("java..", "com.fasterxml.jackson..", "jakarta..", "org.springframework..", "reactor..", "tools.jackson..", "com.google.genai..",
                     "..model..",
-                    "..runtime.domain..",
-                    "..runtime.port.out..",
+                    "..answering.domain..",
+                    "..answering.port.out..",
                     "..capability.planning..");
 }

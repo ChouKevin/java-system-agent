@@ -1,7 +1,7 @@
 package com.java.system.agent.slack.source;
 
-import com.java.system.agent.inbox.domain.SessionSourceRef;
-import com.java.system.agent.inbox.domain.SourceMessageId;
+import com.java.system.agent.interaction.domain.SessionSourceRef;
+import com.java.system.agent.interaction.domain.SourceMessageId;
 
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;

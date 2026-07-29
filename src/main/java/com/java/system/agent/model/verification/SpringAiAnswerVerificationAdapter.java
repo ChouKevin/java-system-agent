@@ -2,11 +2,11 @@ package com.java.system.agent.model.verification;
 
 import com.java.system.agent.model.ModelTransportFailureClassifier;
 import com.java.system.agent.model.verification.dto.AnswerVerdictResponse;
-import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
-import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
-import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
-import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
-import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
+import com.java.system.agent.answering.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.converter.BeanOutputConverter;
 

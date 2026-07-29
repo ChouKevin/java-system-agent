@@ -2,39 +2,39 @@ package com.java.system.agent.model.verification;
 
 import com.java.system.agent.model.verification.dto.AnswerVerdictResponse;
 import com.java.system.agent.model.verification.dto.StatementVerdictResponse;
-import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
-import com.java.system.agent.runtime.domain.answer.AnswerDocument;
-import com.java.system.agent.runtime.domain.answer.AnswerStatement;
-import com.java.system.agent.runtime.domain.answer.AnswerVerificationMode;
-import com.java.system.agent.runtime.domain.answer.StatementId;
-import com.java.system.agent.runtime.domain.answer.StatementType;
-import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
-import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
-import com.java.system.agent.runtime.domain.conversation.SessionHistory;
-import com.java.system.agent.runtime.domain.evidence.ArtifactRef;
-import com.java.system.agent.runtime.domain.evidence.EvidenceRef;
-import com.java.system.agent.runtime.domain.evidence.IssuedEvidence;
-import com.java.system.agent.runtime.domain.evidence.SemanticTarget;
-import com.java.system.agent.runtime.domain.evidence.SemanticTargetKind;
-import com.java.system.agent.runtime.domain.handle.EvidenceHandle;
-import com.java.system.agent.runtime.domain.handle.EvidenceHandleRef;
-import com.java.system.agent.runtime.domain.handle.HandleBinding;
-import com.java.system.agent.runtime.domain.observation.AgentObservation;
-import com.java.system.agent.runtime.domain.observation.ObservationCode;
-import com.java.system.agent.runtime.domain.observation.ObservationId;
-import com.java.system.agent.runtime.domain.observation.ObservationSource;
-import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.ExecutionDeferral;
-import com.java.system.agent.runtime.domain.run.ExecutionDeferralReason;
-import com.java.system.agent.runtime.domain.scope.RepositoryId;
-import com.java.system.agent.runtime.domain.scope.RepositoryRevision;
-import com.java.system.agent.runtime.domain.scope.RevisionVector;
-import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
-import com.java.system.agent.runtime.port.out.AnswerVerificationResult;
-import com.java.system.agent.runtime.port.out.AnswerVerificationUnavailableException;
-import com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.domain.answer.AnswerDisposition;
+import com.java.system.agent.answering.domain.answer.AnswerDocument;
+import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
+import com.java.system.agent.answering.domain.answer.StatementId;
+import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.conversation.ConversationTurn;
+import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.evidence.ArtifactRef;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
+import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.observation.AgentObservation;
+import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.ExecutionDeferral;
+import com.java.system.agent.answering.domain.run.ExecutionDeferralReason;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
+import com.java.system.agent.answering.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -257,10 +257,10 @@ class AnswerVerificationAdapterTest {
         ObservationId observationA = new ObservationId("observation-a");
         AnswerDocument document = new AnswerDocument(List.of(
                 new AnswerStatement(new StatementId("statement-b"), StatementType.FACT, "Second fact",
-                        Optional.of(new com.java.system.agent.runtime.domain.answer.ClaimId("claim-b")),
+                        Optional.of(new com.java.system.agent.answering.domain.answer.ClaimId("claim-b")),
                         Set.of(new EvidenceHandleRef(evidenceB.value()), new EvidenceHandleRef(evidenceA.value())), Set.of(observationB, observationA)),
                 new AnswerStatement(new StatementId("statement-a"), StatementType.FACT, "First fact",
-                        Optional.of(new com.java.system.agent.runtime.domain.answer.ClaimId("claim-a")),
+                        Optional.of(new com.java.system.agent.answering.domain.answer.ClaimId("claim-a")),
                         Set.of(new EvidenceHandleRef(evidenceA.value())), Set.of(observationA))));
         IssuedEvidence issuedEvidenceB = new IssuedEvidence(evidenceB, evidence(repositoryId, revision, "Evidence B", "digest-b"));
         IssuedEvidence issuedEvidenceA = new IssuedEvidence(evidenceA, evidence(repositoryId, revision, "Evidence A", "digest-a"));

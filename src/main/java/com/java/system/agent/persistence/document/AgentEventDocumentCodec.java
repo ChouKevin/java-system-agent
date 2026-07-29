@@ -3,7 +3,7 @@ package com.java.system.agent.persistence.document;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.java.system.agent.runtime.domain.run.AgentEvent;
+import com.java.system.agent.answering.domain.run.AgentEvent;
 
 import java.util.Objects;
 

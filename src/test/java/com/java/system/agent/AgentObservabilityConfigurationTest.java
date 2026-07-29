@@ -1,10 +1,10 @@
 package com.java.system.agent;
 
-import com.java.system.agent.inbox.application.InboxLifecycleMetrics;
-import com.java.system.agent.inbox.domain.SourceEventConflictScope;
-import com.java.system.agent.inbox.domain.delivery.DeliveryStatus;
-import com.java.system.agent.inbox.port.in.AgentOperationsSnapshot;
-import com.java.system.agent.inbox.port.in.ReadAgentOperationsUseCase;
+import com.java.system.agent.interaction.application.InboxLifecycleMetrics;
+import com.java.system.agent.interaction.domain.SourceEventConflictScope;
+import com.java.system.agent.interaction.domain.delivery.DeliveryStatus;
+import com.java.system.agent.interaction.port.in.AgentOperationsSnapshot;
+import com.java.system.agent.interaction.port.in.ReadAgentOperationsUseCase;
 import com.java.system.agent.model.ModelLifecycleMetrics;
 import com.java.system.agent.slack.SlackLifecycleMetrics;
 import io.micrometer.core.instrument.MeterRegistry;

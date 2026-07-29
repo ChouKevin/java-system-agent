@@ -70,27 +70,27 @@ class PersistenceModuleArchitectureTest {
                     "org.springframework.jdbc..",
                     "org.springframework.transaction..",
                     "..persistence..",
-                    "..runtime.domain..",
-                    "..runtime.port.in..",
-                    "..runtime.port.out..",
-                    "..inbox.domain..",
-                    "..inbox.port.out..");
+                    "..answering.domain..",
+                    "..answering.port.in..",
+                    "..answering.port.out..",
+                    "..interaction.domain..",
+                    "..interaction.port.out..");
 
     @ArchTest
     static final ArchRule PERSISTENCE_DOES_NOT_DEPEND_ON_APPLICATION_INTERNALS = noClasses()
             .that().resideInAPackage("..persistence..")
             .should().dependOnClassesThat()
-            .resideInAnyPackage("..runtime.application..", "..inbox.application..", "..inbox.port.in..");
+            .resideInAnyPackage("..answering.application..", "..interaction.application..", "..interaction.port.in..");
 
     @ArchTest
     static final ArchRule FRAMEWORK_FREE_MODULES_DO_NOT_DEPEND_ON_JDBC = noClasses()
-            .that().resideInAnyPackage("..runtime..", "..inbox..")
+            .that().resideInAnyPackage("..answering..", "..interaction..")
             .should().dependOnClassesThat()
             .resideInAnyPackage("java.sql..", "javax.sql..", "org.springframework.jdbc..");
 
     @ArchTest
     static final ArchRule AGENT_MODULE_CLASSES_HAVE_NO_SPRING_STEREOTYPES = noClasses()
-            .that().resideInAnyPackage("..runtime..", "..inbox..", "..persistence..", "..capability..", "..model..", "..codebase..", "..slack..")
+            .that().resideInAnyPackage("..answering..", "..interaction..", "..persistence..", "..capability..", "..model..", "..codeintelligence..", "..slack..")
             .should().beAnnotatedWith(Component.class)
             .orShould().beAnnotatedWith(Service.class)
             .orShould().beAnnotatedWith(Repository.class)
@@ -99,7 +99,7 @@ class PersistenceModuleArchitectureTest {
     @ArchTest
     static final ArchRule AGENT_MODULE_METHODS_DECLARE_NO_SPRING_BEANS = noMethods()
             .that().areDeclaredInClassesThat()
-            .resideInAnyPackage("..runtime..", "..inbox..", "..persistence..", "..capability..", "..model..", "..codebase..", "..slack..")
+            .resideInAnyPackage("..answering..", "..interaction..", "..persistence..", "..capability..", "..model..", "..codeintelligence..", "..slack..")
             .should().beAnnotatedWith(Bean.class);
 
     @ArchTest

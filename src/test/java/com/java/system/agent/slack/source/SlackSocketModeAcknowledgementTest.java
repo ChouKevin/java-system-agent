@@ -1,12 +1,12 @@
 package com.java.system.agent.slack.source;
 
-import com.java.system.agent.inbox.domain.SourceAcceptance;
-import com.java.system.agent.inbox.domain.SourceAcceptanceStatus;
-import com.java.system.agent.inbox.domain.SourceAdmission;
-import com.java.system.agent.inbox.domain.InboxMessageId;
-import com.java.system.agent.inbox.port.in.AcceptSourceEventUseCase;
-import com.java.system.agent.runtime.domain.conversation.SessionId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
+import com.java.system.agent.interaction.domain.SourceAcceptance;
+import com.java.system.agent.interaction.domain.SourceAcceptanceStatus;
+import com.java.system.agent.interaction.domain.SourceAdmission;
+import com.java.system.agent.interaction.domain.InboxMessageId;
+import com.java.system.agent.interaction.port.in.AcceptSourceEventUseCase;
+import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.slack.api.bolt.App;
 import com.slack.api.bolt.AppConfig;
 import com.slack.api.bolt.response.Response;

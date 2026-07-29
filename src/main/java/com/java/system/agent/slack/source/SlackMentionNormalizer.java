@@ -1,9 +1,9 @@
 package com.java.system.agent.slack.source;
 
-import com.java.system.agent.inbox.domain.NormalizedSourceEvent;
-import com.java.system.agent.inbox.domain.SourcePayloadFingerprintV1;
-import com.java.system.agent.inbox.domain.TransportEventId;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
+import com.java.system.agent.interaction.domain.NormalizedSourceEvent;
+import com.java.system.agent.interaction.domain.SourcePayloadFingerprintV1;
+import com.java.system.agent.interaction.domain.TransportEventId;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.slack.SlackLifecycleMetrics;
 import com.slack.api.model.event.AppMentionEvent;
 import org.springframework.util.StringUtils;

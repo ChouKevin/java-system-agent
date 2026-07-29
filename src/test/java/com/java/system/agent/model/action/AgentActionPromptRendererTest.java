@@ -1,13 +1,13 @@
 package com.java.system.agent.model.action;
 
-import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
-import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
-import com.java.system.agent.runtime.domain.conversation.SessionHistory;
-import com.java.system.agent.runtime.domain.run.AnalysisAttemptId;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.domain.run.AttemptBudget;
-import com.java.system.agent.runtime.port.out.AgentPromptContext;
+import com.java.system.agent.answering.domain.conversation.ConversationTurn;
+import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

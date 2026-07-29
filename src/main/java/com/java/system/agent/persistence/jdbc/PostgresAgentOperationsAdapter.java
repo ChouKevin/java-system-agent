@@ -1,8 +1,8 @@
 package com.java.system.agent.persistence.jdbc;
 
-import com.java.system.agent.inbox.domain.delivery.DeliveryStatus;
-import com.java.system.agent.inbox.port.out.AgentOperationsPort;
-import com.java.system.agent.inbox.port.out.DurableAgentOperationsSnapshot;
+import com.java.system.agent.interaction.domain.delivery.DeliveryStatus;
+import com.java.system.agent.interaction.port.out.AgentOperationsPort;
+import com.java.system.agent.interaction.port.out.DurableAgentOperationsSnapshot;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 

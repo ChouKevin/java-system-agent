@@ -11,12 +11,12 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 /**
  * 建立 planning protocol 自有的 canonical 嚴格 Jackson mapper，隔離 host JSON 設定
  */
-final class PlanningProtocolObjectMapper {
+public final class PlanningProtocolObjectMapper {
 
     private PlanningProtocolObjectMapper() {
     }
 
-    static ObjectMapper create() {
+    public static ObjectMapper create() {
         ObjectMapper mapper = JsonMapper.builder()
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)

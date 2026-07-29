@@ -1,12 +1,11 @@
 package com.java.system.agent.capability.planning;
 
 import com.java.system.agent.capability.spi.CapabilityExecutor;
-import com.java.system.agent.runtime.domain.action.AgentAction;
-import com.java.system.agent.runtime.domain.action.QueryAction;
-import com.java.system.agent.runtime.domain.capability.CapabilityPolicy;
-import com.java.system.agent.runtime.domain.handle.CapabilityHandle;
-import com.java.system.agent.runtime.port.out.AgentPromptContext;
-import org.springframework.ai.tool.ToolCallback;
+import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 
 import java.util.Objects;
 import java.util.Map;
@@ -21,7 +20,7 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
     private final Class<E> executionInputType;
     private final QueryPlanningMapper<P, E> mapper;
     private final CapabilityExecutor<E> executor;
-    private final ToolCallback callback;
+    private final CanonicalCapabilityPayloadCodec payloadCodec;
 
     public QueryPlanningToolRegistration(
             CapabilityPolicy policy,
@@ -29,16 +28,13 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
             Class<E> executionInputType,
             QueryPlanningMapper<P, E> mapper,
             CapabilityExecutor<E> executor,
-            PlanningToolSchemaFactory schemaFactory) {
+            CanonicalCapabilityPayloadCodec payloadCodec) {
         this.policy = Objects.requireNonNull(policy, "planning registration policy must not be null");
         this.planningInputType = Objects.requireNonNull(planningInputType, "planning input type must not be null");
         this.executionInputType = Objects.requireNonNull(executionInputType, "execution input type must not be null");
         this.mapper = Objects.requireNonNull(mapper, "planning mapper must not be null");
         this.executor = Objects.requireNonNull(executor, "capability executor must not be null");
-        PlanningToolSchemaFactory requiredSchemaFactory = Objects.requireNonNull(
-                schemaFactory, "planning schema factory must not be null");
-        this.callback = PlanningToolRegistration.callback(policy.name(), "Agent QUERY capability",
-                requiredSchemaFactory.schemaFor(planningInputType));
+        this.payloadCodec = Objects.requireNonNull(payloadCodec, "capability payload codec must not be null");
     }
 
     @Override
@@ -47,13 +43,13 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
     }
 
     @Override
-    public Class<P> planningInputType() {
-        return planningInputType;
+    public String description() {
+        return "Agent QUERY capability";
     }
 
     @Override
-    public ToolCallback callback() {
-        return callback;
+    public Class<P> planningInputType() {
+        return planningInputType;
     }
 
     @Override
@@ -62,7 +58,7 @@ public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRe
     }
 
     @Override
-    public AgentAction toAction(P input, AgentPromptContext context, CanonicalCapabilityPayloadCodec payloadCodec) {
+    public AgentAction toAction(P input, AgentPromptContext context) {
         CapabilityHandle capability = context.issuedCapabilities().entrySet().stream()
                 .filter(entry -> entry.getValue().equals(policy))
                 .map(Map.Entry::getKey)

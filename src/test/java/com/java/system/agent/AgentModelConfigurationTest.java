@@ -1,8 +1,8 @@
 package com.java.system.agent;
 
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
-import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import jakarta.validation.Validation;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,7 +45,7 @@ class AgentModelConfigurationTest {
             actionClient.prompt("first").call().content();
 
             assertThatThrownBy(() -> verifierClient.prompt("second").call().content())
-                    .isInstanceOf(com.java.system.agent.runtime.port.out.ExternalExecutionDeferredException.class);
+                    .isInstanceOf(com.java.system.agent.answering.port.out.ExternalExecutionDeferredException.class);
         });
     }
 
@@ -120,9 +120,8 @@ class AgentModelConfigurationTest {
     }
 
     private static PlanningToolRegistry planningToolRegistry() {
-        PlanningToolSchemaFactory schemaFactory = new PlanningToolSchemaFactory();
-        return new PlanningToolRegistry(List.of(), new StrictPlanningToolDecoder(
+        return new PlanningToolRegistry(List.<PlanningToolProvider>of(), new StrictPlanningToolDecoder(
                 Validation.buildDefaultValidatorFactory().getValidator()),
-                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()), schemaFactory);
+                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()));
     }
 }

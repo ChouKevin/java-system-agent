@@ -6,9 +6,10 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
- * Capability 整合僅依賴 runtime 已公開 domain 與 outbound contract 的模組邊界測試
+ * Capability 整合僅依賴 answering 已公開 domain 與 outbound contract 的模組邊界測試
  */
 @AnalyzeClasses(
         packages = "com.java.system.agent.capability",
@@ -22,20 +23,25 @@ class CapabilityModuleArchitectureTest {
             .and().resideOutsideOfPackage("..capability.planning..")
             .should().onlyDependOnClassesThat()
             .resideInAnyPackage("java..", "..capability..",
-                    "..runtime.domain..", "..runtime.port.out..");
+                    "..answering.domain..", "..answering.port.out..");
 
     @ArchTest
-    static final ArchRule CAPABILITY_PLANNING_DEPENDS_ON_SPRING_AI_JACKSON_AND_RUNTIME_CONTRACTS = classes()
+    static final ArchRule CAPABILITY_PLANNING_DEPENDS_ON_JACKSON_AND_RUNTIME_CONTRACTS = classes()
             .that().resideInAPackage("..capability.planning..")
             .and().doNotHaveSimpleName("package-info")
             .should().onlyDependOnClassesThat()
             .resideInAnyPackage("java..", "com.fasterxml.jackson..", "jakarta..", "org.springframework..", "..capability..",
-                    "..runtime.domain..", "..runtime.port.out..");
+                    "..answering.domain..", "..answering.port.out..");
+
+    @ArchTest
+    static final ArchRule CAPABILITY_HAS_NO_SPRING_AI_DEPENDENCIES = noClasses()
+            .that().resideInAPackage("..capability..")
+            .should().dependOnClassesThat().resideInAPackage("org.springframework.ai..");
 
     @ArchTest
     static final ArchRule CAPABILITY_EXECUTOR_SPI_DEPENDS_ONLY_ON_JDK_AND_RUNTIME_CONTRACTS = classes()
             .that().resideInAPackage("..capability.spi..")
             .and().doNotHaveSimpleName("package-info")
             .should().onlyDependOnClassesThat()
-            .resideInAnyPackage("java..", "..capability.spi..", "..runtime.domain..", "..runtime.port.out..");
+            .resideInAnyPackage("java..", "..capability.spi..", "..answering.domain..", "..answering.port.out..");
 }

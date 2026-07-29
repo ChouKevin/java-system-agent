@@ -2,13 +2,13 @@ package com.java.system.agent.model.verification;
 
 import com.java.system.agent.model.verification.dto.AnswerVerdictResponse;
 import com.java.system.agent.model.verification.dto.StatementVerdictResponse;
-import com.java.system.agent.runtime.domain.answer.AnswerDisposition;
-import com.java.system.agent.runtime.domain.answer.AnswerVerdict;
-import com.java.system.agent.runtime.domain.answer.StatementId;
-import com.java.system.agent.runtime.domain.answer.StatementType;
-import com.java.system.agent.runtime.domain.answer.StatementVerdict;
-import com.java.system.agent.runtime.domain.answer.StatementVerdictStatus;
-import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
+import com.java.system.agent.answering.domain.answer.AnswerDisposition;
+import com.java.system.agent.answering.domain.answer.AnswerVerdict;
+import com.java.system.agent.answering.domain.answer.StatementId;
+import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.answer.StatementVerdict;
+import com.java.system.agent.answering.domain.answer.StatementVerdictStatus;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 將 verifier DTO 轉為 runtime verdict 並檢查文件的精確 statement 集合
+ * 將 verifier DTO 轉為 answering verdict 並檢查文件的精確 statement 集合
  */
 public final class AnswerVerdictResponseInterpreter {
 

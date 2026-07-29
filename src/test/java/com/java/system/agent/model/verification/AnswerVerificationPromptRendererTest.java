@@ -1,15 +1,15 @@
 package com.java.system.agent.model.verification;
 
-import com.java.system.agent.runtime.domain.answer.AnswerDocument;
-import com.java.system.agent.runtime.domain.answer.AnswerStatement;
-import com.java.system.agent.runtime.domain.answer.StatementId;
-import com.java.system.agent.runtime.domain.answer.StatementType;
-import com.java.system.agent.runtime.domain.conversation.ConversationTurn;
-import com.java.system.agent.runtime.domain.conversation.ConversationTurnType;
-import com.java.system.agent.runtime.domain.conversation.ParticipantRef;
-import com.java.system.agent.runtime.domain.conversation.SessionHistory;
-import com.java.system.agent.runtime.domain.run.AnalysisRunId;
-import com.java.system.agent.runtime.port.out.AnswerVerificationContext;
+import com.java.system.agent.answering.domain.answer.AnswerDocument;
+import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.StatementId;
+import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.conversation.ConversationTurn;
+import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
+import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
