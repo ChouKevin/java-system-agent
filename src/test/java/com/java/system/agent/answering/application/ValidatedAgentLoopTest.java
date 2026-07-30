@@ -31,6 +31,7 @@ import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
+import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -42,7 +43,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -57,7 +60,8 @@ class ValidatedAgentLoopTest {
             AttemptBudget budget,
             RuntimeNoticeReason expectedReason) {
         RecordingTransitionPort transitions = new RecordingTransitionPort();
-        ValidatedAgentLoop loop = loop(transitions);
+        AtomicInteger modelCalls = new AtomicInteger();
+        ValidatedAgentLoop loop = loop(transitions, modelCalls);
         AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
                 new ParticipantRef("test", "participant"), "How does this flow work?",
                 budget);
@@ -70,6 +74,7 @@ class ValidatedAgentLoopTest {
         assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance).singleElement()
                 .satisfies(event -> assertThat(((AgentEvent.RunConcluded) event).runtimeNoticeReason())
                         .contains(expectedReason));
+        assertThat(modelCalls).hasValue(0);
     }
 
     private static Stream<org.junit.jupiter.params.provider.Arguments> exhaustedBudgets() {
@@ -82,12 +87,15 @@ class ValidatedAgentLoopTest {
                         new AttemptBudget(1, 0, 1, 0, 1, 1, 1, 0), RuntimeNoticeReason.ACTION_REJECTION_BUDGET_EXHAUSTED));
     }
 
-    private static ValidatedAgentLoop loop(RecordingTransitionPort transitions) {
-        CapabilityPolicy policy = new CapabilityPolicy("trace", "v1", java.util.Set.of(CandidateKind.REPOSITORY), 1, 2);
+    private static ValidatedAgentLoop loop(RecordingTransitionPort transitions, AtomicInteger modelCalls) {
+        CapabilityPolicy policy = new CapabilityPolicy("trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
         return new ValidatedAgentLoop(
-                context -> { throw new AssertionError("exhausted budget must not request an action"); },
+                context -> {
+                    modelCalls.incrementAndGet();
+                    throw new AssertionError("exhausted budget must not request an action");
+                },
                 invocation -> { throw new AssertionError("exhausted budget must not execute a query"); },
-                (mode, context) -> new com.java.system.agent.answering.port.out.AnswerVerificationResult.LlmVerdict(
+                (mode, context) -> new AnswerVerificationResult.LlmVerdict(
                         new AnswerVerdict(AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(), List.of(), List.of())),
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
