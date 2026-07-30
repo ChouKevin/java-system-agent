@@ -35,9 +35,13 @@ import com.java.system.agent.answering.domain.run.AgentTransition;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.RunRequestIdentity;
 import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.domain.run.RunAttempt;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
+import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
@@ -100,8 +104,8 @@ class ValidatedAgentLoopQueryTest {
         assertThat(prompts.get(1).issuedEvidence().values())
                 .extracting(issuedEvidence -> issuedEvidence.evidence())
                 .containsExactly(evidence);
-        assertThat(transitions.events())
-                .extracting(AgentEvent::getClass)
+        List<Class<?>> eventTypes = eventTypes(transitions.events());
+        assertThat(eventTypes)
                 .containsSubsequence(
                         AgentEvent.ActionAccepted.class,
                         AgentEvent.QueryBudgetConsumed.class,
@@ -115,26 +119,28 @@ class ValidatedAgentLoopQueryTest {
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(
                 transitions,
-                new SequencedRevisionPort("rev-1", "rev-2"),
+                new SequencedRevisionPort("rev-2"),
                 new FakeAttemptIdGenerator()
-                        .register(new AnalysisAttemptId("attempt-1"))
                         .register(new AnalysisAttemptId("attempt-2")),
                 invocation -> {
                     capabilityCalls.incrementAndGet();
                     return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
                 },
                 context -> nextDriftAction(prompts, context));
+        seedPinnedRun(transitions);
 
-        AgentLoopResult result = loop.execute(request());
+        AgentLoopResult result = loop.execute(capacityResumeRequest());
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
-        assertThat(capabilityCalls).hasValue(1);
-        assertThat(transitions.events())
-                .extracting(AgentEvent::getClass)
-                .containsSubsequence(AgentEvent.AttemptInvalidated.class, AgentEvent.AttemptStarted.class);
+        assertThat(capabilityCalls).hasValue(0);
+        List<Class<?>> eventTypes = eventTypes(transitions.events());
+        assertThat(eventTypes)
+                .containsSubsequence(
+                        AgentEvent.AttemptInvalidated.class,
+                        AgentEvent.AttemptStarted.class);
         assertThat(transitions.state(RUN_ID).attemptSequence()).isEqualTo(2);
-        assertThat(prompts).hasSize(3);
-        assertThat(prompts.get(2).attemptId()).isEqualTo(new AnalysisAttemptId("attempt-2"));
+        assertThat(prompts).hasSize(2);
+        assertThat(prompts.get(1).attemptId()).isEqualTo(new AnalysisAttemptId("attempt-2"));
     }
 
     private AgentActionProposal nextAction(
@@ -150,7 +156,7 @@ class ValidatedAgentLoopQueryTest {
 
     private AgentActionProposal nextDriftAction(List<AgentPromptContext> prompts, AgentPromptContext context) {
         prompts.add(context);
-        if (prompts.size() < 3) {
+        if (prompts.size() == 1) {
             return new AgentActionProposal.Proposed(query(context));
         }
         return new AgentActionProposal.Proposed(answer(context, "Recovered after revision drift"));
@@ -204,6 +210,35 @@ class ValidatedAgentLoopQueryTest {
                 new AttemptBudget(4, 0, 2, 0, 2, 0, 1, 0));
     }
 
+    private AgentLoopRequest capacityResumeRequest() {
+        return new AgentLoopRequest(
+                RUN_ID,
+                new SessionId("session-1"),
+                PARTICIPANT,
+                "What does this repository flow do?",
+                new AttemptBudget(4, 0, 2, 0, 2, 0, 1, 0),
+                AnswerExecutionMode.CAPACITY_RESUME,
+                1);
+    }
+
+    private void seedPinnedRun(RecordingTransitionPort transitions) {
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        AttemptBudget budget = new AttemptBudget(4, 0, 2, 0, 2, 0, 1, 0);
+        AgentRunState initial = AgentRunState.initial(
+                RUN_ID,
+                attemptId,
+                budget,
+                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?"));
+        RevisionVector revisions = RevisionVector.empty().pin(REPOSITORY_ID, new RepositoryRevision("rev-1"));
+        RunAttempt context = new ContextIssuer().issueInitial(
+                RUN_ID,
+                attemptId,
+                revisions,
+                List.of(CAPABILITY),
+                List.of(new RepositoryDescriptor(REPOSITORY_ID, "Repository one")));
+        new AgentTransitionCommitter(new AgentStateReducer(), transitions).bootstrap(initial, context);
+    }
+
     private EvidenceRef evidence(String revision, String digest) {
         return new EvidenceRef(
                 "semantic",
@@ -213,6 +248,14 @@ class ValidatedAgentLoopQueryTest {
                 "The repository calls the order workflow",
                 List.of(),
                 new ArtifactRef(digest));
+    }
+
+    private List<Class<?>> eventTypes(List<AgentEvent> events) {
+        List<Class<?>> eventTypes = new ArrayList<>();
+        for (AgentEvent event : events) {
+            eventTypes.add(event.getClass());
+        }
+        return List.copyOf(eventTypes);
     }
 
     private static final class SequencedRevisionPort implements RepositoryRevisionPort {
