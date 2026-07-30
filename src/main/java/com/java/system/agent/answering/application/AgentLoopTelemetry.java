@@ -41,7 +41,7 @@ final class AgentLoopTelemetry {
     private static final String CONTRACT_EXCEPTION_RESULT_CATEGORY = "CONTRACT_EXCEPTION";
     private static final String UNEXPECTED_EXCEPTION_RESULT_CATEGORY = "UNEXPECTED_EXCEPTION";
     private static final String INCOMPATIBLE_RESULT_CATEGORY = "INCOMPATIBLE_RESULT";
-    private static final Logger LOGGER = Logger.getLogger(AgentLoopTelemetry.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(ValidatedAgentLoop.class.getName());
 
     private final CapabilityExecutionPort capabilityExecutionPort;
     private final AnswerVerificationPort verificationPort;

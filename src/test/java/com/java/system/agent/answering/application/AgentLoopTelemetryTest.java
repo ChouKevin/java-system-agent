@@ -29,10 +29,17 @@ import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -41,6 +48,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * AgentLoopTelemetry 外部結果分類與例外透明度測試
  */
 class AgentLoopTelemetryTest {
+
+    private Logger telemetryLogger;
+    private Handler telemetryHandler;
+    private boolean originalUseParentHandlers;
+    private Level originalLevel;
+
+    @AfterEach
+    void restoreTelemetryLogger() {
+        if (Objects.nonNull(telemetryLogger)) {
+            telemetryLogger.removeHandler(telemetryHandler);
+            telemetryLogger.setUseParentHandlers(originalUseParentHandlers);
+            telemetryLogger.setLevel(originalLevel);
+        }
+    }
 
     @Test
     void returnsSuccessfulCatalogAndRevisionResultsUnchanged() {
@@ -115,6 +136,24 @@ class AgentLoopTelemetryTest {
                 .isInstanceOf(NullPointerException.class).hasMessage("answer verification port must return a result");
     }
 
+    @Test
+    void retainsStableLoggerCategoryAndLifecycleLogRecordShape() {
+        CapturingHandler handler = captureTelemetryLogs();
+        CapabilityExecutionResult failure = new CapabilityExecutionResult.Failed(new CapabilityExecutionFailure(
+                CapabilityExecutionFailureCode.DEPENDENCY_FAILURE, "dependency failed", "semantic-service"));
+        AgentLoopTelemetry telemetry = telemetry(invocation -> failure,
+                (mode, context) -> new AnswerVerificationResult.ContractAccepted(), List::of, List::of,
+                repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")));
+
+        telemetry.loadCapabilities(state());
+        telemetry.executeCapability(state(), null);
+
+        List<LogRecord> records = handler.records();
+        assertThat(records).hasSize(2);
+        assertLifecycleRecord(records.get(0), Level.INFO, "CAPABILITY_CATALOG", "SUCCEEDED");
+        assertLifecycleRecord(records.get(1), Level.WARNING, "CAPABILITY_EXECUTION", "TYPED_FAILURE");
+    }
+
     private AgentLoopTelemetry telemetry(
             CapabilityExecutionPort execution,
             com.java.system.agent.answering.port.out.AnswerVerificationPort verification,
@@ -135,5 +174,54 @@ class AgentLoopTelemetryTest {
                 new StatementId("statement-1"), StatementType.QUESTION, "Answer", Optional.empty(), Set.of(), Set.of())));
         return new AnswerVerificationContext("Question?", SessionHistory.empty(), document,
                 List.of(), List.of(), List.of(), List.of());
+    }
+
+    private CapturingHandler captureTelemetryLogs() {
+        telemetryLogger = Logger.getLogger(ValidatedAgentLoop.class.getName());
+        originalUseParentHandlers = telemetryLogger.getUseParentHandlers();
+        originalLevel = telemetryLogger.getLevel();
+        CapturingHandler handler = new CapturingHandler();
+        telemetryHandler = handler;
+        telemetryLogger.setUseParentHandlers(false);
+        telemetryLogger.setLevel(Level.ALL);
+        telemetryLogger.addHandler(handler);
+        return handler;
+    }
+
+    private void assertLifecycleRecord(LogRecord record, Level level, String operation, String resultCategory) {
+        assertThat(record.getLoggerName()).isEqualTo(ValidatedAgentLoop.class.getName());
+        assertThat(record.getLevel()).isEqualTo(level);
+        assertThat(record.getMessage())
+                .isEqualTo("agent lifecycle operation={0} runId={1} attemptId={2} resultCategory={3} elapsedMs={4}");
+        Object[] parameters = record.getParameters();
+        Object elapsedMilliseconds = parameters[4];
+        assertThat(parameters).containsExactly(operation, "run-1", "attempt-1", resultCategory, elapsedMilliseconds);
+        assertThat(elapsedMilliseconds).isInstanceOf(Long.class);
+        assertThat((Long) elapsedMilliseconds).isGreaterThanOrEqualTo(0L);
+    }
+
+    /**
+     * 收集測試期間由穩定 telemetry logger 同步發出的紀錄
+     */
+    private static final class CapturingHandler extends Handler {
+
+        private final List<LogRecord> records = new ArrayList<>();
+
+        @Override
+        public void publish(LogRecord record) {
+            records.add(record);
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+
+        private List<LogRecord> records() {
+            return List.copyOf(records);
+        }
     }
 }
