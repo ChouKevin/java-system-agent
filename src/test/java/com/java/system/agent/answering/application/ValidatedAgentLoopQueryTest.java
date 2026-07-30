@@ -101,8 +101,11 @@ class ValidatedAgentLoopQueryTest {
                 .extracting(issuedEvidence -> issuedEvidence.evidence())
                 .containsExactly(evidence);
         assertThat(transitions.events())
-                .extracting(event -> event.getClass().getSimpleName())
-                .containsSubsequence("ActionAccepted", "QueryBudgetConsumed", "ContextIssued");
+                .extracting(AgentEvent::getClass)
+                .containsSubsequence(
+                        AgentEvent.ActionAccepted.class,
+                        AgentEvent.QueryBudgetConsumed.class,
+                        AgentEvent.ContextIssued.class);
     }
 
     @Test
@@ -127,8 +130,8 @@ class ValidatedAgentLoopQueryTest {
         assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
         assertThat(capabilityCalls).hasValue(1);
         assertThat(transitions.events())
-                .extracting(event -> event.getClass().getSimpleName())
-                .containsSubsequence("AttemptInvalidated", "AttemptStarted");
+                .extracting(AgentEvent::getClass)
+                .containsSubsequence(AgentEvent.AttemptInvalidated.class, AgentEvent.AttemptStarted.class);
         assertThat(transitions.state(RUN_ID).attemptSequence()).isEqualTo(2);
         assertThat(prompts).hasSize(3);
         assertThat(prompts.get(2).attemptId()).isEqualTo(new AnalysisAttemptId("attempt-2"));
