@@ -3,6 +3,7 @@ package com.java.system.agent.persistence.jdbc;
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxDeferReason;
 import com.java.system.agent.interaction.domain.InboxFailure;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
@@ -17,7 +18,6 @@ import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunResponseKind;
-import com.java.system.agent.answering.port.in.AnswerQuestionResult;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.TransactionException;
@@ -119,9 +119,9 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
     }
 
     @Override
-    public void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt) {
+    public void completeWithFinal(InboxClaim claim, FinalInteractionResponse result, Instant completedAt) {
         Objects.requireNonNull(claim, "inbox claim must not be null");
-        Objects.requireNonNull(result, "answer question result must not be null");
+        Objects.requireNonNull(result, "final interaction response must not be null");
         Objects.requireNonNull(completedAt, "completed timestamp must not be null");
         requireResultRun(claim, result);
         executeInTransactionWithoutResult(() -> {
@@ -344,7 +344,7 @@ public final class PostgresSessionInboxAdapter implements SessionInboxPort {
                 Optional.ofNullable(deferReason).map(InboxDeferReason::valueOf), lastFailure);
     }
 
-    private void requireResultRun(InboxClaim claim, AnswerQuestionResult result) {
+    private void requireResultRun(InboxClaim claim, FinalInteractionResponse result) {
         if (!claim.message().runId().equals(result.runId())) {
             throw new InboxPersistenceConflictException();
         }

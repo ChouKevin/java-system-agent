@@ -2,7 +2,7 @@ package com.java.system.agent.interaction.port.out;
 
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxFailure;
-import com.java.system.agent.answering.port.in.AnswerQuestionResult;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -27,7 +27,7 @@ public interface SessionInboxPort {
      *
      * <p>過期或不再是目前認領的訊息屬於 contract conflict</p>
      */
-    void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt);
+    void completeWithFinal(InboxClaim claim, FinalInteractionResponse response, Instant completedAt);
 
     /**
      * 以精確的已認領 identity、run、session、目前 PROCESSING 狀態與 attempt 作為 guard，回到 PENDING，

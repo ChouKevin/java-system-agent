@@ -3,6 +3,7 @@ package com.java.system.agent.interaction.application;
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxDeferReason;
 import com.java.system.agent.interaction.domain.InboxFailure;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
@@ -88,10 +89,8 @@ class SessionInboxProcessorTest {
         InboxProcessingOutcome outcome = processor.process(claim(1, Optional.empty()), NOW);
 
         assertThat(outcome).isEqualTo(InboxProcessingOutcome.COMPLETED);
-        assertThat(inbox.completedResult).isEqualTo(new AnswerQuestionResult(
-                runtimeCancellation.runId(), RunOutcome.CANCELLED, "處理已取消",
-                runtimeCancellation.answerDocument(), RunResponseKind.RUNTIME_NOTICE,
-                runtimeCancellation.verificationBasis(), runtimeCancellation.finalRevisions()));
+        assertThat(inbox.completedResult).isEqualTo(new FinalInteractionResponse(
+                runtimeCancellation.runId(), RunOutcome.CANCELLED, RunResponseKind.RUNTIME_NOTICE, "處理已取消"));
     }
 
     @ParameterizedTest
@@ -278,13 +277,12 @@ class SessionInboxProcessorTest {
                 new AnalysisRunId("run-1"), outcome, text, Optional.empty(), kind, Optional.empty(), RevisionVector.empty());
     }
 
-    private static AnswerQuestionResult expectedCompletedResult(AnswerQuestionResult result) {
-        if (result.responseKind() != RunResponseKind.RUNTIME_NOTICE || result.outcome() != RunOutcome.CANCELLED) {
-            return result;
-        }
-        return new AnswerQuestionResult(
-                result.runId(), result.outcome(), "處理已取消", result.answerDocument(), result.responseKind(),
-                result.verificationBasis(), result.finalRevisions());
+    private static FinalInteractionResponse expectedCompletedResult(AnswerQuestionResult result) {
+        String responseText = result.responseKind() == RunResponseKind.RUNTIME_NOTICE
+                && result.outcome() == RunOutcome.CANCELLED
+                ? "處理已取消"
+                : result.responseText();
+        return new FinalInteractionResponse(result.runId(), result.outcome(), result.responseKind(), responseText);
     }
 
     private static InboxClaim claim(int attemptCount, Optional<InboxDeferReason> deferReason) {
@@ -315,7 +313,7 @@ class SessionInboxProcessorTest {
     private static final class RecordingInboxPort implements SessionInboxPort {
 
         private InboxClaim completedClaim;
-        private AnswerQuestionResult completedResult;
+        private FinalInteractionResponse completedResult;
         private InboxClaim failedClaim;
         private String safeResponseText;
         private InboxClaim capacityClaim;
@@ -334,7 +332,7 @@ class SessionInboxProcessorTest {
         }
 
         @Override
-        public void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt) {
+        public void completeWithFinal(InboxClaim claim, FinalInteractionResponse result, Instant completedAt) {
             verifyTransition(FailingTransition.COMPLETE);
             completedClaim = claim;
             completedResult = result;

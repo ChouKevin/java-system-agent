@@ -1,6 +1,7 @@
 package com.java.system.agent.interaction.application;
 
 import com.java.system.agent.interaction.domain.InboxFailure;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
@@ -150,13 +151,12 @@ public final class SessionInboxProcessor {
         };
     }
 
-    private static AnswerQuestionResult normalizedCompletionResult(AnswerQuestionResult result) {
-        if (result.responseKind() != RunResponseKind.RUNTIME_NOTICE || result.outcome() != RunOutcome.CANCELLED) {
-            return result;
-        }
-        return new AnswerQuestionResult(
-                result.runId(), result.outcome(), safeResponse(result.outcome()), result.answerDocument(),
-                result.responseKind(), result.verificationBasis(), result.finalRevisions());
+    private static FinalInteractionResponse normalizedCompletionResult(AnswerQuestionResult result) {
+        String responseText = result.responseKind() == RunResponseKind.RUNTIME_NOTICE
+                && result.outcome() == RunOutcome.CANCELLED
+                ? safeResponse(result.outcome())
+                : result.responseText();
+        return new FinalInteractionResponse(result.runId(), result.outcome(), result.responseKind(), responseText);
     }
 
     private static void logContractViolation(String category, InboxMessage claimedMessage) {

@@ -11,6 +11,7 @@ import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxDeferReason;
 import com.java.system.agent.interaction.domain.InboxFailure;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
@@ -296,7 +297,7 @@ class PlanningToolInboxIntegrationTest {
         private InboxFailure failure;
 
         @Override public Optional<InboxClaim> claimNext(Instant now) { throw new UnsupportedOperationException(); }
-        @Override public void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt) { throw new AssertionError(); }
+        @Override public void completeWithFinal(InboxClaim claim, FinalInteractionResponse result, Instant completedAt) { throw new AssertionError(); }
         @Override public void retry(InboxClaim claim, InboxFailure failure, Instant availableAt) { retriedClaim = claim; this.failure = failure; }
         @Override public void failWithFinal(InboxClaim claim, InboxFailure failure, String safeResponseText, Instant failedAt) { failedClaim = claim; this.failure = failure; }
         @Override public void deferForCapacity(InboxClaim claim, Instant retryAt) { throw new AssertionError(); }

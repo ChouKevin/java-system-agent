@@ -71,7 +71,6 @@ class PersistenceModuleArchitectureTest {
                     "org.springframework.transaction..",
                     "..persistence..",
                     "..answering.domain..",
-                    "..answering.port.in..",
                     "..answering.port.out..",
                     "..interaction.domain..",
                     "..interaction.port.out..");

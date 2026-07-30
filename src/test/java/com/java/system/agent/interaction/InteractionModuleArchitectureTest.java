@@ -61,4 +61,10 @@ class InteractionModuleArchitectureTest {
                     "com.slack..",
                     "..slack..",
                     "..answering.application..");
+
+    @ArchTest
+    static final ArchRule INTERACTION_OUTBOUND_PORTS_DO_NOT_DEPEND_ON_ANSWERING_INBOUND_PORTS = noClasses()
+            .that().resideInAPackage("..interaction.port.out..")
+            .should().dependOnClassesThat()
+            .resideInAPackage("..answering.port.in..");
 }

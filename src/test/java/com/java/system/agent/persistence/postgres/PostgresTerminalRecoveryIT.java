@@ -9,6 +9,7 @@ import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
 import com.java.system.agent.interaction.domain.InboxProcessingOutcome;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.NormalizedSourceEvent;
 import com.java.system.agent.interaction.domain.SessionSourceRef;
 import com.java.system.agent.interaction.domain.SourceMessageId;
@@ -203,7 +204,8 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         InboxClaim recoveredClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
         AnswerQuestionResult recovered = clarificationService(actionCalls, sessions).answer(command(
                 recoveredClaim.message(), AnswerExecutionMode.TERMINAL_RECONCILIATION, recoveredClaim.message().attemptCount()));
-        inbox.completeWithFinal(recoveredClaim, recovered, NOW.plusSeconds(2));
+        inbox.completeWithFinal(recoveredClaim, new FinalInteractionResponse(
+                recovered.runId(), recovered.outcome(), recovered.responseKind(), recovered.responseText()), NOW.plusSeconds(2));
 
         assertThat(actionCalls).hasValue(1);
         assertThat(eventCount(firstClaim.message().runId(), "CLARIFICATION_ACCEPTED")).isEqualTo(1L);

@@ -1,6 +1,7 @@
 package com.java.system.agent.persistence.postgres;
 
 import com.java.system.agent.interaction.domain.InboxClaim;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.NormalizedSourceEvent;
 import com.java.system.agent.interaction.domain.SessionSourceRef;
@@ -20,8 +21,6 @@ import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunResponseKind;
-import com.java.system.agent.answering.domain.scope.RevisionVector;
-import com.java.system.agent.answering.port.in.AnswerQuestionResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -141,10 +140,9 @@ class PostgresDeliveryOutboxAdapterIT extends PostgresIntegrationTestSupport {
                 .orElseThrow();
     }
 
-    private AnswerQuestionResult result(AnalysisRunId runId) {
-        return new AnswerQuestionResult(
-                runId, RunOutcome.INCONCLUSIVE, "資訊不足", Optional.empty(), RunResponseKind.RUNTIME_NOTICE,
-                Optional.empty(), RevisionVector.empty());
+    private FinalInteractionResponse result(AnalysisRunId runId) {
+        return new FinalInteractionResponse(
+                runId, RunOutcome.INCONCLUSIVE, RunResponseKind.RUNTIME_NOTICE, "資訊不足");
     }
 
     private String status(SourceAdmission admission, DeliveryKind kind) {

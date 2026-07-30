@@ -55,7 +55,7 @@ import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
-import com.java.system.agent.answering.port.in.AnswerQuestionResult;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.slack.delivery.SlackChannelRateGate;
 import com.java.system.agent.slack.delivery.SlackDeliveryAdapter;
 import com.java.system.agent.slack.source.SlackMentionNormalizer;
@@ -298,7 +298,7 @@ class SlackAgentFlowTest {
 
         private synchronized void completeWithFinal(
                 InboxClaim claim,
-                AnswerQuestionResult result,
+                FinalInteractionResponse result,
                 Instant completedAt) {
             InboxMessage processing = processing(claim);
             InboxMessage completed = new InboxMessage(
@@ -461,7 +461,7 @@ class SlackAgentFlowTest {
         @Override
         public void completeWithFinal(
                 InboxClaim claim,
-                AnswerQuestionResult result,
+                FinalInteractionResponse result,
                 Instant completedAt) {
             store.completeWithFinal(claim, result, completedAt);
         }

@@ -132,6 +132,9 @@ class ApplicationModularityTests {
     @DisplayName("PostgreSQL persistence should depend only on exposed answering and interaction contracts")
     void persistenceShouldHaveOnlyIntendedModuleDependencies() {
         ApplicationModule persistence = requirePersistence();
+        assertEquals(Set.of("answering :: domain", "answering :: port-out", "interaction :: domain", "interaction :: port-out"),
+                allowedDependenciesOf(persistence),
+                "Persistence must declare only exposed answering and interaction contracts");
         Set<String> dependencies = persistence.getDirectDependencies(modules).uniqueModules()
                 .map(module -> module.getIdentifier().toString())
                 .collect(Collectors.toSet());
