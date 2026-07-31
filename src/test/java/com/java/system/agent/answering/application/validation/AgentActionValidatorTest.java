@@ -98,7 +98,7 @@ class AgentActionValidatorTest {
         private AgentValidationContext context(Map<CandidateHandle, IssuedCandidate> candidates) {
             CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.ROUTE), 1, 2);
             return new AgentValidationContext(Map.of(capability, policy), candidates, Map.of(), Map.of(), binding,
-                    new AttemptBudget(4, 0, 4, 0, 4, 0, 2, 0));
+                    new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0));
         }
     }
 }

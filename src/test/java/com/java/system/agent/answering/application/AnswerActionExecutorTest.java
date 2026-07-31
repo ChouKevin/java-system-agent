@@ -133,7 +133,7 @@ class AnswerActionExecutorTest {
                 new AnswerVerdictValidator(), transitions, terminal);
         AgentLoopRequest request = new AgentLoopRequest(
                 new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0));
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         AgentRunState initial = AgentRunState.initial(
                 request.runId(), attemptId, 1, request.budget(),

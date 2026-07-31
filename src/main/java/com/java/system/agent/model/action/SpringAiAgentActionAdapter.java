@@ -5,6 +5,7 @@ import com.java.system.agent.model.ModelTransportFailureClassifier;
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
@@ -121,16 +122,12 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             return "NONE";
         }
         AgentAction action = ((AgentActionProposal.Proposed) proposal).action();
-        if (action instanceof QueryAction) {
-            return "QUERY";
-        }
-        if (action instanceof AnswerAction) {
-            return "ANSWER";
-        }
-        if (action instanceof ClarifyAction) {
-            return "CLARIFY";
-        }
-        return "UNKNOWN";
+        return switch (action) {
+            case QueryAction ignored -> "QUERY";
+            case AnswerAction ignored -> "ANSWER";
+            case ClarifyAction ignored -> "CLARIFY";
+            case ExecuteAction ignored -> "EXECUTE";
+        };
     }
 
     private static void logOperation(AgentPromptContext context, String resultCategory, String actionType, long startedNanos) {

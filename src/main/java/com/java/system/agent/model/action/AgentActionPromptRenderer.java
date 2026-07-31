@@ -20,7 +20,7 @@ import java.util.Objects;
 public final class AgentActionPromptRenderer {
 
     public static final String SYSTEM_INSTRUCTION = """
-            Choose exactly one registered planning tool call for QUERY, ANSWER, or CLARIFY.
+            Choose exactly one registered planning tool call.
             Do not emit a preamble, explanation, trailing prose, or any text outside that one function call.
             Use only issued opaque handles.
             Preserve the candidate subset and order you intend.
@@ -73,6 +73,8 @@ public final class AgentActionPromptRenderer {
     private static String remainingBudget(AgentPromptContext context) {
         return "agentSteps=" + (context.budget().maxAgentSteps() - context.budget().usedAgentSteps())
                 + ", queryExecutions=" + (context.budget().maxQueryExecutions() - context.budget().usedQueryExecutions())
+                + ", executeExecutions=" + (context.budget().maxExecuteExecutions()
+                - context.budget().usedExecuteExecutions())
                 + ", actionRejections=" + (context.budget().maxActionRejections() - context.budget().usedActionRejections());
     }
 }

@@ -4,6 +4,7 @@ import com.google.genai.errors.ClientException;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
 import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
+import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.QueryPlanningMapper;
@@ -17,6 +18,8 @@ import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.ExecuteAction;
+import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
@@ -63,13 +66,17 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -136,6 +143,44 @@ class SpringAiAgentActionAdapterTest {
         ClarifyAction action = (ClarifyAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.candidates()).extracting(candidateHandleReference -> candidateHandleReference.value()).containsExactly("candidate-2", "candidate-1");
         assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void mapsExecuteToolAndLogsExecuteActionType() {
+        CountingChatModel model = new CountingChatModel(toolCall("execute_http", """
+                {"method":"POST","targetUrl":"https://service.example/orders","jsonBody":"{\\"status\\":\\"approved\\"}","rationale":"Preview the order update"}
+                """));
+        CapturingHandler handler = captureActionLogs();
+
+        try {
+            AgentActionProposal proposal = adapter(model).nextAction(context());
+
+            assertThat(proposal).isEqualTo(new AgentActionProposal.Proposed(new ExecuteAction(
+                    ExternalHttpMethod.POST,
+                    "https://service.example/orders",
+                    Optional.of("{\"status\":\"approved\"}"),
+                    "Preview the order update")));
+            assertThat(handler.records()).extracting(record -> record.getParameters()[3]).containsExactly("EXECUTE");
+        } finally {
+            releaseActionLogs(handler);
+        }
+    }
+
+    @Test
+    void keepsMalformedExecuteToolProposalLogActionTypeAsNone() {
+        CountingChatModel model = new CountingChatModel(toolCall("execute_http", """
+                {"method":"POST","targetUrl":"https://service.example/orders","jsonBody":"{]","rationale":"Preview the order update"}
+                """));
+        CapturingHandler handler = captureActionLogs();
+
+        try {
+            AgentActionProposal proposal = adapter(model).nextAction(context());
+
+            assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+            assertThat(handler.records()).extracting(record -> record.getParameters()[3]).containsExactly("NONE");
+        } finally {
+            releaseActionLogs(handler);
+        }
     }
 
     @Test
@@ -453,7 +498,8 @@ class SpringAiAgentActionAdapterTest {
                 new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
                         answerMapper),
                 new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
-                        new RequestClarificationPlanningMapper()));
+                        new RequestClarificationPlanningMapper()),
+                new ExecutePlanningToolRegistration());
         PlanningToolRegistry registry = new PlanningToolRegistry(List.of(provider), new StrictPlanningToolDecoder(
                 Validation.buildDefaultValidatorFactory().getValidator()),
                 payloadCodec);
@@ -463,6 +509,21 @@ class SpringAiAgentActionAdapterTest {
     private static AnswerAction failIfAnswerMapperExecutes(AtomicInteger mapperCalls) {
         mapperCalls.incrementAndGet();
         throw new AssertionError("answer mapper must not execute for invalid planning input");
+    }
+
+    private static CapturingHandler captureActionLogs() {
+        Logger logger = Logger.getLogger(SpringAiAgentActionAdapter.class.getName());
+        boolean originalUseParentHandlers = logger.getUseParentHandlers();
+        logger.setUseParentHandlers(false);
+        CapturingHandler handler = new CapturingHandler(originalUseParentHandlers);
+        logger.addHandler(handler);
+        return handler;
+    }
+
+    private static void releaseActionLogs(CapturingHandler handler) {
+        Logger logger = Logger.getLogger(SpringAiAgentActionAdapter.class.getName());
+        logger.removeHandler(handler);
+        logger.setUseParentHandlers(handler.originalUseParentHandlers());
     }
 
     private static AssistantMessage toolCall(String name, String arguments) {
@@ -483,7 +544,7 @@ class SpringAiAgentActionAdapterTest {
                 Map.of(capability, descriptor),
                 Map.of(firstCandidate, new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")),
                         secondCandidate, new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second"))),
-                Map.of(), Map.of(), java.util.Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0));
+                Map.of(), Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private AgentPromptContext answerContext() {
@@ -500,7 +561,7 @@ class SpringAiAgentActionAdapterTest {
                 ObservationCode.PARTIAL_GRAPH, "Graph is partial", Set.of(), Set.of(evidenceHandle), "runtime");
         return new AgentPromptContext("Where is it called?", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
                 Map.of(evidenceHandle, new IssuedEvidence(evidenceHandle, evidence)), Map.of(observationId, observation),
-                Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0));
+                Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private record ToolInput(
@@ -559,6 +620,37 @@ class SpringAiAgentActionAdapterTest {
     private static final class ResourceExhaustedException extends RuntimeException {
         private ResourceExhaustedException() {
             super("provider response omitted");
+        }
+    }
+
+    private static final class CapturingHandler extends Handler {
+
+        private final boolean originalUseParentHandlers;
+        private final List<LogRecord> records = new ArrayList<>();
+
+        private CapturingHandler(boolean originalUseParentHandlers) {
+            this.originalUseParentHandlers = originalUseParentHandlers;
+        }
+
+        @Override
+        public void publish(LogRecord record) {
+            records.add(record);
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+
+        private boolean originalUseParentHandlers() {
+            return originalUseParentHandlers;
+        }
+
+        private List<LogRecord> records() {
+            return List.copyOf(records);
         }
     }
 }

@@ -104,7 +104,7 @@ class ValidatedAgentLoopTest {
         ValidatedAgentLoop loop = loop(transitions, actionPort, capabilityExecution);
         AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
                 new ParticipantRef("test", "participant"), "How does this flow work?",
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0));
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         AgentLoopResult result = loop.execute(request);
 
@@ -120,11 +120,11 @@ class ValidatedAgentLoopTest {
     private static Stream<org.junit.jupiter.params.provider.Arguments> exhaustedBudgets() {
         return Stream.of(
                 org.junit.jupiter.params.provider.Arguments.of(
-                        new AttemptBudget(1, 1, 1, 0, 1, 0, 1, 0), RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED),
+                        new AttemptBudget(1, 1, 1, 0, 1, 0, 1, 0, 1, 0), RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED),
                 org.junit.jupiter.params.provider.Arguments.of(
-                        new AttemptBudget(1, 0, 1, 1, 1, 0, 1, 0), RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED),
+                        new AttemptBudget(1, 0, 1, 1, 1, 0, 1, 0, 1, 0), RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED),
                 org.junit.jupiter.params.provider.Arguments.of(
-                        new AttemptBudget(1, 0, 1, 0, 1, 1, 1, 0), RuntimeNoticeReason.ACTION_REJECTION_BUDGET_EXHAUSTED));
+                        new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 1, 1, 0), RuntimeNoticeReason.ACTION_REJECTION_BUDGET_EXHAUSTED));
     }
 
     private static ValidatedAgentLoop loop(RecordingTransitionPort transitions, AtomicInteger modelCalls) {

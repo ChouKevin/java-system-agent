@@ -81,7 +81,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PlanningToolInboxIntegrationTest {
 
     private static final Instant NOW = Instant.parse("2030-07-26T10:00:00Z");
-    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0);
+    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0);
 
     @Test
     void terminally_fails_a_durable_accepted_noncanonical_payload_without_retrying_or_replaying_the_executor() {

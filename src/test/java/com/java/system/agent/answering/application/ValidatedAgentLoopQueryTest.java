@@ -207,7 +207,7 @@ class ValidatedAgentLoopQueryTest {
                 new SessionId("session-1"),
                 PARTICIPANT,
                 "What does this repository flow do?",
-                new AttemptBudget(4, 0, 2, 0, 2, 0, 1, 0));
+                new AttemptBudget(4, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 
     private AgentLoopRequest capacityResumeRequest() {
@@ -216,14 +216,14 @@ class ValidatedAgentLoopQueryTest {
                 new SessionId("session-1"),
                 PARTICIPANT,
                 "What does this repository flow do?",
-                new AttemptBudget(4, 0, 2, 0, 2, 0, 1, 0),
+                new AttemptBudget(4, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.CAPACITY_RESUME,
                 1);
     }
 
     private void seedPinnedRun(RecordingTransitionPort transitions) {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
-        AttemptBudget budget = new AttemptBudget(4, 0, 2, 0, 2, 0, 1, 0);
+        AttemptBudget budget = new AttemptBudget(4, 0, 2, 0, 1, 0, 2, 0, 1, 0);
         AgentRunState initial = AgentRunState.initial(
                 RUN_ID,
                 attemptId,

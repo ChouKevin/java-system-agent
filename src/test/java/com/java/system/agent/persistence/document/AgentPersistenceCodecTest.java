@@ -406,7 +406,7 @@ class AgentPersistenceCodecTest {
     }
 
     private static AttemptBudget budget() {
-        return new AttemptBudget(3, 0, 2, 0, 2, 0, 1, 0);
+        return new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0);
     }
 
     private static RunRequestIdentity identity() {

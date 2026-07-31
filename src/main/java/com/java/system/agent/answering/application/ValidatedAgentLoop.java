@@ -9,6 +9,7 @@ import com.java.system.agent.answering.application.validation.AnswerVerdictValid
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
@@ -220,6 +221,7 @@ public final class ValidatedAgentLoop {
                         request, sessionHistory, state, answerAction, attemptSequence);
                 case ClarifyAction clarification -> new ActionLaneOutcome.Terminal(
                         terminalResponseCoordinator.acceptClarification(request, state, clarification));
+                case ExecuteAction ignored -> throw new IllegalStateException("EXECUTE preview runtime is not composed");
             };
             switch (outcome) {
                 case ActionLaneOutcome.Terminal terminal -> {

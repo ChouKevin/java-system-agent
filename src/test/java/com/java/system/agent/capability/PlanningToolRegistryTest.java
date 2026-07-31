@@ -100,6 +100,7 @@ class PlanningToolRegistryTest {
         AgentActionProposal unissued = registry.interpretToolCall("query_tool", "{}", context);
 
         assertThat(issuedNames).containsExactlyInAnyOrder("agent_submit_answer", "agent_request_clarification");
+        assertThat(issuedNames).doesNotContain("execute_http");
         assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
         assertThat(unissued).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
     }
@@ -151,7 +152,7 @@ class PlanningToolRegistryTest {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(), Map.of(),
-                Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0));
+                Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private static CanonicalCapabilityPayloadCodec payloadCodec() {

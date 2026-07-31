@@ -10,7 +10,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = QueryAction.class, name = "QUERY"),
         @JsonSubTypes.Type(value = AnswerAction.class, name = "ANSWER"),
-        @JsonSubTypes.Type(value = ClarifyAction.class, name = "CLARIFY")
+        @JsonSubTypes.Type(value = ClarifyAction.class, name = "CLARIFY"),
+        @JsonSubTypes.Type(value = ExecuteAction.class, name = "EXECUTE")
 })
-public sealed interface AgentAction permits QueryAction, AnswerAction, ClarifyAction {
+public sealed interface AgentAction permits QueryAction, AnswerAction, ClarifyAction, ExecuteAction {
 }

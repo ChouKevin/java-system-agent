@@ -75,7 +75,7 @@ class TerminalResponseCoordinatorTest {
         AgentRunState initial = AgentRunState.initial(
                 RUN_ID,
                 ATTEMPT_ID,
-                new AttemptBudget(3, 0, 2, 0, 2, 0, 1, 0),
+                new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?"));
         RunAttempt context = new ContextIssuer().issueInitial(
                 RUN_ID,
@@ -92,7 +92,7 @@ class TerminalResponseCoordinatorTest {
                 SESSION_ID,
                 PARTICIPANT,
                 "What does this repository flow do?",
-                new AttemptBudget(3, 0, 2, 0, 2, 0, 1, 0));
+                new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 
     private static final class TerminalCancellationTransitionPort implements AgentTransitionPort {

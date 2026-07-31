@@ -3,6 +3,7 @@ package com.java.system.agent;
 import com.java.system.agent.capability.dispatch.CapabilityExecutionDispatcher;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.CorePlanningToolProvider;
+import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
@@ -12,6 +13,7 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import jakarta.validation.Validator;
 
 import java.util.List;
@@ -31,6 +33,17 @@ public final class AgentCapabilityConfiguration {
     @Bean
     CorePlanningToolProvider corePlanningToolProvider() {
         return new CorePlanningToolProvider();
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            prefix = "agent.execute-preview",
+            name = "enabled",
+            havingValue = "true",
+            matchIfMissing = false)
+    PlanningToolProvider executePreviewPlanningToolProvider() {
+        ExecutePlanningToolRegistration registration = new ExecutePlanningToolRegistration();
+        return () -> List.of(registration);
     }
 
     @Bean

@@ -95,7 +95,7 @@ import static org.mockito.Mockito.when;
 class SlackAgentFlowTest {
 
     private static final Instant NOW = Instant.parse("2030-07-28T10:00:00Z");
-    private static final AttemptBudget BUDGET = new AttemptBudget(6, 0, 5, 0, 3, 0, 1, 0);
+    private static final AttemptBudget BUDGET = new AttemptBudget(6, 0, 5, 0, 1, 0, 3, 0, 1, 0);
 
     @Test
     void serializesOverlappingParticipantsAndDeliversEachReceiptBeforeItsAddressedFinal() throws Exception {

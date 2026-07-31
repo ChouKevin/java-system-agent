@@ -158,7 +158,7 @@ class AgentRunRecoveryCoordinatorTest {
     private AgentLoopRequest request(AnswerExecutionMode mode, int attempt) {
         return new AgentLoopRequest(
                 new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0), mode, attempt);
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0), mode, attempt);
     }
 
     private static AnswerAction answer() {
@@ -176,13 +176,13 @@ class AgentRunRecoveryCoordinatorTest {
         private AgentLoopRequest initialRequest() {
             return new AgentLoopRequest(
                     new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
-                    "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0));
+                    "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
         }
 
         private AgentLoopRequest request(AnswerExecutionMode mode, int attempt) {
             return new AgentLoopRequest(
                     new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
-                    "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0), mode, attempt);
+                    "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0), mode, attempt);
         }
     }
 
