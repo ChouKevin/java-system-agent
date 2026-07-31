@@ -11,6 +11,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.AnswerVerdict;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
@@ -27,6 +28,7 @@ import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.answering.port.out.CapabilityCatalogPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
@@ -109,7 +111,7 @@ class AgentRunRecoveryCoordinatorTest {
         assertThat(fixture.catalogReads()).hasValue(catalogReads);
     }
 
-    private static Fixture fixture(com.java.system.agent.answering.port.out.AnswerVerificationPort verifier) {
+    private static Fixture fixture(AnswerVerificationPort verifier) {
         RecordingTransitionPort port = new RecordingTransitionPort();
         FakeSessionAdapter session = new FakeSessionAdapter();
         AtomicInteger catalogReads = new AtomicInteger();
@@ -145,7 +147,7 @@ class AgentRunRecoveryCoordinatorTest {
     }
 
     private static AnswerVerificationResult accepted() {
-        return new AnswerVerificationResult.LlmVerdict(new com.java.system.agent.answering.domain.answer.AnswerVerdict(
+        return new AnswerVerificationResult.LlmVerdict(new AnswerVerdict(
                 AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(), List.of(), List.of()));
     }
 

@@ -10,6 +10,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.AnswerVerdict;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
@@ -23,9 +24,12 @@ import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.RunAttempt;
+import com.java.system.agent.answering.domain.run.RunRequestIdentity;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
+import com.java.system.agent.answering.port.out.AnalysisCancellationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.answering.port.out.CapabilityCatalogPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
@@ -33,7 +37,10 @@ import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -83,7 +90,7 @@ class AnswerActionExecutorTest {
     @Test
     void recordsRejectionObservationsAndContinuesAfterARejectedVerdict() {
         Fixture fixture = fixture((mode, context) -> new AnswerVerificationResult.LlmVerdict(
-                new com.java.system.agent.answering.domain.answer.AnswerVerdict(
+                new AnswerVerdict(
                         AnswerDisposition.REJECTED, List.of(), List.of(), List.of(), List.of("rewrite"))));
 
         ActionLaneOutcome outcome = fixture.executor().execute(
@@ -108,13 +115,13 @@ class AnswerActionExecutorTest {
         assertThat(fixture.session().read(fixture.request().sessionId()).turns()).isEmpty();
     }
 
-    private static Fixture fixture(com.java.system.agent.answering.port.out.AnswerVerificationPort verificationPort) {
+    private static Fixture fixture(AnswerVerificationPort verificationPort) {
         return fixture(new FakeCancellationAdapter(), verificationPort);
     }
 
     private static Fixture fixture(
-            com.java.system.agent.answering.port.out.AnalysisCancellationPort cancellation,
-            com.java.system.agent.answering.port.out.AnswerVerificationPort verificationPort) {
+            AnalysisCancellationPort cancellation,
+            AnswerVerificationPort verificationPort) {
         RecordingTransitionPort port = new RecordingTransitionPort();
         AgentRunTransitions transitions = new AgentRunTransitions(new AgentTransitionCommitter(new AgentStateReducer(), port));
         FakeSessionAdapter session = new FakeSessionAdapter();
@@ -130,7 +137,7 @@ class AnswerActionExecutorTest {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         AgentRunState initial = AgentRunState.initial(
                 request.runId(), attemptId, 1, request.budget(),
-                new com.java.system.agent.answering.domain.run.RunRequestIdentity(
+                new RunRequestIdentity(
                         request.sessionId().value(), request.participant(), request.question()));
         AgentRunState state = transitions.bootstrap(initial, RunAttempt.empty(attemptId));
         return new Fixture(executor, transitions, session, request, state, port);
@@ -141,8 +148,8 @@ class AnswerActionExecutorTest {
                 new StatementId("statement-1"), StatementType.QUESTION, "Verified answer", Optional.empty(), Set.of(), Set.of()))));
     }
 
-    private static com.java.system.agent.answering.domain.answer.AnswerVerdict accepted() {
-        return new com.java.system.agent.answering.domain.answer.AnswerVerdict(
+    private static AnswerVerdict accepted() {
+        return new AnswerVerdict(
                 AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(), List.of(), List.of());
     }
 
@@ -172,8 +179,8 @@ class AnswerActionExecutorTest {
     }
 
     private static final class RecordingTransitionPort implements AgentTransitionPort {
-        private final java.util.Map<AnalysisRunId, AgentRunState> states = new java.util.LinkedHashMap<>();
-        private final java.util.List<AgentEvent> events = new java.util.ArrayList<>();
+        private final Map<AnalysisRunId, AgentRunState> states = new LinkedHashMap<>();
+        private final List<AgentEvent> events = new ArrayList<>();
 
         @Override
         public AgentRunState bootstrap(AgentBootstrap bootstrap) {
