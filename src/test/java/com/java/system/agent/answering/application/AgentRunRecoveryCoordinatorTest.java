@@ -32,6 +32,7 @@ import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.answering.port.out.CapabilityCatalogPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
+import com.java.system.agent.answering.port.out.HttpMutationPort;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
@@ -94,6 +95,7 @@ class AgentRunRecoveryCoordinatorTest {
 
         assertThat(outcome).isInstanceOf(AgentRunRecoveryOutcome.Terminal.class);
         assertThat(verifications).hasValue(2);
+        assertThat(fixture.mutationCalls()).hasValue(0);
         assertThat(fixture.port().events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
     }
 
@@ -110,6 +112,7 @@ class AgentRunRecoveryCoordinatorTest {
 
         assertThat(outcome).isInstanceOf(AgentRunRecoveryOutcome.Terminal.class);
         assertThat(fixture.catalogReads()).hasValue(catalogReads);
+        assertThat(fixture.mutationCalls()).hasValue(0);
     }
 
     private static Fixture fixture(AnswerVerificationPort verifier) {
@@ -131,9 +134,14 @@ class AgentRunRecoveryCoordinatorTest {
         RepositoryRevisionPort revisions = repositoryId -> {
             throw new AssertionError("recovery test must not resolve revisions");
         };
+        AtomicInteger mutationCalls = new AtomicInteger();
+        HttpMutationPort mutations = action -> {
+            mutationCalls.incrementAndGet();
+            return new HttpMutationResult.NotImplemented();
+        };
         AgentLoopTelemetry telemetry = new AgentLoopTelemetry(
                 execution,
-                action -> new HttpMutationResult.NotImplemented(),
+                mutations,
                 verifier,
                 capabilities,
                 repositories,
@@ -150,7 +158,7 @@ class AgentRunRecoveryCoordinatorTest {
                 session,
                 answerExecutor,
                 terminal);
-        return new Fixture(coordinator, answerExecutor, session, port, catalogReads);
+        return new Fixture(coordinator, answerExecutor, session, port, catalogReads, mutationCalls);
     }
 
     private static AnswerVerificationResult accepted() {
@@ -178,7 +186,8 @@ class AgentRunRecoveryCoordinatorTest {
             AnswerActionExecutor answerExecutor,
             FakeSessionAdapter session,
             RecordingTransitionPort port,
-            AtomicInteger catalogReads) {
+            AtomicInteger catalogReads,
+            AtomicInteger mutationCalls) {
 
         private AgentLoopRequest initialRequest() {
             return new AgentLoopRequest(

@@ -7,6 +7,7 @@ import com.java.system.agent.answering.adapter.fake.FakeRepositoryCatalogAdapter
 import com.java.system.agent.answering.adapter.fake.FakeSessionAdapter;
 import com.java.system.agent.answering.application.state.AgentStateReducer;
 import com.java.system.agent.answering.application.state.AgentTransitionCommitter;
+import com.java.system.agent.answering.application.validation.ActionRejectionCode;
 import com.java.system.agent.answering.application.validation.AgentActionValidator;
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
@@ -83,25 +84,7 @@ class ValidatedAgentLoopExecuteTest {
             mutationCalls.incrementAndGet();
             return new HttpMutationResult.NotImplemented();
         };
-        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
-                actions,
-                invocation -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
-                mutations,
-                (mode, context) -> new AnswerVerificationResult.LlmVerdict(new AnswerVerdict(
-                        AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(), List.of(), List.of())),
-                AnswerVerificationMode.LLM,
-                new FakeSessionAdapter(),
-                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
-                new FakeCapabilityCatalogAdapter(new CapabilityPolicy(
-                        "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1)),
-                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("revision-1")),
-                new FakeCancellationAdapter(),
-                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
-                new AgentActionValidator(),
-                new AnswerDocumentValidator(),
-                new AnswerVerdictValidator(),
-                new AgentTransitionCommitter(new AgentStateReducer(), transitions),
-                new ContextIssuer());
+        ValidatedAgentLoop loop = loop(actions, mutations, new FakeCancellationAdapter(), transitions);
 
         AgentLoopResult result = loop.execute(new AgentLoopRequest(
                 new AnalysisRunId("run-1"),
@@ -142,6 +125,114 @@ class ValidatedAgentLoopExecuteTest {
                     assertThat(recorded.observation().candidateHandles()).isEmpty();
                     assertThat(recorded.observation().evidenceHandles()).isEmpty();
                 });
+    }
+
+    @Test
+    void cancelsAfterExecuteAcceptanceAndBudgetConsumptionWithoutInvokingMutation() {
+        AtomicInteger mutationCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        FakeCancellationAdapter cancellation = new FakeCancellationAdapter().requestCancellationAfter(runId, 2);
+        AgentActionPort actions = context -> new AgentActionProposal.Proposed(new ExecuteAction(
+                ExternalHttpMethod.POST,
+                "https://example.invalid/preview",
+                Optional.empty(),
+                "Preview the requested HTTP mutation"));
+        HttpMutationPort mutations = action -> {
+            mutationCalls.incrementAndGet();
+            return new HttpMutationResult.NotImplemented();
+        };
+
+        AgentLoopResult result = loop(actions, mutations, cancellation, transitions).execute(request(runId,
+                new AttemptBudget(3, 0, 1, 0, 1, 0, 1, 0, 1, 0)));
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.CANCELLED);
+        assertThat(mutationCalls).hasValue(0);
+        List<Class<?>> executeEvents = new ArrayList<>();
+        for (AgentEvent event : transitions.events()) {
+            if (event instanceof AgentEvent.ActionAccepted || event instanceof AgentEvent.ExecuteBudgetConsumed) {
+                executeEvents.add(event.getClass());
+            }
+        }
+        assertThat(executeEvents).containsExactly(AgentEvent.ActionAccepted.class, AgentEvent.ExecuteBudgetConsumed.class);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ObservationRecorded.class::isInstance)
+                .noneMatch(event -> ((AgentEvent.ObservationRecorded) event).observation().source()
+                        == ObservationSource.HTTP_MUTATION);
+    }
+
+    @Test
+    void rejectsDirectExecuteActionWhenExecuteBudgetWasAlreadyConsumed() {
+        AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger mutationCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ExecuteAction rejectedAction = new ExecuteAction(
+                ExternalHttpMethod.POST,
+                "https://example.invalid/preview",
+                Optional.empty(),
+                "Preview the requested HTTP mutation");
+        AgentActionPort actions = context -> {
+            if (actionCalls.getAndIncrement() == 0) {
+                return new AgentActionProposal.Proposed(rejectedAction);
+            }
+            return new AgentActionProposal.Proposed(new ClarifyAction(
+                    "Which environment should receive the change?", List.of(), "Need the target environment"));
+        };
+        HttpMutationPort mutations = action -> {
+            mutationCalls.incrementAndGet();
+            return new HttpMutationResult.NotImplemented();
+        };
+
+        AgentLoopResult result = loop(actions, mutations, new FakeCancellationAdapter(), transitions).execute(request(
+                new AnalysisRunId("run-1"), new AttemptBudget(3, 0, 1, 0, 1, 1, 2, 0, 1, 0)));
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(result.responseKind()).isEqualTo(RunResponseKind.CLARIFICATION);
+        assertThat(actionCalls).hasValue(2);
+        assertThat(mutationCalls).hasValue(0);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ActionRejected.class::isInstance)
+                .singleElement()
+                .satisfies(event -> {
+                    AgentEvent.ActionRejected rejected = (AgentEvent.ActionRejected) event;
+                    assertThat(rejected.originalAction()).contains(rejectedAction);
+                    assertThat(rejected.description()).isEqualTo(ActionRejectionCode.EXECUTE_BUDGET_EXHAUSTED.name());
+                });
+    }
+
+    private static ValidatedAgentLoop loop(
+            AgentActionPort actions,
+            HttpMutationPort mutations,
+            FakeCancellationAdapter cancellation,
+            RecordingTransitionPort transitions) {
+        return ValidatedAgentLoop.compose(
+                actions,
+                invocation -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
+                mutations,
+                (mode, context) -> new AnswerVerificationResult.LlmVerdict(new AnswerVerdict(
+                        AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(), List.of(), List.of())),
+                AnswerVerificationMode.LLM,
+                new FakeSessionAdapter(),
+                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
+                new FakeCapabilityCatalogAdapter(new CapabilityPolicy(
+                        "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1)),
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("revision-1")),
+                cancellation,
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                new AgentActionValidator(),
+                new AnswerDocumentValidator(),
+                new AnswerVerdictValidator(),
+                new AgentTransitionCommitter(new AgentStateReducer(), transitions),
+                new ContextIssuer());
+    }
+
+    private static AgentLoopRequest request(AnalysisRunId runId, AttemptBudget budget) {
+        return new AgentLoopRequest(
+                runId,
+                new SessionId("session-1"),
+                new ParticipantRef("test", "participant-1"),
+                "Preview this HTTP mutation",
+                budget);
     }
 
     /**
