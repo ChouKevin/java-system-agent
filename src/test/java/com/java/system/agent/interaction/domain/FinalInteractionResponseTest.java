@@ -22,4 +22,19 @@ class FinalInteractionResponseTest {
                 " \t\n"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void rejectsImpossibleOutcomeAndResponseKindCombinations() {
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+
+        assertThatThrownBy(() -> new FinalInteractionResponse(
+                runId, RunOutcome.COMPLETED, RunResponseKind.RUNTIME_NOTICE, "Completed"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FinalInteractionResponse(
+                runId, RunOutcome.COMPLETED, RunResponseKind.CLARIFICATION, "Clarify"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FinalInteractionResponse(
+                runId, RunOutcome.FAILED, RunResponseKind.ANSWER, "Answer"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

@@ -160,6 +160,9 @@ class SpringAiAgentActionAdapterTest {
                     "https://service.example/orders",
                     Optional.of("{\"status\":\"approved\"}"),
                     "Preview the order update")));
+            assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
+                    .contains("Emit a URL only as execute_http.targetUrl")
+                    .doesNotContain("adapter name, URL, or retry instruction");
             assertThat(handler.records()).extracting(record -> record.getParameters()[3]).containsExactly("EXECUTE");
         } finally {
             releaseActionLogs(handler);

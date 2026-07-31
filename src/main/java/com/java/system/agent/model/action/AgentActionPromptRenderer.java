@@ -25,7 +25,8 @@ public final class AgentActionPromptRenderer {
             Use only issued opaque handles.
             Preserve the candidate subset and order you intend.
             Express unresolved uncertainty in answer statements, observations, or clarification.
-            Do not emit confidence, score, rank, adapter name, URL, or retry instruction.
+            Do not emit confidence, score, rank, adapter name, or retry instruction.
+            Emit a URL only as execute_http.targetUrl.
             """;
 
     /**

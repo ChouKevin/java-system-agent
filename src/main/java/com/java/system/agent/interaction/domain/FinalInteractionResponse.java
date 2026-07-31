@@ -23,5 +23,22 @@ public record FinalInteractionResponse(
         if (responseText.isBlank()) {
             throw new IllegalArgumentException("response text must not be blank");
         }
+        switch (responseKind) {
+            case ANSWER -> {
+                if (outcome != RunOutcome.COMPLETED && outcome != RunOutcome.INCONCLUSIVE) {
+                    throw new IllegalArgumentException("answer response must be completed or inconclusive");
+                }
+            }
+            case CLARIFICATION -> {
+                if (outcome != RunOutcome.INCONCLUSIVE) {
+                    throw new IllegalArgumentException("clarification response must be inconclusive");
+                }
+            }
+            case RUNTIME_NOTICE -> {
+                if (outcome == RunOutcome.COMPLETED) {
+                    throw new IllegalArgumentException("runtime notice must not be completed");
+                }
+            }
+        }
     }
 }

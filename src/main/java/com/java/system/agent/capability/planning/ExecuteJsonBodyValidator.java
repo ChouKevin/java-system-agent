@@ -16,6 +16,9 @@ final class ExecuteJsonBodyValidator {
     void validate(Optional<String> jsonBody) {
         Objects.requireNonNull(jsonBody, "JSON body container must not be null");
         jsonBody.ifPresent(body -> {
+            if (body.isBlank()) {
+                throw new PlanningToolInputException();
+            }
             try {
                 mapper.readTree(body);
             } catch (RuntimeException | JsonProcessingException exception) {

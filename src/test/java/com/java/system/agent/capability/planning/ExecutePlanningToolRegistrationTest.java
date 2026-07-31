@@ -57,7 +57,7 @@ class ExecutePlanningToolRegistrationTest {
     }
 
     @Test
-    void rejectsUnsupportedHttpMethodAndMalformedNestedJsonWithoutCreatingAnAction() {
+    void rejectsUnsupportedHttpMethodAndInvalidNestedJsonWithoutCreatingAnAction() {
         PlanningToolRegistry registry = registry();
 
         AgentActionProposal unsupportedMethod = registry.interpretToolCall("execute_http", """
@@ -66,9 +66,17 @@ class ExecutePlanningToolRegistrationTest {
         AgentActionProposal malformedBody = registry.interpretToolCall("execute_http", """
                 {"method":"POST","targetUrl":"https://service.example/orders","jsonBody":"{]","rationale":"Preview order update"}
                 """, context(0));
+        AgentActionProposal emptyBody = registry.interpretToolCall("execute_http", """
+                {"method":"POST","targetUrl":"https://service.example/orders","jsonBody":"","rationale":"Preview order update"}
+                """, context(0));
+        AgentActionProposal whitespaceBody = registry.interpretToolCall("execute_http", """
+                {"method":"POST","targetUrl":"https://service.example/orders","jsonBody":"  ","rationale":"Preview order update"}
+                """, context(0));
 
         assertThat(unsupportedMethod).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(malformedBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(emptyBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(whitespaceBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
     }
 
     @Test
