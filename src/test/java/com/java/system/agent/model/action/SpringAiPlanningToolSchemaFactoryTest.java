@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.java.system.agent.capability.planning.ExecuteHttpPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
 import com.java.system.agent.codeintelligence.planning.EntryPointType;
 import com.java.system.agent.codeintelligence.planning.IncomingCallGraphPlanningInput;
@@ -46,7 +47,7 @@ class SpringAiPlanningToolSchemaFactoryTest {
         ObjectMapper mapper = new ObjectMapper();
         SpringAiPlanningToolSchemaFactory factory = new SpringAiPlanningToolSchemaFactory();
 
-        for (Class<?> inputType : registeredInputTypes()) {
+        for (Class<?> inputType : queryInputTypes()) {
             JsonNode root = mapper.readTree(factory.createSchema(inputType));
 
             assertThat(root.path("required")).extracting(jsonNode -> jsonNode.asText()).contains("candidateHandles");
@@ -92,7 +93,7 @@ class SpringAiPlanningToolSchemaFactoryTest {
         ObjectMapper mapper = new ObjectMapper();
         SpringAiPlanningToolSchemaFactory factory = new SpringAiPlanningToolSchemaFactory();
 
-        for (Class<?> inputType : registeredInputTypes()) {
+        for (Class<?> inputType : schemaInputTypes()) {
             assertThatCode(() -> factory.verifySchema(inputType, factory.createSchema(inputType)))
                     .as(inputType.getSimpleName())
                     .doesNotThrowAnyException();
@@ -139,13 +140,23 @@ class SpringAiPlanningToolSchemaFactoryTest {
         return (ObjectNode) mapper.readTree(factory.createSchema(inputType));
     }
 
-    private static List<Class<?>> registeredInputTypes() {
+    private static List<Class<?>> queryInputTypes() {
         return List.of(
                 ListEntryPointsPlanningInput.class,
                 LookupApiRoutePlanningInput.class,
                 SuggestApiRoutePlanningInput.class,
                 OutgoingCallGraphPlanningInput.class,
                 IncomingCallGraphPlanningInput.class);
+    }
+
+    private static List<Class<?>> schemaInputTypes() {
+        return List.of(
+                ListEntryPointsPlanningInput.class,
+                LookupApiRoutePlanningInput.class,
+                SuggestApiRoutePlanningInput.class,
+                OutgoingCallGraphPlanningInput.class,
+                IncomingCallGraphPlanningInput.class,
+                ExecuteHttpPlanningInput.class);
     }
 
     /**
