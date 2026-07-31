@@ -178,8 +178,8 @@ class M2ProductionFlowIT {
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(7);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(6);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(8);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(7);
         assertThat(deliveryStatuses(enqueued)).containsExactly(
                 "FINAL_RESPONSE:WAITING_FOR_RECEIPT", "RECEIPT:PENDING");
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
@@ -249,8 +249,8 @@ class M2ProductionFlowIT {
         assertThat(inboxStatus(enqueued)).isEqualTo(InboxMessageStatus.COMPLETED.name());
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(7);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(6);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(8);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(7);
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
                 "WAITING_FOR_RECEIPT",
                 "CLARIFICATION",
