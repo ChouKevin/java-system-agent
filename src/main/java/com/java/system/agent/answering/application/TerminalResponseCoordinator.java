@@ -104,11 +104,17 @@ final class TerminalResponseCoordinator {
     }
 
     AgentLoopResult fromConcludedState(AgentRunState state) {
-        if (state.failureReason().map(RunFailureReason.PLANNING_TOOL_CONTRACT::equals).orElse(false)) {
-            throw new AnswerExecutionContractException(
-                    AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
-                    "planning tool contract failed",
-                    null); // cs-allow
+        if (state.failureReason().isPresent()) {
+            throw switch (state.failureReason().orElseThrow()) {
+                case PLANNING_TOOL_CONTRACT -> new AnswerExecutionContractException(
+                        AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
+                        "planning tool contract failed",
+                        null); // cs-allow
+                case HTTP_MUTATION_CONTRACT -> new AnswerExecutionContractException(
+                        AnswerExecutionContractFailure.HTTP_MUTATION_CONTRACT,
+                        "HTTP mutation contract failed",
+                        null); // cs-allow
+            };
         }
         RunOutcome outcome = state.finalOutcome().orElseThrow();
         if (state.pendingTerminalResponse().isPresent()) {

@@ -24,6 +24,10 @@ import com.java.system.agent.answering.domain.run.AgentTransition;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.RunFailureReason;
+import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
@@ -112,6 +116,21 @@ class AgentRunRecoveryCoordinatorTest {
 
         assertThat(outcome).isInstanceOf(AgentRunRecoveryOutcome.Terminal.class);
         assertThat(fixture.catalogReads()).hasValue(catalogReads);
+        assertThat(fixture.mutationCalls()).hasValue(0);
+    }
+
+    @Test
+    void rethrowsRecoveredHttpMutationContractFailureWithoutCallingTheMutationPort() {
+        Fixture fixture = fixture((mode, context) -> accepted());
+        fixture.coordinator().recover(fixture.initialRequest());
+        fixture.port().concludeWithFailureReason(RunFailureReason.HTTP_MUTATION_CONTRACT);
+
+        assertThatThrownBy(() -> fixture.coordinator().recover(fixture.request(AnswerExecutionMode.RETRY, 2)))
+                .isInstanceOfSatisfying(AnswerExecutionContractException.class, exception -> {
+                    assertThat(exception.failure()).isEqualTo(AnswerExecutionContractFailure.HTTP_MUTATION_CONTRACT);
+                    assertThat(exception).hasMessage("HTTP mutation contract failed");
+                });
+
         assertThat(fixture.mutationCalls()).hasValue(0);
     }
 
@@ -235,6 +254,18 @@ class AgentRunRecoveryCoordinatorTest {
 
         private List<AgentEvent> events() {
             return List.copyOf(events);
+        }
+
+        private void concludeWithFailureReason(RunFailureReason failureReason) {
+            AgentRunState current = states.values().stream().findFirst().orElseThrow();
+            AgentTransition conclusion = new AgentStateReducer().reduce(current, new AgentEvent.RunConcluded(
+                    current.runId(),
+                    current.currentAttempt().attemptId(),
+                    current.stateRevision(),
+                    RunOutcome.FAILED,
+                    Optional.empty(),
+                    Optional.of(failureReason)));
+            commit(conclusion);
         }
     }
 }

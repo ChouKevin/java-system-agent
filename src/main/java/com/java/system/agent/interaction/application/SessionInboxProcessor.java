@@ -90,9 +90,11 @@ public final class SessionInboxProcessor {
             logFailure("ANSWER_VERIFIER_UNAVAILABLE", claimedMessage, exception);
             return retryOrFail(claim, InboxFailure.ANSWER_VERIFIER_UNAVAILABLE, now);
         } catch (AnswerExecutionContractException exception) {
-            InboxFailure failure = exception.failure() == AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT
-                    ? InboxFailure.PLANNING_TOOL_CONTRACT
-                    : InboxFailure.ANSWER_INTEGRATION_CONTRACT;
+            InboxFailure failure = switch (exception.failure()) {
+                case GENERAL_INTEGRATION_CONTRACT -> InboxFailure.ANSWER_INTEGRATION_CONTRACT;
+                case PLANNING_TOOL_CONTRACT -> InboxFailure.PLANNING_TOOL_CONTRACT;
+                case HTTP_MUTATION_CONTRACT -> InboxFailure.HTTP_MUTATION_CONTRACT;
+            };
             logFailure(failure.code(), claimedMessage, exception);
             sessionInboxPort.failWithFinal(
                     claim, failure, safeResponse(RunOutcome.FAILED), now);

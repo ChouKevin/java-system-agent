@@ -30,10 +30,13 @@ import com.java.system.agent.answering.domain.run.AgentTransition;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.RunFailureReason;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunResponseKind;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
@@ -54,8 +57,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * ValidatedAgentLoop EXECUTE preview 的持久化與後續規劃測試
@@ -200,6 +207,66 @@ class ValidatedAgentLoopExecuteTest {
                 });
     }
 
+    @Test
+    void concludesFailedMutationWhenHttpMutationPortReturnsNull() {
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        AgentActionPort actions = context -> new AgentActionProposal.Proposed(executeAction());
+
+        assertThatThrownBy(() -> loop(actions, action -> null, new FakeCancellationAdapter(), transitions)
+                .execute(request(new AnalysisRunId("run-1"), executeBudget())))
+                .isInstanceOfSatisfying(AnswerExecutionContractException.class, exception -> {
+                    assertThat(exception.failure()).isEqualTo(AnswerExecutionContractFailure.HTTP_MUTATION_CONTRACT);
+                    assertThat(exception).hasMessage("HTTP mutation contract failed");
+                });
+
+        assertFailedMutationContract(transitions);
+    }
+
+    @Test
+    void concludesFailedMutationWhenHttpMutationPortThrowsWithoutExposingItsPayload() {
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        String secretUrl = "https://secret.example.invalid/mutate";
+        String secretBody = "{\"credential\":\"secret-body\"}";
+        AgentActionPort actions = context -> new AgentActionProposal.Proposed(new ExecuteAction(
+                ExternalHttpMethod.POST, secretUrl, Optional.of(secretBody), "Preview the requested HTTP mutation"));
+        Logger logger = Logger.getLogger(ValidatedAgentLoop.class.getName());
+        CapturingLogHandler handler = new CapturingLogHandler();
+        logger.addHandler(handler);
+        try {
+            assertThatThrownBy(() -> loop(actions, action -> {
+                throw new IllegalStateException(secretUrl + secretBody);
+            }, new FakeCancellationAdapter(), transitions).execute(request(new AnalysisRunId("run-1"), executeBudget())))
+                    .isInstanceOfSatisfying(AnswerExecutionContractException.class, exception -> {
+                        assertThat(exception.failure()).isEqualTo(AnswerExecutionContractFailure.HTTP_MUTATION_CONTRACT);
+                        assertThat(exception).hasMessage("HTTP mutation contract failed");
+                        assertThat(exception.getMessage()).doesNotContain(secretUrl, secretBody);
+                    });
+        } finally {
+            logger.removeHandler(handler);
+        }
+
+        assertFailedMutationContract(transitions);
+        assertThat(handler.messages()).noneMatch(message -> message.contains(secretUrl) || message.contains(secretBody));
+    }
+
+    @Test
+    void preservesTerminalizationFailureAsThePrimaryContractFailureForAnUnknownMutationOutcome() {
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        transitions.failRunConclusion();
+        AgentActionPort actions = context -> new AgentActionProposal.Proposed(executeAction());
+
+        assertThatThrownBy(() -> loop(actions, action -> null, new FakeCancellationAdapter(), transitions)
+                .execute(request(new AnalysisRunId("run-1"), executeBudget())))
+                .isInstanceOfSatisfying(AnswerExecutionContractException.class, exception -> {
+                    assertThat(exception.failure()).isEqualTo(AnswerExecutionContractFailure.GENERAL_INTEGRATION_CONTRACT);
+                    assertThat(exception).hasMessage("integration contract failure could not be concluded");
+                    assertThat(exception.getSuppressed()).singleElement().isInstanceOfSatisfying(
+                            AnswerExecutionContractException.class,
+                            suppressed -> assertThat(suppressed.failure())
+                                    .isEqualTo(AnswerExecutionContractFailure.HTTP_MUTATION_CONTRACT));
+                });
+    }
+
     private static ValidatedAgentLoop loop(
             AgentActionPort actions,
             HttpMutationPort mutations,
@@ -235,12 +302,35 @@ class ValidatedAgentLoopExecuteTest {
                 budget);
     }
 
+    private static ExecuteAction executeAction() {
+        return new ExecuteAction(
+                ExternalHttpMethod.POST,
+                "https://example.invalid/preview",
+                Optional.empty(),
+                "Preview the requested HTTP mutation");
+    }
+
+    private static AttemptBudget executeBudget() {
+        return new AttemptBudget(3, 0, 1, 0, 1, 0, 1, 0, 1, 0);
+    }
+
+    private static void assertFailedMutationContract(RecordingTransitionPort transitions) {
+        AgentRunState persisted = transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow();
+        assertThat(persisted.finalOutcome()).contains(RunOutcome.FAILED);
+        assertThat(persisted.failureReason()).contains(RunFailureReason.HTTP_MUTATION_CONTRACT);
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ObservationRecorded.class::isInstance)
+                .noneMatch(event -> ((AgentEvent.ObservationRecorded) event).observation().source()
+                        == ObservationSource.HTTP_MUTATION);
+    }
+
     /**
      * 記錄 loop transition 並提供最小 in-memory state 的測試 port
      */
     private static final class RecordingTransitionPort implements AgentTransitionPort {
         private final List<AgentEvent> events = new ArrayList<>();
         private final Map<AnalysisRunId, AgentRunState> states = new LinkedHashMap<>();
+        private boolean failRunConclusion;
 
         @Override
         public AgentRunState bootstrap(AgentBootstrap bootstrap) {
@@ -257,6 +347,9 @@ class ValidatedAgentLoopExecuteTest {
             AgentRunState existing = states.get(transition.candidateState().runId());
             if (Objects.isNull(existing) || existing.stateRevision() != transition.event().expectedStateRevision()) {
                 throw new AgentTransitionConflictException("stale transition revision");
+            }
+            if (failRunConclusion && transition.event() instanceof AgentEvent.RunConcluded) {
+                throw new AgentTransitionConflictException("terminal conclusion conflict");
             }
             states.put(transition.candidateState().runId(), transition.candidateState());
             events.add(transition.event());
@@ -275,6 +368,35 @@ class ValidatedAgentLoopExecuteTest {
 
         private List<AgentEvent> events() {
             return List.copyOf(events);
+        }
+
+        private void failRunConclusion() {
+            failRunConclusion = true;
+        }
+    }
+
+    /**
+     * 收集測試期間 lifecycle telemetry 的安全記錄內容
+     */
+    private static final class CapturingLogHandler extends Handler {
+
+        private final List<LogRecord> records = new ArrayList<>();
+
+        @Override
+        public void publish(LogRecord record) {
+            records.add(record);
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+
+        private List<String> messages() {
+            return records.stream().map(LogRecord::getMessage).toList();
         }
     }
 }

@@ -27,6 +27,7 @@ import com.java.system.agent.answering.domain.run.RunResponseKind;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.in.AnalysisExecutionDeferredException;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerQuestionCommand;
@@ -195,6 +196,55 @@ class SessionInboxProcessorTest {
         assertThat(inbox.retriedClaim).isNull();
         assertThat(inbox.failure.code()).isEqualTo("ANSWER_INTEGRATION_CONTRACT");
         assertThat(inbox.failure.description()).doesNotContain("provider response");
+    }
+
+    @Test
+    void mapsPlanningToolContractViolationToItsDedicatedInboxFailureWithoutRetry() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox,
+                command -> {
+                    throw new AnswerExecutionContractException(
+                            AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
+                            "planning tool contract failed",
+                            new IllegalStateException("provider payload must not persist"));
+                },
+                BUDGET,
+                InboxRetryPolicy.defaults());
+
+        assertThat(processor.process(claim(1, Optional.empty()), NOW)).isEqualTo(InboxProcessingOutcome.FAILED);
+
+        assertThat(inbox.failedClaim).isEqualTo(claim(1, Optional.empty()));
+        assertThat(inbox.failure).isEqualTo(InboxFailure.PLANNING_TOOL_CONTRACT);
+        assertThat(inbox.retriedClaim).isNull();
+        assertThat(inbox.transitionCount).isOne();
+    }
+
+    @Test
+    void mapsHttpMutationContractViolationToAFinalSafeFailureWithoutRetry() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        String secretUrl = "https://secret.example.invalid/mutate";
+        String secretBody = "{\"credential\":\"secret-body\"}";
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox,
+                command -> {
+                    throw new AnswerExecutionContractException(
+                            AnswerExecutionContractFailure.HTTP_MUTATION_CONTRACT,
+                            "HTTP mutation contract failed",
+                            new IllegalStateException(secretUrl + secretBody));
+                },
+                BUDGET,
+                InboxRetryPolicy.defaults());
+
+        InboxProcessingOutcome outcome = processor.process(claim(1, Optional.empty()), NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(inbox.failedClaim).isEqualTo(claim(1, Optional.empty()));
+        assertThat(inbox.failure).isEqualTo(InboxFailure.HTTP_MUTATION_CONTRACT);
+        assertThat(inbox.safeResponseText).isEqualTo("處理失敗，請稍後再試").doesNotContain(secretUrl, secretBody);
+        assertThat(inbox.retriedClaim).isNull();
+        assertThat(inbox.retryAvailableAt).isNull();
+        assertThat(inbox.transitionCount).isOne();
     }
 
     @Test

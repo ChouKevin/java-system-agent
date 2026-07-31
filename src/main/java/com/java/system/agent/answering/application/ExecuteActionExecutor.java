@@ -7,7 +7,10 @@ import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
+import com.java.system.agent.answering.domain.run.RunFailureReason;
 import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.out.AnalysisCancellationPort;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
 
@@ -59,7 +62,19 @@ final class ExecuteActionExecutor {
                     Optional.empty(),
                     Optional.empty()));
         }
-        HttpMutationResult result = telemetry.executeMutation(state, action);
+        HttpMutationResult result;
+        try {
+            result = Objects.requireNonNull(
+                    telemetry.executeMutation(state, action), "HTTP mutation port must return a result");
+        } catch (RuntimeException exception) {
+            AnswerExecutionContractException mutationFailure = new AnswerExecutionContractException(
+                    AnswerExecutionContractFailure.HTTP_MUTATION_CONTRACT,
+                    "HTTP mutation contract failed",
+                    exception);
+            terminalResponseCoordinator.concludeIntegrationFailure(
+                    state, mutationFailure, Optional.of(RunFailureReason.HTTP_MUTATION_CONTRACT));
+            throw mutationFailure;
+        }
         if (result instanceof HttpMutationResult.NotImplemented) {
             AgentObservation observation = new AgentObservation(
                     nextObservationId(state),
