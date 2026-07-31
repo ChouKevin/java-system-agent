@@ -192,7 +192,7 @@ class PlanningToolInboxIntegrationTest {
             CapabilityExecutionPort executionPort,
             PlanningToolRegistry registry,
             RecordingTransitions transitions) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 executionPort,
                 (mode, context) -> { throw new AssertionError("planning contract test must not verify answers"); },

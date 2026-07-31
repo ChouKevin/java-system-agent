@@ -276,7 +276,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     private AnalysisApplicationService clarificationService(AtomicInteger actionCalls, SessionPort sessionPort) {
-        ValidatedAgentLoop loop = new ValidatedAgentLoop(
+        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
                     actionCalls.incrementAndGet();
                     return new AgentActionProposal.Proposed(
@@ -306,7 +306,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     private AnalysisApplicationService planningContractService(AtomicInteger actionCalls) {
-        ValidatedAgentLoop loop = new ValidatedAgentLoop(
+        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
                     actionCalls.incrementAndGet();
                     throw new AgentActionContractException("planning registry contract failed", null);
@@ -335,7 +335,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     private AnalysisApplicationService pendingVerificationService(AtomicInteger actionCalls, AtomicInteger verifierCalls) {
-        ValidatedAgentLoop loop = new ValidatedAgentLoop(
+        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
                     actionCalls.incrementAndGet();
                     return new AgentActionProposal.Proposed(new AnswerAction(new AnswerDocument(List.of(

@@ -312,7 +312,7 @@ class ValidatedAgentLoopAnswerTest {
         AtomicInteger capabilityCalls = new AtomicInteger();
         AtomicInteger revisionCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
-        ValidatedAgentLoop loop = new ValidatedAgentLoop(
+        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
                     actionCalls.incrementAndGet();
                     throw new AssertionError("terminal reconciliation must not request an action");
@@ -781,7 +781,7 @@ class ValidatedAgentLoopAnswerTest {
             AnswerVerificationPort verifier,
             AgentActionPort actionPort,
             AnalysisCancellationPort cancellationPort) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 query -> {
                     throw new AssertionError("answer test must not execute a semantic query");
@@ -817,7 +817,7 @@ class ValidatedAgentLoopAnswerTest {
             RepositoryCatalogPort repositories,
             AnalysisAttemptIdGenerator attemptIdGenerator,
             AgentActionPort actionPort) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 query -> {
                     throw new AssertionError("bootstrap contract test must not execute a semantic query");

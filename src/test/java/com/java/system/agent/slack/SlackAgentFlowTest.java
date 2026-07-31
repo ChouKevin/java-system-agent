@@ -191,7 +191,7 @@ class SlackAgentFlowTest {
                 new AnalysisAttemptId("attempt-alice"), new AnalysisAttemptId("attempt-bob"));
         AgentTransitionCommitter committer = new AgentTransitionCommitter(
                 new AgentStateReducer(), new InMemoryAgentTransitionPort());
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actions,
                 invocation -> {
                     throw new IllegalStateException("clarification flow must not execute a capability");

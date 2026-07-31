@@ -183,7 +183,7 @@ class ValidatedAgentLoopQueryTest {
             FakeAttemptIdGenerator attemptIds,
             CapabilityExecutionPort capabilityExecution,
             AgentActionPort actionPort) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 capabilityExecution,
                 (mode, context) -> new AnswerVerificationResult.ContractAccepted(),

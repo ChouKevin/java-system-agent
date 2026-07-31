@@ -144,7 +144,7 @@ class ValidatedAgentLoopTest {
             AgentActionPort actionPort,
             CapabilityExecutionPort capabilityExecution) {
         CapabilityPolicy policy = new CapabilityPolicy("trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 capabilityExecution,
                 (mode, context) -> new AnswerVerificationResult.LlmVerdict(

@@ -162,7 +162,7 @@ public final class AgentRuntimeConfiguration {
             AnswerVerdictValidator verdictValidator,
             AgentTransitionCommitter transitionCommitter,
             ContextIssuer contextIssuer) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 capabilityExecutionPort,
                 verificationPort,
