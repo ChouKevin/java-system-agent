@@ -39,6 +39,7 @@ import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
@@ -147,6 +148,7 @@ class ValidatedAgentLoopTest {
         return ValidatedAgentLoop.compose(
                 actionPort,
                 capabilityExecution,
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> new AnswerVerificationResult.LlmVerdict(
                         new AnswerVerdict(AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(), List.of(), List.of())),
                 AnswerVerificationMode.LLM,

@@ -52,6 +52,7 @@ import com.java.system.agent.answering.port.out.AgentTransitionConflictException
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
@@ -195,6 +196,7 @@ class PlanningToolInboxIntegrationTest {
         return ValidatedAgentLoop.compose(
                 actionPort,
                 executionPort,
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> { throw new AssertionError("planning contract test must not verify answers"); },
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),

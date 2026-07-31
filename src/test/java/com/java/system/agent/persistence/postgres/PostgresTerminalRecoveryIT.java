@@ -59,6 +59,7 @@ import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionContractException;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.SessionPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -285,6 +286,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 query -> {
                     throw new AssertionError("clarification must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     throw new AssertionError("clarification must not verify an answer");
                 },
@@ -314,6 +316,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 query -> {
                     throw new AssertionError("planning contract failure must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     throw new AssertionError("planning contract failure must not verify an answer");
                 },
@@ -345,6 +348,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 query -> {
                     throw new AssertionError("answer proposal must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     if (verifierCalls.incrementAndGet() == 1) {
                         throw new AnswerVerificationUnavailableException("temporary verifier outage", null); // cs-allow

@@ -33,6 +33,7 @@ import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.answering.port.out.CapabilityCatalogPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
 import org.junit.jupiter.api.Test;
@@ -126,7 +127,8 @@ class AnswerActionExecutorTest {
         AgentRunTransitions transitions = new AgentRunTransitions(new AgentTransitionCommitter(new AgentStateReducer(), port));
         FakeSessionAdapter session = new FakeSessionAdapter();
         AgentLoopTelemetry telemetry = new AgentLoopTelemetry(
-                failingCapabilities(), verificationPort, emptyCapabilities(), emptyRepositories(), failingRevisions());
+                failingCapabilities(), action -> new HttpMutationResult.NotImplemented(),
+                verificationPort, emptyCapabilities(), emptyRepositories(), failingRevisions());
         TerminalResponseCoordinator terminal = new TerminalResponseCoordinator(transitions, session);
         AnswerActionExecutor executor = new AnswerActionExecutor(
                 telemetry, cancellation, AnswerVerificationMode.LLM, new AnswerDocumentValidator(),

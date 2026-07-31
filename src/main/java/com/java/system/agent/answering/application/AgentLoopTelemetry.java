@@ -1,5 +1,6 @@
 package com.java.system.agent.answering.application;
 
+import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -15,6 +16,8 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.port.out.HttpMutationPort;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionContractException;
@@ -36,6 +39,7 @@ final class AgentLoopTelemetry {
     private static final String REPOSITORY_CATALOG_OPERATION = "REPOSITORY_CATALOG";
     private static final String REPOSITORY_REVISION_RESOLUTION_OPERATION = "REPOSITORY_REVISION_RESOLUTION";
     private static final String CAPABILITY_EXECUTION_OPERATION = "CAPABILITY_EXECUTION";
+    private static final String HTTP_MUTATION_OPERATION = "HTTP_MUTATION";
     private static final String SUCCEEDED_RESULT_CATEGORY = "SUCCEEDED";
     private static final String TYPED_FAILURE_RESULT_CATEGORY = "TYPED_FAILURE";
     private static final String CONTRACT_EXCEPTION_RESULT_CATEGORY = "CONTRACT_EXCEPTION";
@@ -44,6 +48,7 @@ final class AgentLoopTelemetry {
     private static final Logger LOGGER = Logger.getLogger(ValidatedAgentLoop.class.getName());
 
     private final CapabilityExecutionPort capabilityExecutionPort;
+    private final HttpMutationPort httpMutationPort;
     private final AnswerVerificationPort verificationPort;
     private final CapabilityCatalogPort capabilityCatalogPort;
     private final RepositoryCatalogPort repositoryCatalogPort;
@@ -51,12 +56,14 @@ final class AgentLoopTelemetry {
 
     AgentLoopTelemetry(
             CapabilityExecutionPort capabilityExecutionPort,
+            HttpMutationPort httpMutationPort,
             AnswerVerificationPort verificationPort,
             CapabilityCatalogPort capabilityCatalogPort,
             RepositoryCatalogPort repositoryCatalogPort,
             RepositoryRevisionPort repositoryRevisionPort) {
         this.capabilityExecutionPort = Objects.requireNonNull(
                 capabilityExecutionPort, "capability execution port must not be null");
+        this.httpMutationPort = Objects.requireNonNull(httpMutationPort, "HTTP mutation port must not be null");
         this.verificationPort = Objects.requireNonNull(
                 verificationPort, "answer verification port must not be null");
         this.capabilityCatalogPort = Objects.requireNonNull(
@@ -145,6 +152,24 @@ final class AgentLoopTelemetry {
             throw exception;
         } finally {
             logLifecycleOperation(state, CAPABILITY_EXECUTION_OPERATION, resultCategory, startedNanos);
+        }
+    }
+
+    HttpMutationResult executeMutation(AgentRunState state, ExecuteAction action) {
+        Objects.requireNonNull(state, "agent run state must not be null");
+        Objects.requireNonNull(action, "HTTP mutation action must not be null");
+        long startedNanos = System.nanoTime();
+        String resultCategory = UNEXPECTED_EXCEPTION_RESULT_CATEGORY;
+        try {
+            HttpMutationResult result = httpMutationPort.execute(action);
+            if (Objects.isNull(result)) {
+                resultCategory = CONTRACT_EXCEPTION_RESULT_CATEGORY;
+            } else if (result instanceof HttpMutationResult.NotImplemented) {
+                resultCategory = TYPED_FAILURE_RESULT_CATEGORY;
+            }
+            return result;
+        } finally {
+            logLifecycleOperation(state, HTTP_MUTATION_OPERATION, resultCategory, startedNanos);
         }
     }
 

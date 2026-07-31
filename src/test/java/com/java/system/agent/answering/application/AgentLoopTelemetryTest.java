@@ -24,6 +24,7 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.CapabilityInvocation;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
@@ -160,7 +161,13 @@ class AgentLoopTelemetryTest {
             CapabilityCatalogPort capabilities,
             RepositoryCatalogPort repositories,
             RepositoryRevisionPort revisions) {
-        return new AgentLoopTelemetry(execution, verification, capabilities, repositories, revisions);
+        return new AgentLoopTelemetry(
+                execution,
+                action -> new HttpMutationResult.NotImplemented(),
+                verification,
+                capabilities,
+                repositories,
+                revisions);
     }
 
     private AgentRunState state() {

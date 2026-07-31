@@ -32,6 +32,7 @@ import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.answering.port.out.CapabilityCatalogPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
 import org.junit.jupiter.api.Test;
@@ -130,7 +131,13 @@ class AgentRunRecoveryCoordinatorTest {
         RepositoryRevisionPort revisions = repositoryId -> {
             throw new AssertionError("recovery test must not resolve revisions");
         };
-        AgentLoopTelemetry telemetry = new AgentLoopTelemetry(execution, verifier, capabilities, repositories, revisions);
+        AgentLoopTelemetry telemetry = new AgentLoopTelemetry(
+                execution,
+                action -> new HttpMutationResult.NotImplemented(),
+                verifier,
+                capabilities,
+                repositories,
+                revisions);
         TerminalResponseCoordinator terminal = new TerminalResponseCoordinator(transitions, session);
         AnswerActionExecutor answerExecutor = new AnswerActionExecutor(
                 telemetry, new FakeCancellationAdapter(), AnswerVerificationMode.LLM,

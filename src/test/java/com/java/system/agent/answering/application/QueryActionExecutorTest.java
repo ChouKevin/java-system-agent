@@ -32,6 +32,7 @@ import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
@@ -76,6 +77,7 @@ class QueryActionExecutorTest {
                             capabilityCalls.incrementAndGet();
                             throw capabilityFailure;
                         },
+                        action -> new HttpMutationResult.NotImplemented(),
                         (mode, context) -> new AnswerVerificationResult.ContractAccepted(),
                         () -> List.of(CAPABILITY),
                         () -> List.of(repositoryDescriptor()),

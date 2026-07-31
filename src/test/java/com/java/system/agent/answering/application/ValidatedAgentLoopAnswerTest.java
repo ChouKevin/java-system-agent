@@ -47,6 +47,7 @@ import com.java.system.agent.answering.port.out.AnswerVerificationContractExcept
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.answering.port.in.AnalysisExecutionDeferredException;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
@@ -321,6 +322,7 @@ class ValidatedAgentLoopAnswerTest {
                     capabilityCalls.incrementAndGet();
                     throw new AssertionError("terminal reconciliation must not execute a capability");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     verificationCalls.incrementAndGet();
                     throw new AssertionError("terminal reconciliation must not verify an ordinary run");
@@ -786,6 +788,7 @@ class ValidatedAgentLoopAnswerTest {
                 query -> {
                     throw new AssertionError("answer test must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 verifier,
                 verificationMode,
                 session,
@@ -822,6 +825,7 @@ class ValidatedAgentLoopAnswerTest {
                 query -> {
                     throw new AssertionError("bootstrap contract test must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     throw new AssertionError("bootstrap contract test must not verify an answer");
                 },

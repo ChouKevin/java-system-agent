@@ -55,6 +55,7 @@ import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.slack.delivery.SlackChannelRateGate;
 import com.java.system.agent.slack.delivery.SlackDeliveryAdapter;
@@ -196,6 +197,7 @@ class SlackAgentFlowTest {
                 invocation -> {
                     throw new IllegalStateException("clarification flow must not execute a capability");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> new AnswerVerificationResult.ContractAccepted(),
                 AnswerVerificationMode.CONTRACT_ONLY,
                 sessions,

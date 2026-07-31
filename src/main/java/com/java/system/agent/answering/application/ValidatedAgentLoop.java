@@ -35,6 +35,7 @@ import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.CapabilityCatalogPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.port.out.HttpMutationPort;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
@@ -60,6 +61,7 @@ public final class ValidatedAgentLoop {
     private final AgentActionValidator actionValidator;
     private final AgentRunRecoveryCoordinator recoveryCoordinator;
     private final QueryActionExecutor queryActionExecutor;
+    private final ExecuteActionExecutor executeActionExecutor;
     private final AnswerActionExecutor answerActionExecutor;
     private final TerminalResponseCoordinator terminalResponseCoordinator;
     private final AgentRunTransitions transitions;
@@ -70,6 +72,7 @@ public final class ValidatedAgentLoop {
             AgentActionValidator actionValidator,
             AgentRunRecoveryCoordinator recoveryCoordinator,
             QueryActionExecutor queryActionExecutor,
+            ExecuteActionExecutor executeActionExecutor,
             AnswerActionExecutor answerActionExecutor,
             TerminalResponseCoordinator terminalResponseCoordinator,
             AgentRunTransitions transitions) {
@@ -80,6 +83,8 @@ public final class ValidatedAgentLoop {
                 recoveryCoordinator, "agent run recovery coordinator must not be null");
         this.queryActionExecutor = Objects.requireNonNull(
                 queryActionExecutor, "query action executor must not be null");
+        this.executeActionExecutor = Objects.requireNonNull(
+                executeActionExecutor, "execute action executor must not be null");
         this.answerActionExecutor = Objects.requireNonNull(
                 answerActionExecutor, "answer action executor must not be null");
         this.terminalResponseCoordinator = Objects.requireNonNull(
@@ -90,6 +95,7 @@ public final class ValidatedAgentLoop {
     public static ValidatedAgentLoop compose(
             AgentActionPort actionPort,
             CapabilityExecutionPort capabilityExecutionPort,
+            HttpMutationPort httpMutationPort,
             AnswerVerificationPort verificationPort,
             AnswerVerificationMode answerVerificationMode,
             SessionPort sessionPort,
@@ -106,6 +112,7 @@ public final class ValidatedAgentLoop {
         AgentRunTransitions transitions = new AgentRunTransitions(transitionCommitter);
         AgentLoopTelemetry telemetry = new AgentLoopTelemetry(
                 capabilityExecutionPort,
+                httpMutationPort,
                 verificationPort,
                 capabilityCatalogPort,
                 repositoryCatalogPort,
@@ -126,6 +133,11 @@ public final class ValidatedAgentLoop {
                 contextIssuer,
                 transitions,
                 terminalResponseCoordinator);
+        ExecuteActionExecutor executeActionExecutor = new ExecuteActionExecutor(
+                telemetry,
+                cancellationPort,
+                transitions,
+                terminalResponseCoordinator);
         AgentRunRecoveryCoordinator recoveryCoordinator = new AgentRunRecoveryCoordinator(
                 transitions,
                 telemetry,
@@ -140,6 +152,7 @@ public final class ValidatedAgentLoop {
                 actionValidator,
                 recoveryCoordinator,
                 queryActionExecutor,
+                executeActionExecutor,
                 answerActionExecutor,
                 terminalResponseCoordinator,
                 transitions);
@@ -221,7 +234,8 @@ public final class ValidatedAgentLoop {
                         request, sessionHistory, state, answerAction, attemptSequence);
                 case ClarifyAction clarification -> new ActionLaneOutcome.Terminal(
                         terminalResponseCoordinator.acceptClarification(request, state, clarification));
-                case ExecuteAction ignored -> throw new IllegalStateException("EXECUTE preview runtime is not composed");
+                case ExecuteAction executeAction -> executeActionExecutor.execute(
+                        request, state, executeAction, attemptSequence);
             };
             switch (outcome) {
                 case ActionLaneOutcome.Terminal terminal -> {
