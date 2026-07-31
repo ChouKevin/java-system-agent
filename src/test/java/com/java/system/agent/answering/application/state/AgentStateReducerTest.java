@@ -37,6 +37,17 @@ class AgentStateReducerTest {
     }
 
     @Test
+    void consumes_execute_budget_without_consuming_query_budget() {
+        AgentRunState state = runningState();
+
+        AgentRunState reduced = reducer.reduce(state, new AgentEvent.ExecuteBudgetConsumed(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision())).candidateState();
+
+        assertThat(reduced.budget().usedExecuteExecutions()).isEqualTo(1);
+        assertThat(reduced.budget().usedQueryExecutions()).isZero();
+    }
+
+    @Test
     void concludes_budget_exhaustion_as_inconclusive_runtime_notice() {
         AgentRunState state = runningState();
 
