@@ -32,6 +32,8 @@ import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.CapabilityCatalogPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
+import com.java.system.agent.answering.port.out.HttpMutationPort;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
 import com.java.system.agent.answering.port.out.SessionPort;
@@ -146,9 +148,15 @@ public final class AgentRuntimeConfiguration {
     }
 
     @Bean
+    HttpMutationPort httpMutationPort() {
+        return action -> new HttpMutationResult.NotImplemented();
+    }
+
+    @Bean
     ValidatedAgentLoop validatedAgentLoop(
             AgentActionPort actionPort,
             CapabilityExecutionPort capabilityExecutionPort,
+            HttpMutationPort httpMutationPort,
             AnswerVerificationPort verificationPort,
             AgentRuntimeProperties runtimeProperties,
             SessionPort sessionPort,
@@ -162,9 +170,10 @@ public final class AgentRuntimeConfiguration {
             AnswerVerdictValidator verdictValidator,
             AgentTransitionCommitter transitionCommitter,
             ContextIssuer contextIssuer) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 capabilityExecutionPort,
+                httpMutationPort,
                 verificationPort,
                 runtimeProperties.mode(),
                 sessionPort,
@@ -187,7 +196,7 @@ public final class AgentRuntimeConfiguration {
 
     @Bean
     AttemptBudget initialAttemptBudget() {
-        return new AttemptBudget(6, 0, 5, 0, 3, 0, 1, 0);
+        return new AttemptBudget(6, 0, 5, 0, 1, 0, 3, 0, 1, 0);
     }
 
     @Bean

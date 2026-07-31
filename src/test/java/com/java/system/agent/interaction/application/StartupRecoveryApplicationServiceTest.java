@@ -2,12 +2,12 @@ package com.java.system.agent.interaction.application;
 
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxFailure;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.RecoverySummary;
 import com.java.system.agent.interaction.domain.delivery.DeliveryClaim;
 import com.java.system.agent.interaction.domain.delivery.DeliveryFailure;
 import com.java.system.agent.interaction.port.out.DeliveryOutboxPort;
 import com.java.system.agent.interaction.port.out.SessionInboxPort;
-import com.java.system.agent.answering.port.in.AnswerQuestionResult;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -45,7 +45,7 @@ class StartupRecoveryApplicationServiceTest {
         private Instant recoveredAt;
 
         @Override public Optional<InboxClaim> claimNext(Instant now) { throw new UnsupportedOperationException(); }
-        @Override public void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt) { throw new UnsupportedOperationException(); }
+        @Override public void completeWithFinal(InboxClaim claim, FinalInteractionResponse result, Instant completedAt) { throw new UnsupportedOperationException(); }
         @Override public void failWithFinal(InboxClaim claim, InboxFailure failure, String safeResponseText, Instant failedAt) { throw new UnsupportedOperationException(); }
         @Override public void retry(InboxClaim claim, InboxFailure failure, Instant availableAt) { throw new UnsupportedOperationException(); }
         @Override public void deferForCapacity(InboxClaim claim, Instant retryAt) { throw new UnsupportedOperationException(); }

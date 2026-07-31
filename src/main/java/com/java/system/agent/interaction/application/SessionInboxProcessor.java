@@ -1,6 +1,7 @@
 package com.java.system.agent.interaction.application;
 
 import com.java.system.agent.interaction.domain.InboxFailure;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
@@ -89,9 +90,11 @@ public final class SessionInboxProcessor {
             logFailure("ANSWER_VERIFIER_UNAVAILABLE", claimedMessage, exception);
             return retryOrFail(claim, InboxFailure.ANSWER_VERIFIER_UNAVAILABLE, now);
         } catch (AnswerExecutionContractException exception) {
-            InboxFailure failure = exception.failure() == AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT
-                    ? InboxFailure.PLANNING_TOOL_CONTRACT
-                    : InboxFailure.ANSWER_INTEGRATION_CONTRACT;
+            InboxFailure failure = switch (exception.failure()) {
+                case GENERAL_INTEGRATION_CONTRACT -> InboxFailure.ANSWER_INTEGRATION_CONTRACT;
+                case PLANNING_TOOL_CONTRACT -> InboxFailure.PLANNING_TOOL_CONTRACT;
+                case HTTP_MUTATION_CONTRACT -> InboxFailure.HTTP_MUTATION_CONTRACT;
+            };
             logFailure(failure.code(), claimedMessage, exception);
             sessionInboxPort.failWithFinal(
                     claim, failure, safeResponse(RunOutcome.FAILED), now);
@@ -150,13 +153,12 @@ public final class SessionInboxProcessor {
         };
     }
 
-    private static AnswerQuestionResult normalizedCompletionResult(AnswerQuestionResult result) {
-        if (result.responseKind() != RunResponseKind.RUNTIME_NOTICE || result.outcome() != RunOutcome.CANCELLED) {
-            return result;
-        }
-        return new AnswerQuestionResult(
-                result.runId(), result.outcome(), safeResponse(result.outcome()), result.answerDocument(),
-                result.responseKind(), result.verificationBasis(), result.finalRevisions());
+    private static FinalInteractionResponse normalizedCompletionResult(AnswerQuestionResult result) {
+        String responseText = result.responseKind() == RunResponseKind.RUNTIME_NOTICE
+                && result.outcome() == RunOutcome.CANCELLED
+                ? safeResponse(result.outcome())
+                : result.responseText();
+        return new FinalInteractionResponse(result.runId(), result.outcome(), result.responseKind(), responseText);
     }
 
     private static void logContractViolation(String category, InboxMessage claimedMessage) {

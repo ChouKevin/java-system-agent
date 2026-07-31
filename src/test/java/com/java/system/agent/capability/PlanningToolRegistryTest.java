@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
+import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
@@ -100,6 +101,7 @@ class PlanningToolRegistryTest {
         AgentActionProposal unissued = registry.interpretToolCall("query_tool", "{}", context);
 
         assertThat(issuedNames).containsExactlyInAnyOrder("agent_submit_answer", "agent_request_clarification");
+        assertThat(issuedNames).doesNotContain("execute_http");
         assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
         assertThat(unissued).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
     }
@@ -115,6 +117,23 @@ class PlanningToolRegistryTest {
         assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
     }
 
+    @Test
+    void keepsFixedAnswerAndClarificationToolsIssuedAfterExecuteBudgetIsConsumed() {
+        PlanningToolRegistry registry = registryWithExecutePreview();
+
+        List<String> availableNames = registry.issuedRegistrations(context(0)).stream()
+                .map(registration -> registration.name())
+                .toList();
+        List<String> exhaustedExecuteNames = registry.issuedRegistrations(context(1)).stream()
+                .map(registration -> registration.name())
+                .toList();
+
+        assertThat(availableNames).contains("execute_http", "agent_submit_answer", "agent_request_clarification");
+        assertThat(exhaustedExecuteNames)
+                .contains("agent_submit_answer", "agent_request_clarification")
+                .doesNotContain("execute_http");
+    }
+
     private static PlanningToolRegistry registry() {
         CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
         return registry(List.of(provider(List.of(
@@ -123,6 +142,17 @@ class PlanningToolRegistryTest {
                         new SubmitAnswerPlanningMapper()),
                 new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
                         new RequestClarificationPlanningMapper())))));
+    }
+
+    private static PlanningToolRegistry registryWithExecutePreview() {
+        CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
+        return registry(List.of(provider(List.of(
+                queryRegistration("query_tool", "v1", payloadCodec),
+                new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
+                        new SubmitAnswerPlanningMapper()),
+                new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
+                        new RequestClarificationPlanningMapper()),
+                new ExecutePlanningToolRegistration()))));
     }
 
     private static PlanningToolRegistry registry(
@@ -148,10 +178,14 @@ class PlanningToolRegistryTest {
     }
 
     private static AgentPromptContext context() {
+        return context(0);
+    }
+
+    private static AgentPromptContext context(int usedExecuteExecutions) {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(), Map.of(),
-                Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 3, 0, 1, 0));
+                Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, usedExecuteExecutions, 3, 0, 1, 0));
     }
 
     private static CanonicalCapabilityPayloadCodec payloadCodec() {

@@ -45,7 +45,7 @@ class AnalysisApplicationServiceTest {
                 new SessionId("session-1"),
                 participant(),
                 "  How does it work?  ",
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0));
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         AgentLoopRequest expectedRequest = new AgentLoopRequest(
                 command.runId(), command.sessionId(), command.participant(), command.question(), command.budget(),
@@ -74,7 +74,7 @@ class AnalysisApplicationServiceTest {
                 new SessionId("session-1"),
                 participant(),
                 "How does it work?",
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0));
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
         AgentLoopRequest expectedRequest = new AgentLoopRequest(
                 command.runId(), command.sessionId(), command.participant(), command.question(), command.budget(),
                 command.executionMode(), command.executionAttempt());

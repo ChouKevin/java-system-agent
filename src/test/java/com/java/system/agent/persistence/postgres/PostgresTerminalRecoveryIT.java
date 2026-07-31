@@ -9,6 +9,7 @@ import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
 import com.java.system.agent.interaction.domain.InboxProcessingOutcome;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.NormalizedSourceEvent;
 import com.java.system.agent.interaction.domain.SessionSourceRef;
 import com.java.system.agent.interaction.domain.SourceMessageId;
@@ -58,6 +59,7 @@ import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionContractException;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.SessionPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -203,7 +205,8 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         InboxClaim recoveredClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
         AnswerQuestionResult recovered = clarificationService(actionCalls, sessions).answer(command(
                 recoveredClaim.message(), AnswerExecutionMode.TERMINAL_RECONCILIATION, recoveredClaim.message().attemptCount()));
-        inbox.completeWithFinal(recoveredClaim, recovered, NOW.plusSeconds(2));
+        inbox.completeWithFinal(recoveredClaim, new FinalInteractionResponse(
+                recovered.runId(), recovered.outcome(), recovered.responseKind(), recovered.responseText()), NOW.plusSeconds(2));
 
         assertThat(actionCalls).hasValue(1);
         assertThat(eventCount(firstClaim.message().runId(), "CLARIFICATION_ACCEPTED")).isEqualTo(1L);
@@ -274,7 +277,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     private AnalysisApplicationService clarificationService(AtomicInteger actionCalls, SessionPort sessionPort) {
-        ValidatedAgentLoop loop = new ValidatedAgentLoop(
+        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
                     actionCalls.incrementAndGet();
                     return new AgentActionProposal.Proposed(
@@ -283,6 +286,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 query -> {
                     throw new AssertionError("clarification must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     throw new AssertionError("clarification must not verify an answer");
                 },
@@ -304,7 +308,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     private AnalysisApplicationService planningContractService(AtomicInteger actionCalls) {
-        ValidatedAgentLoop loop = new ValidatedAgentLoop(
+        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
                     actionCalls.incrementAndGet();
                     throw new AgentActionContractException("planning registry contract failed", null);
@@ -312,6 +316,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 query -> {
                     throw new AssertionError("planning contract failure must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     throw new AssertionError("planning contract failure must not verify an answer");
                 },
@@ -333,7 +338,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     private AnalysisApplicationService pendingVerificationService(AtomicInteger actionCalls, AtomicInteger verifierCalls) {
-        ValidatedAgentLoop loop = new ValidatedAgentLoop(
+        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
                     actionCalls.incrementAndGet();
                     return new AgentActionProposal.Proposed(new AnswerAction(new AnswerDocument(List.of(
@@ -343,6 +348,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 query -> {
                     throw new AssertionError("answer proposal must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     if (verifierCalls.incrementAndGet() == 1) {
                         throw new AnswerVerificationUnavailableException("temporary verifier outage", null); // cs-allow
@@ -377,7 +383,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     }
 
     private AttemptBudget budget() {
-        return new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0);
+        return new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0);
     }
 
     private List<ConversationTurn> sessionTurns(SessionId sessionId) {

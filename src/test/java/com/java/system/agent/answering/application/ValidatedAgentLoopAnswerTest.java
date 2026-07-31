@@ -47,6 +47,7 @@ import com.java.system.agent.answering.port.out.AnswerVerificationContractExcept
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.answering.port.in.AnalysisExecutionDeferredException;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
@@ -228,8 +229,10 @@ class ValidatedAgentLoopAnswerTest {
         AtomicBoolean unavailable = new AtomicBoolean(true);
         AtomicBoolean rejected = new AtomicBoolean();
         AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger verificationCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         AnswerVerificationPort verifier = (mode, context) -> {
+            verificationCalls.incrementAndGet();
             if (unavailable.getAndSet(false)) {
                 throw new AnswerVerificationUnavailableException("temporary verifier outage", null);
             }
@@ -255,6 +258,7 @@ class ValidatedAgentLoopAnswerTest {
 
         assertThat(result.responseText()).isEqualTo("Rewritten answer");
         assertThat(actionCalls).hasValue(2);
+        assertThat(verificationCalls).hasValue(3);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
         assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(1);
     }
@@ -264,11 +268,13 @@ class ValidatedAgentLoopAnswerTest {
         AtomicBoolean unavailable = new AtomicBoolean(true);
         AtomicBoolean rejected = new AtomicBoolean();
         AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger verificationCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(
                 new FakeSessionAdapter(),
                 transitions,
                 (mode, context) -> {
+                    verificationCalls.incrementAndGet();
                     if (unavailable.getAndSet(false)) {
                         throw new AnswerVerificationUnavailableException("temporary verifier outage", null);
                     }
@@ -294,6 +300,8 @@ class ValidatedAgentLoopAnswerTest {
 
         assertThat(result.responseText()).isEqualTo("Rewritten answer");
         assertThat(actionCalls).hasValue(2);
+        assertThat(verificationCalls).hasValue(3);
+        assertThat(transitions.events()).filteredOn(AgentEvent.AttemptStarted.class::isInstance).hasSize(1);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
         assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(1);
     }
@@ -302,18 +310,38 @@ class ValidatedAgentLoopAnswerTest {
     void terminalReconciliationRejectsAnAbsentRunAndFailsOrdinaryPersistedWorkWithoutExternalCalls() {
         AtomicInteger actionCalls = new AtomicInteger();
         AtomicInteger verificationCalls = new AtomicInteger();
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        AtomicInteger revisionCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
-        ValidatedAgentLoop loop = loop(
-                new FakeSessionAdapter(),
-                transitions,
+        ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
+                context -> {
+                    actionCalls.incrementAndGet();
+                    throw new AssertionError("terminal reconciliation must not request an action");
+                },
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    throw new AssertionError("terminal reconciliation must not execute a capability");
+                },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     verificationCalls.incrementAndGet();
                     throw new AssertionError("terminal reconciliation must not verify an ordinary run");
                 },
-                context -> {
-                    actionCalls.incrementAndGet();
-                    throw new AssertionError("terminal reconciliation must not request an action");
-                });
+                AnswerVerificationMode.LLM,
+                new FakeSessionAdapter(),
+                new FakeRepositoryCatalogAdapter(),
+                new FakeCapabilityCatalogAdapter(),
+                repositoryId -> {
+                    revisionCalls.incrementAndGet();
+                    throw new AssertionError("terminal reconciliation must not resolve repository revisions");
+                },
+                new FakeCancellationAdapter(),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                new AgentActionValidator(),
+                new AnswerDocumentValidator(),
+                new AnswerVerdictValidator(),
+                new AgentTransitionCommitter(new AgentStateReducer(), transitions),
+                new ContextIssuer());
 
         assertThatThrownBy(() -> loop.execute(terminalRequest()))
                 .isInstanceOf(AnswerExecutionContractException.class);
@@ -324,6 +352,8 @@ class ValidatedAgentLoopAnswerTest {
         assertThat(result.outcome()).isEqualTo(RunOutcome.FAILED);
         assertThat(actionCalls).hasValue(0);
         assertThat(verificationCalls).hasValue(0);
+        assertThat(capabilityCalls).hasValue(0);
+        assertThat(revisionCalls).hasValue(0);
     }
 
     @Test
@@ -617,6 +647,7 @@ class ValidatedAgentLoopAnswerTest {
     @Test
     void cancellationDuringVerificationPreventsAcceptedTerminalPersistenceAndSessionAppend() {
         AtomicBoolean cancelled = new AtomicBoolean();
+        AtomicInteger actionCalls = new AtomicInteger();
         AtomicInteger verificationCalls = new AtomicInteger();
         FakeSessionAdapter session = new FakeSessionAdapter();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
@@ -628,12 +659,16 @@ class ValidatedAgentLoopAnswerTest {
                     cancelled.set(true);
                     return new AnswerVerificationResult.LlmVerdict(acceptedComplete());
                 },
-                context -> new AgentActionProposal.Proposed(new AnswerAction(document("Cancelled answer"))),
+                context -> {
+                    actionCalls.incrementAndGet();
+                    return new AgentActionProposal.Proposed(new AnswerAction(document("Cancelled answer")));
+                },
                 runId -> cancelled.get());
 
         AgentLoopResult result = loop.execute(request());
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.CANCELLED);
+        assertThat(actionCalls).hasValue(1);
         assertThat(verificationCalls).hasValue(1);
         assertThat(transitions.events())
                 .filteredOn(event -> event instanceof AgentEvent.AnswerAccepted
@@ -651,15 +686,25 @@ class ValidatedAgentLoopAnswerTest {
     void terminalAnswerAcceptanceCancelledByTheStoreDoesNotAppendSession() {
         FakeSessionAdapter session = new FakeSessionAdapter();
         TerminalCancellationTransitionPort transitions = new TerminalCancellationTransitionPort();
+        AtomicInteger actionCalls = new AtomicInteger();
+        AtomicInteger verificationCalls = new AtomicInteger();
         ValidatedAgentLoop loop = loop(
                 session,
                 transitions,
-                (mode, context) -> new AnswerVerificationResult.LlmVerdict(acceptedComplete()),
-                new AgentActionProposal.Proposed(new AnswerAction(document("Cancelled at commit"))));
+                (mode, context) -> {
+                    verificationCalls.incrementAndGet();
+                    return new AnswerVerificationResult.LlmVerdict(acceptedComplete());
+                },
+                context -> {
+                    actionCalls.incrementAndGet();
+                    return new AgentActionProposal.Proposed(new AnswerAction(document("Cancelled at commit")));
+                });
 
         AgentLoopResult result = loop.execute(request());
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.CANCELLED);
+        assertThat(actionCalls).hasValue(1);
+        assertThat(verificationCalls).hasValue(1);
         assertThat(session.read(new SessionId("session-1")).turns()).isEmpty();
         assertThat(transitions.events())
                 .filteredOn(event -> event instanceof AgentEvent.AnswerAccepted
@@ -738,11 +783,12 @@ class ValidatedAgentLoopAnswerTest {
             AnswerVerificationPort verifier,
             AgentActionPort actionPort,
             AnalysisCancellationPort cancellationPort) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 query -> {
                     throw new AssertionError("answer test must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 verifier,
                 verificationMode,
                 session,
@@ -774,11 +820,12 @@ class ValidatedAgentLoopAnswerTest {
             RepositoryCatalogPort repositories,
             AnalysisAttemptIdGenerator attemptIdGenerator,
             AgentActionPort actionPort) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 query -> {
                     throw new AssertionError("bootstrap contract test must not execute a semantic query");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     throw new AssertionError("bootstrap contract test must not verify an answer");
                 },
@@ -806,7 +853,7 @@ class ValidatedAgentLoopAnswerTest {
                 sessionId,
                 PARTICIPANT,
                 question,
-                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0));
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
     }
 
     private AgentLoopRequest request(ParticipantRef participant, AnswerExecutionMode mode) {
@@ -816,26 +863,26 @@ class ValidatedAgentLoopAnswerTest {
                 new SessionId("session-1"),
                 participant,
                 "What is verified?",
-                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
                 mode,
                 attemptCount);
     }
 
     private AgentLoopRequest terminalRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.TERMINAL_RECONCILIATION, 4);
     }
 
     private AgentLoopRequest retryRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.RETRY, 2);
     }
 
     private AgentLoopRequest capacityResumeRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.CAPACITY_RESUME, 2);
     }
 
@@ -843,7 +890,7 @@ class ValidatedAgentLoopAnswerTest {
         AgentRunState initial = AgentRunState.initial(
                 new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"),
-                new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0),
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
                 new com.java.system.agent.answering.domain.run.RunRequestIdentity(
                         "session-1", PARTICIPANT, "What is verified?"));
         AgentStateReducer reducer = new AgentStateReducer();

@@ -7,6 +7,7 @@ import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
 import com.java.system.agent.interaction.domain.InboxProcessingOutcome;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.SessionSourceRef;
 import com.java.system.agent.interaction.domain.SourceMessageId;
 import com.java.system.agent.interaction.port.in.ClaimRecoveryFailureException;
@@ -35,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class InboxWorkApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2030-07-26T10:00:00Z");
-    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0);
+    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0);
 
     @Test
     void returnsEmptyWithoutCallingTheProcessorWhenNoInboxClaimIsAvailable() {
@@ -159,7 +160,7 @@ class InboxWorkApplicationServiceTest {
         }
 
         @Override
-        public void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt) {
+        public void completeWithFinal(InboxClaim claim, FinalInteractionResponse result, Instant completedAt) {
             if (failCompletion) {
                 throw new IllegalStateException("transition unavailable");
             }

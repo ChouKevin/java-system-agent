@@ -3,6 +3,7 @@ package com.java.system.agent.interaction.application;
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxDeferReason;
 import com.java.system.agent.interaction.domain.InboxFailure;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
@@ -26,6 +27,7 @@ import com.java.system.agent.answering.domain.run.RunResponseKind;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.in.AnalysisExecutionDeferredException;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerQuestionCommand;
@@ -51,7 +53,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SessionInboxProcessorTest {
 
     private static final Instant NOW = Instant.parse("2030-07-26T10:00:00Z");
-    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0);
+    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0);
 
     @ParameterizedTest
     @MethodSource("validTerminalResults")
@@ -88,10 +90,8 @@ class SessionInboxProcessorTest {
         InboxProcessingOutcome outcome = processor.process(claim(1, Optional.empty()), NOW);
 
         assertThat(outcome).isEqualTo(InboxProcessingOutcome.COMPLETED);
-        assertThat(inbox.completedResult).isEqualTo(new AnswerQuestionResult(
-                runtimeCancellation.runId(), RunOutcome.CANCELLED, "處理已取消",
-                runtimeCancellation.answerDocument(), RunResponseKind.RUNTIME_NOTICE,
-                runtimeCancellation.verificationBasis(), runtimeCancellation.finalRevisions()));
+        assertThat(inbox.completedResult).isEqualTo(new FinalInteractionResponse(
+                runtimeCancellation.runId(), RunOutcome.CANCELLED, RunResponseKind.RUNTIME_NOTICE, "處理已取消"));
     }
 
     @ParameterizedTest
@@ -199,6 +199,55 @@ class SessionInboxProcessorTest {
     }
 
     @Test
+    void mapsPlanningToolContractViolationToItsDedicatedInboxFailureWithoutRetry() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox,
+                command -> {
+                    throw new AnswerExecutionContractException(
+                            AnswerExecutionContractFailure.PLANNING_TOOL_CONTRACT,
+                            "planning tool contract failed",
+                            new IllegalStateException("provider payload must not persist"));
+                },
+                BUDGET,
+                InboxRetryPolicy.defaults());
+
+        assertThat(processor.process(claim(1, Optional.empty()), NOW)).isEqualTo(InboxProcessingOutcome.FAILED);
+
+        assertThat(inbox.failedClaim).isEqualTo(claim(1, Optional.empty()));
+        assertThat(inbox.failure).isEqualTo(InboxFailure.PLANNING_TOOL_CONTRACT);
+        assertThat(inbox.retriedClaim).isNull();
+        assertThat(inbox.transitionCount).isOne();
+    }
+
+    @Test
+    void mapsHttpMutationContractViolationToAFinalSafeFailureWithoutRetry() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        String secretUrl = "https://secret.example.invalid/mutate";
+        String secretBody = "{\"credential\":\"secret-body\"}";
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox,
+                command -> {
+                    throw new AnswerExecutionContractException(
+                            AnswerExecutionContractFailure.HTTP_MUTATION_CONTRACT,
+                            "HTTP mutation contract failed",
+                            new IllegalStateException(secretUrl + secretBody));
+                },
+                BUDGET,
+                InboxRetryPolicy.defaults());
+
+        InboxProcessingOutcome outcome = processor.process(claim(1, Optional.empty()), NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.FAILED);
+        assertThat(inbox.failedClaim).isEqualTo(claim(1, Optional.empty()));
+        assertThat(inbox.failure).isEqualTo(InboxFailure.HTTP_MUTATION_CONTRACT);
+        assertThat(inbox.safeResponseText).isEqualTo("處理失敗，請稍後再試").doesNotContain(secretUrl, secretBody);
+        assertThat(inbox.retriedClaim).isNull();
+        assertThat(inbox.retryAvailableAt).isNull();
+        assertThat(inbox.transitionCount).isOne();
+    }
+
+    @Test
     void treatsANullAnswerResultAsRetryableInfrastructureFailure() {
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(inbox, command -> null, BUDGET, InboxRetryPolicy.defaults());
@@ -278,13 +327,12 @@ class SessionInboxProcessorTest {
                 new AnalysisRunId("run-1"), outcome, text, Optional.empty(), kind, Optional.empty(), RevisionVector.empty());
     }
 
-    private static AnswerQuestionResult expectedCompletedResult(AnswerQuestionResult result) {
-        if (result.responseKind() != RunResponseKind.RUNTIME_NOTICE || result.outcome() != RunOutcome.CANCELLED) {
-            return result;
-        }
-        return new AnswerQuestionResult(
-                result.runId(), result.outcome(), "處理已取消", result.answerDocument(), result.responseKind(),
-                result.verificationBasis(), result.finalRevisions());
+    private static FinalInteractionResponse expectedCompletedResult(AnswerQuestionResult result) {
+        String responseText = result.responseKind() == RunResponseKind.RUNTIME_NOTICE
+                && result.outcome() == RunOutcome.CANCELLED
+                ? "處理已取消"
+                : result.responseText();
+        return new FinalInteractionResponse(result.runId(), result.outcome(), result.responseKind(), responseText);
     }
 
     private static InboxClaim claim(int attemptCount, Optional<InboxDeferReason> deferReason) {
@@ -315,7 +363,7 @@ class SessionInboxProcessorTest {
     private static final class RecordingInboxPort implements SessionInboxPort {
 
         private InboxClaim completedClaim;
-        private AnswerQuestionResult completedResult;
+        private FinalInteractionResponse completedResult;
         private InboxClaim failedClaim;
         private String safeResponseText;
         private InboxClaim capacityClaim;
@@ -334,7 +382,7 @@ class SessionInboxProcessorTest {
         }
 
         @Override
-        public void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt) {
+        public void completeWithFinal(InboxClaim claim, FinalInteractionResponse result, Instant completedAt) {
             verifyTransition(FailingTransition.COMPLETE);
             completedClaim = claim;
             completedResult = result;

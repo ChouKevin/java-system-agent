@@ -7,7 +7,8 @@ import com.java.system.agent.answering.port.out.AgentPromptContext;
  * planning tool catalog 的中立 registration 契約
  */
 public sealed interface PlanningToolRegistration<I>
-        permits QueryPlanningToolRegistration, AnswerPlanningToolRegistration, ClarifyPlanningToolRegistration {
+        permits QueryPlanningToolRegistration, AnswerPlanningToolRegistration, ClarifyPlanningToolRegistration,
+        ExecutePlanningToolRegistration {
 
     String name();
 

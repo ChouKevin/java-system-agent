@@ -41,6 +41,7 @@ public final class AgentStateReducer {
             case AgentEvent.ActionAccepted actionAccepted -> applyActionAccepted(currentState);
             case AgentEvent.ActionRejected actionRejected -> applyActionRejected(currentState, actionRejected);
             case AgentEvent.QueryBudgetConsumed queryBudgetConsumed -> applyQueryBudgetConsumed(currentState);
+            case AgentEvent.ExecuteBudgetConsumed executeBudgetConsumed -> applyExecuteBudgetConsumed(currentState);
             case AgentEvent.ObservationRecorded observationRecorded -> applyObservationRecorded(currentState,
                     observationRecorded);
             case AgentEvent.AttemptInvalidated attemptInvalidated ->
@@ -143,6 +144,14 @@ public final class AgentStateReducer {
         requireRunning(state);
         requireInitialAttemptStarted(state);
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), state.budget().consumeQueryExecution(),
+                state.acceptedActionCount(), state.rejectedActionCount(), state.pendingTerminalResponse(),
+                Optional.empty());
+    }
+
+    private AgentRunState applyExecuteBudgetConsumed(AgentRunState state) {
+        requireRunning(state);
+        requireInitialAttemptStarted(state);
+        return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), state.budget().consumeExecuteExecution(),
                 state.acceptedActionCount(), state.rejectedActionCount(), state.pendingTerminalResponse(),
                 Optional.empty());
     }

@@ -4,7 +4,6 @@
 @org.springframework.modulith.ApplicationModule(
         allowedDependencies = {
                 "answering :: domain",
-                "answering :: port-in",
                 "answering :: port-out",
                 "interaction :: domain",
                 "interaction :: port-out"})

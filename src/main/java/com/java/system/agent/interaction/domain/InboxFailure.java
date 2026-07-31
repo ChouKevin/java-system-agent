@@ -18,6 +18,8 @@ public record InboxFailure(String code, String description) {
             "ANSWER_INTEGRATION_CONTRACT", "Answer integration contract failed");
     public static final InboxFailure PLANNING_TOOL_CONTRACT = new InboxFailure(
             "PLANNING_TOOL_CONTRACT", "Planning tool contract failed");
+    public static final InboxFailure HTTP_MUTATION_CONTRACT = new InboxFailure(
+            "HTTP_MUTATION_CONTRACT", "HTTP mutation contract failed");
     public static final InboxFailure ANSWER_UNEXPECTED = new InboxFailure(
             "ANSWER_UNEXPECTED", "Unexpected answer execution failure");
 

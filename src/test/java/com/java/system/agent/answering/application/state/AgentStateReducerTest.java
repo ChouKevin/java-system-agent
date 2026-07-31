@@ -37,6 +37,17 @@ class AgentStateReducerTest {
     }
 
     @Test
+    void consumes_execute_budget_without_consuming_query_budget() {
+        AgentRunState state = runningState();
+
+        AgentRunState reduced = reducer.reduce(state, new AgentEvent.ExecuteBudgetConsumed(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision())).candidateState();
+
+        assertThat(reduced.budget().usedExecuteExecutions()).isEqualTo(1);
+        assertThat(reduced.budget().usedQueryExecutions()).isZero();
+    }
+
+    @Test
     void concludes_budget_exhaustion_as_inconclusive_runtime_notice() {
         AgentRunState state = runningState();
 
@@ -73,7 +84,7 @@ class AgentStateReducerTest {
 
     private AgentRunState runningState() {
         AgentRunState initial = AgentRunState.initial(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
-                new AttemptBudget(3, 0, 2, 0, 2, 0, 1, 0),
+                new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 new RunRequestIdentity("session-1", new ParticipantRef("test", "participant"), "question"));
         AgentRunState started = reducer.reduce(initial, new AgentEvent.RunStarted(
                 initial.runId(), initial.currentAttempt().attemptId(), initial.stateRevision())).candidateState();

@@ -2,6 +2,8 @@ package com.java.system.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.capability.planning.PlanningToolProvider;
+import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.interaction.application.SessionInboxProcessor;
 import com.java.system.agent.interaction.port.in.AcceptSourceEventUseCase;
 import com.java.system.agent.answering.port.in.AnswerQuestionUseCase;
@@ -98,6 +100,32 @@ class AgentRuntimeConfigurationTest {
             context.getBean(JavaSemanticServiceHttpAdapter.class).availableRepositories();
 
             server.verify();
+        });
+    }
+
+    @Test
+    @DisplayName("runtime profile leaves execute preview provider and registration absent by default")
+    void shouldLeaveExecutePreviewAbsentByDefault() {
+        contextRunner.withPropertyValues("spring.profiles.active=agent-runtime,test-infrastructure").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBeansOfType(PlanningToolProvider.class)).hasSize(2);
+            assertThat(context.getBean(PlanningToolRegistry.class).registrations())
+                    .extracting(registration -> registration.name())
+                    .doesNotContain("execute_http");
+        });
+    }
+
+    @Test
+    @DisplayName("runtime profile contributes execute preview only when explicitly enabled")
+    void shouldContributeExecutePreviewWhenExplicitlyEnabled() {
+        contextRunner.withPropertyValues(
+                "spring.profiles.active=agent-runtime,test-infrastructure",
+                "agent.execute-preview.enabled=true").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBeansOfType(PlanningToolProvider.class)).hasSize(3);
+            assertThat(context.getBean(PlanningToolRegistry.class).registrations())
+                    .extracting(registration -> registration.name())
+                    .contains("execute_http");
         });
     }
 

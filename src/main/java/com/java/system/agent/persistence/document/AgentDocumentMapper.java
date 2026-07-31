@@ -134,6 +134,7 @@ final class AgentDocumentMapper {
             case AgentEvent.ActionAccepted ignored -> "ACTION_ACCEPTED";
             case AgentEvent.ActionRejected ignored -> "ACTION_REJECTED";
             case AgentEvent.QueryBudgetConsumed ignored -> "QUERY_BUDGET_CONSUMED";
+            case AgentEvent.ExecuteBudgetConsumed ignored -> "EXECUTE_BUDGET_CONSUMED";
             case AgentEvent.ObservationRecorded ignored -> "OBSERVATION_RECORDED";
             case AgentEvent.AttemptInvalidated ignored -> "ATTEMPT_INVALIDATED";
             case AgentEvent.AnswerProposed ignored -> "ANSWER_PROPOSED";

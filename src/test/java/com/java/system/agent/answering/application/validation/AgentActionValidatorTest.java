@@ -1,5 +1,7 @@
 package com.java.system.agent.answering.application.validation;
 
+import com.java.system.agent.answering.domain.action.ExecuteAction;
+import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -73,6 +76,75 @@ class AgentActionValidatorTest {
                         ActionRejectionCode.INCOMPATIBLE_CANDIDATE_KIND.name(), action));
     }
 
+    @Test
+    void accepts_an_absolute_https_execute_preview_without_candidate_handles() {
+        Fixture fixture = fixture();
+        ExecuteAction action = execute("https://service.example/orders");
+
+        ActionValidation validation = validator.validate(action, fixture.context(Map.of()));
+
+        assertThat(validation).isInstanceOf(ActionValidation.Accepted.class);
+        ActionValidation.Accepted accepted = (ActionValidation.Accepted) validation;
+        assertThat(accepted.originalAction()).isSameAs(action);
+        assertThat(accepted.resolvedCandidates()).isEmpty();
+    }
+
+    @Test
+    void rejects_invalid_execute_preview_targets() {
+        Fixture fixture = fixture();
+        List<String> invalidTargets = List.of(
+                "/orders",
+                "ftp://service.example/orders",
+                "https://user@service.example/orders",
+                "https:/orders",
+                "http:///orders",
+                "https://?q=1",
+                "https://[bad");
+
+        for (String target : invalidTargets) {
+            ExecuteAction action = execute(target);
+
+            ActionValidation validation = validator.validate(action, fixture.context(Map.of()));
+
+            assertThat(validation).isInstanceOf(ActionValidation.Rejected.class);
+            ActionValidation.Rejected rejected = (ActionValidation.Rejected) validation;
+            assertThat(rejected.code()).isEqualTo(ActionRejectionCode.INVALID_EXECUTE_TARGET);
+            assertThat(rejected.originalAction()).isSameAs(action);
+        }
+    }
+
+    @Test
+    void rejects_execute_preview_when_execute_budget_is_exhausted_before_target_validation() {
+        Fixture fixture = fixture();
+        ExecuteAction action = execute("https:/orders");
+        AttemptBudget exhaustedExecuteBudget = new AttemptBudget(4, 0, 4, 0, 1, 1, 4, 0, 2, 0);
+
+        ActionValidation validation = validator.validate(action, fixture.context(Map.of(), exhaustedExecuteBudget));
+
+        assertThat(validation).isInstanceOf(ActionValidation.Rejected.class);
+        ActionValidation.Rejected rejected = (ActionValidation.Rejected) validation;
+        assertThat(rejected.code()).isEqualTo(ActionRejectionCode.EXECUTE_BUDGET_EXHAUSTED);
+        assertThat(rejected.originalAction()).isSameAs(action);
+    }
+
+    @Test
+    void rejects_execute_preview_when_agent_step_budget_is_exhausted() {
+        Fixture fixture = fixture();
+        ExecuteAction action = execute("https://service.example/orders");
+        AttemptBudget exhaustedAgentStepBudget = new AttemptBudget(4, 4, 4, 0, 1, 0, 4, 0, 2, 0);
+
+        ActionValidation validation = validator.validate(action, fixture.context(Map.of(), exhaustedAgentStepBudget));
+
+        assertThat(validation).isInstanceOf(ActionValidation.Rejected.class);
+        ActionValidation.Rejected rejected = (ActionValidation.Rejected) validation;
+        assertThat(rejected.code()).isEqualTo(ActionRejectionCode.BUDGET_EXHAUSTED);
+        assertThat(rejected.originalAction()).isSameAs(action);
+    }
+
+    private static ExecuteAction execute(String target) {
+        return new ExecuteAction(ExternalHttpMethod.POST, target, Optional.empty(), "preview external request");
+    }
+
     private static Fixture fixture() {
         HandleBinding binding = binding();
         CapabilityHandle capability = new CapabilityHandle("capability-1", binding);
@@ -96,9 +168,15 @@ class AgentActionValidatorTest {
 
     private record Fixture(HandleBinding binding, CapabilityHandle capability, CandidateHandle first) {
         private AgentValidationContext context(Map<CandidateHandle, IssuedCandidate> candidates) {
+            return context(candidates, new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0));
+        }
+
+        private AgentValidationContext context(
+                Map<CandidateHandle, IssuedCandidate> candidates,
+                AttemptBudget budget) {
             CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.ROUTE), 1, 2);
             return new AgentValidationContext(Map.of(capability, policy), candidates, Map.of(), Map.of(), binding,
-                    new AttemptBudget(4, 0, 4, 0, 4, 0, 2, 0));
+                    budget);
         }
     }
 }

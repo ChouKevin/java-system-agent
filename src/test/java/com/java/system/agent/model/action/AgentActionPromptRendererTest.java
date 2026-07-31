@@ -31,7 +31,7 @@ class AgentActionPromptRendererTest {
         AgentPromptContext context = new AgentPromptContext(
                 "請查詢付款流程", history, new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
                 Map.of(), Map.of(), Map.of(), Map.of(), Optional.empty(),
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0));
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         String prompt = new AgentActionPromptRenderer().render(context);
 
@@ -42,6 +42,9 @@ class AgentActionPromptRendererTest {
                 participant[slack:U789012]: 也包含退款流程
                 assistant: 退款流程如下
                 """);
+        assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
+                .startsWith("Choose exactly one registered planning tool call.\n");
+        assertThat(prompt).contains("Remaining budget:\nagentSteps=2, queryExecutions=1, executeExecutions=1, actionRejections=1");
         assertThat(prompt).doesNotContain("- user:", "  type:");
     }
 }

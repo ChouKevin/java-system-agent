@@ -11,6 +11,7 @@ import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.interaction.domain.InboxClaim;
 import com.java.system.agent.interaction.domain.InboxDeferReason;
 import com.java.system.agent.interaction.domain.InboxFailure;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.interaction.domain.InboxMessage;
 import com.java.system.agent.interaction.domain.InboxMessageId;
 import com.java.system.agent.interaction.domain.InboxMessageStatus;
@@ -51,6 +52,7 @@ import com.java.system.agent.answering.port.out.AgentTransitionConflictException
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
@@ -80,7 +82,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PlanningToolInboxIntegrationTest {
 
     private static final Instant NOW = Instant.parse("2030-07-26T10:00:00Z");
-    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 2, 0, 1, 0);
+    private static final AttemptBudget BUDGET = new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0);
 
     @Test
     void terminally_fails_a_durable_accepted_noncanonical_payload_without_retrying_or_replaying_the_executor() {
@@ -191,9 +193,10 @@ class PlanningToolInboxIntegrationTest {
             CapabilityExecutionPort executionPort,
             PlanningToolRegistry registry,
             RecordingTransitions transitions) {
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actionPort,
                 executionPort,
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> { throw new AssertionError("planning contract test must not verify answers"); },
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
@@ -296,7 +299,7 @@ class PlanningToolInboxIntegrationTest {
         private InboxFailure failure;
 
         @Override public Optional<InboxClaim> claimNext(Instant now) { throw new UnsupportedOperationException(); }
-        @Override public void completeWithFinal(InboxClaim claim, AnswerQuestionResult result, Instant completedAt) { throw new AssertionError(); }
+        @Override public void completeWithFinal(InboxClaim claim, FinalInteractionResponse result, Instant completedAt) { throw new AssertionError(); }
         @Override public void retry(InboxClaim claim, InboxFailure failure, Instant availableAt) { retriedClaim = claim; this.failure = failure; }
         @Override public void failWithFinal(InboxClaim claim, InboxFailure failure, String safeResponseText, Instant failedAt) { failedClaim = claim; this.failure = failure; }
         @Override public void deferForCapacity(InboxClaim claim, Instant retryAt) { throw new AssertionError(); }

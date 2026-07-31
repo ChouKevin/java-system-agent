@@ -5,5 +5,6 @@ package com.java.system.agent.answering.port.in;
  */
 public enum AnswerExecutionContractFailure {
     GENERAL_INTEGRATION_CONTRACT,
-    PLANNING_TOOL_CONTRACT
+    PLANNING_TOOL_CONTRACT,
+    HTTP_MUTATION_CONTRACT
 }

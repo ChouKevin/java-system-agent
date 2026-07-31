@@ -38,6 +38,7 @@ import java.util.Optional;
         @JsonSubTypes.Type(value = AgentEvent.ActionAccepted.class, name = "ACTION_ACCEPTED"),
         @JsonSubTypes.Type(value = AgentEvent.ActionRejected.class, name = "ACTION_REJECTED"),
         @JsonSubTypes.Type(value = AgentEvent.QueryBudgetConsumed.class, name = "QUERY_BUDGET_CONSUMED"),
+        @JsonSubTypes.Type(value = AgentEvent.ExecuteBudgetConsumed.class, name = "EXECUTE_BUDGET_CONSUMED"),
         @JsonSubTypes.Type(value = AgentEvent.ObservationRecorded.class, name = "OBSERVATION_RECORDED"),
         @JsonSubTypes.Type(value = AgentEvent.AttemptInvalidated.class, name = "ATTEMPT_INVALIDATED"),
         @JsonSubTypes.Type(value = AgentEvent.AnswerProposed.class, name = "ANSWER_PROPOSED"),
@@ -51,7 +52,8 @@ import java.util.Optional;
 })
 public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.AttemptStarted,
         AgentEvent.ContextIssued, AgentEvent.ActionAccepted, AgentEvent.ActionRejected,
-        AgentEvent.QueryBudgetConsumed, AgentEvent.ObservationRecorded, AgentEvent.AttemptInvalidated,
+        AgentEvent.QueryBudgetConsumed, AgentEvent.ExecuteBudgetConsumed, AgentEvent.ObservationRecorded,
+        AgentEvent.AttemptInvalidated,
         AgentEvent.AnswerProposed, AgentEvent.AnswerAccepted, AgentEvent.AnswerRejected,
         AgentEvent.AnswerVerificationAbandoned, AgentEvent.ClarificationAccepted, AgentEvent.RunConcluded {
 
@@ -115,6 +117,13 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
     record QueryBudgetConsumed(AnalysisRunId runId, AnalysisAttemptId attemptId,
                                long expectedStateRevision) implements AgentEvent {
         public QueryBudgetConsumed {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+        }
+    }
+
+    record ExecuteBudgetConsumed(AnalysisRunId runId, AnalysisAttemptId attemptId,
+                                 long expectedStateRevision) implements AgentEvent {
+        public ExecuteBudgetConsumed {
             validateEnvelope(runId, attemptId, expectedStateRevision);
         }
     }

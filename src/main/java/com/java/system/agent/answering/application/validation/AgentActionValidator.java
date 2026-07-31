@@ -3,6 +3,7 @@ package com.java.system.agent.answering.application.validation;
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
@@ -11,6 +12,8 @@ import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -33,16 +36,12 @@ public final class AgentActionValidator {
     public ActionValidation validate(AgentAction action, AgentValidationContext context) {
         Objects.requireNonNull(action, "agent action must not be null");
         Objects.requireNonNull(context, "agent validation context must not be null");
-        if (action instanceof QueryAction query) {
-            return validateQuery(query, context);
-        }
-        if (action instanceof AnswerAction answer) {
-            return validateAnswer(answer, context);
-        }
-        if (action instanceof ClarifyAction clarify) {
-            return validateNonQuery(clarify, clarify.candidates(), context);
-        }
-        return rejected(ActionRejectionCode.UNKNOWN_ACTION, action);
+        return switch (action) {
+            case QueryAction query -> validateQuery(query, context);
+            case AnswerAction answer -> validateAnswer(answer, context);
+            case ClarifyAction clarify -> validateNonQuery(clarify, clarify.candidates(), context);
+            case ExecuteAction execute -> validateExecute(execute, context);
+        };
     }
 
     private ActionValidation validateAnswer(AnswerAction action, AgentValidationContext context) {
@@ -87,6 +86,21 @@ public final class AgentActionValidator {
             return rejected(ActionRejectionCode.BUDGET_EXHAUSTED, action);
         }
         return new ActionValidation.Accepted(action, candidates);
+    }
+
+    private ActionValidation validateExecute(ExecuteAction action, AgentValidationContext context) {
+        if (!context.budget().hasExecuteExecutionRemaining()) {
+            return rejected(ActionRejectionCode.EXECUTE_BUDGET_EXHAUSTED, action);
+        }
+        try {
+            URI target = new URI(action.targetUrl());
+            if (!isValidExecuteTarget(target)) {
+                return rejected(ActionRejectionCode.INVALID_EXECUTE_TARGET, action);
+            }
+        } catch (URISyntaxException exception) {
+            return rejected(ActionRejectionCode.INVALID_EXECUTE_TARGET, action);
+        }
+        return acceptIfAgentStepAvailable(action, List.of(), context);
     }
 
     private ActionValidation validateNonQuery(
@@ -156,6 +170,19 @@ public final class AgentActionValidator {
     private static boolean hasDuplicateCandidateValues(List<CandidateHandleRef> candidates) {
         Set<String> seen = new HashSet<>();
         return candidates.stream().map(candidateHandleReference -> candidateHandleReference.value()).anyMatch(value -> !seen.add(value));
+    }
+
+    private static boolean isValidExecuteTarget(URI target) {
+        String scheme = target.getScheme();
+        if (!target.isAbsolute() || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+            return false;
+        }
+        String rawAuthority = target.getRawAuthority();
+        if (Objects.isNull(rawAuthority) || rawAuthority.isBlank() || Objects.nonNull(target.getRawUserInfo())) {
+            return false;
+        }
+        String host = target.getHost();
+        return Objects.nonNull(host) && !host.isBlank();
     }
 
     private static boolean allCandidatesMatchRevision(List<IssuedCandidate> candidates, AgentValidationContext context) {

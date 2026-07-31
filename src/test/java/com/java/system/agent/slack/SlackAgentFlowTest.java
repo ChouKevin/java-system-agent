@@ -55,7 +55,8 @@ import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
-import com.java.system.agent.answering.port.in.AnswerQuestionResult;
+import com.java.system.agent.answering.port.out.HttpMutationResult;
+import com.java.system.agent.interaction.domain.FinalInteractionResponse;
 import com.java.system.agent.slack.delivery.SlackChannelRateGate;
 import com.java.system.agent.slack.delivery.SlackDeliveryAdapter;
 import com.java.system.agent.slack.source.SlackMentionNormalizer;
@@ -95,7 +96,7 @@ import static org.mockito.Mockito.when;
 class SlackAgentFlowTest {
 
     private static final Instant NOW = Instant.parse("2030-07-28T10:00:00Z");
-    private static final AttemptBudget BUDGET = new AttemptBudget(6, 0, 5, 0, 3, 0, 1, 0);
+    private static final AttemptBudget BUDGET = new AttemptBudget(6, 0, 5, 0, 1, 0, 3, 0, 1, 0);
 
     @Test
     void serializesOverlappingParticipantsAndDeliversEachReceiptBeforeItsAddressedFinal() throws Exception {
@@ -191,11 +192,12 @@ class SlackAgentFlowTest {
                 new AnalysisAttemptId("attempt-alice"), new AnalysisAttemptId("attempt-bob"));
         AgentTransitionCommitter committer = new AgentTransitionCommitter(
                 new AgentStateReducer(), new InMemoryAgentTransitionPort());
-        return new ValidatedAgentLoop(
+        return ValidatedAgentLoop.compose(
                 actions,
                 invocation -> {
                     throw new IllegalStateException("clarification flow must not execute a capability");
                 },
+                action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> new AnswerVerificationResult.ContractAccepted(),
                 AnswerVerificationMode.CONTRACT_ONLY,
                 sessions,
@@ -298,7 +300,7 @@ class SlackAgentFlowTest {
 
         private synchronized void completeWithFinal(
                 InboxClaim claim,
-                AnswerQuestionResult result,
+                FinalInteractionResponse result,
                 Instant completedAt) {
             InboxMessage processing = processing(claim);
             InboxMessage completed = new InboxMessage(
@@ -461,7 +463,7 @@ class SlackAgentFlowTest {
         @Override
         public void completeWithFinal(
                 InboxClaim claim,
-                AnswerQuestionResult result,
+                FinalInteractionResponse result,
                 Instant completedAt) {
             store.completeWithFinal(claim, result, completedAt);
         }
