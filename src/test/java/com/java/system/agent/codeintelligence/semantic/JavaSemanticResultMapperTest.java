@@ -51,9 +51,9 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.MethodTarget target = methodTarget("OrderService", "find");
         SemanticDtos.OutgoingCallGraphResponse response = new SemanticDtos.OutgoingCallGraphResponse("PARTIAL", REVISION,
                 "root", new SemanticDtos.GraphTraversal(1, 1, 3, true, "NODE_BUDGET"), List.of(
-                new SemanticDtos.GraphNode("root", target, null, "FULL_SOURCE", "EXPANDED", "SYNCHRONOUS", null,
-                        null)), List.of(), List.of(new SemanticDtos.GraphWarning("NODE_BUDGET_REACHED", "limit\nreached",
-                "root", null, null, List.of())), List.of());
+                new SemanticDtos.GraphNode("root", target, null, "FULL_SOURCE", "EXPANDED", "SYNCHRONOUS", null, List.of())),
+                List.of(), List.of(new SemanticDtos.GraphWarning("NODE_BUDGET_REACHED", "limit\nreached",
+                "root", null, null, List.of(), List.of())), List.of());
 
         CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
                 JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
@@ -131,10 +131,10 @@ class JavaSemanticResultMapperTest {
         String longMessage = "x".repeat(1_001);
         SemanticDtos.OutgoingCallGraphResponse response = new SemanticDtos.OutgoingCallGraphResponse("PARTIAL", REVISION,
                 "root", new SemanticDtos.GraphTraversal(1, 0, 0, true, "NONE"), List.of(
-                new SemanticDtos.GraphNode("root", responseRoot, null, "FULL_SOURCE", "EXPANDED", "SYNCHRONOUS", null,
-                        null)), List.of(new SemanticDtos.GraphEdge("root", "opaque", sourceRange(), "opaque call",
+                new SemanticDtos.GraphNode("root", responseRoot, null, "FULL_SOURCE", "EXPANDED", "SYNCHRONOUS", null, List.of())),
+                List.of(new SemanticDtos.GraphEdge("root", "opaque", sourceRange(), "opaque call",
                 "MYBATIS_MAPPER", "RESOLVED_OPAQUE", List.of("proof"))), List.of(
-                new SemanticDtos.GraphWarning("NODE_BUDGET_REACHED", longMessage, "root", null, null, List.of())), List.of(
+                new SemanticDtos.GraphWarning("NODE_BUDGET_REACHED", longMessage, "root", null, null, List.of(), List.of())), List.of(
                 new SemanticDtos.GraphError("CHILD_SEMANTIC_QUERY_FAILED", "tail error", "root")));
         CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
                 JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(requested), response);
@@ -173,31 +173,6 @@ class JavaSemanticResultMapperTest {
                 .isInstanceOf(CapabilityExecutionContractException.class);
         assertThatThrownBy(() -> mapper.semanticTarget(new SemanticDtos.MethodTarget("", "", "Empty", "empty", List.of())))
                 .isInstanceOf(CapabilityExecutionContractException.class);
-    }
-
-    @Test
-    void changesGraphEvidenceDigestWhenTheResponseNodeBodyChanges() {
-        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
-        SemanticDtos.MethodTarget target = methodTarget("OrderService", "find");
-        SemanticDtos.OutgoingCallGraphResponse first = graphWithBody(target, "return first();");
-        SemanticDtos.OutgoingCallGraphResponse second = graphWithBody(target, "return second();");
-
-        EvidenceRef firstEvidence = ((CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), first)).evidence().getFirst();
-        EvidenceRef secondEvidence = ((CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), second)).evidence().getFirst();
-
-        assertThat(firstEvidence.content()).contains("body=return first();");
-        assertThat(secondEvidence.content()).contains("body=return second();");
-        assertThat(firstEvidence.content()).isNotEqualTo(secondEvidence.content());
-        assertThat(firstEvidence.artifactRef()).isNotEqualTo(secondEvidence.artifactRef());
-    }
-
-    private static SemanticDtos.OutgoingCallGraphResponse graphWithBody(SemanticDtos.MethodTarget target, String body) {
-        return new SemanticDtos.OutgoingCallGraphResponse("SUCCESS", REVISION, "root",
-                new SemanticDtos.GraphTraversal(1, 0, 0, true, "NONE"), List.of(
-                new SemanticDtos.GraphNode("root", target, null, "FULL_SOURCE", "EXPANDED", "SYNCHRONOUS", body,
-                        null)), List.of(), List.of(), List.of());
     }
 
     @Test
