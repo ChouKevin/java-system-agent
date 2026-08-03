@@ -63,10 +63,11 @@ public final class SemanticDtos {
             implements EntryPointMethodResponse {
     }
 
-    public record ApiRouteLookupRequest(String apiPath, String httpMethod, String repoScope) {
+    public record ApiRouteLookupRequest(String apiPath, String httpMethod, String repoId, String expectedRevision) {
     }
 
-    public record ApiRouteSuggestRequest(String apiPath, String httpMethod, String repoScope, Integer limit) {
+    public record ApiRouteSuggestRequest(String apiPath, String httpMethod, String repoId, String expectedRevision,
+                                         Integer limit) {
     }
 
     public record ApiRouteCandidatesResponse(List<ApiRouteCandidateResponse> candidates,

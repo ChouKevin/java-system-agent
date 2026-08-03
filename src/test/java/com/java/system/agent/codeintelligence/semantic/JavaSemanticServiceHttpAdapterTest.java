@@ -38,6 +38,7 @@ import java.net.SocketTimeoutException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -81,16 +82,22 @@ class JavaSemanticServiceHttpAdapterTest {
     @Test
     void mapsEveryCapabilityOperationToOneReadOnlyHttpRequest() {
         TestClient client = testClient();
-        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders/entry-points?types=API"))
+        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders/entry-points?expectedRevision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&types=API"))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("""
                         {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","entryPoints":[{"className":"OrderController","packageName":"com.example.web","packagePath":"com/example/web","description":"Order entry points","basePaths":["/orders"],"methods":[{"type":"API","name":"list","description":"List orders","apiUrl":"/orders","httpMethods":["GET"],"swaggerDescriptions":["Lists orders"],"analysisTarget":{"status":"UNRESOLVED","target":null,"candidates":[],"reasonCode":"TARGET_NOT_FOUND"}}]}]}
                         """, MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/api-routes/lookup"))
                 .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"apiPath":"/orders","httpMethod":null,"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+                        """))
                 .andRespond(withSuccess("{" + "\"candidates\":[],\"observations\":[]}" , MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/api-routes/suggest"))
                 .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"apiPath":"/orders","httpMethod":null,"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","limit":3}
+                        """))
                 .andRespond(withSuccess("{" + "\"candidates\":[],\"observations\":[]}" , MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
                 .andExpect(method(POST))
@@ -123,7 +130,7 @@ class JavaSemanticServiceHttpAdapterTest {
                         """));
         client.server().expect(once(), requestTo("https://semantic.test/v1/api-routes/suggest"))
                 .andRespond(withException(new SocketTimeoutException("timeout")));
-        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders/entry-points"))
+        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders/entry-points?expectedRevision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
                 .andRespond(withSuccess("{", MediaType.APPLICATION_JSON));
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
@@ -136,6 +143,19 @@ class JavaSemanticServiceHttpAdapterTest {
         assertThat(transport.failure().code()).isEqualTo(CapabilityExecutionFailureCode.TIMEOUT);
         assertThatThrownBy(() -> adapter.listEntryPoints(repositoryContext("codebase_list_entry_points"), new ListEntryPointsExecutionInput(null)))
                 .isInstanceOf(CapabilityExecutionContractException.class);
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsRepositoryQueriesWithoutAnExpectedRevisionBeforeHttp() {
+        TestClient client = testClient();
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        CapabilityExecutionContext context = repositoryContextWithoutExpectedRevision(
+                "codebase_list_entry_points");
+
+        assertThatThrownBy(() -> adapter.listEntryPoints(context, new ListEntryPointsExecutionInput(EntryPointType.API)))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+
         client.server().verify();
     }
 
@@ -210,6 +230,17 @@ class JavaSemanticServiceHttpAdapterTest {
         RepositoryId repositoryId = new RepositoryId("orders");
         RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        IssuedCandidate candidate = new IssuedCandidate(
+                new CandidateHandle("candidate-1", new HandleBinding(new AnalysisRunId("run-1"),
+                        new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.REPOSITORY),
+                new RepositoryCandidate(repositoryId, "Orders"));
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(candidate),
+                "Find orders", revisions);
+    }
+
+    private static CapabilityExecutionContext repositoryContextWithoutExpectedRevision(String name) {
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RevisionVector revisions = RevisionVector.empty();
         IssuedCandidate candidate = new IssuedCandidate(
                 new CandidateHandle("candidate-1", new HandleBinding(new AnalysisRunId("run-1"),
                         new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.REPOSITORY),
