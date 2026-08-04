@@ -41,7 +41,7 @@ planning tools. `codeintelligence` contributes the five read-only QUERY tools an
 consumes the capability executor SPI and planning contract. `model` owns the Spring AI schema,
 callback, and message adapters while consuming answering contracts and `capability :: planning`.
 
-**`java-semantic-service/`** is a standalone Java 21 / Spring Boot service that owns repository lifecycle, JDT LS integration, and call-graph construction. It has its own `AGENTS.md`; read that before working in it.
+**`java-semantic-service/`** is the temporary embedded location of a standalone Java 21 / Spring Boot service that owns repository lifecycle, JDT LS integration, and call-graph construction. Its canonical destination is `git@github.com:ChouKevin/java-code-intelligence.git`. Until the history-preserving extraction is complete, it has its own `AGENTS.md`; read that before working in it. After consumer cutover, remove this directory from the Agent repository rather than maintaining duplicate service sources. The retained procedure is `docs/handoffs/java-code-intelligence-extraction.md`.
 
 **`knowledge/`** holds hand-authored business documentation (`service-map.md`, `repos/{repoId}/business-map.md`, `summary.md`, `business-groups/*.md`). It is an asset in its own right and is never generated from source. **`repos/`** holds runtime clones and is never committed — anything hand-authored beside a clone is destroyed by the next `git pull`.
 

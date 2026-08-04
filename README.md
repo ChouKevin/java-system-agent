@@ -1,12 +1,16 @@
 # java-system-agent
 
-This repository contains two independent Java 21 / Spring Boot projects:
+This repository temporarily contains two independent Java 21 / Spring Boot projects:
 
 - the root `java-system-agent`, a profiled production composition for a validated Agent with a durable session inbox and PostgreSQL persistence
-- `java-semantic-service/`, the separately built service that owns repository lifecycle, JDT LS integration, and call-graph construction
+- `java-semantic-service/`, the separately built service that owns repository lifecycle, JDT LS integration, and call-graph construction during its extraction transition
 
 They share versioned HTTP contracts and an opaque `repoId`; there is deliberately no Maven
-aggregator or shared Java library.
+aggregator or shared Java library. The semantic service's canonical destination is
+`git@github.com:ChouKevin/java-code-intelligence.git`. After the history-preserving extraction and
+consumer cutover are verified, this repository will delete `java-semantic-service/` and retain only
+the Agent-side HTTP client and service contract. See
+[`docs/handoffs/java-code-intelligence-extraction.md`](docs/handoffs/java-code-intelligence-extraction.md).
 
 ## Current Status
 
@@ -115,7 +119,7 @@ src/main/resources/db/migration/
   V2__create_slack_source_and_delivery_lifecycle.sql
 
 java-semantic-service/
-  pom.xml        independent semantic service build
+  pom.xml        temporary embedded location of the independent semantic service
 
 knowledge/
   service-map.md
