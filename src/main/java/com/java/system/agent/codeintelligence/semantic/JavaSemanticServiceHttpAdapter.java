@@ -13,6 +13,7 @@ import com.java.system.agent.codeintelligence.planning.SuggestApiRouteExecutionI
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailure;
@@ -135,11 +136,12 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private CapabilityExecutionResult listEntryPointsInternal(
             CapabilityExecutionContext context,
             ListEntryPointsExecutionInput input) {
-        RepositoryCandidate repository = selectedRepository(context);
+        RepositoryQueryScope repository = selectedRepositoryQueryScope(context);
         try {
             EntryPointType type = input.type();
             SemanticDtos.EntryPointsResponse response = restClient.get()
                     .uri(uriBuilder -> uriBuilder.path("/v1/repositories/{repoId}/entry-points")
+                            .queryParam("expectedRevision", repository.expectedRevision().value())
                             .queryParamIfPresent("types", Optional.ofNullable(type).map(entryPointType -> entryPointType.name()))
                             .build(repository.repositoryId().value()))
                     .retrieve().body(SemanticDtos.EntryPointsResponse.class);
@@ -232,19 +234,18 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             Optional<Integer> limit,
             String operation) {
         try {
-            Optional<RepositoryCandidate> repository = optionalRepository(context);
+            RepositoryQueryScope repository = selectedRepositoryQueryScope(context);
             SemanticDtos.ApiRouteCandidatesResponse response;
             if (limit.isPresent()) {
                 response = restClient.post().uri("/v1/api-routes/suggest")
                         .body(new SemanticDtos.ApiRouteSuggestRequest(apiPath,
-                                httpMethod, repository.map(candidate -> candidate.repositoryId().value())
-                                        .orElse(null), limit.orElseThrow()))
+                                httpMethod, repository.repositoryId().value(), repository.expectedRevision().value(),
+                                limit.orElseThrow()))
                         .retrieve().body(SemanticDtos.ApiRouteCandidatesResponse.class);
             } else {
                 response = restClient.post().uri("/v1/api-routes/lookup")
                         .body(new SemanticDtos.ApiRouteLookupRequest(apiPath,
-                                httpMethod, repository.map(candidate -> candidate.repositoryId().value())
-                                        .orElse(null)))
+                                httpMethod, repository.repositoryId().value(), repository.expectedRevision().value()))
                         .retrieve().body(SemanticDtos.ApiRouteCandidatesResponse.class);
             }
             return resultMapper.apiRoutes(requiredResponse(response, "API route candidates"));
@@ -345,23 +346,19 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     }
 
     private RepositoryCandidate selectedRepository(CapabilityExecutionContext context) {
-        Optional<RepositoryCandidate> selected = optionalRepository(context);
-        if (selected.isEmpty()) {
-            throw contract("capability requires exactly one repository candidate");
-        }
-        return selected.orElseThrow();
-    }
-
-    private Optional<RepositoryCandidate> optionalRepository(CapabilityExecutionContext context) {
         Objects.requireNonNull(context, "capability execution context must not be null");
-        if (context.candidates().isEmpty()) {
-            return Optional.empty();
-        }
         if (context.candidates().size() != 1
                 || !(context.candidates().getFirst().candidate() instanceof RepositoryCandidate repository)) {
-            throw contract("capability repository candidates must contain at most one repository");
+            throw contract("capability requires exactly one repository candidate");
         }
-        return Optional.of(repository);
+        return repository;
+    }
+
+    private RepositoryQueryScope selectedRepositoryQueryScope(CapabilityExecutionContext context) {
+        RepositoryCandidate repository = selectedRepository(context);
+        RepositoryRevision expectedRevision = context.expectedRevisions().revisionOf(repository.repositoryId())
+                .orElseThrow(() -> contract("capability repository revision is not pinned"));
+        return new RepositoryQueryScope(repository.repositoryId(), expectedRevision);
     }
 
     private SemanticTargetCandidate selectedTarget(CapabilityExecutionContext context) {
@@ -391,5 +388,8 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     private static CapabilityExecutionContractException contract(String message) {
         return new CapabilityExecutionContractException(message);
+    }
+
+    private record RepositoryQueryScope(RepositoryId repositoryId, RepositoryRevision expectedRevision) {
     }
 }

@@ -37,11 +37,11 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                         ListEntryPointsPlanningInput.class, ListEntryPointsExecutionInput.class,
                         new ListEntryPointsPlanningMapper(), new ListEntryPointsExecutor(requiredAdapter), requiredPayloadCodec),
                 PlanningToolRegistry.registration(
-                        policy("codebase_lookup_api_route", Set.of(CandidateKind.REPOSITORY), 0, 1),
+                        policy("codebase_lookup_api_route", Set.of(CandidateKind.REPOSITORY), 1, 1),
                         LookupApiRoutePlanningInput.class, LookupApiRouteExecutionInput.class,
                         new LookupApiRoutePlanningMapper(), new LookupApiRouteExecutor(requiredAdapter), requiredPayloadCodec),
                 PlanningToolRegistry.registration(
-                        policy("codebase_suggest_api_route", Set.of(CandidateKind.REPOSITORY), 0, 1),
+                        policy("codebase_suggest_api_route", Set.of(CandidateKind.REPOSITORY), 1, 1),
                         SuggestApiRoutePlanningInput.class, SuggestApiRouteExecutionInput.class,
                         new SuggestApiRoutePlanningMapper(), new SuggestApiRouteExecutor(requiredAdapter), requiredPayloadCodec),
                 PlanningToolRegistry.registration(
