@@ -30,7 +30,7 @@ Slack response delivery。
 2. `claimNext` 只認領到期 session head；同 session 後續訊息不能越過較早的 `PENDING` 或
    `PROCESSING`，不同 session 可獨立認領。
 3. `ValidatedAgentLoop` 讀取累積 session history，讓 LLM 提出一個 action，再以 deterministic
-   validators 接受或拒絕；query capability 經由 Java Semantic Service HTTP adapter 執行。
+   validators 接受或拒絕；query capability 經由 Java code intelligence service HTTP adapter 執行。
 4. Reducer 只依 accepted event 計算下一 state；transition adapter 在一個 transaction 內
    append event 並 CAS current snapshot。
 5. Terminal answer/clarification 通過 cancellation arbitration 後，append 一筆 immutable

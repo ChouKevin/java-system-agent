@@ -13,6 +13,20 @@ The extraction is a source-ownership cutover, not a compatibility period. After 
 service source exists only in `java-code-intelligence`; `java-system-agent` retains the HTTP client,
 opaque `repoId`, revision-pinned service contract, deployment configuration, and consumer tests.
 
+## Completion status
+
+The external ownership cutover was accepted on 2026-08-05. The deployed service came from
+`java-code-intelligence/uat` at `e6a58bf49d290995a5704c466d715a4f0d0de13a`; its accepted `main`
+baseline was `71952639132f66b89e862b3f900ea6719f5244c2`. The Agent source baseline was
+`java-system-agent/uat` at `1d6b4d2e8cf12fd994cd4a080127c51b936b0364`.
+
+Acceptance covered repository catalog/revision, all five Agent HTTP QUERY operations, wrong-token,
+unknown-repository, stale-revision and malformed-request failures, MCP initialization, exactly 17
+published tools, one revision-pinned query, one typed failure, and direct execution of its supplied
+recovery follow-up. The root baseline suite completed with 462 tests and no failures. The local-only
+HTTP request file was preserved outside Git under
+`~/.local/share/java-code-intelligence/uat/source-symbol-resolution.http`.
+
 ## Preconditions
 
 - Install Git 2.36 or newer, Python 3.6 or newer, and `git-filter-repo`
@@ -172,13 +186,9 @@ copy fixes between repositories.
 
 ## Completion evidence
 
-Record these values in the extraction ticket:
-
-- Source `java-system-agent/uat` SHA
-- Extracted `java-code-intelligence/uat` SHA
-- First accepted `java-code-intelligence/main` SHA
-- Tree comparison result
-- Ordinary and JDT LS verification commands run
-- Deployment version and smoke-test result
-- Agent cutover SHA
-- Embedded-source deletion SHA
+- Source `java-system-agent/uat`: `1d6b4d2e8cf12fd994cd4a080127c51b936b0364`
+- Deployed `java-code-intelligence/uat`: `e6a58bf49d290995a5704c466d715a4f0d0de13a`
+- Accepted `java-code-intelligence/main`: `71952639132f66b89e862b3f900ea6719f5244c2`
+- Deployment: `java-agent-starter` UAT composition with external Semantic HTTP and MCP
+- Local-only UAT SHA-256: `9aa9ecc91add68519598ee5b391ef597cb3601bf8973b46df5184394dbde72d1`
+- Agent cutover and embedded-source deletion: the commit containing this handoff update

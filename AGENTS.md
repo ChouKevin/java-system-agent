@@ -2,7 +2,9 @@
 
 ## Project Structure & Module Organization
 
-This repository holds **two independent Maven projects** that share only versioned HTTP contracts and an opaque `repoId`. There is deliberately no `<modules>` aggregation and no parent POM: without aggregation, introducing a shared library would require a dependency visible in a pom diff. Build them separately.
+This repository holds one Maven project: the Agent. Java code intelligence is an external service
+owned by `git@github.com:ChouKevin/java-code-intelligence.git`. The repositories share only
+versioned HTTP contracts and an opaque `repoId`; do not introduce a shared Java library.
 
 **Root project — the Agent.** A Spring Boot 4 / Java 21 Spring Modulith application.
 `src/main/java/com/java/system/agent/` contains `Application.java`, eight Modulith modules, and
@@ -41,7 +43,11 @@ planning tools. `codeintelligence` contributes the five read-only QUERY tools an
 consumes the capability executor SPI and planning contract. `model` owns the Spring AI schema,
 callback, and message adapters while consuming answering contracts and `capability :: planning`.
 
-**`java-semantic-service/`** is the temporary embedded location of a standalone Java 21 / Spring Boot service that owns repository lifecycle, JDT LS integration, and call-graph construction. Its canonical destination is `git@github.com:ChouKevin/java-code-intelligence.git`. Until the history-preserving extraction is complete, it has its own `AGENTS.md`; read that before working in it. After consumer cutover, remove this directory from the Agent repository rather than maintaining duplicate service sources. The retained procedure is `docs/handoffs/java-code-intelligence-extraction.md`.
+The external `java-code-intelligence` service owns repository lifecycle, JDT LS integration,
+call-graph construction, its HTTP/MCP adapters, build, deployment, and service documentation. This
+repository retains only the Agent HTTP consumer, opaque `repoId`, revision-pinned contracts, and
+consumer tests. Do not restore embedded service source or maintain dual copies. The completed
+extraction procedure is `docs/handoffs/java-code-intelligence-extraction.md`.
 
 **`knowledge/`** holds hand-authored business documentation (`service-map.md`, `repos/{repoId}/business-map.md`, `summary.md`, `business-groups/*.md`). It is an asset in its own right and is never generated from source. **`repos/`** holds runtime clones and is never committed — anything hand-authored beside a clone is destroyed by the next `git pull`.
 
@@ -117,7 +123,6 @@ Run from the repository root:
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml clean test
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml test -Dtest=ApplicationModularityTests
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml -Ppostgres-it verify
-mvn -f java-semantic-service/pom.xml clean test
 ```
 
 The normal root suite requires no Docker or external service. The `postgres-it` profile uses

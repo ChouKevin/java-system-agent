@@ -4,17 +4,17 @@
 
 Root runtime 提供 generic `QUERY` action contract，讓 model 選擇 runtime-issued capability
 與任意 candidate subset/order。它驗證合約並接收 typed observations/evidence；production
-composition 以 Java Semantic Service HTTP adapter 實作五個 read-only Java capabilities。
+composition 以 Java code intelligence service HTTP adapter 實作五個 read-only Java capabilities。
 
 ## Current External Entry Points
 
 None. 舊的 root `CallGraphController`、`AnalysisController` 與內建分析服務已不存在。
-Java semantic HTTP endpoints 位於獨立 `java-semantic-service`；root 的 profile-gated client
+Java semantic HTTP endpoints 位於獨立 `java-code-intelligence`；root 的 profile-gated client
 adapter 由 Java inbound contracts 使用，但沒有 controller、worker 或 scheduler 呼叫它。
 
 ## Built-in Read-only Capabilities
 
-| Capability | Java Semantic Service operation |
+| Capability | Java code intelligence service operation |
 |------------|---------------------------------|
 | `codebase.list-entry-points` | 列出 repository entry points |
 | `codebase.lookup-api-route` | 依 route 查詢 API |
