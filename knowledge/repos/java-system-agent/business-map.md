@@ -10,7 +10,7 @@ source-message inbox, PostgreSQL persistence, Spring AI action/verification, and
 Service HTTP adapters. It still has no active Slack listener, HTTP controller, scheduler, worker,
 or response-delivery adapter.
 
-The repository also contains `java-semantic-service/`, an independently built service that owns
+The external `java-code-intelligence` repository provides, an independently built service that owns
 repository lifecycle and Java semantic analysis. The two projects share only versioned HTTP
 contracts and opaque `repoId` values.
 
@@ -41,4 +41,4 @@ no controller, Slack ingress, listener, consumer, scheduler, worker, or response
 | `slack-agent` | `EnqueueSessionMessageUseCase.enqueue` | Inbound Java contract; no Slack adapter or caller |
 | `slack-agent` | `AnswerQuestionUseCase.answer` | Inbound validated-loop contract; an external/manual driver is required |
 | `code-analysis` | `CapabilityExecutionPort.execute` | Production dispatcher routes a selected capability to its sole executor/HTTP adapter |
-| `repo-management` | `RepositoryCatalogPort` / `RepositoryRevisionPort` | Production Java Semantic Service HTTP adapter |
+| `repo-management` | `RepositoryCatalogPort` / `RepositoryRevisionPort` | Production Java code intelligence service HTTP adapter |

@@ -4,7 +4,7 @@
 
 Root Agent 只需要知道可查詢的 opaque repository candidates 與執行查詢時的 exact
 revision。Clone、pull、checkout、workspace 與 JDT LS lifecycle 屬於獨立
-`java-semantic-service`，不在 root runtime 內。
+`java-code-intelligence`，不在 root runtime 內。
 
 ## Current External Entry Points
 
@@ -14,8 +14,8 @@ None. 舊的 root `RepoController`、Git write endpoints 與 startup cache warme
 
 | Contract | Responsibility | Production status |
 |----------|----------------|-------------------|
-| `RepositoryCatalogPort` | 提供 runtime-issued repository handles 與描述 | Java Semantic Service HTTP adapter |
-| `RepositoryRevisionPort` | 在查詢前解析 exact revision，偵測 context drift | Java Semantic Service HTTP adapter |
+| `RepositoryCatalogPort` | 提供 runtime-issued repository handles 與描述 | Java code intelligence service HTTP adapter |
+| `RepositoryRevisionPort` | 在查詢前解析 exact revision，偵測 context drift | Java code intelligence service HTTP adapter |
 | `RepositoryId` / `RepositoryRevision` | 跨邊界使用的 immutable opaque values | Implemented |
 
 ## Runtime Behavior
@@ -30,5 +30,5 @@ None. 舊的 root `RepoController`、Git write endpoints 與 startup cache warme
 ## Ownership Boundary
 
 實際 repository lifecycle、source locks 與 semantic snapshot publication 由
-`java-semantic-service` 擁有。Root 透過 versioned HTTP contract 與 opaque `repoId` 取得
+`java-code-intelligence` 擁有。Root 透過 versioned HTTP contract 與 opaque `repoId` 取得
 catalog/revision，不會直接讀寫 `repos/` clone。

@@ -1,15 +1,13 @@
 # java-system-agent
 
-This repository temporarily contains two independent Java 21 / Spring Boot projects:
+This repository contains the Java 21 / Spring Boot Agent: a profiled production composition with a
+validated action loop, durable session inbox, Slack integration, and PostgreSQL persistence.
 
-- the root `java-system-agent`, a profiled production composition for a validated Agent with a durable session inbox and PostgreSQL persistence
-- `java-semantic-service/`, the separately built service that owns repository lifecycle, JDT LS integration, and call-graph construction during its extraction transition
-
-They share versioned HTTP contracts and an opaque `repoId`; there is deliberately no Maven
-aggregator or shared Java library. The semantic service's canonical destination is
-`git@github.com:ChouKevin/java-code-intelligence.git`. After the history-preserving extraction and
-consumer cutover are verified, this repository will delete `java-semantic-service/` and retain only
-the Agent-side HTTP client and service contract. See
+Java repository lifecycle, JDT LS integration, and call-graph construction are owned by the
+independent [`java-code-intelligence`](https://github.com/ChouKevin/java-code-intelligence)
+service. The two repositories share only versioned HTTP contracts and an opaque `repoId`; there is
+no Maven aggregation or shared Java library. The completed extraction procedure and acceptance
+evidence are retained in
 [`docs/handoffs/java-code-intelligence-extraction.md`](docs/handoffs/java-code-intelligence-extraction.md).
 
 ## Current Status
@@ -103,11 +101,12 @@ distinguish it from an LLM-verified answer through the typed result.
 ```text
 src/main/java/com/java/system/agent/
   Application.java
-  runtime/       validated action-loop domain, application flow, and ports
-  inbox/         durable source-message queue contracts and processing policy
+  answering/     validated action-loop domain, application flow, and ports
+  interaction/   durable source-message queue contracts and processing policy
   persistence/   versioned JSON codecs and PostgreSQL JDBC adapters
-  capability/    fixed catalog, executor registry, and generic QUERY dispatcher
-  codebase/      Java Semantic Service HTTP adapter and five read-only executors
+  capability/    planning-tool registry, executor SPI, and generic QUERY dispatcher
+  codeintelligence/
+                 external Java code intelligence HTTP adapter and five read-only executors
   model/         Spring AI action and answer-verification adapters
   Agent*Configuration.java
                  profile-gated root composition and replaceable infrastructure
@@ -118,17 +117,14 @@ src/main/resources/db/migration/
   V1__create_agent_session_inbox_and_trace.sql
   V2__create_slack_source_and_delivery_lifecycle.sql
 
-java-semantic-service/
-  pom.xml        temporary embedded location of the independent semantic service
-
 knowledge/
   service-map.md
   repos/{repoId}/
 ```
 
-`runtime` and `inbox` contain no Spring components or JDBC code. `runtime` has no module
-dependencies and remains framework-free; its reducer only computes the next state from an accepted
-event. The root configuration is the privileged composition boundary.
+`answering` and `interaction` contain no JDBC code. `answering` has no module dependencies and
+remains framework-free; its reducer only computes the next state from an accepted event. The root
+configuration is the privileged composition boundary.
 
 ## Running the Production Composition
 
@@ -171,11 +167,11 @@ The default model is [`gemini-3.1-flash-lite`](https://ai.google.dev/gemini-api/
 
 The five built-in, read-only codebase capabilities are:
 
-- `codebase.list-entry-points`
-- `codebase.lookup-api-route`
-- `codebase.suggest-api-route`
-- `codebase.outgoing-call-graph`
-- `codebase.incoming-call-graph`
+- `codebase_list_entry_points`
+- `codebase_lookup_api_route`
+- `codebase_suggest_api_route`
+- `codebase_outgoing_call_graph`
+- `codebase_incoming_call_graph`
 
 A representative one-query answer performs three LLM calls and three HTTP calls: catalog HTTP →
 `QUERY` action LLM → revision HTTP → capability HTTP → `ANSWER` action LLM → verifier LLM. The
@@ -199,7 +195,7 @@ Run the focused module-boundary and Slack lifecycle checks:
 
 ```bash
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml test \
-  -Dtest=ApplicationModularityTests,RuntimeKernelArchitectureTest,InboxModuleArchitectureTest,PersistenceModuleArchitectureTest
+  -Dtest=ApplicationModularityTests,AnsweringKernelArchitectureTest,InteractionModuleArchitectureTest,PersistenceModuleArchitectureTest
 ```
 
 The normal suite covers Socket Mode admission, source/inbox/delivery contracts through lightweight
@@ -212,13 +208,8 @@ Run PostgreSQL migrations and adapter integration tests through Testcontainers:
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml -Ppostgres-it verify
 ```
 
-This profile requires a working Docker daemon. The normal root test suite does not.
-
-Build the semantic service separately:
-
-```bash
-mvn -f java-semantic-service/pom.xml clean test
-```
+This profile requires a working Docker daemon. The normal root test suite does not. Build and
+deployment instructions for Java code intelligence belong to its independent repository.
 
 ## Extension Boundary
 

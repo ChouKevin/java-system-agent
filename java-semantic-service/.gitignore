@@ -1,6 +1,0 @@
-target/
-.env
-/data/
-/jdtls/
-*.log
-.idea/

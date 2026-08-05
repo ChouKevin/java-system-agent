@@ -9,7 +9,7 @@ runtime registry or source clone.
 
 | repoId | Purpose | Primary documents |
 |--------|---------|-------------------|
-| `java-system-agent` | Validated Agent kernel, durable session inbox, PostgreSQL persistence, and the separately built Java semantic service | `knowledge/repos/java-system-agent/business-map.md` |
+| `java-system-agent` | Validated Agent kernel, durable session inbox, PostgreSQL persistence, and the separately built Java code intelligence service | `knowledge/repos/java-system-agent/business-map.md` |
 
 ## Navigation
 
