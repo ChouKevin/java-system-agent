@@ -40,4 +40,22 @@ class CodeIntelligencePlanningToolProviderTest {
                         tuple("codebase_lookup_api_route", 1, 1),
                         tuple("codebase_suggest_api_route", 1, 1));
     }
+
+    @Test
+    void registersTheM5CodeIntelligenceToolsInStableProviderOrder() {
+        CodeIntelligencePlanningToolProvider provider = new CodeIntelligencePlanningToolProvider(
+                mock(JavaSemanticServiceHttpAdapter.class), new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator()));
+
+        assertThat(provider.registrations())
+                .map(registration -> (QueryPlanningToolRegistration<?, ?>) registration)
+                .map(QueryPlanningToolRegistration::policy)
+                .extracting(CapabilityPolicy::name)
+                .containsExactly(
+                        "codebase_list_entry_points",
+                        "codebase_lookup_api_route",
+                        "codebase_suggest_api_route",
+                        "codebase_outgoing_call_graph",
+                        "codebase_incoming_call_graph");
+    }
 }
