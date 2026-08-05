@@ -1,8 +1,7 @@
 package com.java.system.agent;
 
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -16,25 +15,21 @@ import org.springframework.web.client.RestClient;
 @Profile("agent-runtime")
 public final class AgentCodebaseConfiguration {
 
-    @Bean("codebaseRestClientBuilder")
-    @Qualifier("codebaseRestClientBuilder")
-    @ConditionalOnMissingBean(name = "codebaseRestClientBuilder")
-    RestClient.Builder codebaseRestClientBuilder(
-            RestClient.Builder bootBuilder,
-            AgentCodebaseProperties properties) {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(properties.connectTimeout());
-        requestFactory.setReadTimeout(properties.readTimeout());
-        return bootBuilder.clone().requestFactory(requestFactory);
-    }
-
     @Bean
     RestClient codebaseRestClient(
-            @Qualifier("codebaseRestClientBuilder") RestClient.Builder builder,
+            ObjectProvider<RestClient.Builder> builderProvider,
             AgentCodebaseProperties properties) {
+        RestClient.Builder builder = builderProvider.getIfAvailable(() -> defaultBuilder(properties));
         return builder.baseUrl(properties.baseUrl())
                 .defaultHeader("X-Api-Token", properties.apiToken())
                 .build();
+    }
+
+    private RestClient.Builder defaultBuilder(AgentCodebaseProperties properties) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(properties.connectTimeout());
+        requestFactory.setReadTimeout(properties.readTimeout());
+        return RestClient.builder().requestFactory(requestFactory);
     }
 
     @Bean
