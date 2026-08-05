@@ -46,8 +46,12 @@ callback, and message adapters while consuming answering contracts and `capabili
 The external `java-code-intelligence` service owns repository lifecycle, JDT LS integration,
 call-graph construction, its HTTP/MCP adapters, build, deployment, and service documentation. This
 repository retains only the Agent HTTP consumer, opaque `repoId`, revision-pinned contracts, and
-consumer tests. Do not restore embedded service source or maintain dual copies. The completed
-extraction procedure is `docs/handoffs/java-code-intelligence-extraction.md`.
+consumer tests. Do not restore embedded service source or maintain dual copies.
+
+`java-agent-starter` owns the local integration composition. It clones `java-system-agent` and
+`java-code-intelligence`, builds both applications, and supplies their shared network and runtime
+configuration for API integration development. Source ownership, builds, tests, and release history
+remain independent in the two service repositories; Starter must not become a shared-code module.
 
 **`knowledge/`** holds hand-authored business documentation (`service-map.md`, `repos/{repoId}/business-map.md`, `summary.md`, `business-groups/*.md`). It is an asset in its own right and is never generated from source. **`repos/`** holds runtime clones and is never committed — anything hand-authored beside a clone is destroyed by the next `git pull`.
 
@@ -115,6 +119,14 @@ The durable session lifecycle is also current:
 - These guarantees target one machine. Do not infer distributed ownership, leases, or cross-machine
   coordination from the PostgreSQL locking implementation.
 
+## Working Documents
+
+- `docs/new-agent-model-draft.md` — the Agent V2 architecture document. It records the decisions and their reasoning, and its section numbers are cited throughout the specs.
+- `docs/superpowers/` — `specs/` for approved designs, `plans/` for implementation plans, `reviews/` for assessments. Reviews are dated artifacts: supersede them with a header, do not rewrite their findings.
+- `.superpowers/sdd/progress.md` — a durable ledger of executed milestones, including defects found and adjudications made. It survives context compaction; trust it and `git log` over recollection.
+
+**Documentation that states a false invariant is a defect.** Several Javadoc claims here have been withdrawn after review disproved them. Verify a claim against the code before writing it, and if the code contradicts a brief, report rather than document the brief.
+
 ## Build, Test, and Development Commands
 
 Run from the repository root:
@@ -158,25 +170,24 @@ These are enforced by tests, not convention:
 
 ## Coding Style & Naming Conventions
 
-Four-space indentation and explicit Java types; **never use `var`**. Prefer records for immutable value objects, and put behavior on the type that owns the data. Avoid raw `== null` / `!= null` — use `Objects`, Spring assertions, or collection/string utilities. Use meaningful domain exceptions, never bare `RuntimeException`. Never inline a package name: use imports, not `new java.util.ArrayList<>()`.
-
 **Javadoc is written in Traditional Chinese with no trailing `。`** — a line break ends a sentence. Every class states what it is and where it sits in the flow.
 
 Class names state their stage and role. The suffix vocabulary is fixed: `…Manager` owns a lifecycle, `…Evaluator` judges whether to stop, `…Planner` chooses the next action, `…Interpreter` translates an external response, `…Reducer` turns an event into state, `…Committer` persists, `…Policy` is a pure rule, `…Validator` asserts invariants.
 
 Types are named by the lifecycle they belong to: `AnalysisRunId` and `RunOutcome` are run-scoped; `AgentRunState`, `RunAttempt`, and `AttemptBudget` are attempt-scoped.
 
-**Do not create a Java package named `target`.** `.gitignore` carries a bare `target/` for Maven output, which silently ignores a package directory of that name at any depth.
+**Do not create a Java package named `target`.** `.gitignore` carries a bare `target/` for Maven output, which silently ignores a package directory of that name at any depth. A `package-info.java` was lost this way once and survived only via `git add -f`.
+
+**A word-boundary `sed` rename protects longer identifiers.** Renaming `Foo` with `\bFoo\b` deliberately leaves `FooTest` alone, so a rename plan must separately include the class declarations the boundary protected. Three test classes once ended up declaring a name that did not match their file, which compiles because Java enforces that only for `public` classes.
 
 ## Testing Guidelines
 
-JUnit 5, AssertJ, and ArchUnit. Name tests `*Test`; every test class's declared name must match its file name.
+JUnit 5, AssertJ, and ArchUnit are the project test stack. Name tests `*Test`; every test class's
+declared name must match its file name.
 
-Test behavior at domain-model boundaries rather than through scripted end-to-end walkthroughs. Where a rule lives in a pure function — `AgentActionValidator`, `AnswerDocumentValidator`, `RevisionVector.driftedFrom` — test it there and thoroughly. The loop gets only tests for observable port, persistence, revision, citation, and cancellation boundaries. A record whose constructor only calls `Objects.requireNonNull` does not need its own test class.
+**Shared test fixtures live in two directories**, and scoped test commands must enumerate both explicitly: `src/test/java/com/java/system/agent/answering/adapter/fake/` and `src/test/java/com/java/system/agent/support/`. A command written as "everything except X" has missed them before.
 
-For adequately covered refactors, keep the relevant tests green rather than inventing a failing test. Use RED-GREEN for new observable behavior and public contract changes.
-
-**Two V2 test fixtures live in `answering/`**, at `src/test/java/com/java/system/agent/answering/adapter/fake/`. Scoped test commands must include this directory.
+**Test sources cross module boundaries freely.** A dependency check that greps only `src/main/java` will miss them, and "leaf-first deletion keeps the tree compiling" does not hold for tests.
 
 ## Commit & Pull Request Guidelines
 

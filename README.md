@@ -6,9 +6,11 @@ validated action loop, durable session inbox, Slack integration, and PostgreSQL 
 Java repository lifecycle, JDT LS integration, and call-graph construction are owned by the
 independent [`java-code-intelligence`](https://github.com/ChouKevin/java-code-intelligence)
 service. The two repositories share only versioned HTTP contracts and an opaque `repoId`; there is
-no Maven aggregation or shared Java library. The completed extraction procedure and acceptance
-evidence are retained in
-[`docs/handoffs/java-code-intelligence-extraction.md`](docs/handoffs/java-code-intelligence-extraction.md).
+no Maven aggregation or shared Java library.
+
+For local API integration development, `java-agent-starter` clones this repository and
+`java-code-intelligence`, builds both services, and provides their shared network and runtime
+configuration. Each service remains independently owned, built, tested, and versioned.
 
 ## Current Status
 
