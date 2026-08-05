@@ -34,7 +34,6 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -44,7 +43,6 @@ import org.springframework.core.env.StandardEnvironment;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.client.RestClient;
 import org.flywaydb.core.Flyway;
 
 import javax.sql.DataSource;
@@ -215,13 +213,6 @@ class ApplicationStartupTest {
         @Bean
         ObjectMapper objectMapper() {
             return new ObjectMapper();
-        }
-
-        @Bean
-        @Primary
-        @Qualifier("codebaseRestClientBuilder")
-        RestClient.Builder testCodebaseRestClientBuilder() {
-            return RestClient.builder();
         }
 
         @Bean
