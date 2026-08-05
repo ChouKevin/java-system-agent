@@ -4,7 +4,7 @@
 >
 > 範圍：Java codebase analysis、knowledge 文件查詢、可診斷 trace
 >
-> 核心邊界：所有 Java 程式語意解讀由 `java-semantic-service`（JDT LS / JDT Core）負責
+> 核心邊界：所有 Java 程式語意解讀由 `java-code-intelligence`（JDT LS / JDT Core）負責
 
 ## 1. 目的與背景
 
@@ -17,7 +17,7 @@ V2 要解決的核心問題是：使用者以自然語言詢問一個或多個 J
 ## 2. 已確認的設計決策
 
 1. 直接取代既有 Agent orchestration，不做 shadow mode 或 legacy compatibility。
-2. Java 定義、引用、實作、呼叫鏈、資料存取、交易、Feign/HTTP、MQ 等語意，一律交由 `java-semantic-service` 解讀。
+2. Java 定義、引用、實作、呼叫鏈、資料存取、交易、Feign/HTTP、MQ 等語意，一律交由 `java-code-intelligence` 解讀。
 3. Agent 不解析 Java、不自行推導 call graph，也不把低階 JDT 操作暴露給 LLM。
 4. 一次使用者訊息建立一個 `AnalysisRun`；同一 Run 可以因 revision 改變而建立新的 `AnalysisAttempt`。
 5. repository scope 必須支援多選，且允許分析途中根據語意證據擴大範圍。
@@ -74,7 +74,7 @@ Agent Application
 SemanticQueryPort
               |
               v
-java-semantic-service
+java-code-intelligence
     |- repository workspace / revision readiness
     |- JDT LS / JDT Core lifecycle
     |- symbol、definition、reference、implementation
@@ -423,7 +423,7 @@ LLM understanding
 
 ### 11.1 目前可觀察到的能力
 
-依目前 `java-semantic-service` OpenAPI 與程式結構，已可見的方向包括：
+依目前 `java-code-intelligence` OpenAPI 與程式結構，已可見的方向包括：
 
 - repository list/get/ensure/sync/checkout
 - revision-bound repository readiness
@@ -694,7 +694,7 @@ docs/
 docker-compose.two-services.yml
 ```
 
-但 `java-semantic-service` 目前仍在其他工作流開發，因此初版不先搬移其目錄、parent POM 或正式 contract。先保持服務獨立，透過 port/fake 隔離變動。
+但 `java-code-intelligence` 目前仍在其他工作流開發，因此初版不先搬移其目錄、parent POM 或正式 contract。先保持服務獨立，透過 port/fake 隔離變動。
 
 ### 17.2 Agent application 建議 slices
 
