@@ -1,0 +1,73 @@
+schema_version: 1
+repo_id: java-system-agent
+entry_points:
+  - example_only: true
+    entry_point_id: java-system-agent/api-route-lookup/EP-001
+    legacy_group_id: api-route-lookup
+    legacy_local_id: EP-001
+    kind: api
+    lifecycle_status: active
+    legacy_confidence: high
+    business_description: Look up API routes in the Java Semantic Service
+    responsibility: Resolve route candidates for repository analysis
+    trigger:
+      http_method: POST
+      route: /v1/api-routes/lookup
+    code_anchor:
+      package_name: com.java.semantic.api
+      class_name: ApiRouteController
+      method_name: lookup
+      parameter_types:
+        - ApiRouteLookupRequest
+    side_effects:
+      - Read-only route lookup
+    parse_status: complete
+    source:
+      document: java-semantic-service/src/main/java/com/java/semantic/api/ApiRouteController.java
+      heading: EP-001
+  - example_only: true
+    entry_point_id: java-system-agent/jdtls-maintenance/EP-001
+    legacy_group_id: jdtls-maintenance
+    legacy_local_id: EP-001
+    kind: scheduled-job
+    lifecycle_status: active
+    legacy_confidence: high
+    business_description: Reap idle JDT workspaces on a maintenance schedule
+    responsibility: Remove idle workspace state from the semantic service
+    trigger:
+      schedule: ${semantic.jdtls.maintenance-interval:1m}
+    code_anchor:
+      package_name: com.java.semantic.semantic.adapter.jdtls
+      class_name: JdtWorkspaceIdleReaper
+      method_name: runOnce
+      parameter_types: []
+    side_effects:
+      - Reap idle workspace resources
+    parse_status: complete
+    source:
+      document: java-semantic-service/src/main/java/com/java/semantic/semantic/adapter/jdtls/JdtWorkspaceIdleReaper.java
+      heading: EP-001
+  - example_only: true
+    entry_point_id: java-system-agent/orders-consumer/EP-001
+    legacy_group_id: orders-consumer
+    legacy_local_id: EP-001
+    kind: message-consumer
+    lifecycle_status: active
+    legacy_confidence: high
+    business_description: illustrative_test_fixture; non-runtime example of an orders message consumer
+    responsibility: illustrative_test_fixture; non-runtime fixture that consumes an order message
+    trigger:
+      destination_type: queue
+      destination: orders
+    code_anchor:
+      package_name: com.example.api
+      class_name: OrderMessageListener
+      method_name: consume
+      parameter_types:
+        - String
+    side_effects:
+      - Illustrative fixture message handling only; no runtime side effect
+    parse_status: complete
+    source:
+      document: java-semantic-service/src/test/resources/fixtures/multi-module-data-access/module-api/src/main/java/com/example/api/OrderMessageListener.java
+      heading: EP-001
