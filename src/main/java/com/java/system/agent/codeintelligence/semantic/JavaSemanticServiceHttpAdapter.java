@@ -176,7 +176,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         try {
             SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
                     target.repositoryId().value(), target.analyzedRevision().value(), input.depth(),
-                    resultMapper.methodTarget(target.semanticTarget()));
+                    resultMapper.methodTargetPayload(target.semanticTarget()));
             SemanticDtos.OutgoingCallGraphResponse response = restClient.post()
                     .uri("/v1/analyses/call-graphs/outgoing").body(request).retrieve()
                     .body(SemanticDtos.OutgoingCallGraphResponse.class);
@@ -203,7 +203,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         try {
             SemanticDtos.AnalyzeIncomingCallGraphRequest request = new SemanticDtos.AnalyzeIncomingCallGraphRequest(
                     target.repositoryId().value(), target.analyzedRevision().value(), input.depth(),
-                    resultMapper.methodTarget(target.semanticTarget()));
+                    resultMapper.methodTargetPayload(target.semanticTarget()));
             SemanticDtos.IncomingCallGraphResponse response = restClient.post()
                     .uri("/v1/analyses/call-graphs/incoming").body(request).retrieve()
                     .body(SemanticDtos.IncomingCallGraphResponse.class);

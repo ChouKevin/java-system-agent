@@ -133,6 +133,16 @@ public final class JavaSemanticResultMapper {
         return schemaValidator.methodTarget(methodTarget);
     }
 
+    public SemanticDtos.MethodTargetPayload methodTargetPayload(SemanticTarget target) {
+        SemanticDtos.MethodTarget methodTarget = methodTarget(target);
+        SemanticDtos.JavaTypeIdentityPayload javaType = new SemanticDtos.JavaTypeIdentityPayload(
+                methodTarget.packageName(), methodTarget.className());
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(
+                javaType, methodTarget.sourceFile());
+        return new SemanticDtos.MethodTargetPayload(sourceType, methodTarget.methodName(),
+                methodTarget.parameterTypes());
+    }
+
     public SemanticTarget semanticTarget(SemanticDtos.MethodTarget target) {
         SemanticDtos.MethodTarget requiredTarget = schemaValidator.methodTarget(target);
         List<String> parameters = requiredList(requiredTarget.parameterTypes(), "method target parameter type");

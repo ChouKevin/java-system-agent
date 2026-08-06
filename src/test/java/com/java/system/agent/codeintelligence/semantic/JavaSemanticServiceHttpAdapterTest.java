@@ -101,9 +101,15 @@ class JavaSemanticServiceHttpAdapterTest {
                 .andRespond(withSuccess("{" + "\"candidates\":[],\"observations\":[]}" , MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
                 .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","depth":1,"target":{"sourceType":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java"},"methodName":"find","parameterTypes":["java.lang.String"]}}
+                        """))
                 .andRespond(withSuccess(graphResponse(), MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/incoming"))
                 .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","depth":1,"target":{"sourceType":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java"},"methodName":"find","parameterTypes":["java.lang.String"]}}
+                        """))
                 .andRespond(withSuccess(graphResponse(), MediaType.APPLICATION_JSON));
 
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());

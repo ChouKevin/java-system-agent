@@ -125,7 +125,7 @@ class JavaSemanticServiceLiveContractIT {
 
     private SemanticDtos.OutgoingCallGraphResponse rawOutgoingCallGraph(RepositoryRevision revision) {
         SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
-                REPOSITORY_ID, revision.value(), 1, methodTarget());
+                REPOSITORY_ID, revision.value(), 1, methodTargetPayload());
         SemanticDtos.OutgoingCallGraphResponse response = restClient.post()
                 .uri("/v1/analyses/call-graphs/outgoing")
                 .body(request)
@@ -238,6 +238,14 @@ class JavaSemanticServiceLiveContractIT {
 
     private SemanticDtos.MethodTarget methodTarget() {
         return new SemanticDtos.MethodTarget(SOURCE_FILE, PACKAGE_NAME, CLASS_NAME, METHOD_NAME, List.of());
+    }
+
+    private SemanticDtos.MethodTargetPayload methodTargetPayload() {
+        SemanticDtos.JavaTypeIdentityPayload javaType = new SemanticDtos.JavaTypeIdentityPayload(
+                PACKAGE_NAME, CLASS_NAME);
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(
+                javaType, SOURCE_FILE);
+        return new SemanticDtos.MethodTargetPayload(sourceType, METHOD_NAME, List.of());
     }
 
     private CapabilityPolicy descriptor(String name, CandidateKind candidateKind) {

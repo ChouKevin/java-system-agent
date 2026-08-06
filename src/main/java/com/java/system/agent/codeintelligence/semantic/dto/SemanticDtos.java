@@ -84,11 +84,11 @@ public final class SemanticDtos {
     }
 
     public record AnalyzeOutgoingCallGraphRequest(String repoId, String expectedRevision, Integer depth,
-                                                  MethodTarget target) {
+                                                  MethodTargetPayload target) {
     }
 
     public record AnalyzeIncomingCallGraphRequest(String repoId, String expectedRevision, Integer depth,
-                                                  MethodTarget target) {
+                                                  MethodTargetPayload target) {
     }
 
     public record MethodTarget(String sourceFile, String packageName, String className, String methodName,
