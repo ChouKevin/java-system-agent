@@ -103,7 +103,13 @@ distinguish it from an LLM-verified answer through the typed result.
 ```text
 src/main/java/com/java/system/agent/
   Application.java
-  answering/     validated action-loop domain, application flow, and ports
+  answering/
+    domain/       immutable action-loop values
+    application/
+      loop/       framework-free lifecycle kernel and ValidatedAgentLoop
+      state/      deterministic reduction and transition persistence
+      validation/ action, evidence, and answer contract validation
+    port/         inbound and outbound contracts
   interaction/   durable source-message queue contracts and processing policy
   persistence/   versioned JSON codecs and PostgreSQL JDBC adapters
   capability/    planning-tool registry, executor SPI, and generic QUERY dispatcher
@@ -125,8 +131,12 @@ knowledge/
 ```
 
 `answering` and `interaction` contain no JDBC code. `answering` has no module dependencies and
-remains framework-free; its reducer only computes the next state from an accepted event. The root
-configuration is the privileged composition boundary.
+remains framework-free. `answering.application.loop` contains the lifecycle kernel and reaches
+model, persistence, capability, and verification infrastructure only through answering ports;
+`AnalysisApplicationService` remains the public request/result mapping boundary. Architecture
+tests prevent the loop from depending on adapters, Spring, root composition, or another Modulith
+module. The reducer only computes the next state from an accepted event, and root configuration is
+the privileged composition boundary.
 
 ## Running the Production Composition
 

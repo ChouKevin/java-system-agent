@@ -14,7 +14,10 @@ profile-gated root configuration:
 answering/
   domain/       action/ answer/ candidate/ capability/ conversation/ evidence/ handle/
                 observation/ run/ scope/
-  application/  state/ validation/ + ValidatedAgentLoop and AnalysisApplicationService
+  application/  AnalysisApplicationService request/result boundary
+                loop/ framework-free Agent lifecycle orchestration
+                state/ deterministic state reduction and transition persistence
+                validation/ action, evidence, and answer contract validation
   port/         in/ out/
 interaction/
   domain/       immutable inbox message, source identity, status, and failure values
@@ -33,8 +36,11 @@ slack/           Socket Mode source normalization and Slack delivery transport
 worker/          profile-gated interaction and delivery lifecycle polling
 ```
 
-`answering.domain` groups immutable action-loop values. `ValidatedAgentLoop` is the only lifecycle
-orchestrator; `AnalysisApplicationService` is only the public request/result mapping boundary.
+`answering.domain` groups immutable action-loop values. `answering.application.loop` owns the
+framework-free lifecycle kernel, with `ValidatedAgentLoop` as its only orchestrator;
+`AnalysisApplicationService` remains the public request/result mapping boundary outside that
+kernel. Loop code reaches model, persistence, capability, and verification infrastructure only
+through `answering.port.in` and `answering.port.out` contracts.
 Session history is read once and append-only, while the append-only Agent event trace and atomic
 current-state snapshot are persisted separately. `interaction` serializes work by opaque session;
 `persistence` implements infrastructure ports without becoming a named interface. `capability`
@@ -148,6 +154,10 @@ These are enforced by tests, not convention:
 - **`answering` depends on no other module.** Its `package-info.java` declares `@ApplicationModule(allowedDependencies = {})`, and `ApplicationModularityTests` asserts it has no direct dependencies.
 - **`answering` exposes exactly three named interfaces**: `domain`, `port-in`, `port-out`, via `@NamedInterface(value = "domain", propagate = true)` and the two port packages. `application` and everything else stays module-internal.
 - **`answering.domain` classes depend only on the JDK, their own packages, and minimal `com.fasterxml.jackson.annotation` metadata**; no other Jackson or framework package is allowed. Inbound and outbound ports depend only on the JDK and answering domain. `AnsweringKernelArchitectureTest` enforces all four rules.
+- **`answering.application.loop` is the isolated lifecycle kernel.** It may depend only on the JDK,
+  answering domain, state, validation, and inbound/outbound ports. It must not import Spring,
+  adapters, root composition, or another Modulith module; `AnsweringKernelArchitectureTest`
+  enforces the package location and dependency allow-list.
 - **`interaction` depends only on `answering :: domain` and `answering :: port-in`.** It exposes `domain`,
   `port-in`, and `port-out`; its application code remains internal and framework-free.
 - **`persistence` depends only on exposed answering and interaction contracts.** It exposes no named
