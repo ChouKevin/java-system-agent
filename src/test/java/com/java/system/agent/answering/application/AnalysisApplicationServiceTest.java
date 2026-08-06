@@ -1,5 +1,8 @@
 package com.java.system.agent.answering.application;
 
+import com.java.system.agent.answering.application.loop.AgentLoopRequest;
+import com.java.system.agent.answering.application.loop.AgentLoopResult;
+import com.java.system.agent.answering.application.loop.ValidatedAgentLoop;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
