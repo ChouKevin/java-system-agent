@@ -19,7 +19,7 @@ class SemanticDtosContractTest {
                   "traversal":{"requestedDepth":1,"expandedNodeCount":1,"nodeBudget":20,"rootDirectCallsComplete":true,"limitReason":"NONE"},
                   "nodes":[{
                     "nodeId":"root",
-                    "target":{"sourceFile":"src/main/java/com/acme/OrderService.java","packageName":"com.acme","className":"OrderService","methodName":"find","parameterTypes":[]},
+                    "target":{"sourceType":{"javaType":{"packageName":"com.acme","className":"OrderService"},"sourceFile":"src/main/java/com/acme/OrderService.java"},"methodName":"find","parameterTypes":[]},
                     "externalSymbol":null,
                     "contentState":"FULL_SOURCE",
                     "traversalState":"EXPANDED",
@@ -55,6 +55,8 @@ class SemanticDtosContractTest {
         SemanticDtos.AvailableFollowUp methodFollowUp = response.nodes().getFirst().availableFollowUps().getFirst();
         SemanticDtos.AvailableFollowUp segmentFollowUp = response.warnings().getFirst().availableFollowUps().getFirst();
         assertThat(methodFollowUp.operation()).isEqualTo("GET_METHOD_SOURCE");
+        assertThat(response.nodes().getFirst().target().sourceFile())
+                .isEqualTo("src/main/java/com/acme/OrderService.java");
         assertThat(methodFollowUp.api().method()).isEqualTo("POST");
         assertThat(methodFollowUp.api().path()).isEqualTo("/v1/discovery/method-source");
         assertThat(methodFollowUp.request()).isInstanceOf(SemanticDtos.MethodSourceFollowUpRequest.class);

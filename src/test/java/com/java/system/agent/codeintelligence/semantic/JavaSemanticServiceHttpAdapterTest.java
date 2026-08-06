@@ -228,7 +228,7 @@ class JavaSemanticServiceHttpAdapterTest {
 
     private static String graphResponse() {
         return """
-                {"status":"SUCCESS","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rootNodeId":"root","traversal":{"requestedDepth":1,"expandedNodeCount":0,"nodeBudget":0,"rootDirectCallsComplete":true,"limitReason":"NONE"},"nodes":[{"nodeId":"root","target":{"sourceFile":"src/OrderService.java","packageName":"com.example","className":"OrderService","methodName":"find","parameterTypes":["java.lang.String"]},"externalSymbol":null,"contentState":"FULL_SOURCE","traversalState":"EXPANDED","dispatchKind":"SYNCHRONOUS","declarationRange":null,"availableFollowUps":[]}],"edges":[],"warnings":[],"errors":[]}
+                {"status":"SUCCESS","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rootNodeId":"root","traversal":{"requestedDepth":1,"expandedNodeCount":0,"nodeBudget":0,"rootDirectCallsComplete":true,"limitReason":"NONE"},"nodes":[{"nodeId":"root","target":{"sourceType":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java"},"methodName":"find","parameterTypes":["java.lang.String"]},"externalSymbol":null,"contentState":"FULL_SOURCE","traversalState":"EXPANDED","dispatchKind":"SYNCHRONOUS","declarationRange":null,"availableFollowUps":[]}],"edges":[],"warnings":[],"errors":[]}
                 """;
     }
 

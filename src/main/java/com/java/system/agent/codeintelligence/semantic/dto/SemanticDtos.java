@@ -1,5 +1,7 @@
 package com.java.system.agent.codeintelligence.semantic.dto;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
@@ -93,6 +95,18 @@ public final class SemanticDtos {
 
     public record MethodTarget(String sourceFile, String packageName, String className, String methodName,
                                List<String> parameterTypes) {
+
+        @JsonCreator
+        public static MethodTarget fromPayload(
+                @JsonProperty("sourceType") SourceTypeIdentityPayload sourceType,
+                @JsonProperty("methodName") String methodName,
+                @JsonProperty("parameterTypes") List<String> parameterTypes) {
+            SourceTypeIdentityPayload requiredSourceType = Objects.requireNonNull(
+                    sourceType, "sourceType is required");
+            JavaTypeIdentityPayload javaType = requiredSourceType.javaType();
+            return new MethodTarget(requiredSourceType.sourceFile(), javaType.packageName(),
+                    javaType.className(), methodName, parameterTypes);
+        }
     }
 
     public record MethodTargetResolutionResponse(String status, MethodTarget target,
