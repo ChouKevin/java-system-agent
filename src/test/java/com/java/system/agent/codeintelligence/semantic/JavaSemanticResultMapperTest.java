@@ -187,9 +187,10 @@ class JavaSemanticResultMapperTest {
         assertThat(result.failure().description()).hasSize(500);
     }
 
-    private static SemanticDtos.SourceRange sourceRange() {
-        return new SemanticDtos.SourceRange("src/ResponseService.java", new SemanticDtos.Position(0, 0),
-                new SemanticDtos.Position(0, 1));
+    private static SemanticDtos.SourceRangePayload sourceRange() {
+        SemanticDtos.TextRangePayload range = new SemanticDtos.TextRangePayload(
+                new SemanticDtos.Position(0, 0), new SemanticDtos.Position(0, 1));
+        return new SemanticDtos.SourceRangePayload("src/ResponseService.java", range);
     }
 
     private static SemanticDtos.MethodTarget methodTarget(String className, String methodName) {

@@ -163,25 +163,37 @@ class JavaSemanticServiceLiveContractIT {
                 .containsExactly(SOURCE_FILE, PACKAGE_NAME, CLASS_NAME, METHOD_NAME, List.of());
 
         for (SemanticDtos.GraphNode node : response.nodes()) {
-            assertRangeWhenPresent(node.declarationRange());
+            assertTextRangeWhenPresent(node.declarationRange());
             assertFollowUps(node.availableFollowUps());
         }
         for (SemanticDtos.GraphEdge edge : response.edges()) {
-            assertRange(Objects.requireNonNull(edge.callSite(), "graph call site must not be null"));
+            assertSourceRange(Objects.requireNonNull(edge.callSite(), "graph call site must not be null"));
+            assertFollowUps(edge.availableFollowUps());
         }
         for (SemanticDtos.GraphWarning warning : response.warnings()) {
-            assertRangeWhenPresent(warning.callSite());
+            assertSourceRangeWhenPresent(warning.callSite());
             assertFollowUps(warning.availableFollowUps());
         }
     }
 
-    private void assertRangeWhenPresent(SemanticDtos.SourceRange range) {
+    private void assertTextRangeWhenPresent(SemanticDtos.TextRangePayload range) {
         if (Objects.nonNull(range)) {
-            assertRange(range);
+            assertTextRange(range);
         }
     }
 
-    private void assertRange(SemanticDtos.SourceRange range) {
+    private void assertSourceRangeWhenPresent(SemanticDtos.SourceRangePayload range) {
+        if (Objects.nonNull(range)) {
+            assertSourceRange(range);
+        }
+    }
+
+    private void assertSourceRange(SemanticDtos.SourceRangePayload range) {
+        assertThat(StringUtils.hasText(range.sourceFile())).isTrue();
+        assertTextRange(Objects.requireNonNull(range.range(), "source range must not be null"));
+    }
+
+    private void assertTextRange(SemanticDtos.TextRangePayload range) {
         SemanticDtos.Position start = Objects.requireNonNull(range.start(), "range start must not be null");
         SemanticDtos.Position end = Objects.requireNonNull(range.end(), "range end must not be null");
         assertThat(start.line()).isGreaterThanOrEqualTo(0);

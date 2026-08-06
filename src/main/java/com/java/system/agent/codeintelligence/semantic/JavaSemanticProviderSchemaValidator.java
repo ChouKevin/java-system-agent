@@ -213,7 +213,7 @@ final class JavaSemanticProviderSchemaValidator {
             methodTarget(required.target());
         }
         if (Objects.nonNull(required.declarationRange())) {
-            sourceRange(required.declarationRange(), "graph declaration range");
+            textRange(required.declarationRange(), "graph declaration range");
         }
     }
 
@@ -246,9 +246,14 @@ final class JavaSemanticProviderSchemaValidator {
         requiredString(required.nodeId(), "graph error node ID");
     }
 
-    private void sourceRange(SemanticDtos.SourceRange range, String description) {
-        SemanticDtos.SourceRange required = requiredObject(range, description);
+    private void sourceRange(SemanticDtos.SourceRangePayload range, String description) {
+        SemanticDtos.SourceRangePayload required = requiredObject(range, description);
         nonblank(required.sourceFile(), description + " source file");
+        textRange(required.range(), description + " range");
+    }
+
+    private void textRange(SemanticDtos.TextRangePayload range, String description) {
+        SemanticDtos.TextRangePayload required = requiredObject(range, description);
         position(required.start(), description + " start");
         position(required.end(), description + " end");
     }

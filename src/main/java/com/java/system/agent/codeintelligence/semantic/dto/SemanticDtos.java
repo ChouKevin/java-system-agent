@@ -130,7 +130,7 @@ public final class SemanticDtos {
     }
 
     public record GraphNode(String nodeId, MethodTarget target, String externalSymbol, String contentState,
-                            String traversalState, String dispatchKind, SourceRange declarationRange,
+                            String traversalState, String dispatchKind, TextRangePayload declarationRange,
                             List<AvailableFollowUp> availableFollowUps) {
 
         public GraphNode {
@@ -139,13 +139,26 @@ public final class SemanticDtos {
         }
     }
 
-    public record GraphEdge(String callerNodeId, String calleeNodeId, SourceRange callSite,
+    public record GraphEdge(String callerNodeId, String calleeNodeId, SourceRangePayload callSite,
                             String callExpression, String resolutionStrategy, String category,
-                            List<String> evidence) {
+                            List<String> evidence, List<AvailableFollowUp> availableFollowUps) {
+
+        public GraphEdge {
+            evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence is required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(
+                    availableFollowUps, "availableFollowUps are required"));
+        }
+
+        public GraphEdge(String callerNodeId, String calleeNodeId, SourceRangePayload callSite,
+                         String callExpression, String resolutionStrategy, String category,
+                         List<String> evidence) {
+            this(callerNodeId, calleeNodeId, callSite, callExpression, resolutionStrategy, category,
+                    evidence, List.of());
+        }
     }
 
     public record GraphWarning(String code, String message, String nodeId, String callExpression,
-                               SourceRange callSite, List<MethodTarget> candidates,
+                               SourceRangePayload callSite, List<MethodTarget> candidates,
                                List<AvailableFollowUp> availableFollowUps) {
 
         public GraphWarning {
@@ -156,9 +169,6 @@ public final class SemanticDtos {
     }
 
     public record GraphError(String code, String message, String nodeId) {
-    }
-
-    public record SourceRange(String sourceFile, Position start, Position end) {
     }
 
     public record Position(Integer line, Integer character) {
