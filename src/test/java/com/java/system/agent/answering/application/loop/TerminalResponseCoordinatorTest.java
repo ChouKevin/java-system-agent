@@ -1,4 +1,4 @@
-package com.java.system.agent.answering.application;
+package com.java.system.agent.answering.application.loop;
 
 import com.java.system.agent.answering.adapter.fake.FakeSessionAdapter;
 import com.java.system.agent.answering.application.state.AgentStateReducer;

@@ -40,6 +40,25 @@ class AnsweringKernelArchitectureTest {
                     "..answering.port.out..");
 
     @ArchTest
+    static final ArchRule VALIDATED_AGENT_LOOP_RESIDES_IN_DEDICATED_PACKAGE = classes()
+            .that().haveSimpleName("ValidatedAgentLoop")
+            .should().resideInAPackage("..answering.application.loop");
+
+    @ArchTest
+    static final ArchRule APPLICATION_LOOP_DEPENDS_ONLY_ON_KERNEL_CONTRACTS = classes()
+            .that().resideInAPackage("..answering.application.loop..")
+            .and().doNotHaveSimpleName("package-info")
+            .should().onlyDependOnClassesThat()
+            .resideInAnyPackage(
+                    "java..",
+                    "..answering.application.loop..",
+                    "..answering.application.state..",
+                    "..answering.application.validation..",
+                    "..answering.domain..",
+                    "..answering.port.in..",
+                    "..answering.port.out..");
+
+    @ArchTest
     static final ArchRule INBOUND_PORTS_ONLY_DEPEND_ON_DOMAIN_AND_JAVA = noClasses()
             .that().resideInAPackage("..answering.port.in..")
             .and().doNotHaveSimpleName("package-info")
