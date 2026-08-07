@@ -14,9 +14,11 @@ import java.util.Optional;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = RepositoryCandidate.class, name = "REPOSITORY"),
         @JsonSubTypes.Type(value = RouteCandidate.class, name = "ROUTE"),
-        @JsonSubTypes.Type(value = SemanticTargetCandidate.class, name = "SEMANTIC_TARGET")
+        @JsonSubTypes.Type(value = SemanticTargetCandidate.class, name = "SEMANTIC_TARGET"),
+        @JsonSubTypes.Type(value = FollowUpCandidate.class, name = "FOLLOW_UP")
 })
-public sealed interface AnalysisCandidate permits RepositoryCandidate, RouteCandidate, SemanticTargetCandidate {
+public sealed interface AnalysisCandidate permits RepositoryCandidate, RouteCandidate, SemanticTargetCandidate,
+        FollowUpCandidate {
 
     CandidateKind kind();
 
