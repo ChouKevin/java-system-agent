@@ -12,7 +12,8 @@ import java.util.Objects;
 /**
  * 將一個 QUERY policy、planning mapper、payload type 與 typed executor 綁為唯一擴充單位
  */
-public final class QueryPlanningToolRegistration<P, E> implements PlanningToolRegistration<P> {
+public final class QueryPlanningToolRegistration<P, E>
+        implements PlanningToolRegistration<P>, QueryCapabilityRegistration<E> {
 
     private final CapabilityPolicy policy;
     private final Class<P> planningInputType;

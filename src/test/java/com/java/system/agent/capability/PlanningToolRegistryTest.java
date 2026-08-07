@@ -5,6 +5,8 @@ import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
 import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
+import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
+import com.java.system.agent.capability.planning.FollowUpPlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
@@ -18,10 +20,22 @@ import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningMapper;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
@@ -32,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -134,6 +149,62 @@ class PlanningToolRegistryTest {
                 .doesNotContain("execute_http");
     }
 
+    @Test
+    void issuesFollowUpSelectorOnlyForCurrentFollowUpWhoseExactTargetCapabilityIsIssued() {
+        PlanningToolRegistry registry = followUpRegistry(new AtomicInteger());
+
+        assertThat(registry.issuedRegistrations(contextWithoutFollowUps()))
+                .extracting(PlanningToolRegistration::name)
+                .doesNotContain("codebase_follow_up", "codebase_get_source_segment");
+        assertThat(registry.issuedRegistrations(contextWithFollowUp()))
+                .extracting(PlanningToolRegistration::name)
+                .contains("codebase_follow_up")
+                .doesNotContain("codebase_get_source_segment");
+    }
+
+    @Test
+    void turnsCurrentFollowUpHandleIntoQueryWithItsBoundCapabilityPayload() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = followUpRegistry(executorCalls);
+
+        AgentActionProposal proposal = registry.interpretToolCall("codebase_follow_up", """
+                {"followUpCandidateHandle":"candidate-follow-up",
+                 "questionToResolve":"Read the continuation",
+                 "rationale":"The previous result was truncated"}
+                """, contextWithFollowUp());
+
+        QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
+        assertThat(action.capability()).isEqualTo(sourceSegmentCapabilityHandle());
+        assertThat(action.candidates()).containsExactly(new CandidateHandleRef("candidate-follow-up"));
+        assertThat(action.payload()).isEqualTo(boundPayload());
+        assertThat(action.questionToResolve()).isEqualTo("Read the continuation");
+        assertThat(action.rationale()).isEqualTo("The previous result was truncated");
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    @Test
+    void rejectsFollowUpSelectorsForUnknownWrongKindMissingCapabilityAndOldAttemptHandlesBeforeExecution() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = followUpRegistry(executorCalls);
+
+        AgentActionProposal unknown = registry.interpretToolCall("codebase_follow_up", followUpInput("unknown-candidate"),
+                contextWithFollowUp());
+        AgentActionProposal repository = registry.interpretToolCall("codebase_follow_up", followUpInput("repository-candidate"),
+                contextWithFollowUpAndRepositoryCandidate());
+        AgentActionProposal capabilityAbsent = registry.interpretToolCall("codebase_follow_up",
+                followUpInput("candidate-follow-up"), contextWithFollowUpButNoTargetCapability());
+        AgentPromptContext oldAttemptContext = contextWithOldAttemptFollowUp();
+        CandidateHandle oldAttemptHandle = oldAttemptContext.issuedCandidates().keySet().iterator().next();
+        AgentActionProposal oldAttempt = registry.interpretToolCall("codebase_follow_up",
+                followUpInput(oldAttemptHandle.value()), contextWithFollowUp());
+
+        assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(repository).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(capabilityAbsent).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(oldAttempt).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(executorCalls).hasValue(0);
+    }
+
     private static PlanningToolRegistry registry() {
         CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
         return registry(List.of(provider(List.of(
@@ -153,6 +224,16 @@ class PlanningToolRegistryTest {
                 new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
                         new RequestClarificationPlanningMapper()),
                 new ExecutePlanningToolRegistration()))));
+    }
+
+    private static PlanningToolRegistry followUpRegistry(AtomicInteger executorCalls) {
+        FollowUpOnlyQueryRegistration<TestInput> sourceSegment = PlanningToolRegistry.followUpOnlyRegistration(
+                sourceSegmentPolicy(), TestInput.class,
+                (executionContext, input) -> {
+                    executorCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+                });
+        return registry(List.of(provider(List.of(sourceSegment, new FollowUpPlanningToolRegistration()))));
     }
 
     private static PlanningToolRegistry registry(
@@ -186,6 +267,87 @@ class PlanningToolRegistryTest {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(), Map.of(),
                 Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, usedExecuteExecutions, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext contextWithoutFollowUps() {
+        return followUpContext(Map.of(sourceSegmentCapabilityHandle(), sourceSegmentPolicy()), Map.of());
+    }
+
+    private static AgentPromptContext contextWithFollowUp() {
+        CandidateHandle handle = followUpCandidateHandle();
+        return followUpContext(Map.of(sourceSegmentCapabilityHandle(), sourceSegmentPolicy()), Map.of(handle,
+                new IssuedCandidate(handle, followUpCandidate())));
+    }
+
+    private static AgentPromptContext contextWithFollowUpAndRepositoryCandidate() {
+        CandidateHandle followUpHandle = followUpCandidateHandle();
+        CandidateHandle handle = new CandidateHandle("repository-candidate", binding(), CandidateKind.REPOSITORY);
+        return followUpContext(Map.of(sourceSegmentCapabilityHandle(), sourceSegmentPolicy()), Map.of(
+                followUpHandle, new IssuedCandidate(followUpHandle, followUpCandidate()),
+                handle, new IssuedCandidate(handle, new RepositoryCandidate(repositoryId(), "The repository root"))));
+    }
+
+    private static AgentPromptContext contextWithFollowUpButNoTargetCapability() {
+        CandidateHandle handle = followUpCandidateHandle();
+        return followUpContext(Map.of(), Map.of(handle, new IssuedCandidate(handle, followUpCandidate())));
+    }
+
+    private static AgentPromptContext contextWithOldAttemptFollowUp() {
+        HandleBinding oldBinding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-0"),
+                RevisionVector.empty().pin(repositoryId(), new RepositoryRevision("revision-1")));
+        CandidateHandle oldHandle = new CandidateHandle("candidate-old-attempt", oldBinding, CandidateKind.FOLLOW_UP);
+        CapabilityHandle oldCapability = new CapabilityHandle("capability-source-segment-old", oldBinding);
+        return new AgentPromptContext("Find routes", SessionHistory.empty(), new AnalysisRunId("run-1"),
+                new AnalysisAttemptId("attempt-0"), Map.of(oldCapability, sourceSegmentPolicy()), Map.of(oldHandle,
+                new IssuedCandidate(oldHandle, followUpCandidate())), Map.of(), Map.of(), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext followUpContext(
+            Map<CapabilityHandle, CapabilityPolicy> capabilities,
+            Map<CandidateHandle, IssuedCandidate> candidates) {
+        return new AgentPromptContext("Find routes", SessionHistory.empty(), new AnalysisRunId("run-1"),
+                new AnalysisAttemptId("attempt-1"), capabilities, candidates, Map.of(), Map.of(), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static CapabilityPolicy sourceSegmentPolicy() {
+        return new CapabilityPolicy("codebase_get_source_segment", "v1", Set.of(CandidateKind.FOLLOW_UP), 1, 1);
+    }
+
+    private static CapabilityHandle sourceSegmentCapabilityHandle() {
+        return new CapabilityHandle("capability-source-segment", binding());
+    }
+
+    private static CandidateHandle followUpCandidateHandle() {
+        return new CandidateHandle("candidate-follow-up", binding(), CandidateKind.FOLLOW_UP);
+    }
+
+    private static FollowUpCandidate followUpCandidate() {
+        return new FollowUpCandidate(repositoryId(), new RepositoryRevision("revision-1"), "codebase_get_source_segment",
+                "v1", boundPayload(), "Read the remaining source segment");
+    }
+
+    private static CapabilityInputPayload boundPayload() {
+        return new CapabilityInputPayload("{\"sourceFile\":\"Example.java\",\"line\":42}");
+    }
+
+    private static HandleBinding binding() {
+        RepositoryId repositoryId = repositoryId();
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, new RepositoryRevision("revision-1"));
+        return new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+    }
+
+    private static RepositoryId repositoryId() {
+        return new RepositoryId("repository-1");
+    }
+
+    private static String followUpInput(String handle) {
+        return """
+                {"followUpCandidateHandle":"%s",
+                 "questionToResolve":"Read the continuation",
+                 "rationale":"The previous result was truncated"}
+                """.formatted(handle);
     }
 
     private static CanonicalCapabilityPayloadCodec payloadCodec() {
