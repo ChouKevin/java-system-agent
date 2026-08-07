@@ -159,7 +159,7 @@ class M2ProductionFlowIT {
                 .andExpect(header("X-Api-Token", "m2-token"))
                 .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_REVISION))
                 .andRespond(withSuccess(repositoryStatusJson(), APPLICATION_JSON));
-        server.expect(requestTo("http://semantic.test/v1/repositories/demo/entry-points?types=API"))
+        server.expect(requestTo("http://semantic.test/v1/repositories/demo/entry-points?expectedRevision=FIXTURE&types=API"))
                 .andExpect(method(GET))
                 .andExpect(header("X-Api-Token", "m2-token"))
                 .andExpect(request -> callTimeline.record(CallTimeline.HTTP_LIST_ENTRY_POINTS))
