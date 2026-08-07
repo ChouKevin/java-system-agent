@@ -39,6 +39,7 @@ import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 
@@ -183,7 +184,7 @@ class PlanningToolRegistryTest {
     }
 
     @Test
-    void rejectsFollowUpSelectorsForUnknownWrongKindMissingCapabilityAndOldAttemptHandlesBeforeExecution() {
+    void rejectsFollowUpSelectorsForUnknownWrongKindAndMissingCapabilityBeforeExecution() {
         AtomicInteger executorCalls = new AtomicInteger();
         PlanningToolRegistry registry = followUpRegistry(executorCalls);
 
@@ -193,16 +194,38 @@ class PlanningToolRegistryTest {
                 contextWithFollowUpAndRepositoryCandidate());
         AgentActionProposal capabilityAbsent = registry.interpretToolCall("codebase_follow_up",
                 followUpInput("candidate-follow-up"), contextWithFollowUpButNoTargetCapability());
-        AgentPromptContext oldAttemptContext = contextWithOldAttemptFollowUp();
-        CandidateHandle oldAttemptHandle = oldAttemptContext.issuedCandidates().keySet().iterator().next();
-        AgentActionProposal oldAttempt = registry.interpretToolCall("codebase_follow_up",
-                followUpInput(oldAttemptHandle.value()), contextWithFollowUp());
 
         assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(repository).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(capabilityAbsent).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
-        assertThat(oldAttempt).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(executorCalls).hasValue(0);
+    }
+
+    @Test
+    void rejectsFollowUpSelectorWhenCurrentContextContainsStaleBoundHandles() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = followUpRegistry(executorCalls);
+        AgentPromptContext staleContext = contextWithStaleFollowUpBindings();
+
+        assertThat(registry.issuedRegistrations(staleContext))
+                .extracting(PlanningToolRegistration::name)
+                .doesNotContain("codebase_follow_up");
+        assertThat(registry.interpretToolCall("codebase_follow_up", followUpInput("candidate-old-attempt"), staleContext))
+                .isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    @Test
+    void executesFollowUpOnlyRegistrationThroughTheCommonQueryExecutionIndex() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = followUpRegistry(executorCalls);
+        CapabilityInvocation invocation = new CapabilityInvocation(sourceSegmentPolicy(), List.of(),
+                "Read the continuation", boundPayload(), binding().revisionVector());
+
+        CapabilityExecutionResult result = registry.execute(invocation);
+
+        assertThat(result).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
+        assertThat(executorCalls).hasValue(1);
     }
 
     private static PlanningToolRegistry registry() {
@@ -292,13 +315,13 @@ class PlanningToolRegistryTest {
         return followUpContext(Map.of(), Map.of(handle, new IssuedCandidate(handle, followUpCandidate())));
     }
 
-    private static AgentPromptContext contextWithOldAttemptFollowUp() {
+    private static AgentPromptContext contextWithStaleFollowUpBindings() {
         HandleBinding oldBinding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-0"),
                 RevisionVector.empty().pin(repositoryId(), new RepositoryRevision("revision-1")));
         CandidateHandle oldHandle = new CandidateHandle("candidate-old-attempt", oldBinding, CandidateKind.FOLLOW_UP);
         CapabilityHandle oldCapability = new CapabilityHandle("capability-source-segment-old", oldBinding);
         return new AgentPromptContext("Find routes", SessionHistory.empty(), new AnalysisRunId("run-1"),
-                new AnalysisAttemptId("attempt-0"), Map.of(oldCapability, sourceSegmentPolicy()), Map.of(oldHandle,
+                new AnalysisAttemptId("attempt-1"), Map.of(oldCapability, sourceSegmentPolicy()), Map.of(oldHandle,
                 new IssuedCandidate(oldHandle, followUpCandidate())), Map.of(), Map.of(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
@@ -329,7 +352,7 @@ class PlanningToolRegistryTest {
     }
 
     private static CapabilityInputPayload boundPayload() {
-        return new CapabilityInputPayload("{\"sourceFile\":\"Example.java\",\"line\":42}");
+        return new CapabilityInputPayload("{\"questionToResolve\":\"Read the continuation\",\"rationale\":\"The previous result was truncated\"}");
     }
 
     private static HandleBinding binding() {

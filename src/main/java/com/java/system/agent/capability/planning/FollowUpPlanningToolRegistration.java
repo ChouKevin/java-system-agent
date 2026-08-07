@@ -8,6 +8,7 @@ import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
 import java.util.List;
@@ -40,11 +41,8 @@ public final class FollowUpPlanningToolRegistration implements PlanningToolRegis
     @Override
     public boolean isIssued(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        return context.issuedCandidates().values().stream()
-                .map(IssuedCandidate::candidate)
-                .filter(FollowUpCandidate.class::isInstance)
-                .map(FollowUpCandidate.class::cast)
-                .anyMatch(followUp -> targetCapability(context, followUp).isPresent());
+        return context.issuedCandidates().entrySet().stream()
+                .anyMatch(candidate -> hasEligibleTarget(context, candidate));
     }
 
     @Override
@@ -55,22 +53,41 @@ public final class FollowUpPlanningToolRegistration implements PlanningToolRegis
                 .filter(entry -> entry.getKey().value().equals(input.followUpCandidateHandle()))
                 .findFirst()
                 .orElseThrow(PlanningToolInputException::new);
-        if (!(selected.getValue().candidate() instanceof FollowUpCandidate followUp)) {
+        if (!hasCurrentBinding(selected.getKey().binding(), context)
+                || !(selected.getValue().candidate() instanceof FollowUpCandidate followUp)) {
             throw new PlanningToolInputException();
         }
-        CapabilityHandle target = targetCapability(context, followUp)
+        CapabilityHandle target = targetCapability(context, selected.getKey(), followUp)
                 .orElseThrow(PlanningToolInputException::new);
         return new QueryAction(target, List.of(new CandidateHandleRef(selected.getKey().value())),
                 input.questionToResolve(), followUp.payload(), input.rationale());
     }
 
+    private static boolean hasEligibleTarget(
+            AgentPromptContext context,
+            Map.Entry<CandidateHandle, IssuedCandidate> candidate) {
+        if (!hasCurrentBinding(candidate.getKey().binding(), context)
+                || !(candidate.getValue().candidate() instanceof FollowUpCandidate followUp)) {
+            return false;
+        }
+        return targetCapability(context, candidate.getKey(), followUp).isPresent();
+    }
+
     private static Optional<CapabilityHandle> targetCapability(
             AgentPromptContext context,
+            CandidateHandle candidate,
             FollowUpCandidate followUp) {
         return context.issuedCapabilities().entrySet().stream()
+                .filter(entry -> hasCurrentBinding(entry.getKey().binding(), context))
+                .filter(entry -> entry.getKey().binding().revisionVector().equals(candidate.binding().revisionVector()))
                 .filter(entry -> matches(entry.getValue(), followUp))
                 .map(Map.Entry::getKey)
                 .findFirst();
+    }
+
+    private static boolean hasCurrentBinding(HandleBinding binding, AgentPromptContext context) {
+        return binding.runId().equals(context.runId())
+                && binding.attemptId().equals(context.attemptId());
     }
 
     private static boolean matches(CapabilityPolicy policy, FollowUpCandidate followUp) {
