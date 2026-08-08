@@ -45,6 +45,7 @@ import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -74,6 +75,21 @@ class JavaSemanticServiceLiveContractIT {
     private final RestClient restClient = RestClient.builder()
             .baseUrl(requiredEnvironment("M6_SEMANTIC_BASE_URL"))
             .defaultHeader("X-Api-Token", requiredEnvironment("M6_SEMANTIC_API_TOKEN"))
+            .requestInterceptor((request, body, execution) -> {
+                String wireBody = new String(body, StandardCharsets.UTF_8);
+                if ("/v1/discovery/concepts/resolve".equals(request.getURI().getPath())) {
+                    assertThat(wireBody).isEqualTo(
+                            "{\"repoId\":\"m6-semantic-contract\",\"expectedRevision\":\"FIXTURE\","
+                                    + "\"identity\":{\"kind\":\"TYPE\",\"sourceType\":{\"javaType\":{"
+                                    + "\"packageName\":\"com.example.m6\",\"className\":\"OrderMapper\"},"
+                                    + "\"sourceFile\":\"src/main/java/com/example/m6/OrderMapper.java\"}}}");
+                } else if ("/v1/discovery/internal-references".equals(request.getURI().getPath())) {
+                    assertThat(wireBody).doesNotContain("\"depth\"");
+                } else if ("/v1/discovery/evidence-source".equals(request.getURI().getPath())) {
+                    assertThat(wireBody).doesNotContain("\"fragmentIdentity\"");
+                }
+                return execution.execute(request, body);
+            })
             .build();
     private final JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(restClient);
     private final CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
@@ -136,6 +152,10 @@ class JavaSemanticServiceLiveContractIT {
                 followUpCandidate(typeMembers, revisions), typeMembers.payload(), revisions, executedCapabilities);
         FollowUpCandidate resolveConcept = followUp(members, CodeIntelligenceQuery.RESOLVE_CONCEPT, revision);
         FollowUpCandidate internalReferences = followUp(members, CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES, revision);
+        assertThat(resolveConcept.payload().value()).isEqualTo(
+                "{\"identity\":{\"kind\":\"TYPE\",\"sourceType\":{\"javaType\":{\"className\":\"OrderMapper\","
+                        + "\"packageName\":\"com.example.m6\"},\"sourceFile\":"
+                        + "\"src/main/java/com/example/m6/OrderMapper.java\"}}}");
 
         executeDiscovery(CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
                 followUpCandidate(resolveConcept, revisions), resolveConcept.payload(), revisions, executedCapabilities);

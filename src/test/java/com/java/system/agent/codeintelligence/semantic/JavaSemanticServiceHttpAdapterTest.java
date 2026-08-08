@@ -47,6 +47,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.web.client.RestClient;
 import jakarta.validation.Validation;
 
@@ -126,7 +127,7 @@ class JavaSemanticServiceHttpAdapterTest {
         SemanticDtos.EvidenceSourceFollowUpIdentity evidence = evidenceIdentity();
         SemanticDtos.SourceRangePayload range = sourceRange();
         client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/concepts/resolve")).andExpect(method(POST))
-                .andExpect(content().json("{\"repoId\":\"orders\",\"expectedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"identity\":{\"kind\":\"TYPE\",\"sourceType\":{\"javaType\":{\"packageName\":\"com.example\",\"className\":\"Orders\"},\"sourceFile\":\"src/Orders.java\"}}}"))
+                .andExpect(content().json("{\"repoId\":\"orders\",\"expectedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"identity\":{\"kind\":\"TYPE\",\"sourceType\":{\"javaType\":{\"packageName\":\"com.example\",\"className\":\"Orders\"},\"sourceFile\":\"src/Orders.java\"}}}", JsonCompareMode.STRICT))
                 .andRespond(withSuccess(resolveConceptSuccess(), MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/event-listeners")).andExpect(method(POST))
                 .andExpect(content().json("{\"repoId\":\"orders\",\"expectedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"eventType\":\"com.example.Event\",\"offset\":0,\"limit\":1}"))
@@ -144,12 +145,12 @@ class JavaSemanticServiceHttpAdapterTest {
         client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/internal-references")).andExpect(method(POST))
                 .andExpect(content().json("""
                         {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":{"kind":"METHOD","identity":{"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"methodName":"find","parameterTypes":[]}},"offset":0,"limit":1}
-                        """))
+                        """, JsonCompareMode.STRICT))
                 .andRespond(withSuccess(referencesSuccess(), MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/evidence-source")).andExpect(method(POST))
                 .andExpect(content().json("""
-                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","identity":{"kind":"MAPPER_STATEMENT","statementIdentity":{"statementKey":{"namespace":"orders","statementId":"find"},"resourcePath":"src/OrdersMapper.xml","documentOrdinal":0,"representation":"MAPPER_XML_ELEMENT"}}}
-                        """))
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","identity":{"kind":"MAPPER_STATEMENT","statementIdentity":{"statementKey":{"namespace":"orders","statementId":"find"},"resourcePath":"src/OrdersMapper.xml","databaseId":null,"documentOrdinal":0,"representation":"MAPPER_XML_ELEMENT"}}}
+                        """, JsonCompareMode.STRICT))
                 .andRespond(withSuccess(evidenceSuccess(), MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/method-source")).andExpect(method(POST))
                 .andExpect(content().json("""

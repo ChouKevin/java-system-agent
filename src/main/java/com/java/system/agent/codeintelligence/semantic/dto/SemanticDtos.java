@@ -2,6 +2,7 @@ package com.java.system.agent.codeintelligence.semantic.dto;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -314,6 +315,7 @@ public final class SemanticDtos {
     }
 
     /** target follow-up 的共用 request，operation validator 會要求精確 optional 欄位組合 */
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
     public record TargetFollowUpRequest(String repoId, String expectedRevision, FollowUpTarget target,
                                         Optional<Integer> depth, Optional<Integer> offset, Optional<Integer> limit)
             implements AvailableFollowUpRequest {
@@ -418,6 +420,7 @@ public final class SemanticDtos {
 
     /** ten provider concept kinds 的單一 typed superset，validator 依 kind 收緊欄位組合 */
     @JsonIgnoreProperties(ignoreUnknown = false)
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
     public record ConceptFollowUpIdentity(String kind, Optional<SourceTypeIdentityPayload> sourceType,
                                           Optional<MethodTargetPayload> target,
                                           Optional<ConceptIdentityTargetPayload> identity,
@@ -675,6 +678,7 @@ public final class SemanticDtos {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = false)
+    @JsonInclude(JsonInclude.Include.NON_ABSENT)
     public record EvidenceSourceFollowUpIdentity(String kind, Optional<MapperStatementIdentityPayload> statementIdentity,
                                                  Optional<MapperFragmentIdentityPayload> fragmentIdentity)
             implements FollowUpIdentity, EvidenceSourceIdentityPayload {
