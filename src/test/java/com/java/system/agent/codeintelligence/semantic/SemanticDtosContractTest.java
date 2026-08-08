@@ -59,15 +59,17 @@ class SemanticDtosContractTest {
                 .isEqualTo("src/main/java/com/acme/OrderService.java");
         assertThat(methodFollowUp.api().method()).isEqualTo("POST");
         assertThat(methodFollowUp.api().path()).isEqualTo("/v1/discovery/method-source");
-        assertThat(methodFollowUp.request()).isInstanceOf(SemanticDtos.MethodSourceFollowUpRequest.class);
-        SemanticDtos.MethodSourceFollowUpRequest methodRequest =
-                (SemanticDtos.MethodSourceFollowUpRequest) methodFollowUp.request();
-        assertThat(methodRequest.target().sourceType().javaType().packageName()).isEqualTo("com.acme");
-        assertThat(methodRequest.target().sourceType().javaType().className()).isEqualTo("OrderService");
-        assertThat(methodRequest.target().sourceType().sourceFile())
+        assertThat(methodFollowUp.request()).isInstanceOf(SemanticDtos.TargetFollowUpRequest.class);
+        SemanticDtos.TargetFollowUpRequest methodRequest =
+                (SemanticDtos.TargetFollowUpRequest) methodFollowUp.request();
+        assertThat(methodRequest.target()).isInstanceOf(SemanticDtos.MethodTargetPayload.class);
+        SemanticDtos.MethodTargetPayload methodTarget = (SemanticDtos.MethodTargetPayload) methodRequest.target();
+        assertThat(methodTarget.sourceType().javaType().packageName()).isEqualTo("com.acme");
+        assertThat(methodTarget.sourceType().javaType().className()).isEqualTo("OrderService");
+        assertThat(methodTarget.sourceType().sourceFile())
                 .isEqualTo("src/main/java/com/acme/OrderService.java");
-        assertThat(methodRequest.target().methodName()).isEqualTo("find");
-        assertThat(methodRequest.target().parameterTypes()).isEmpty();
+        assertThat(methodTarget.methodName()).isEqualTo("find");
+        assertThat(methodTarget.parameterTypes()).isEmpty();
         assertThat(segmentFollowUp.operation()).isEqualTo("GET_SOURCE_SEGMENT");
         assertThat(segmentFollowUp.api().method()).isEqualTo("POST");
         assertThat(segmentFollowUp.api().path()).isEqualTo("/v1/discovery/source-segment");

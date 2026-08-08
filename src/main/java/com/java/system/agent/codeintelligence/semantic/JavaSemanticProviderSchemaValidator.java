@@ -130,6 +130,19 @@ final class JavaSemanticProviderSchemaValidator {
         requiredMethodTargets(required.candidates(), "API error candidate");
     }
 
+    SemanticDtos.AvailableFollowUp followUp(SemanticDtos.AvailableFollowUp followUp) {
+        SemanticDtos.AvailableFollowUp required = requiredObject(followUp, "Semantic follow-up");
+        requiredString(required.operation(), "Semantic follow-up operation");
+        SemanticDtos.FollowUpApi api = requiredObject(required.api(), "Semantic follow-up API");
+        requiredString(api.method(), "Semantic follow-up API method");
+        requiredString(api.path(), "Semantic follow-up API path");
+        requiredString(api.operationId(), "Semantic follow-up API operation ID");
+        SemanticDtos.AvailableFollowUpRequest request = requiredObject(required.request(), "Semantic follow-up request");
+        repositoryId(request.repoId(), "Semantic follow-up repository ID");
+        revision(request.expectedRevision(), "Semantic follow-up expected revision");
+        return required;
+    }
+
     SemanticDtos.MethodTarget methodTarget(SemanticDtos.MethodTarget target) {
         SemanticDtos.MethodTarget required = requiredObject(target, "method target");
         sourceFile(required.sourceFile());

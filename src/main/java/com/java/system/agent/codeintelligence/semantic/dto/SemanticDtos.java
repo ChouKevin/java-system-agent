@@ -1,12 +1,15 @@
 package com.java.system.agent.codeintelligence.semantic.dto;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Java Semantic Service v1 HTTP 文件使用的窄 DTO 集合
@@ -184,7 +187,8 @@ public final class SemanticDtos {
     }
 
     /** 以來源檔案限定的 Java 型別 HTTP 識別資料 */
-    public record SourceTypeIdentityPayload(JavaTypeIdentityPayload javaType, String sourceFile) {
+    public record SourceTypeIdentityPayload(JavaTypeIdentityPayload javaType, String sourceFile)
+            implements InternalReferenceIdentity {
 
         public SourceTypeIdentityPayload {
             javaType = Objects.requireNonNull(javaType, "javaType is required");
@@ -194,7 +198,7 @@ public final class SemanticDtos {
 
     /** 正規方法目標 HTTP 資料 */
     public record MethodTargetPayload(SourceTypeIdentityPayload sourceType, String methodName,
-                                      List<String> parameterTypes) {
+                                      List<String> parameterTypes) implements FollowUpTarget, InternalReferenceIdentity {
 
         public MethodTargetPayload {
             sourceType = Objects.requireNonNull(sourceType, "sourceType is required");
@@ -210,6 +214,30 @@ public final class SemanticDtos {
         public TextRangePayload {
             start = Objects.requireNonNull(start, "start is required");
             end = Objects.requireNonNull(end, "end is required");
+        }
+    }
+
+    /** 型別直接成員或方法範圍成員的封閉 identity */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "scope")
+    @JsonSubTypes({@JsonSubTypes.Type(value = SourceMemberIdentityPayload.TypeMember.class, name = "TYPE"),
+            @JsonSubTypes.Type(value = SourceMemberIdentityPayload.MethodScoped.class, name = "METHOD")})
+    public sealed interface SourceMemberIdentityPayload extends InternalReferenceIdentity permits SourceMemberIdentityPayload.TypeMember,
+            SourceMemberIdentityPayload.MethodScoped {
+
+        record TypeMember(SourceTypeIdentityPayload ownerType, String name) implements SourceMemberIdentityPayload {
+            public TypeMember {
+                ownerType = Objects.requireNonNull(ownerType, "ownerType is required");
+                name = Objects.requireNonNull(name, "name is required");
+            }
+        }
+
+        record MethodScoped(MethodTargetPayload declaringMethod, TextRangePayload declarationRange, String name)
+                implements SourceMemberIdentityPayload {
+            public MethodScoped {
+                declaringMethod = Objects.requireNonNull(declaringMethod, "declaringMethod is required");
+                declarationRange = Objects.requireNonNull(declarationRange, "declarationRange is required");
+                name = Objects.requireNonNull(name, "name is required");
+            }
         }
     }
 
@@ -242,25 +270,28 @@ public final class SemanticDtos {
         }
     }
 
-    /** graph 回應目前可回傳的封閉 typed follow-up request */
+    /** graph 與 discovery 回應可回傳的封閉 typed follow-up request */
     @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
     @JsonSubTypes({
-            @JsonSubTypes.Type(MethodSourceFollowUpRequest.class),
+            @JsonSubTypes.Type(TargetFollowUpRequest.class),
+            @JsonSubTypes.Type(DiscoverMethodImplementationsFollowUpRequest.class),
+            @JsonSubTypes.Type(IdentityFollowUpRequest.class),
+            @JsonSubTypes.Type(TypeMembersFollowUpRequest.class),
+            @JsonSubTypes.Type(DiscoverConceptsFollowUpRequest.class),
+            @JsonSubTypes.Type(DiscoverEventListenersFollowUpRequest.class),
+            @JsonSubTypes.Type(ResolveSourceSymbolFollowUpRequest.class),
             @JsonSubTypes.Type(SourceSegmentFollowUpRequest.class)
     })
-    public sealed interface AvailableFollowUpRequest permits MethodSourceFollowUpRequest,
+    public sealed interface AvailableFollowUpRequest permits TargetFollowUpRequest,
+            DiscoverMethodImplementationsFollowUpRequest,
+            IdentityFollowUpRequest, TypeMembersFollowUpRequest,
+            DiscoverConceptsFollowUpRequest, DiscoverEventListenersFollowUpRequest,
+            ResolveSourceSymbolFollowUpRequest,
             SourceSegmentFollowUpRequest {
-    }
 
-    /** GET_METHOD_SOURCE 的完整 HTTP request payload */
-    public record MethodSourceFollowUpRequest(String repoId, String expectedRevision, MethodTargetPayload target)
-            implements AvailableFollowUpRequest {
+        String repoId();
 
-        public MethodSourceFollowUpRequest {
-            repoId = Objects.requireNonNull(repoId, "repoId is required");
-            expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
-            target = Objects.requireNonNull(target, "target is required");
-        }
+        String expectedRevision();
     }
 
     /** GET_SOURCE_SEGMENT 的完整 HTTP request payload */
@@ -275,6 +306,180 @@ public final class SemanticDtos {
             expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
             location = Objects.requireNonNull(location, "location is required");
             contextLines = Objects.requireNonNull(contextLines, "contextLines is required");
+        }
+    }
+
+    /** target follow-up 的共用 request，operation validator 會要求精確 optional 欄位組合 */
+    public record TargetFollowUpRequest(String repoId, String expectedRevision, FollowUpTarget target,
+                                        Optional<Integer> depth, Optional<Integer> offset, Optional<Integer> limit)
+            implements AvailableFollowUpRequest {
+        public TargetFollowUpRequest {
+            repoId = Objects.requireNonNull(repoId, "repoId is required");
+            expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
+            target = Objects.requireNonNull(target, "target is required");
+            depth = Optional.ofNullable(depth).orElse(Optional.empty());
+            offset = Optional.ofNullable(offset).orElse(Optional.empty());
+            limit = Optional.ofNullable(limit).orElse(Optional.empty());
+        }
+    }
+
+    /** 方法實作探索的完整 follow-up request */
+    public record DiscoverMethodImplementationsFollowUpRequest(String repoId, String expectedRevision,
+                                                                MethodTargetPayload declarationTarget)
+            implements AvailableFollowUpRequest {
+        public DiscoverMethodImplementationsFollowUpRequest {
+            repoId = Objects.requireNonNull(repoId, "repoId is required");
+            expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
+            declarationTarget = Objects.requireNonNull(declarationTarget, "declarationTarget is required");
+        }
+    }
+
+    /** RESOLVE_CONCEPT 與 GET_EVIDENCE_SOURCE 共用的完整 follow-up request */
+    public record IdentityFollowUpRequest(String repoId, String expectedRevision, FollowUpIdentity identity)
+            implements AvailableFollowUpRequest {
+        public IdentityFollowUpRequest {
+            repoId = Objects.requireNonNull(repoId, "repoId is required");
+            expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
+            identity = Objects.requireNonNull(identity, "identity is required");
+        }
+    }
+
+    /** GET_TYPE_MEMBERS 與 DISCOVER_TYPE_MEMBERS 共用的完整 follow-up request */
+    public record TypeMembersFollowUpRequest(String repoId, String expectedRevision,
+                                                      SourceTypeIdentityPayload sourceType, List<String> memberKinds,
+                                                      Optional<String> namePrefix, Integer offset, Integer limit)
+            implements AvailableFollowUpRequest {
+        public TypeMembersFollowUpRequest {
+            repoId = Objects.requireNonNull(repoId, "repoId is required");
+            expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
+            sourceType = Objects.requireNonNull(sourceType, "sourceType is required");
+            memberKinds = List.copyOf(Objects.requireNonNull(memberKinds, "memberKinds are required"));
+            namePrefix = Optional.ofNullable(namePrefix).orElse(Optional.empty());
+            offset = Objects.requireNonNull(offset, "offset is required");
+            limit = Objects.requireNonNull(limit, "limit is required");
+        }
+    }
+
+    /** 概念探索續頁的完整 follow-up request */
+    public record DiscoverConceptsFollowUpRequest(String repoId, String expectedRevision,
+                                                  List<ConceptSearchTermPayload> terms, List<String> kinds,
+                                                  String operator, Optional<String> packagePrefix,
+                                                  Integer offset, Integer limit) implements AvailableFollowUpRequest {
+        public DiscoverConceptsFollowUpRequest {
+            repoId = Objects.requireNonNull(repoId, "repoId is required");
+            expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
+            terms = List.copyOf(Objects.requireNonNull(terms, "terms are required"));
+            kinds = List.copyOf(Objects.requireNonNull(kinds, "kinds are required"));
+            operator = Objects.requireNonNull(operator, "operator is required");
+            packagePrefix = Optional.ofNullable(packagePrefix).orElse(Optional.empty());
+            offset = Objects.requireNonNull(offset, "offset is required");
+            limit = Objects.requireNonNull(limit, "limit is required");
+        }
+    }
+
+    /** 事件監聽器續頁的完整 follow-up request */
+    public record DiscoverEventListenersFollowUpRequest(String repoId, String expectedRevision, String eventType,
+                                                        Integer offset, Integer limit) implements AvailableFollowUpRequest {
+        public DiscoverEventListenersFollowUpRequest {
+            repoId = Objects.requireNonNull(repoId, "repoId is required");
+            expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
+            eventType = Objects.requireNonNull(eventType, "eventType is required");
+            offset = Objects.requireNonNull(offset, "offset is required");
+            limit = Objects.requireNonNull(limit, "limit is required");
+        }
+    }
+
+    /** 來源符號解析的完整 follow-up request */
+    public record ResolveSourceSymbolFollowUpRequest(String repoId, String expectedRevision,
+                                                     SourceSymbolContextPayload context, String symbol,
+                                                     Optional<Position> position) implements AvailableFollowUpRequest {
+        public ResolveSourceSymbolFollowUpRequest {
+            repoId = Objects.requireNonNull(repoId, "repoId is required");
+            expectedRevision = Objects.requireNonNull(expectedRevision, "expectedRevision is required");
+            context = Objects.requireNonNull(context, "context is required");
+            symbol = Objects.requireNonNull(symbol, "symbol is required");
+            position = Optional.ofNullable(position).orElse(Optional.empty());
+        }
+    }
+
+    /** 可由欄位集合區分的 concept 或 evidence identity */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
+    @JsonSubTypes({@JsonSubTypes.Type(ConceptIdentityPayload.class), @JsonSubTypes.Type(EvidenceSourceIdentityPayload.class)})
+    public sealed interface FollowUpIdentity permits ConceptIdentityPayload, EvidenceSourceIdentityPayload {
+    }
+
+    /** provider 概念 identity 的封閉外觀 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ConceptIdentityPayload(String kind, MethodTargetPayload target) implements FollowUpIdentity {
+        public ConceptIdentityPayload {
+            kind = Objects.requireNonNull(kind, "kind is required");
+            target = Objects.requireNonNull(target, "target is required");
+        }
+    }
+
+    /** provider 概念搜尋詞 */
+    public record ConceptSearchTermPayload(String value, String matchMode) {
+        public ConceptSearchTermPayload {
+            value = Objects.requireNonNull(value, "value is required");
+            matchMode = Objects.requireNonNull(matchMode, "matchMode is required");
+        }
+    }
+
+    /** 來源符號解析 context */
+    public record SourceSymbolContextPayload(JavaTypeIdentityPayload javaType, Optional<String> sourceFile,
+                                             Optional<SourceSymbolMethodContextPayload> method) {
+        public SourceSymbolContextPayload {
+            javaType = Objects.requireNonNull(javaType, "javaType is required");
+            sourceFile = Optional.ofNullable(sourceFile).orElse(Optional.empty());
+            method = Optional.ofNullable(method).orElse(Optional.empty());
+        }
+    }
+
+    /** 來源符號的可選方法 context */
+    public record SourceSymbolMethodContextPayload(String name, List<String> parameterTypes) {
+        public SourceSymbolMethodContextPayload {
+            name = Objects.requireNonNull(name, "name is required");
+            parameterTypes = List.copyOf(Objects.requireNonNull(parameterTypes, "parameterTypes are required"));
+        }
+    }
+
+    /** 需要 exact target 的 follow-up 共用封閉 identity */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
+    @JsonSubTypes({@JsonSubTypes.Type(MethodTargetPayload.class),
+            @JsonSubTypes.Type(InternalReferenceFollowUpTarget.class)})
+    public sealed interface FollowUpTarget permits MethodTargetPayload, InternalReferenceFollowUpTarget {
+    }
+
+    /** internal reference target 的 typed identity */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
+    @JsonSubTypes({@JsonSubTypes.Type(SourceTypeIdentityPayload.class), @JsonSubTypes.Type(MethodTargetPayload.class),
+            @JsonSubTypes.Type(SourceMemberIdentityPayload.class)})
+    public sealed interface InternalReferenceIdentity permits SourceTypeIdentityPayload, MethodTargetPayload,
+            SourceMemberIdentityPayload {
+    }
+
+    /** provider internal reference target 的封閉外觀 */
+    public record InternalReferenceFollowUpTarget(String kind, InternalReferenceIdentity identity)
+            implements FollowUpTarget {
+        public InternalReferenceFollowUpTarget {
+            kind = Objects.requireNonNull(kind, "kind is required");
+            identity = Objects.requireNonNull(identity, "identity is required");
+            boolean matches = ("TYPE".equals(kind) && identity instanceof SourceTypeIdentityPayload)
+                    || ("METHOD".equals(kind) && identity instanceof MethodTargetPayload)
+                    || ("MEMBER".equals(kind) && identity instanceof SourceMemberIdentityPayload);
+            if (!matches) {
+                throw new IllegalArgumentException("internal reference identity does not match kind");
+            }
+        }
+    }
+
+    /** provider evidence source identity */
+    public record EvidenceSourceIdentityPayload(String kind, Optional<MethodTargetPayload> statementIdentity,
+                                                Optional<SourceTypeIdentityPayload> fragmentIdentity) implements FollowUpIdentity {
+        public EvidenceSourceIdentityPayload {
+            kind = Objects.requireNonNull(kind, "kind is required");
+            statementIdentity = Optional.ofNullable(statementIdentity).orElse(Optional.empty());
+            fragmentIdentity = Optional.ofNullable(fragmentIdentity).orElse(Optional.empty());
         }
     }
 

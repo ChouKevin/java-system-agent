@@ -212,10 +212,11 @@ class JavaSemanticServiceLiveContractIT {
             assertThat(followUp.api().path()).isNotBlank();
             assertThat(followUp.api().operationId()).isNotBlank();
             switch (followUp.request()) {
-                case SemanticDtos.MethodSourceFollowUpRequest request -> assertFollowUpScope(
+                case SemanticDtos.TargetFollowUpRequest request -> assertFollowUpScope(
                         request.repoId(), request.expectedRevision());
                 case SemanticDtos.SourceSegmentFollowUpRequest request -> assertFollowUpScope(
                         request.repoId(), request.expectedRevision());
+                default -> assertFollowUpScope(followUp.request().repoId(), followUp.request().expectedRevision());
             }
         }
     }
