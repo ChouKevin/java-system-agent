@@ -125,8 +125,8 @@ class JavaSemanticServiceLiveContractIT {
                 CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
                 repositoryCandidate(repositoryId, revisions),
                 payloadCodec.encode(new DiscoverConceptsExecutionInput(
-                        List.of(new DiscoverConceptsExecutionInput.Term("Default", "TOKEN_PREFIX")),
-                        List.of("TYPE", "MAPPER_STATEMENT"), Optional.of("com.example.m6"), 0, 20)),
+                        List.of(new DiscoverConceptsExecutionInput.Term("Order", "TOKEN_PREFIX")),
+                        List.of("TYPE", "MAPPER_STATEMENT"), Optional.empty(), 0, 20)),
                 revisions, executedCapabilities);
         FollowUpCandidate typeMembers = followUp(concepts, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, revision);
         FollowUpCandidate evidenceSource = followUp(concepts, CodeIntelligenceQuery.GET_EVIDENCE_SOURCE, revision);
