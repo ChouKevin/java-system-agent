@@ -5,5 +5,5 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 
 /** provider follow-up 專用的精確 evidence identity input */
-public record GetEvidenceSourceExecutionInput(@NotNull @Valid SemanticDtos.EvidenceSourceIdentityPayload identity) {
+public record GetEvidenceSourceExecutionInput(@NotNull @Valid SemanticDtos.EvidenceSourceFollowUpIdentity identity) {
 }

@@ -3,7 +3,11 @@ package com.java.system.agent.codeintelligence.semantic;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.codeintelligence.planning.GetEvidenceSourceExecutionInput;
+import com.java.system.agent.codeintelligence.planning.ResolveConceptExecutionInput;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
+import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -83,7 +87,7 @@ class JavaSemanticFollowUpMapperTest {
         SemanticDtos.MethodTargetPayload target = methodTarget();
         SemanticDtos.SourceTypeIdentityPayload sourceType = target.sourceType();
         SemanticDtos.SourceMemberIdentityPayload member = new SemanticDtos.SourceMemberIdentityPayload.TypeMember(
-                sourceType, "field");
+                "TYPE", sourceType, "field");
         SemanticDtos.MapperStatementKeyPayload key = new SemanticDtos.MapperStatementKeyPayload("mapper", "find");
         SemanticDtos.MapperStatementIdentityPayload statement = new SemanticDtos.MapperStatementIdentityPayload(
                 key, "src/main/resources/Mapper.xml", Optional.empty(), 0, "MAPPER_XML_ELEMENT");
@@ -159,6 +163,26 @@ class JavaSemanticFollowUpMapperTest {
     }
 
     @Test
+    void rejects_provider_follow_up_enum_values_and_duplicate_concept_kinds() {
+        SemanticDtos.SourceTypeIdentityPayload sourceType = methodTarget().sourceType();
+        JavaSemanticFollowUpMapper mapper = new JavaSemanticFollowUpMapper();
+        SemanticDtos.AvailableFollowUp invalidMemberKind = new SemanticDtos.AvailableFollowUp("GET_TYPE_MEMBERS",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/type-members", "discoverTypeMembers"),
+                new SemanticDtos.TypeMembersFollowUpRequest("orders", "FIXTURE", sourceType,
+                        List.of("UNKNOWN"), Optional.empty(), 0, 1));
+        SemanticDtos.AvailableFollowUp duplicateConceptKinds = new SemanticDtos.AvailableFollowUp("DISCOVER_CONCEPTS",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/concepts", "discoverConcepts"),
+                new SemanticDtos.DiscoverConceptsFollowUpRequest("orders", "FIXTURE",
+                        List.of(new SemanticDtos.ConceptSearchTermPayload("orders", "TOKEN_EXACT")),
+                        List.of("TYPE", "TYPE"), "ALL", Optional.empty(), 0, 1));
+
+        assertThatThrownBy(() -> mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), invalidMemberKind))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), duplicateConceptKinds))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
     void maps_the_remaining_operation_specific_request_shapes() {
         SemanticDtos.MethodTargetPayload target = methodTarget();
         SemanticDtos.SourceTypeIdentityPayload sourceType = target.sourceType();
@@ -172,7 +196,7 @@ class JavaSemanticFollowUpMapperTest {
                 new SemanticDtos.AvailableFollowUp("DISCOVER_CONCEPTS",
                         new SemanticDtos.FollowUpApi("POST", "/v1/discovery/concepts", "discoverConcepts"),
                         new SemanticDtos.DiscoverConceptsFollowUpRequest("orders", "FIXTURE",
-                                List.of(new SemanticDtos.ConceptSearchTermPayload("order", "EXACT")), List.of("TYPE"),
+                                List.of(new SemanticDtos.ConceptSearchTermPayload("order", "TOKEN_EXACT")), List.of("TYPE"),
                                 "ALL", Optional.empty(), 0, 1)),
                 new SemanticDtos.AvailableFollowUp("DISCOVER_EVENT_LISTENERS",
                         new SemanticDtos.FollowUpApi("POST", "/v1/discovery/event-listeners", "discoverEventListeners"),
@@ -201,9 +225,44 @@ class JavaSemanticFollowUpMapperTest {
         }
     }
 
+    @Test
+    void decodes_identity_follow_up_canonical_payloads_without_losing_source_member_scope() {
+        SemanticDtos.MethodTargetPayload target = methodTarget();
+        SemanticDtos.SourceMemberIdentityPayload member = new SemanticDtos.SourceMemberIdentityPayload.TypeMember(
+                "TYPE", target.sourceType(), "status");
+        SemanticDtos.ConceptFollowUpIdentity concept = concept("FIELD", target.sourceType(), target, member,
+                new SemanticDtos.MapperStatementKeyPayload("mapper", "find"), mapperStatementIdentity(),
+                new SemanticDtos.TypeDeclarationSubjectPayload("TYPE", target.sourceType()), target.sourceType().javaType());
+        SemanticDtos.EvidenceSourceFollowUpIdentity evidence = new SemanticDtos.EvidenceSourceFollowUpIdentity(
+                "MAPPER_STATEMENT", Optional.of(mapperStatementIdentity()), Optional.empty());
+        JavaSemanticFollowUpMapper mapper = new JavaSemanticFollowUpMapper();
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        com.java.system.agent.answering.domain.candidate.FollowUpCandidate conceptCandidate = mapper.map(
+                new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), new SemanticDtos.AvailableFollowUp(
+                        "RESOLVE_CONCEPT", new SemanticDtos.FollowUpApi("POST", "/v1/discovery/concepts/resolve", "resolveConcept"),
+                        new SemanticDtos.IdentityFollowUpRequest("orders", "FIXTURE", concept)));
+        com.java.system.agent.answering.domain.candidate.FollowUpCandidate evidenceCandidate = mapper.map(
+                new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), new SemanticDtos.AvailableFollowUp(
+                        "GET_EVIDENCE_SOURCE", new SemanticDtos.FollowUpApi("POST", "/v1/discovery/evidence-source", "getEvidenceSource"),
+                        new SemanticDtos.IdentityFollowUpRequest("orders", "FIXTURE", evidence)));
+
+        ResolveConceptExecutionInput decodedConcept = codec.decode(conceptCandidate.payload(), ResolveConceptExecutionInput.class);
+        GetEvidenceSourceExecutionInput decodedEvidence = codec.decode(evidenceCandidate.payload(), GetEvidenceSourceExecutionInput.class);
+        SemanticDtos.SourceMemberIdentityPayload.TypeMember decodedMember =
+                (SemanticDtos.SourceMemberIdentityPayload.TypeMember) decodedConcept.identity().identity().orElseThrow();
+        assertThat(decodedMember.scope()).isEqualTo("TYPE");
+        assertThat(decodedEvidence.identity()).isEqualTo(evidence);
+    }
+
     private static SemanticDtos.MethodTargetPayload methodTarget() {
         return new SemanticDtos.MethodTargetPayload(new SemanticDtos.SourceTypeIdentityPayload(
                 new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "Orders.java"), "find", List.of());
+    }
+
+    private static SemanticDtos.MapperStatementIdentityPayload mapperStatementIdentity() {
+        return new SemanticDtos.MapperStatementIdentityPayload(new SemanticDtos.MapperStatementKeyPayload("mapper", "find"),
+                "src/main/resources/Mapper.xml", Optional.empty(), 0, "MAPPER_XML_ELEMENT");
     }
 
     private static SemanticDtos.ConceptFollowUpIdentity concept(String kind,

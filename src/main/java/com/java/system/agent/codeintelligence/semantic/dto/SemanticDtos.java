@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import jakarta.validation.constraints.Min;
 
 import java.util.List;
 import java.util.Objects;
@@ -173,7 +174,7 @@ public final class SemanticDtos {
     public record GraphError(String code, String message, String nodeId) {
     }
 
-    public record Position(Integer line, Integer character) {
+    public record Position(@Min(0) Integer line, @Min(0) Integer character) {
     }
 
     /** Java 型別的 HTTP 識別資料 */
@@ -217,23 +218,26 @@ public final class SemanticDtos {
     }
 
     /** 型別直接成員或方法範圍成員的封閉 identity */
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "scope")
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY,
+            property = "scope", visible = true)
     @JsonSubTypes({@JsonSubTypes.Type(value = SourceMemberIdentityPayload.TypeMember.class, name = "TYPE"),
             @JsonSubTypes.Type(value = SourceMemberIdentityPayload.MethodScoped.class, name = "METHOD")})
     public sealed interface SourceMemberIdentityPayload extends InternalReferenceIdentity permits SourceMemberIdentityPayload.TypeMember,
             SourceMemberIdentityPayload.MethodScoped {
 
-        record TypeMember(SourceTypeIdentityPayload ownerType, String name)
+        record TypeMember(String scope, SourceTypeIdentityPayload ownerType, String name)
                 implements SourceMemberIdentityPayload, ConceptIdentityTargetPayload {
             public TypeMember {
+                scope = requiredKind(scope, "TYPE");
                 ownerType = Objects.requireNonNull(ownerType, "ownerType is required");
                 name = Objects.requireNonNull(name, "name is required");
             }
         }
 
-        record MethodScoped(MethodTargetPayload declaringMethod, TextRangePayload declarationRange, String name)
+        record MethodScoped(String scope, MethodTargetPayload declaringMethod, TextRangePayload declarationRange, String name)
                 implements SourceMemberIdentityPayload, ConceptIdentityTargetPayload {
             public MethodScoped {
+                scope = requiredKind(scope, "METHOD");
                 declaringMethod = Objects.requireNonNull(declaringMethod, "declaringMethod is required");
                 declarationRange = Objects.requireNonNull(declarationRange, "declarationRange is required");
                 name = Objects.requireNonNull(name, "name is required");

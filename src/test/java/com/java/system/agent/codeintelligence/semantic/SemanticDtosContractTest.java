@@ -113,4 +113,15 @@ class SemanticDtosContractTest {
                 {"kind":"TYPE","sourceType":{"javaType":{"packageName":"com.acme","className":"Orders"},"sourceFile":"Orders.java"},"unknown":true}
                 """, SemanticDtos.ConceptFollowUpIdentity.class)).isInstanceOf(Exception.class);
     }
+
+    @Test
+    void preserves_provider_source_member_scope_discriminator() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        SemanticDtos.SourceMemberIdentityPayload identity = mapper.readValue("""
+                {"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.acme","className":"Orders"},"sourceFile":"Orders.java"},"name":"status"}
+                """, SemanticDtos.SourceMemberIdentityPayload.class);
+
+        assertThat(identity).isInstanceOf(SemanticDtos.SourceMemberIdentityPayload.TypeMember.class);
+        assertThat(mapper.valueToTree(identity).path("scope").asText()).isEqualTo("TYPE");
+    }
 }

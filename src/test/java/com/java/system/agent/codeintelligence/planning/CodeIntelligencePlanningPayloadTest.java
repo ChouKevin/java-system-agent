@@ -23,7 +23,7 @@ class CodeIntelligencePlanningPayloadTest {
         CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
         CapabilityInputPayload payload = codec.encode(new DiscoverConceptsExecutionInput(
-                java.util.List.of(new DiscoverConceptsExecutionInput.Term("orders", "EXACT")),
+                java.util.List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")),
                 java.util.List.of("TYPE"), java.util.Optional.empty(), 0, 50));
 
         assertThat(codec.decode(payload, DiscoverConceptsExecutionInput.class).limit()).isEqualTo(50);
@@ -45,7 +45,7 @@ class CodeIntelligencePlanningPayloadTest {
     void maps_direct_discovery_inputs_with_provider_defaults_and_unbound_exact_targets() {
         DiscoverConceptsPlanningInput concepts = new DiscoverConceptsPlanningInput(
                 List.of("candidate-1"), "Find orders", "Need concept matches",
-                List.of(new DiscoverConceptsExecutionInput.Term("orders", "EXACT")), List.of("TYPE"),
+                List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")), List.of("TYPE"),
                 Optional.empty(), null, null);
         DiscoverEventListenersPlanningInput listeners = new DiscoverEventListenersPlanningInput(
                 List.of("candidate-1"), "Find listeners", "Need event listeners", "OrderCreated", null, null);
@@ -54,7 +54,7 @@ class CodeIntelligencePlanningPayloadTest {
 
         assertThat(new DiscoverConceptsPlanningMapper().map(concepts).executionInput())
                 .isEqualTo(new DiscoverConceptsExecutionInput(
-                        List.of(new DiscoverConceptsExecutionInput.Term("orders", "EXACT")),
+                        List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")),
                         List.of("TYPE"), Optional.empty(), 0, 50));
         assertThat(new DiscoverEventListenersPlanningMapper().map(listeners).executionInput())
                 .isEqualTo(new DiscoverEventListenersExecutionInput("OrderCreated", 0, 50));
@@ -75,11 +75,34 @@ class CodeIntelligencePlanningPayloadTest {
 
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "terms":[{"value":"orders","matchMode":"EXACT"}],"kinds":["TYPE"],"repoId":"orders"}
+                "terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"],"repoId":"orders"}
                 """, DiscoverConceptsPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
                 "eventType":"OrderCreated","offset":-1}
                 """, DiscoverEventListenersPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
+    }
+
+    @Test
+    void rejects_non_provider_enum_values_and_negative_symbol_positions() {
+        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(
+                Validation.buildDefaultValidatorFactory().getValidator());
+
+        assertThatThrownBy(() -> decoder.decode("""
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
+                "terms":[{"value":"orders","matchMode":"EXACT"}],"kinds":["UNKNOWN"]}
+                """, DiscoverConceptsPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
+        assertThatThrownBy(() -> decoder.decode("""
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
+                "symbol":"orders","position":{"line":-1,"character":0}}
+                """, ResolveSourceSymbolPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
+        assertThatThrownBy(() -> codec().decode(codec().encode(new DiscoverConceptsExecutionInput(
+                List.of(new DiscoverConceptsExecutionInput.Term("orders", "EXACT")), List.of("UNKNOWN"),
+                Optional.empty(), 0, 1)), DiscoverConceptsExecutionInput.class))
+                .isInstanceOf(com.java.system.agent.answering.port.out.CapabilityExecutionContractException.class);
+    }
+
+    private static CanonicalCapabilityPayloadCodec codec() {
+        return new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator());
     }
 }

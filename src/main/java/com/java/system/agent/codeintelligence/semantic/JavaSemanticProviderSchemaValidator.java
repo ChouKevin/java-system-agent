@@ -5,6 +5,7 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionContractExcep
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -201,7 +202,7 @@ final class JavaSemanticProviderSchemaValidator {
 
     private void typeMembers(SemanticDtos.TypeMembersFollowUpRequest request) {
         sourceTypePayload(request.sourceType());
-        nonemptyStrings(request.memberKinds(), "member kind");
+        memberKinds(request.memberKinds());
         request.namePrefix().ifPresent(value -> nonblank(value, "member name prefix"));
         page(request.offset(), request.limit(), "type members");
     }
@@ -216,9 +217,9 @@ final class JavaSemanticProviderSchemaValidator {
             if (value.length() < 2 || value.length() > 128) {
                 throw contract("concept search term value is outside its supported range");
             }
-            nonblank(term.matchMode(), "concept search term match mode");
+            enumValue(term.matchMode(), Set.of("TOKEN_EXACT", "TOKEN_PREFIX"), "concept search term match mode");
         }
-        nonemptyStrings(request.kinds(), "concept kind");
+        conceptKinds(request.kinds());
         enumValue(request.operator(), Set.of("ALL"), "concept operator");
         request.packagePrefix().ifPresent(value -> nonblank(value, "concept package prefix"));
         page(request.offset(), request.limit(), "concepts");
@@ -493,6 +494,28 @@ final class JavaSemanticProviderSchemaValidator {
         }
         for (String value : required) {
             nonblank(value, description);
+        }
+    }
+
+    private void conceptKinds(List<String> values) {
+        List<String> kinds = requiredStrings(values, "concept kind");
+        if (kinds.isEmpty() || new HashSet<>(kinds).size() != kinds.size()) {
+            throw contract("concept kinds must be nonempty and distinct");
+        }
+        for (String kind : kinds) {
+            enumValue(kind, Set.of("TYPE", "METHOD", "FIELD", "ANNOTATION_USAGE", "TYPE_USAGE", "API_ROUTE",
+                    "MQ_DESTINATION", "SCHEDULE", "MAPPER_STATEMENT", "SQL_IDENTIFIER", "CONFIGURATION_KEY",
+                    "OUTBOUND_API", "MQ_PUBLISHER", "ERROR_CONTRACT", "ENUM_CONSTANT"), "concept kind");
+        }
+    }
+
+    private void memberKinds(List<String> values) {
+        List<String> kinds = requiredStrings(values, "member kind");
+        if (kinds.isEmpty() || new HashSet<>(kinds).size() != kinds.size()) {
+            throw contract("member kinds must be nonempty and distinct");
+        }
+        for (String kind : kinds) {
+            enumValue(kind, Set.of("METHOD", "FIELD"), "member kind");
         }
     }
 

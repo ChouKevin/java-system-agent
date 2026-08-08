@@ -208,15 +208,15 @@ final class JavaSemanticFollowUpMapper {
         return type.cast(request);
     }
 
-    private SemanticDtos.ConceptIdentityPayload conceptIdentity(SemanticDtos.FollowUpIdentity identity) {
-        if (!(identity instanceof SemanticDtos.ConceptIdentityPayload concept)) {
+    private SemanticDtos.ConceptFollowUpIdentity conceptIdentity(SemanticDtos.FollowUpIdentity identity) {
+        if (!(identity instanceof SemanticDtos.ConceptFollowUpIdentity concept)) {
             throw contract("Semantic follow-up identity does not match resolve concept operation");
         }
         return concept;
     }
 
-    private SemanticDtos.EvidenceSourceIdentityPayload evidenceIdentity(SemanticDtos.FollowUpIdentity identity) {
-        if (!(identity instanceof SemanticDtos.EvidenceSourceIdentityPayload evidence)) {
+    private SemanticDtos.EvidenceSourceFollowUpIdentity evidenceIdentity(SemanticDtos.FollowUpIdentity identity) {
+        if (!(identity instanceof SemanticDtos.EvidenceSourceFollowUpIdentity evidence)) {
             throw contract("Semantic follow-up identity does not match evidence source operation");
         }
         return evidence;
