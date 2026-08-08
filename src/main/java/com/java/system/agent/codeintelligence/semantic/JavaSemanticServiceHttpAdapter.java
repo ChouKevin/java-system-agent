@@ -354,6 +354,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                             scope.expectedRevision().value(), target);
             SemanticDtos.DiscoverMethodImplementationsResponse response = discoveryPost("/v1/discovery/method-implementations",
                     request, SemanticDtos.DiscoverMethodImplementationsResponse.class, "method implementation discovery");
+            if (!target.equals(response.requestedTarget())) {
+                throw contract("method implementation response target does not match the requested target");
+            }
             return resultMapper.discoverMethodImplementations(scope.repositoryId(), scope.expectedRevision(), response);
         }));
     }
