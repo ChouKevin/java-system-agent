@@ -3,6 +3,7 @@ package com.java.system.agent.capability.planning;
 import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
@@ -65,8 +66,11 @@ public final class QueryPlanningToolRegistration<P, E>
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("planning tool was not issued"));
         QueryPlanningSelection<E> selection = mapper.map(input);
+        CapabilityInputPayload payload = FollowUpPlanningToolRegistration.boundPayload(context, capability, policy,
+                        selection.candidateReferences())
+                .orElseGet(() -> payloadCodec.encode(selection.executionInput()));
         return new QueryAction(capability, selection.candidateReferences(), selection.questionToResolve(),
-                payloadCodec.encode(selection.executionInput()), selection.rationale());
+                payload, selection.rationale());
     }
 
     public CapabilityPolicy policy() {

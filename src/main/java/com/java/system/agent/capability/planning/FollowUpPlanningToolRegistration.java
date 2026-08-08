@@ -2,6 +2,7 @@ package com.java.system.agent.capability.planning;
 
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
@@ -59,8 +60,38 @@ public final class FollowUpPlanningToolRegistration implements PlanningToolRegis
         }
         CapabilityHandle target = targetCapability(context, selected.getKey(), followUp)
                 .orElseThrow(PlanningToolInputException::new);
+        CapabilityPolicy policy = context.issuedCapabilities().get(target);
+        CapabilityInputPayload payload = boundPayload(context, target, policy,
+                List.of(new CandidateHandleRef(selected.getKey().value()))).orElseThrow(PlanningToolInputException::new);
         return new QueryAction(target, List.of(new CandidateHandleRef(selected.getKey().value())),
-                input.questionToResolve(), followUp.payload(), input.rationale());
+                input.questionToResolve(), payload, input.rationale());
+    }
+
+    static Optional<CapabilityInputPayload> boundPayload(
+            AgentPromptContext context,
+            CapabilityHandle capability,
+            CapabilityPolicy policy,
+            List<CandidateHandleRef> candidateReferences) {
+        Objects.requireNonNull(context, "agent prompt context must not be null");
+        Objects.requireNonNull(capability, "capability handle must not be null");
+        Objects.requireNonNull(policy, "capability policy must not be null");
+        Objects.requireNonNull(candidateReferences, "candidate references must not be null");
+        List<Map.Entry<CandidateHandle, IssuedCandidate>> selectedFollowUps = context.issuedCandidates().entrySet().stream()
+                .filter(entry -> selectedBy(candidateReferences, entry.getKey()))
+                .filter(entry -> entry.getValue().candidate() instanceof FollowUpCandidate)
+                .toList();
+        if (selectedFollowUps.isEmpty()) {
+            return Optional.empty();
+        }
+        if (candidateReferences.size() != 1 || selectedFollowUps.size() != 1) {
+            throw new PlanningToolInputException();
+        }
+        Map.Entry<CandidateHandle, IssuedCandidate> selected = selectedFollowUps.getFirst();
+        FollowUpCandidate followUp = (FollowUpCandidate) selected.getValue().candidate();
+        if (!hasMatchingScope(context, capability, selected.getKey(), followUp) || !matches(policy, followUp)) {
+            throw new PlanningToolInputException();
+        }
+        return Optional.of(followUp.payload());
     }
 
     private static boolean hasEligibleTarget(
@@ -78,11 +109,25 @@ public final class FollowUpPlanningToolRegistration implements PlanningToolRegis
             CandidateHandle candidate,
             FollowUpCandidate followUp) {
         return context.issuedCapabilities().entrySet().stream()
-                .filter(entry -> hasCurrentBinding(entry.getKey().binding(), context))
-                .filter(entry -> entry.getKey().binding().revisionVector().equals(candidate.binding().revisionVector()))
+                .filter(entry -> hasMatchingScope(context, entry.getKey(), candidate, followUp))
                 .filter(entry -> matches(entry.getValue(), followUp))
                 .map(Map.Entry::getKey)
                 .findFirst();
+    }
+
+    private static boolean selectedBy(List<CandidateHandleRef> references, CandidateHandle handle) {
+        return references.stream().anyMatch(reference -> reference.value().equals(handle.value()));
+    }
+
+    private static boolean hasMatchingScope(
+            AgentPromptContext context,
+            CapabilityHandle capability,
+            CandidateHandle candidate,
+            FollowUpCandidate followUp) {
+        return hasCurrentBinding(capability.binding(), context)
+                && hasCurrentBinding(candidate.binding(), context)
+                && capability.binding().revisionVector().equals(candidate.binding().revisionVector())
+                && candidate.binding().revisionVector().matches(followUp.repositoryId(), followUp.analyzedRevision());
     }
 
     private static boolean hasCurrentBinding(HandleBinding binding, AgentPromptContext context) {

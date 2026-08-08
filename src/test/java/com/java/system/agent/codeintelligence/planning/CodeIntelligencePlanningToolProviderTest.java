@@ -5,15 +5,22 @@ import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
+import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.CapabilityInvocation;
+import com.java.system.agent.answering.port.out.AgentActionProposal;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
@@ -204,5 +211,143 @@ class CodeIntelligencePlanningToolProviderTest {
         assertThat(context.getValue().capability()).isEqualTo(policy);
         assertThat(context.getValue().candidates()).containsExactly(candidate);
         assertThat(context.getValue().expectedRevisions()).isEqualTo(revisions);
+    }
+
+    @Test
+    void bindsFollowUpPayloadsDuringNormalPlanningWhileDirectInputsRemainMapperProduced() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy graphPolicy = policy(registry, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH);
+        CapabilityPolicy conceptsPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_CONCEPTS);
+        OutgoingCallGraphExecutionInput graphFollowUpInput = new OutgoingCallGraphExecutionInput(1,
+                Optional.of(graphTarget()));
+        DiscoverConceptsExecutionInput directConceptsInput = conceptsInput("orders");
+        DiscoverConceptsExecutionInput followUpConceptsInput = conceptsInput("payments");
+        IssuedCandidate graphFollowUp = followUpCandidate("candidate-graph-follow-up", binding, repositoryId, revision,
+                graphPolicy, payloadCodec.encode(graphFollowUpInput));
+        IssuedCandidate directRepository = repositoryCandidate("candidate-repository", binding, repositoryId);
+        IssuedCandidate conceptsFollowUp = followUpCandidate("candidate-concepts-follow-up", binding, repositoryId, revision,
+                conceptsPolicy, payloadCodec.encode(followUpConceptsInput));
+        CapabilityExecutionResult expected = new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+        when(adapter.outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphFollowUpInput))).thenReturn(expected);
+        when(adapter.discoverConcepts(any(CapabilityExecutionContext.class), eq(directConceptsInput))).thenReturn(expected);
+        when(adapter.discoverConcepts(any(CapabilityExecutionContext.class), eq(followUpConceptsInput))).thenReturn(expected);
+
+        QueryAction graphAction = queryAction(registry.interpretToolCall(graphPolicy.name(), """
+                {"candidateHandles":["candidate-graph-follow-up"],"questionToResolve":"Trace order calls","rationale":"Inspect downstream calls","depth":2}
+                """, promptContext(graphPolicy, graphFollowUp, binding)));
+        QueryAction directConceptsAction = queryAction(registry.interpretToolCall(conceptsPolicy.name(), """
+                {"candidateHandles":["candidate-repository"],"questionToResolve":"Find order concepts","rationale":"Locate order types","terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}
+                """, promptContext(conceptsPolicy, directRepository, binding)));
+        QueryAction followUpConceptsAction = queryAction(registry.interpretToolCall(conceptsPolicy.name(), """
+                {"candidateHandles":["candidate-concepts-follow-up"],"questionToResolve":"Find payment concepts","rationale":"Continue the provider result","terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}
+                """, promptContext(conceptsPolicy, conceptsFollowUp, binding)));
+
+        assertThat(graphAction.payload()).isEqualTo(payloadCodec.encode(graphFollowUpInput));
+        assertThat(graphAction.candidates()).extracting(candidate -> candidate.value())
+                .containsExactly("candidate-graph-follow-up");
+        assertThat(graphAction.questionToResolve()).isEqualTo("Trace order calls");
+        assertThat(graphAction.rationale()).isEqualTo("Inspect downstream calls");
+        assertThat(directConceptsAction.payload()).isEqualTo(payloadCodec.encode(directConceptsInput));
+        assertThat(followUpConceptsAction.payload()).isEqualTo(payloadCodec.encode(followUpConceptsInput));
+        assertThat(execute(registry, graphPolicy, graphFollowUp, graphAction, revisions)).isSameAs(expected);
+        assertThat(execute(registry, conceptsPolicy, directRepository, directConceptsAction, revisions)).isSameAs(expected);
+        assertThat(execute(registry, conceptsPolicy, conceptsFollowUp, followUpConceptsAction, revisions)).isSameAs(expected);
+        verify(adapter, times(1)).outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphFollowUpInput));
+        verify(adapter, times(1)).discoverConcepts(any(CapabilityExecutionContext.class), eq(directConceptsInput));
+        verify(adapter, times(1)).discoverConcepts(any(CapabilityExecutionContext.class), eq(followUpConceptsInput));
+    }
+
+    @Test
+    void rejectsMismatchedOrStaleFollowUpsDuringNormalPlanning() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding currentBinding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
+                revisions);
+        HandleBinding staleBinding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-0"),
+                revisions);
+        CapabilityPolicy graphPolicy = policy(registry, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH);
+        CapabilityPolicy incomingPolicy = policy(registry, CodeIntelligenceQuery.INCOMING_CALL_GRAPH);
+        CapabilityInputPayload payload = payloadCodec.encode(new OutgoingCallGraphExecutionInput(1,
+                Optional.of(graphTarget())));
+        IssuedCandidate mismatched = followUpCandidate("candidate-mismatched", currentBinding, repositoryId, revision,
+                incomingPolicy, payload);
+        IssuedCandidate stale = followUpCandidate("candidate-stale", staleBinding, repositoryId, revision, graphPolicy,
+                payload);
+
+        assertThat(registry.interpretToolCall(graphPolicy.name(), """
+                {"candidateHandles":["candidate-mismatched"],"questionToResolve":"Trace calls","rationale":"Continue graph analysis"}
+                """, promptContext(graphPolicy, mismatched, currentBinding)))
+                .isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(registry.interpretToolCall(graphPolicy.name(), """
+                {"candidateHandles":["candidate-stale"],"questionToResolve":"Trace calls","rationale":"Continue graph analysis"}
+                """, promptContext(graphPolicy, stale, currentBinding)))
+                .isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+    }
+
+    private static CapabilityExecutionResult execute(PlanningToolRegistry registry, CapabilityPolicy policy,
+                                                     IssuedCandidate candidate, QueryAction action,
+                                                     RevisionVector revisions) {
+        return registry.execute(new CapabilityInvocation(policy, List.of(candidate), action.questionToResolve(),
+                action.payload(), revisions));
+    }
+
+    private static QueryAction queryAction(AgentActionProposal proposal) {
+        return (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
+    }
+
+    private static CapabilityPolicy policy(PlanningToolRegistry registry, CodeIntelligenceQuery query) {
+        return registry.availableCapabilities().stream()
+                .filter(candidate -> candidate.name().equals(query.capabilityName()))
+                .findFirst().orElseThrow();
+    }
+
+    private static IssuedCandidate followUpCandidate(String handleValue, HandleBinding binding,
+                                                     RepositoryId repositoryId, RepositoryRevision revision,
+                                                     CapabilityPolicy policy, CapabilityInputPayload payload) {
+        FollowUpCandidate followUp = new FollowUpCandidate(repositoryId, revision, policy.name(), policy.version(), payload,
+                "Continue semantic discovery");
+        CandidateHandle handle = new CandidateHandle(handleValue, binding, CandidateKind.FOLLOW_UP);
+        return new IssuedCandidate(handle, followUp);
+    }
+
+    private static IssuedCandidate repositoryCandidate(String handleValue, HandleBinding binding,
+                                                       RepositoryId repositoryId) {
+        CandidateHandle handle = new CandidateHandle(handleValue, binding, CandidateKind.REPOSITORY);
+        return new IssuedCandidate(handle, new RepositoryCandidate(repositoryId, "Orders"));
+    }
+
+    private static AgentPromptContext promptContext(CapabilityPolicy policy, IssuedCandidate candidate,
+                                                    HandleBinding binding) {
+        CapabilityHandle capability = new CapabilityHandle("capability-" + policy.name(), binding);
+        return new AgentPromptContext("Find order behavior", SessionHistory.empty(), binding.runId(), binding.attemptId(),
+                Map.of(capability, policy), Map.of(candidate.handle(), candidate), Map.of(), Map.of(), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static SemanticDtos.MethodTargetPayload graphTarget() {
+        return new SemanticDtos.MethodTargetPayload(new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.example", "OrderService"), "src/OrderService.java"),
+                "find", List.of("java.lang.String"));
+    }
+
+    private static DiscoverConceptsExecutionInput conceptsInput(String term) {
+        return new DiscoverConceptsExecutionInput(List.of(new DiscoverConceptsExecutionInput.Term(term, "TOKEN_EXACT")),
+                List.of("TYPE"), Optional.empty(), 0, 50);
     }
 }
