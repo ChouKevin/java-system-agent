@@ -1,6 +1,8 @@
 package com.java.system.agent.codeintelligence.semantic;
 
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import jakarta.validation.Validation;
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
@@ -38,6 +40,16 @@ public final class JavaSemanticResultMapper {
     private static final String METHOD_TARGET_TERMINATOR = ":!";
 
     private final JavaSemanticProviderSchemaValidator schemaValidator = new JavaSemanticProviderSchemaValidator();
+    private final JavaSemanticFollowUpMapper followUpMapper;
+
+    public JavaSemanticResultMapper() {
+        this(new JavaSemanticFollowUpMapper(new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator())));
+    }
+
+    public JavaSemanticResultMapper(JavaSemanticFollowUpMapper followUpMapper) {
+        this.followUpMapper = Objects.requireNonNull(followUpMapper, "Semantic follow-up mapper must not be null");
+    }
 
     public List<RepositoryDescriptor> repositories(List<SemanticDtos.RepositoryStatusResponse> responses) {
         List<SemanticDtos.RepositoryStatusResponse> required = schemaValidator.repositories(responses);
@@ -524,7 +536,6 @@ public final class JavaSemanticResultMapper {
 
     private void addFollowUp(RepositoryId repositoryId, RepositoryRevision revision,
                              SemanticDtos.AvailableFollowUp followUp, List<AnalysisCandidate> candidates) {
-        JavaSemanticFollowUpMapper followUpMapper = new JavaSemanticFollowUpMapper();
         FollowUpCandidate candidate = followUpMapper.map(repositoryId, revision, followUp);
         candidates.add(candidate);
     }

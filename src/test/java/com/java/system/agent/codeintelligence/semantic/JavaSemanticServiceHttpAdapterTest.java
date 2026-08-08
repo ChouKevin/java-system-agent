@@ -4,6 +4,8 @@ import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
@@ -23,6 +25,16 @@ import com.java.system.agent.codeintelligence.planning.ListEntryPointsExecutionI
 import com.java.system.agent.codeintelligence.planning.LookupApiRouteExecutionInput;
 import com.java.system.agent.codeintelligence.planning.OutgoingCallGraphExecutionInput;
 import com.java.system.agent.codeintelligence.planning.SuggestApiRouteExecutionInput;
+import com.java.system.agent.codeintelligence.planning.DiscoverConceptsExecutionInput;
+import com.java.system.agent.codeintelligence.planning.ResolveConceptExecutionInput;
+import com.java.system.agent.codeintelligence.planning.DiscoverEventListenersExecutionInput;
+import com.java.system.agent.codeintelligence.planning.DiscoverMethodImplementationsExecutionInput;
+import com.java.system.agent.codeintelligence.planning.DiscoverTypeMembersExecutionInput;
+import com.java.system.agent.codeintelligence.planning.FindInternalReferencesExecutionInput;
+import com.java.system.agent.codeintelligence.planning.GetEvidenceSourceExecutionInput;
+import com.java.system.agent.codeintelligence.planning.GetMethodSourceExecutionInput;
+import com.java.system.agent.codeintelligence.planning.GetSourceSegmentExecutionInput;
+import com.java.system.agent.codeintelligence.planning.ResolveSourceSymbolExecutionInput;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import com.java.system.agent.answering.port.out.RepositoryRevisionFailureCode;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
@@ -30,9 +42,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import jakarta.validation.Validation;
 
 import java.util.List;
 import java.util.Set;
+import java.util.Optional;
 import java.net.SocketTimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,6 +66,131 @@ import static org.springframework.http.HttpMethod.POST;
  * Java Semantic Service read-only HTTP adapter 的可觀察合約測試
  */
 class JavaSemanticServiceHttpAdapterTest {
+
+    @Test
+    void postsTypedConceptDiscoveryWithThePinnedRepositoryScope() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/concepts"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","terms":[{"value":"order","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"],"operator":"ALL","offset":0,"limit":50}
+                        """))
+                .andRespond(withSuccess("""
+                        {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","normalizedTerms":[],"searchedKinds":["TYPE"],"supportedKinds":["TYPE"],"limitations":[],"candidates":[],"page":{"offset":0,"limit":50,"returnedCount":0,"totalCount":0,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":0,"extractedFileCount":0,"syntaxFailedFileCount":0},"issueSummaries":[],"availableFollowUps":[],"unavailableFollowUps":[]}
+                        """, MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        CapabilityExecutionResult result = adapter.discoverConcepts(repositoryContext("codebase_discover_concepts"),
+                new DiscoverConceptsExecutionInput(List.of(new DiscoverConceptsExecutionInput.Term("order", "TOKEN_EXACT")),
+                        List.of("TYPE"), Optional.empty(), 0, 50));
+
+        assertThat(result).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
+        client.server().verify();
+    }
+
+    @Test
+    void postsEveryOtherDiscoveryOperationToItsFixedPathAndProjectsTypedSuccess() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = targetPayload();
+        SemanticDtos.ConceptFollowUpIdentity concept = conceptIdentity();
+        SemanticDtos.EvidenceSourceFollowUpIdentity evidence = evidenceIdentity();
+        SemanticDtos.SourceRangePayload range = sourceRange();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/concepts/resolve")).andExpect(method(POST))
+                .andExpect(content().json("{\"repoId\":\"orders\",\"expectedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"identity\":{\"kind\":\"TYPE\",\"sourceType\":{\"javaType\":{\"packageName\":\"com.example\",\"className\":\"Orders\"},\"sourceFile\":\"src/Orders.java\"}}}"))
+                .andRespond(withSuccess(resolveConceptSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/event-listeners")).andExpect(method(POST))
+                .andExpect(content().json("{\"repoId\":\"orders\",\"expectedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"eventType\":\"com.example.Event\",\"offset\":0,\"limit\":1}"))
+                .andRespond(withSuccess(listenersSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/method-implementations")).andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","declarationTarget":{"sourceType":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java"},"methodName":"find","parameterTypes":["java.lang.String"]}}
+                        """))
+                .andRespond(withSuccess(implementationsSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/type-members")).andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"memberKinds":["METHOD"],"offset":0,"limit":1}
+                        """))
+                .andRespond(withSuccess(membersSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/internal-references")).andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":{"kind":"METHOD","identity":{"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"methodName":"find","parameterTypes":[]}},"offset":0,"limit":1}
+                        """))
+                .andRespond(withSuccess(referencesSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/evidence-source")).andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","identity":{"kind":"MAPPER_STATEMENT","statementIdentity":{"statementKey":{"namespace":"orders","statementId":"find"},"resourcePath":"src/OrdersMapper.xml","documentOrdinal":0,"representation":"MAPPER_XML_ELEMENT"}}}
+                        """))
+                .andRespond(withSuccess(evidenceSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/method-source")).andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":{"sourceType":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java"},"methodName":"find","parameterTypes":["java.lang.String"]}}
+                        """))
+                .andRespond(withSuccess(methodSourceSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/source-segment")).andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","location":{"sourceFile":"src/Orders.java","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}},"contextLines":0}
+                        """))
+                .andRespond(withSuccess(segmentSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/source-symbols/resolve")).andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","context":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java","method":{"name":"find","parameterTypes":["java.lang.String"]}},"symbol":"order"}
+                        """))
+                .andRespond(withSuccess(symbolSuccess(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertSucceeded(() -> adapter.resolveConcept(followUpContext("codebase_resolve_concept", new ResolveConceptExecutionInput(concept)), new ResolveConceptExecutionInput(concept)));
+        assertSucceeded(() -> adapter.discoverEventListeners(repositoryContext("codebase_discover_event_listeners"), new DiscoverEventListenersExecutionInput("com.example.Event", 0, 1)));
+        assertSucceeded(() -> adapter.discoverMethodImplementations(targetContext("codebase_discover_method_implementations"), new DiscoverMethodImplementationsExecutionInput(Optional.empty())));
+        DiscoverTypeMembersExecutionInput members = new DiscoverTypeMembersExecutionInput(target.sourceType(), List.of("METHOD"), Optional.empty(), 0, 1);
+        assertSucceeded(() -> adapter.discoverTypeMembers(followUpContext("codebase_discover_type_members", members), members));
+        FindInternalReferencesExecutionInput references = new FindInternalReferencesExecutionInput(new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", target), 0, 1);
+        assertSucceeded(() -> adapter.findInternalReferences(followUpContext("codebase_find_internal_references", references), references));
+        GetEvidenceSourceExecutionInput evidenceInput = new GetEvidenceSourceExecutionInput(evidence);
+        assertSucceeded(() -> adapter.getEvidenceSource(followUpContext("codebase_get_evidence_source", evidenceInput), evidenceInput));
+        assertSucceeded(() -> adapter.getMethodSource(targetContext("codebase_get_method_source"), new GetMethodSourceExecutionInput(Optional.empty())));
+        GetSourceSegmentExecutionInput segment = new GetSourceSegmentExecutionInput(range, 0);
+        assertSucceeded(() -> adapter.getSourceSegment(followUpContext("codebase_get_source_segment", segment), segment));
+        ResolveSourceSymbolExecutionInput symbol = new ResolveSourceSymbolExecutionInput("order", Optional.empty(), Optional.empty());
+        assertSucceeded(() -> adapter.resolveSourceSymbol(targetContext("codebase_resolve_source_symbol"), symbol));
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsDiscoveryFollowUpsWithWrongCapabilityOrCanonicalPayloadBeforeHttp() {
+        TestClient client = testClient();
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        ResolveConceptExecutionInput input = new ResolveConceptExecutionInput(conceptIdentity());
+        CapabilityExecutionContext wrongCapability = followUpContext("codebase_get_evidence_source", input);
+        CapabilityExecutionContext wrongPayload = followUpContext("codebase_resolve_concept",
+                new ResolveConceptExecutionInput(new SemanticDtos.ConceptFollowUpIdentity("TYPE",
+                        Optional.of(new SemanticDtos.SourceTypeIdentityPayload(
+                                new SemanticDtos.JavaTypeIdentityPayload("com.example", "Other"), "src/Other.java")),
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())));
+
+        assertThatThrownBy(() -> adapter.resolveConcept(wrongCapability, input))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.resolveConcept(wrongPayload, input))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsDiscoveryResponseScopeMismatchWithoutExposingSourceContent() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/concepts"))
+                .andRespond(withSuccess(conceptsScopeMismatchSuccess(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        DiscoverConceptsExecutionInput input = new DiscoverConceptsExecutionInput(
+                List.of(new DiscoverConceptsExecutionInput.Term("order", "TOKEN_EXACT")), List.of("TYPE"),
+                Optional.empty(), 0, 50);
+
+        assertThatThrownBy(() -> adapter.discoverConcepts(repositoryContext("codebase_discover_concepts"), input))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageNotContaining("secret source body");
+        client.server().verify();
+    }
 
     @Test
     void sendsTheConfiguredTokenAndMapsRepositoryCatalogAndRevision() {
@@ -242,6 +381,96 @@ class JavaSemanticServiceHttpAdapterTest {
                 new RepositoryCandidate(repositoryId, "Orders"));
         return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(candidate),
                 "Find orders", revisions);
+    }
+
+    private static CapabilityExecutionContext followUpContext(String name, Object input) {
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        FollowUpCandidate followUp = new FollowUpCandidate(repositoryId, revision, name, "v1", codec.encode(input),
+                "Semantic follow-up");
+        IssuedCandidate candidate = new IssuedCandidate(new CandidateHandle("candidate-follow-up",
+                new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions),
+                CandidateKind.FOLLOW_UP), followUp);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.FOLLOW_UP), List.of(candidate),
+                "Find orders", revisions);
+    }
+
+    private static void assertSucceeded(java.util.function.Supplier<CapabilityExecutionResult> request) {
+        assertThat(request.get()).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
+    }
+
+    private static String resolveConceptSuccess() {
+        return """
+                {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","candidate":{"identity":{"kind":"TYPE","sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"}},"displayValue":"Orders","matchedTerms":["order"],"authority":"SYNTAX_RESOLVED","evidence":[],"availableFollowUps":[]}}
+                """;
+    }
+
+    private static String conceptsScopeMismatchSuccess() {
+        return """
+                {"repoId":"other","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","normalizedTerms":[],"searchedKinds":["TYPE"],"supportedKinds":["TYPE"],"limitations":[],"candidates":[],"page":{"offset":0,"limit":50,"returnedCount":0,"totalCount":0,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":0,"extractedFileCount":0,"syntaxFailedFileCount":0},"issueSummaries":[],"availableFollowUps":[],"unavailableFollowUps":[]}
+                """;
+    }
+
+    private static String listenersSuccess() {
+        return """
+                {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","requestedEventType":"com.example.Event","candidates":[],"page":{"offset":0,"limit":1,"returnedCount":0,"totalCount":0,"hasMore":false},"observationSummaries":[],"availableFollowUps":[]}
+                """;
+    }
+
+    private static String implementationsSuccess() {
+        return """
+                {"repoId":"orders","revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","requestedTarget":{"sourceType":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java"},"methodName":"find","parameterTypes":["java.lang.String"]},"candidates":[],"limits":{"limit":1,"returnedCount":0,"totalCount":0,"truncated":false},"resolution":{"status":"COMPLETE","issueSummaries":[]}}
+                """;
+    }
+
+    private static String membersSuccess() {
+        return """
+                {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"typeKind":"CLASS","annotations":[],"implementedTypes":[],"extendedTypes":[],"members":[],"page":{"offset":0,"limit":1,"returnedCount":0,"totalCount":0,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":0,"extractedFileCount":0,"syntaxFailedFileCount":0},"availableFollowUps":[]}
+                """;
+    }
+
+    private static String referencesSuccess() {
+        return """
+                {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"COMPLETE","targetDeclaration":{"target":{"kind":"METHOD","identity":{"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"methodName":"find","parameterTypes":[]}},"declarationRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"availableFollowUps":[]},"totalReferenceCount":0,"referenceGroups":[],"page":{"offset":0,"limit":1,"returnedCount":0,"totalCount":0,"hasMore":false},"issueSummaries":[],"availableFollowUps":[]}
+                """;
+    }
+
+    private static String evidenceSuccess() {
+        return """
+                {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","identity":{"kind":"MAPPER_STATEMENT","statementIdentity":{"statementKey":{"namespace":"orders","statementId":"find"},"resourcePath":"src/OrdersMapper.xml","documentOrdinal":0,"representation":"MAPPER_XML_ELEMENT"}},"location":{"sourceFile":"src/Orders.java","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}},"segment":{"location":{"sourceFile":"src/Orders.java","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}},"content":"x"},"availableFollowUps":[]}
+                """;
+    }
+
+    private static String methodSourceSuccess() { return evidenceSuccess().replace("\"identity\":{\"kind\":\"MAPPER_STATEMENT\",\"statementIdentity\":{\"statementKey\":{\"namespace\":\"orders\",\"statementId\":\"find\"},\"resourcePath\":\"src/OrdersMapper.xml\",\"documentOrdinal\":0,\"representation\":\"MAPPER_XML_ELEMENT\"}},\"location\":", "\"declarationLocation\":"); }
+    private static String segmentSuccess() { return "{\"repoId\":\"orders\",\"analyzedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"segment\":{\"location\":{\"sourceFile\":\"src/Orders.java\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":1}}},\"content\":\"x\"},\"contextTruncated\":false,\"availableFollowUps\":[]}"; }
+    private static String symbolSuccess() { return "{\"repoId\":\"orders\",\"analyzedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"status\":\"RESOLVED\",\"contextCandidates\":[],\"contextCandidateLimits\":{\"limit\":1,\"returnedCount\":0,\"totalCount\":0,\"truncated\":false},\"candidates\":[],\"issues\":[]}"; }
+
+    private static SemanticDtos.MethodTargetPayload targetPayload() {
+        return new SemanticDtos.MethodTargetPayload(new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.example", "Orders"), "src/Orders.java"),
+                "find", List.of());
+    }
+
+    private static SemanticDtos.ConceptFollowUpIdentity conceptIdentity() {
+        return new SemanticDtos.ConceptFollowUpIdentity("TYPE", Optional.of(targetPayload().sourceType()), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty());
+    }
+
+    private static SemanticDtos.EvidenceSourceFollowUpIdentity evidenceIdentity() {
+        SemanticDtos.MapperStatementKeyPayload key = new SemanticDtos.MapperStatementKeyPayload("orders", "find");
+        SemanticDtos.MapperStatementIdentityPayload statement = new SemanticDtos.MapperStatementIdentityPayload(key,
+                "src/OrdersMapper.xml", Optional.empty(), 0, "MAPPER_XML_ELEMENT");
+        return new SemanticDtos.EvidenceSourceFollowUpIdentity("MAPPER_STATEMENT", Optional.of(statement), Optional.empty());
+    }
+
+    private static SemanticDtos.SourceRangePayload sourceRange() {
+        return new SemanticDtos.SourceRangePayload("src/Orders.java", new SemanticDtos.TextRangePayload(
+                new SemanticDtos.Position(0, 0), new SemanticDtos.Position(0, 1)));
     }
 
     private static CapabilityExecutionContext repositoryContextWithoutExpectedRevision(String name) {

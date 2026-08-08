@@ -24,10 +24,17 @@ import jakarta.validation.Validation;
 import java.util.Optional;
 
 /** 將 provider 發行的完整 follow-up 合約封閉映射為 Agent candidate */
-final class JavaSemanticFollowUpMapper {
-    private final CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
-            Validation.buildDefaultValidatorFactory().getValidator());
+public final class JavaSemanticFollowUpMapper {
+    private final CanonicalCapabilityPayloadCodec codec;
     private final JavaSemanticProviderSchemaValidator validator = new JavaSemanticProviderSchemaValidator();
+
+    JavaSemanticFollowUpMapper() {
+        this(new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()));
+    }
+
+    public JavaSemanticFollowUpMapper(CanonicalCapabilityPayloadCodec codec) {
+        this.codec = java.util.Objects.requireNonNull(codec, "canonical capability payload codec must not be null");
+    }
 
     FollowUpCandidate map(RepositoryId repositoryId, RepositoryRevision revision, SemanticDtos.AvailableFollowUp followUp) {
         followUp = validator.followUp(followUp);
