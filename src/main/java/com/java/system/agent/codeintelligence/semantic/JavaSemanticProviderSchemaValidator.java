@@ -185,6 +185,11 @@ final class JavaSemanticProviderSchemaValidator {
                 throw contract("mapper statement details do not match the concept identity");
             }
             enumValue(mapper.kind(), Set.of("MAPPER_STATEMENT"), "mapper statement details kind");
+            SemanticDtos.MapperStatementKeyPayload identityKey = requiredConceptIdentity(identity,
+                    SemanticDtos.MapperStatementKeyPayload.class);
+            if (!identityKey.equals(mapper.mapping().statement())) {
+                throw contract("mapper statement details do not match the concept identity key");
+            }
             mapperStatementMapping(mapper.mapping());
         } else {
             throw contract("unsupported concept candidate details");

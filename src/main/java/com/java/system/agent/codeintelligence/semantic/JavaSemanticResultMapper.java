@@ -209,8 +209,17 @@ public final class JavaSemanticResultMapper {
         addFollowUps(repositoryId, revision, required.availableFollowUps(), candidates);
         List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(), "COMPLETE"));
         for (SemanticDtos.ListenerObservationSummaryResponse summary : required.observationSummaries()) {
+            List<AnalysisCandidate> sampleCandidates = new ArrayList<>();
+            int sampleIndex = 0;
+            for (SemanticDtos.SourceRangePayload sample : summary.samples()) {
+                sampleIndex++;
+                SemanticTargetCandidate sampleCandidate = new SemanticTargetCandidate(repositoryId, revision,
+                        sourceTarget(sample), "listener observation " + summary.code() + " sample=" + sampleIndex);
+                candidates.add(sampleCandidate);
+                sampleCandidates.add(sampleCandidate);
+            }
             observations.add(observation(ObservationCode.UNRESOLVED_CALL, "listener observation " + summary.code()
-                    + " count=" + summary.totalCount(), List.of()));
+                    + " count=" + summary.totalCount(), List.copyOf(sampleCandidates)));
         }
         return succeeded(candidates, List.of(), List.copyOf(observations));
     }
@@ -323,8 +332,13 @@ public final class JavaSemanticResultMapper {
                                                       SemanticDtos.SourceSegmentResponse response) {
         SemanticDtos.SourceSegmentResponse required = schemaValidator.sourceSegment(response);
         discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
-        return sourceResult(expectedRepositoryId, expectedRevision, required.segment().location(), required.segment(),
-                required.availableFollowUps());
+        CapabilityExecutionResult.Succeeded result = sourceResult(expectedRepositoryId, expectedRevision,
+                required.segment().location(), required.segment(), required.availableFollowUps());
+        if (!required.contextTruncated()) {
+            return result;
+        }
+        return succeeded(result.discoveredCandidates(), result.evidence(), List.of(observation(
+                ObservationCode.TRUNCATED_CANDIDATES, "source segment context is truncated", List.of())));
     }
 
     /** 投影 provider 的 source symbol resolve 結果 */
@@ -369,10 +383,10 @@ public final class JavaSemanticResultMapper {
         return succeeded(candidates, List.of(), List.copyOf(observations));
     }
 
-    private CapabilityExecutionResult sourceResult(RepositoryId repositoryId, RepositoryRevision revision,
-                                                    SemanticDtos.SourceRangePayload location,
-                                                    SemanticDtos.SourceSegmentPayload segment,
-                                                    List<SemanticDtos.AvailableFollowUp> followUps) {
+    private CapabilityExecutionResult.Succeeded sourceResult(RepositoryId repositoryId, RepositoryRevision revision,
+                                                             SemanticDtos.SourceRangePayload location,
+                                                             SemanticDtos.SourceSegmentPayload segment,
+                                                             List<SemanticDtos.AvailableFollowUp> followUps) {
         String content = description(segment.content(), "source content");
         SemanticTarget target = sourceTarget(location);
         EvidenceRef evidence = new EvidenceRef(SOURCE_SERVICE, repositoryId, revision, target, content, List.of(),
@@ -444,7 +458,10 @@ public final class JavaSemanticResultMapper {
         }
         candidates.add(new SemanticTargetCandidate(repositoryId, revision,
                 sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile, candidate.declarationRange())),
-                "source symbol " + candidate.kind()));
+                "source symbol " + candidate.kind() + " declaration"));
+        candidates.add(new SemanticTargetCandidate(repositoryId, revision,
+                sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile, candidate.representativeOccurrence())),
+                "source symbol " + candidate.kind() + " occurrence"));
     }
 
     private String sourceFile(SemanticDtos.InternalReferenceIdentity identity) {
