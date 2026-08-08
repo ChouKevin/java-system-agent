@@ -40,6 +40,9 @@ final class JavaSemanticProviderSchemaValidator {
             "REPOSITORY_NOT_FOUND", "REPOSITORY_NOT_READY", "REPOSITORY_REVISION_MISMATCH", "SEMANTIC_BINDING_AMBIGUOUS",
             "SEMANTIC_TARGET_NOT_FOUND", "SEMANTIC_BINDING_UNRESOLVED", "SEMANTIC_PROTOCOL_ERROR",
             "SEMANTIC_ENGINE_START_FAILED", "SEMANTIC_REQUEST_TIMEOUT", "INTERNAL_ERROR", "SEMANTIC_AUTH_DISABLED");
+    private static final Set<String> CONCEPT_KINDS = Set.of("TYPE", "METHOD", "FIELD", "ANNOTATION_USAGE",
+            "TYPE_USAGE", "API_ROUTE", "MQ_DESTINATION", "SCHEDULE", "MAPPER_STATEMENT", "SQL_IDENTIFIER",
+            "CONFIGURATION_KEY", "OUTBOUND_API", "MQ_PUBLISHER", "ERROR_CONTRACT", "ENUM_CONSTANT");
 
     List<SemanticDtos.RepositoryStatusResponse> repositories(List<SemanticDtos.RepositoryStatusResponse> responses) {
         List<SemanticDtos.RepositoryStatusResponse> validated = requiredList(responses, "repository response");
@@ -130,6 +133,407 @@ final class JavaSemanticProviderSchemaValidator {
             methodTarget(required.target());
         }
         requiredMethodTargets(required.candidates(), "API error candidate");
+    }
+
+    SemanticDtos.DiscoverConceptsResponse discoverConcepts(SemanticDtos.DiscoverConceptsResponse response) {
+        SemanticDtos.DiscoverConceptsResponse required = requiredObject(response, "concept discovery response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "concept discovery");
+        pageResponse(required.page(), "concept discovery page");
+        coverage(required.coverage(), "concept discovery coverage");
+        enumValues(required.searchedKinds(), CONCEPT_KINDS, "searched concept kind");
+        enumValues(required.supportedKinds(), CONCEPT_KINDS, "supported concept kind");
+        enumValues(required.limitations(), Set.of("SOURCE_BODY_NOT_SEARCHED"), "concept limitation");
+        for (SemanticDtos.ConceptCandidateResponse candidate : requiredList(required.candidates(), "concept candidate")) {
+            conceptIdentity(candidate.identity());
+            enumValue(candidate.authority(), Set.of("SYNTAX_RESOLVED", "SYNTAX_DECLARED", "FRAMEWORK_METADATA",
+                    "WRITTEN_NAME_FALLBACK", "METADATA_VALUE_UNRESOLVED"), "concept authority");
+            candidate.details().ifPresent(this::conceptCandidateDetails);
+            for (SemanticDtos.ConceptEvidenceResponse evidence : requiredList(candidate.evidence(), "concept evidence")) {
+                conceptIdentity(evidence.identity());
+            }
+            followUps(candidate.availableFollowUps());
+        }
+        issueSummaries(required.issueSummaries(), Set.of("MQ_DESTINATION_UNRESOLVED", "SCHEDULE_TRIGGER_VALUE_UNRESOLVED"),
+                "concept issue");
+        followUps(required.availableFollowUps());
+        return required;
+    }
+
+    SemanticDtos.ResolveConceptResponse resolveConcept(SemanticDtos.ResolveConceptResponse response) {
+        SemanticDtos.ResolveConceptResponse required = requiredObject(response, "resolve concept response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "resolve concept");
+        SemanticDtos.ConceptCandidateResponse candidate = requiredObject(required.candidate(), "resolved concept candidate");
+        conceptIdentity(candidate.identity());
+        candidate.details().ifPresent(this::conceptCandidateDetails);
+        for (SemanticDtos.ConceptEvidenceResponse evidence : requiredList(candidate.evidence(), "resolved concept evidence")) {
+            conceptIdentity(evidence.identity());
+        }
+        followUps(candidate.availableFollowUps());
+        return required;
+    }
+
+    private void conceptCandidateDetails(SemanticDtos.ConceptCandidateDetailsResponse details) {
+        if (details instanceof SemanticDtos.FieldConceptCandidateDetailsResponse field) {
+            enumValue(field.kind(), Set.of("FIELD"), "field concept details kind");
+            fieldTypeReference(field.declaredType());
+        } else if (details instanceof SemanticDtos.MapperStatementConceptCandidateDetailsResponse mapper) {
+            enumValue(mapper.kind(), Set.of("MAPPER_STATEMENT"), "mapper statement details kind");
+            mapperStatementMapping(mapper.mapping());
+        } else {
+            throw contract("unsupported concept candidate details");
+        }
+    }
+
+    private void mapperStatementMapping(SemanticDtos.MapperStatementMappingResponse mapping) {
+        if (mapping instanceof SemanticDtos.ResolvedMapperStatementMappingResponse resolved) {
+            enumValue(resolved.status(), Set.of("RESOLVED"), "resolved mapper mapping status");
+            if (resolved.candidates().size() != 1) {
+                throw contract("resolved mapper mapping must have one candidate");
+            }
+        } else if (mapping instanceof SemanticDtos.AmbiguousMapperStatementMappingResponse ambiguous) {
+            enumValue(ambiguous.status(), Set.of("AMBIGUOUS"), "ambiguous mapper mapping status");
+            if (ambiguous.candidates().size() < 2) {
+                throw contract("ambiguous mapper mapping must have at least two candidates");
+            }
+        } else if (mapping instanceof SemanticDtos.UnresolvedMapperStatementMappingResponse unresolved) {
+            enumValue(unresolved.status(), Set.of("UNRESOLVED"), "unresolved mapper mapping status");
+            enumValue(unresolved.reason(), Set.of("INCOMPLETE_METHOD_RESOLUTION"), "unresolved mapper mapping reason");
+        } else {
+            throw contract("unsupported mapper statement mapping");
+        }
+        mapperStatementKey(mapping.statement());
+        for (SemanticDtos.MapperSourceMethodCandidateResponse candidate : requiredList(mapping.candidates(),
+                "mapper source method candidate")) {
+            methodTargetPayload(candidate.target());
+            followUps(candidate.availableFollowUps());
+        }
+    }
+
+    private void fieldTypeReference(SemanticDtos.FieldTypeReferenceResponse reference) {
+        if (reference instanceof SemanticDtos.NamedFieldTypeReferenceResponse named) {
+            enumValue(named.kind(), Set.of("NAMED"), "named field type kind");
+            nonblank(named.simpleTypeName(), "named field simple type name");
+            named.resolvedJavaType().ifPresent(this::javaTypePayload);
+        } else if (reference instanceof SemanticDtos.ParameterizedFieldTypeReferenceResponse parameterized) {
+            enumValue(parameterized.kind(), Set.of("PARAMETERIZED"), "parameterized field type kind");
+            fieldTypeReference(parameterized.rawType());
+            for (SemanticDtos.FieldTypeReferenceResponse argument : requiredList(parameterized.typeArguments(),
+                    "parameterized field type argument")) {
+                fieldTypeReference(argument);
+            }
+        } else if (reference instanceof SemanticDtos.PrimitiveFieldTypeReferenceResponse primitive) {
+            enumValue(primitive.kind(), Set.of("PRIMITIVE"), "primitive field type kind");
+        } else if (reference instanceof SemanticDtos.ArrayFieldTypeReferenceResponse array) {
+            enumValue(array.kind(), Set.of("ARRAY"), "array field type kind");
+            if (array.dimensions() < 1) {
+                throw contract("array field type dimensions are outside their supported range");
+            }
+            fieldTypeReference(array.elementType());
+        } else if (reference instanceof SemanticDtos.WildcardFieldTypeReferenceResponse wildcard) {
+            enumValue(wildcard.kind(), Set.of("WILDCARD"), "wildcard field type kind");
+            wildcard.upperBound().ifPresent(this::fieldTypeReference);
+            wildcard.lowerBound().ifPresent(this::fieldTypeReference);
+        } else if (reference instanceof SemanticDtos.TypeVariableFieldTypeReferenceResponse variable) {
+            enumValue(variable.kind(), Set.of("TYPE_VARIABLE"), "type variable field type kind");
+            nonblank(variable.variableName(), "type variable name");
+            for (SemanticDtos.FieldTypeReferenceResponse bound : requiredList(variable.upperBounds(),
+                    "type variable field bound")) {
+                fieldTypeReference(bound);
+            }
+        } else {
+            throw contract("unsupported field type reference");
+        }
+        nonblank(reference.writtenType(), "field type written type");
+    }
+
+    SemanticDtos.DiscoverEventListenersResponse discoverEventListeners(SemanticDtos.DiscoverEventListenersResponse response) {
+        SemanticDtos.DiscoverEventListenersResponse required = requiredObject(response, "event listener response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "event listener");
+        nonblank(required.requestedEventType(), "requested event type");
+        pageResponse(required.page(), "event listener page");
+        for (SemanticDtos.EventListenerCandidateResponse candidate : requiredList(required.candidates(), "event listener candidate")) {
+            methodTargetPayload(candidate.target());
+            textRange(candidate.sourceRange(), "event listener source range");
+            for (SemanticDtos.ListenerAnnotationEvidenceResponse annotation : requiredList(candidate.listenerAnnotations(),
+                    "event listener annotation")) {
+                enumValue(annotation.kind(), Set.of("EVENT_LISTENER", "TRANSACTIONAL_EVENT_LISTENER"),
+                        "event listener annotation kind");
+                enumValue(annotation.matchKind(), Set.of("RESOLVED_IDENTITY", "WRITTEN_NAME"),
+                        "event listener annotation match kind");
+            }
+            followUps(candidate.availableFollowUps());
+        }
+        for (SemanticDtos.ListenerObservationSummaryResponse summary : requiredList(required.observationSummaries(),
+                "event listener observation")) {
+            enumValue(summary.code(), Set.of("LISTENER_TARGET_UNRESOLVED"), "event listener observation code");
+            if (summary.totalCount() < 1) {
+                throw contract("event listener observation count is outside its supported range");
+            }
+            if (summary.samples().size() > 5) {
+                throw contract("event listener observation samples exceed their supported range");
+            }
+            for (SemanticDtos.SourceRangePayload sample : summary.samples()) {
+                sourceRange(sample, "event listener observation sample");
+            }
+        }
+        followUps(required.availableFollowUps());
+        return required;
+    }
+
+    SemanticDtos.DiscoverMethodImplementationsResponse discoverMethodImplementations(
+            SemanticDtos.DiscoverMethodImplementationsResponse response) {
+        SemanticDtos.DiscoverMethodImplementationsResponse required = requiredObject(response, "method implementation response");
+        discoveryScope(required.repoId(), required.revision(), "method implementation");
+        methodTargetPayload(required.requestedTarget());
+        bounded(required.limits(), "method implementation limits");
+        enumValue(required.resolution().status(), Set.of("COMPLETE", "PARTIAL"), "method implementation status");
+        issueSummaries(required.resolution().issueSummaries(), Set.of("LOCAL_CONVERSION_FAILED", "EXTERNAL_TARGET",
+                "CANONICAL_TARGET_UNRESOLVED", "NON_EXECUTABLE_TARGET"), "method implementation issue");
+        for (SemanticDtos.MethodImplementationCandidateResponse candidate : requiredList(required.candidates(),
+                "method implementation candidate")) {
+            methodTargetPayload(candidate.target());
+            followUps(candidate.availableFollowUps());
+        }
+        return required;
+    }
+
+    SemanticDtos.DiscoverTypeMembersResponse discoverTypeMembers(SemanticDtos.DiscoverTypeMembersResponse response) {
+        SemanticDtos.DiscoverTypeMembersResponse required = requiredObject(response, "type member response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "type member");
+        sourceTypePayload(required.sourceType());
+        pageResponse(required.page(), "type member page");
+        coverage(required.coverage(), "type member coverage");
+        for (SemanticDtos.TypeMemberResponse member : requiredList(required.members(), "type member")) {
+            if (member instanceof SemanticDtos.MethodTypeMemberResponse method) {
+                enumValue(method.kind(), Set.of("METHOD"), "type member kind");
+                methodTargetPayload(method.target());
+            } else if (member instanceof SemanticDtos.FieldTypeMemberResponse field) {
+                enumValue(field.kind(), Set.of("FIELD"), "type member kind");
+                sourceMemberIdentity(field.identity());
+            } else {
+                throw contract("unsupported type member response");
+            }
+            followUps(member.availableFollowUps());
+        }
+        followUps(required.availableFollowUps());
+        return required;
+    }
+
+    SemanticDtos.FindInternalReferencesResponse findInternalReferences(SemanticDtos.FindInternalReferencesResponse response) {
+        SemanticDtos.FindInternalReferencesResponse required = requiredObject(response, "internal reference response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "internal reference");
+        enumValue(required.status(), Set.of("COMPLETE", "PARTIAL"), "internal reference status");
+        if (required.totalReferenceCount() < 0) {
+            throw contract("internal reference total count is outside its supported range");
+        }
+        pageResponse(required.page(), "internal reference page");
+        issueSummaries(required.issueSummaries(), Set.of("REFERENCE_SOURCE_NOT_JAVA", "REFERENCE_SOURCE_OUTSIDE_SNAPSHOT",
+                "REFERENCE_CONTEXT_UNRESOLVED", "REFERENCE_RANGE_INVALID"), "internal reference issue");
+        SemanticDtos.InternalReferenceTargetDeclarationResponse declaration = requiredObject(required.targetDeclaration(),
+                "internal reference target declaration");
+        internalReferenceTarget(declaration.target());
+        textRange(declaration.declarationRange(), "internal reference declaration range");
+        followUps(declaration.availableFollowUps());
+        for (SemanticDtos.ReferenceGroupResponse group : requiredList(required.referenceGroups(), "reference group")) {
+            internalReferenceContext(group.context());
+            bounded(group.limits(), "reference group limits");
+            if (group.representativeReferences().size() > 3) {
+                throw contract("reference representative count exceeds its supported range");
+            }
+            followUps(group.availableFollowUps());
+            unavailableFollowUps(group.unavailableFollowUps());
+            for (SemanticDtos.ReferenceOccurrenceResponse occurrence : requiredList(group.representativeReferences(),
+                    "reference occurrence")) {
+                textRange(occurrence.range(), "reference occurrence range");
+                followUps(occurrence.availableFollowUps());
+            }
+        }
+        followUps(required.availableFollowUps());
+        return required;
+    }
+
+    private void internalReferenceContext(SemanticDtos.InternalReferenceContextResponse context) {
+        if (context instanceof SemanticDtos.InternalReferenceTypeContextResponse type) {
+            enumValue(type.kind(), Set.of("TYPE"), "internal reference type context kind");
+            sourceTypePayload(type.sourceType());
+        } else if (context instanceof SemanticDtos.InternalReferenceMethodContextResponse method) {
+            enumValue(method.kind(), Set.of("METHOD"), "internal reference method context kind");
+            methodTargetPayload(method.method());
+        } else {
+            throw contract("unsupported internal reference context");
+        }
+    }
+
+    private void unavailableFollowUps(List<SemanticDtos.UnavailableFollowUpResponse> unavailable) {
+        for (SemanticDtos.UnavailableFollowUpResponse response : requiredList(unavailable, "unavailable follow-up")) {
+            enumValue(response.reason(), Set.of("NO_MATCHING_STRUCTURED_CONCEPT", "SEARCH_INCOMPLETE"),
+                    "unavailable follow-up reason");
+            enumValue(response.recommendedAction(), Set.of("REFINE_TERMS_KINDS_OR_PACKAGE_FILTERS", "FIX_SOURCE_OR_RETRY"),
+                    "unavailable follow-up action");
+        }
+    }
+
+    SemanticDtos.EvidenceSourceResponse evidenceSource(SemanticDtos.EvidenceSourceResponse response) {
+        SemanticDtos.EvidenceSourceResponse required = requiredObject(response, "evidence source response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "evidence source");
+        evidenceIdentity(required.identity());
+        sourceRange(required.location(), "evidence source location");
+        segment(required.segment(), "evidence source segment");
+        followUps(required.availableFollowUps());
+        return required;
+    }
+
+    SemanticDtos.MethodSourceResponse methodSource(SemanticDtos.MethodSourceResponse response) {
+        SemanticDtos.MethodSourceResponse required = requiredObject(response, "method source response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "method source");
+        sourceRange(required.declarationLocation(), "method declaration location");
+        segment(required.segment(), "method source segment");
+        followUps(required.availableFollowUps());
+        return required;
+    }
+
+    SemanticDtos.SourceSegmentResponse sourceSegment(SemanticDtos.SourceSegmentResponse response) {
+        SemanticDtos.SourceSegmentResponse required = requiredObject(response, "source segment response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "source segment");
+        segment(required.segment(), "source segment");
+        followUps(required.availableFollowUps());
+        return required;
+    }
+
+    SemanticDtos.ResolveSourceSymbolResponse resolveSourceSymbol(SemanticDtos.ResolveSourceSymbolResponse response) {
+        SemanticDtos.ResolveSourceSymbolResponse required = requiredObject(response, "source symbol response");
+        discoveryScope(required.repoId(), required.analyzedRevision(), "source symbol");
+        enumValue(required.status(), Set.of("RESOLVED", "CONTEXT_NOT_FOUND", "SYMBOL_NOT_FOUND", "AMBIGUOUS_CONTEXT",
+                "AMBIGUOUS_SYMBOL", "AMBIGUOUS_OCCURRENCE", "UNRESOLVED_BINDING", "POSITION_MISMATCH"),
+                "source symbol status");
+        bounded(required.contextCandidateLimits(), "source symbol context candidate limits");
+        for (SemanticDtos.SourceContextCandidateResponse context : requiredList(required.contextCandidates(),
+                "source symbol context candidate")) {
+            if (context instanceof SemanticDtos.SourceTypeContextCandidateResponse type) {
+                enumValue(type.kind(), Set.of("SOURCE_TYPE"), "source type context kind");
+                nonblank(type.sourceFile(), "source type context file");
+            } else if (context instanceof SemanticDtos.SourceMethodContextCandidateResponse method) {
+                enumValue(method.kind(), Set.of("METHOD"), "source method context kind");
+                methodTargetPayload(method.target());
+            } else {
+                throw contract("unsupported source symbol context candidate");
+            }
+            followUp(context.retry());
+        }
+        sourceSymbolIssues(required.issues());
+        for (SemanticDtos.SourceSymbolCandidateResponse candidate : requiredList(required.candidates(),
+                "source symbol candidate")) {
+            sourceSymbolCandidate(candidate);
+            followUps(candidate.availableFollowUps());
+        }
+        return required;
+    }
+
+    private void sourceSymbolCandidate(SemanticDtos.SourceSymbolCandidateResponse candidate) {
+        if (candidate instanceof SemanticDtos.VariableLikeSourceSymbolCandidateResponse variable) {
+            enumValue(variable.kind(), Set.of("FIELD", "RECORD_COMPONENT", "PARAMETER", "LOCAL_VARIABLE",
+                    "ENUM_CONSTANT"), "variable source symbol kind");
+            sourceMemberIdentity(variable.identity());
+            declaredType(variable.declaredType());
+        } else if (candidate instanceof SemanticDtos.StaticConstantSourceSymbolCandidateResponse constant) {
+            enumValue(constant.kind(), Set.of("STATIC_CONSTANT"), "constant source symbol kind");
+            sourceMemberIdentity(constant.identity());
+            declaredType(constant.declaredType());
+            nonblank(constant.initializerSource(), "constant initializer source");
+        } else if (candidate instanceof SemanticDtos.MethodSourceSymbolCandidateResponse method) {
+            enumValue(method.kind(), Set.of("METHOD"), "method source symbol kind");
+            methodTargetPayload(method.target());
+        } else if (candidate instanceof SemanticDtos.SourceTypeSymbolCandidateResponse type) {
+            enumValue(type.kind(), Set.of("SOURCE_TYPE"), "source type symbol kind");
+            sourceTypePayload(type.identity());
+        } else {
+            throw contract("unsupported source symbol candidate");
+        }
+        textRange(candidate.declarationRange(), "source symbol declaration range");
+        textRange(candidate.representativeOccurrence(), "source symbol representative occurrence");
+        if (candidate.occurrenceCount() < 1) {
+            throw contract("source symbol occurrence count is outside its supported range");
+        }
+    }
+
+    private void declaredType(SemanticDtos.DeclaredTypeResponse declaredType) {
+        SemanticDtos.DeclaredTypeResponse required = requiredObject(declaredType, "declared type");
+        nonblank(required.writtenType(), "declared written type");
+        required.resolvedType().ifPresent(value -> nonblank(value, "declared resolved type"));
+    }
+
+    private void sourceSymbolIssues(List<SemanticDtos.SourceSymbolIssueSummaryResponse> issues) {
+        for (SemanticDtos.SourceSymbolIssueSummaryResponse issue : requiredList(issues, "source symbol issue")) {
+            enumValue(issue.code(), Set.of("SOURCE_BINDING_UNRESOLVED", "UNSUPPORTED_SOURCE_CONSTRUCT"),
+                    "source symbol issue code");
+            if (issue.count() < 1) {
+                throw contract("source symbol issue count is outside its supported range");
+            }
+        }
+    }
+
+    private void discoveryScope(String repositoryId, String revision, String description) {
+        repositoryId(repositoryId, description + " repository ID");
+        revision(revision, description + " analyzed revision");
+    }
+
+    private void pageResponse(SemanticDtos.PageResponse page, String description) {
+        SemanticDtos.PageResponse required = requiredObject(page, description);
+        range(required.offset(), 0, Integer.MAX_VALUE, description + " offset");
+        range(required.limit(), 1, 100, description + " limit");
+        if (required.returnedCount() < 0 || required.totalCount() < 0 || required.returnedCount() > required.totalCount()) {
+            throw contract(description + " counts are inconsistent");
+        }
+        boolean expectedHasMore = (long) required.offset() + required.returnedCount() < required.totalCount();
+        if (required.hasMore() != expectedHasMore) {
+            throw contract(description + " hasMore is inconsistent");
+        }
+    }
+
+    private void bounded(SemanticDtos.BoundedResultResponse limits, String description) {
+        SemanticDtos.BoundedResultResponse required = requiredObject(limits, description);
+        if (required.limit() < 1 || required.returnedCount() < 0 || required.totalCount() < 0
+                || required.returnedCount() > required.totalCount()
+                || required.truncated() != (required.totalCount() > required.returnedCount())) {
+            throw contract(description + " counts are inconsistent");
+        }
+    }
+
+    private void coverage(SemanticDtos.ConceptCoverageResponse coverage, String description) {
+        SemanticDtos.ConceptCoverageResponse required = requiredObject(coverage, description);
+        enumValue(required.status(), Set.of("COMPLETE", "PARTIAL"), description + " status");
+        if (required.scannedFileCount() < 0 || required.extractedFileCount() < 0 || required.syntaxFailedFileCount() < 0) {
+            throw contract(description + " counts are outside their supported range");
+        }
+    }
+
+    private void segment(SemanticDtos.SourceSegmentPayload segment, String description) {
+        SemanticDtos.SourceSegmentPayload required = requiredObject(segment, description);
+        sourceRange(required.location(), description + " location");
+        requiredString(required.content(), description + " content");
+        required.nextLocation().ifPresent(value -> sourceRange(value, description + " continuation location"));
+    }
+
+    private void followUps(List<SemanticDtos.AvailableFollowUp> followUps) {
+        for (SemanticDtos.AvailableFollowUp followUp : requiredList(followUps, "discovery follow-up")) {
+            followUp(followUp);
+        }
+    }
+
+    private void issueSummaries(List<SemanticDtos.IssueSummaryResponse> summaries, Set<String> codes,
+                                String description) {
+        for (SemanticDtos.IssueSummaryResponse summary : requiredList(summaries, description)) {
+            enumValue(summary.code(), codes, description + " code");
+            if (summary.count() < 1) {
+                throw contract(description + " count is outside its supported range");
+            }
+        }
+    }
+
+    private void enumValues(List<String> values, Set<String> supported, String description) {
+        for (String value : requiredList(values, description)) {
+            enumValue(value, supported, description);
+        }
     }
 
     SemanticDtos.AvailableFollowUp followUp(SemanticDtos.AvailableFollowUp followUp) {

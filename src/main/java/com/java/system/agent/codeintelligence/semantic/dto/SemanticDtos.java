@@ -616,6 +616,7 @@ public final class SemanticDtos {
         }
     }
 
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record MapperStatementIdentityPayload(MapperStatementKeyPayload statementKey, String resourcePath,
                                                  Optional<String> databaseId, Integer documentOrdinal,
                                                  String representation) implements ConceptIdentityTargetPayload {
@@ -702,6 +703,658 @@ public final class SemanticDtos {
 
     private static <T> Optional<T> optional(Optional<T> value) {
         return Optional.ofNullable(value).orElse(Optional.empty());
+    }
+
+    /** 結構化探索的固定頁面計數 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record PageResponse(int offset, int limit, int returnedCount, long totalCount, boolean hasMore) {
+    }
+
+    /** 結構化探索對來源快照的覆蓋摘要 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ConceptCoverageResponse(String status, int scannedFileCount, int extractedFileCount,
+                                          int syntaxFailedFileCount) {
+    }
+
+    /** 有界結果集合的計數與截斷狀態 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record BoundedResultResponse(int limit, int returnedCount, int totalCount, boolean truncated) {
+    }
+
+    /** 概念候選的最小投影及其後續操作 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ConceptCandidateResponse(ConceptFollowUpIdentity identity, String displayValue,
+                                           List<String> matchedTerms, String authority,
+                                           Optional<ConceptCandidateDetailsResponse> details,
+                                           List<ConceptEvidenceResponse> evidence,
+                                           List<AvailableFollowUp> availableFollowUps) {
+        public ConceptCandidateResponse {
+            identity = Objects.requireNonNull(identity, "concept identity is required");
+            matchedTerms = List.copyOf(Objects.requireNonNull(matchedTerms, "matched terms are required"));
+            details = optional(details);
+            evidence = List.copyOf(Objects.requireNonNull(evidence, "concept evidence is required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "concept follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ConceptEvidenceResponse(ConceptFollowUpIdentity identity) {
+        public ConceptEvidenceResponse {
+            identity = Objects.requireNonNull(identity, "concept evidence identity is required");
+        }
+    }
+
+    /** 概念候選的額外封閉細節 */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind", visible = true)
+    @JsonSubTypes({@JsonSubTypes.Type(value = FieldConceptCandidateDetailsResponse.class, name = "FIELD"),
+            @JsonSubTypes.Type(value = MapperStatementConceptCandidateDetailsResponse.class, name = "MAPPER_STATEMENT")})
+    public sealed interface ConceptCandidateDetailsResponse permits FieldConceptCandidateDetailsResponse,
+            MapperStatementConceptCandidateDetailsResponse {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record FieldConceptCandidateDetailsResponse(String kind, FieldTypeReferenceResponse declaredType)
+            implements ConceptCandidateDetailsResponse {
+        public FieldConceptCandidateDetailsResponse {
+            declaredType = Objects.requireNonNull(declaredType, "field concept declared type is required");
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record MapperStatementConceptCandidateDetailsResponse(String kind, MapperStatementMappingResponse mapping)
+            implements ConceptCandidateDetailsResponse {
+        public MapperStatementConceptCandidateDetailsResponse {
+            mapping = Objects.requireNonNull(mapping, "mapper statement mapping is required");
+        }
+    }
+
+    /** mapper statement 到 Java 方法的封閉 mapping 結果 */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "status", visible = true)
+    @JsonSubTypes({@JsonSubTypes.Type(value = ResolvedMapperStatementMappingResponse.class, name = "RESOLVED"),
+            @JsonSubTypes.Type(value = AmbiguousMapperStatementMappingResponse.class, name = "AMBIGUOUS"),
+            @JsonSubTypes.Type(value = UnresolvedMapperStatementMappingResponse.class, name = "UNRESOLVED")})
+    public sealed interface MapperStatementMappingResponse permits ResolvedMapperStatementMappingResponse,
+            AmbiguousMapperStatementMappingResponse, UnresolvedMapperStatementMappingResponse {
+        MapperStatementKeyPayload statement();
+
+        String status();
+
+        List<MapperSourceMethodCandidateResponse> candidates();
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ResolvedMapperStatementMappingResponse(MapperStatementKeyPayload statement, String status,
+                                                         List<MapperSourceMethodCandidateResponse> candidates)
+            implements MapperStatementMappingResponse {
+        public ResolvedMapperStatementMappingResponse {
+            statement = Objects.requireNonNull(statement, "resolved mapper statement is required");
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "resolved mapper candidates are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record AmbiguousMapperStatementMappingResponse(MapperStatementKeyPayload statement, String status,
+                                                          List<MapperSourceMethodCandidateResponse> candidates)
+            implements MapperStatementMappingResponse {
+        public AmbiguousMapperStatementMappingResponse {
+            statement = Objects.requireNonNull(statement, "ambiguous mapper statement is required");
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "ambiguous mapper candidates are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record UnresolvedMapperStatementMappingResponse(MapperStatementKeyPayload statement, String status,
+                                                           String reason,
+                                                           List<MapperSourceMethodCandidateResponse> candidates)
+            implements MapperStatementMappingResponse {
+        public UnresolvedMapperStatementMappingResponse {
+            statement = Objects.requireNonNull(statement, "unresolved mapper statement is required");
+            reason = Objects.requireNonNull(reason, "unresolved mapper reason is required");
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "unresolved mapper candidates are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record MapperSourceMethodCandidateResponse(MethodTargetPayload target,
+                                                      List<AvailableFollowUp> availableFollowUps) {
+        public MapperSourceMethodCandidateResponse {
+            target = Objects.requireNonNull(target, "mapper source method target is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "mapper source method follow-ups are required"));
+        }
+    }
+
+    /** 欄位宣告型別的遞迴封閉證據 */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind", visible = true)
+    @JsonSubTypes({@JsonSubTypes.Type(value = NamedFieldTypeReferenceResponse.class, name = "NAMED"),
+            @JsonSubTypes.Type(value = ParameterizedFieldTypeReferenceResponse.class, name = "PARAMETERIZED"),
+            @JsonSubTypes.Type(value = PrimitiveFieldTypeReferenceResponse.class, name = "PRIMITIVE"),
+            @JsonSubTypes.Type(value = ArrayFieldTypeReferenceResponse.class, name = "ARRAY"),
+            @JsonSubTypes.Type(value = WildcardFieldTypeReferenceResponse.class, name = "WILDCARD"),
+            @JsonSubTypes.Type(value = TypeVariableFieldTypeReferenceResponse.class, name = "TYPE_VARIABLE")})
+    public sealed interface FieldTypeReferenceResponse permits NamedFieldTypeReferenceResponse,
+            ParameterizedFieldTypeReferenceResponse, PrimitiveFieldTypeReferenceResponse,
+            ArrayFieldTypeReferenceResponse, WildcardFieldTypeReferenceResponse,
+            TypeVariableFieldTypeReferenceResponse {
+        String kind();
+
+        String writtenType();
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record NamedFieldTypeReferenceResponse(String kind, String writtenType, String simpleTypeName,
+                                                  Optional<JavaTypeIdentityPayload> resolvedJavaType,
+                                                  boolean sourceDefined) implements FieldTypeReferenceResponse {
+        public NamedFieldTypeReferenceResponse {
+            writtenType = Objects.requireNonNull(writtenType, "named written type is required");
+            simpleTypeName = Objects.requireNonNull(simpleTypeName, "named simple type name is required");
+            resolvedJavaType = optional(resolvedJavaType);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ParameterizedFieldTypeReferenceResponse(String kind, String writtenType,
+                                                          NamedFieldTypeReferenceResponse rawType,
+                                                          List<FieldTypeReferenceResponse> typeArguments)
+            implements FieldTypeReferenceResponse {
+        public ParameterizedFieldTypeReferenceResponse {
+            writtenType = Objects.requireNonNull(writtenType, "parameterized written type is required");
+            rawType = Objects.requireNonNull(rawType, "parameterized raw type is required");
+            typeArguments = List.copyOf(Objects.requireNonNull(typeArguments,
+                    "parameterized type arguments are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record PrimitiveFieldTypeReferenceResponse(String kind, String writtenType) implements FieldTypeReferenceResponse {
+        public PrimitiveFieldTypeReferenceResponse {
+            writtenType = Objects.requireNonNull(writtenType, "primitive written type is required");
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ArrayFieldTypeReferenceResponse(String kind, String writtenType, FieldTypeReferenceResponse elementType,
+                                                  int dimensions) implements FieldTypeReferenceResponse {
+        public ArrayFieldTypeReferenceResponse {
+            writtenType = Objects.requireNonNull(writtenType, "array written type is required");
+            elementType = Objects.requireNonNull(elementType, "array element type is required");
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record WildcardFieldTypeReferenceResponse(String kind, String writtenType,
+                                                     Optional<FieldTypeReferenceResponse> upperBound,
+                                                     Optional<FieldTypeReferenceResponse> lowerBound,
+                                                     boolean sourceDefined) implements FieldTypeReferenceResponse {
+        public WildcardFieldTypeReferenceResponse {
+            writtenType = Objects.requireNonNull(writtenType, "wildcard written type is required");
+            upperBound = optional(upperBound);
+            lowerBound = optional(lowerBound);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record TypeVariableFieldTypeReferenceResponse(String kind, String writtenType, String variableName,
+                                                         List<FieldTypeReferenceResponse> upperBounds,
+                                                         boolean sourceDefined) implements FieldTypeReferenceResponse {
+        public TypeVariableFieldTypeReferenceResponse {
+            writtenType = Objects.requireNonNull(writtenType, "type variable written type is required");
+            variableName = Objects.requireNonNull(variableName, "type variable name is required");
+            upperBounds = List.copyOf(Objects.requireNonNull(upperBounds, "type variable bounds are required"));
+        }
+    }
+
+    /** 結構化概念探索的成功回應 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record DiscoverConceptsResponse(String repoId, String analyzedRevision, List<String> normalizedTerms,
+                                           List<String> searchedKinds, List<String> supportedKinds,
+                                           List<String> limitations, List<ConceptCandidateResponse> candidates,
+                                           PageResponse page, ConceptCoverageResponse coverage,
+                                           List<IssueSummaryResponse> issueSummaries,
+                                           List<AvailableFollowUp> availableFollowUps,
+                                           List<UnavailableFollowUpResponse> unavailableFollowUps) {
+        public DiscoverConceptsResponse {
+            normalizedTerms = List.copyOf(Objects.requireNonNull(normalizedTerms, "normalized terms are required"));
+            searchedKinds = List.copyOf(Objects.requireNonNull(searchedKinds, "searched kinds are required"));
+            supportedKinds = List.copyOf(Objects.requireNonNull(supportedKinds, "supported kinds are required"));
+            limitations = List.copyOf(Objects.requireNonNull(limitations, "limitations are required"));
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "concept candidates are required"));
+            page = Objects.requireNonNull(page, "concept page is required");
+            coverage = Objects.requireNonNull(coverage, "concept coverage is required");
+            issueSummaries = List.copyOf(Objects.requireNonNull(issueSummaries, "concept issues are required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "concept response follow-ups are required"));
+            unavailableFollowUps = List.copyOf(Objects.requireNonNull(unavailableFollowUps,
+                    "unavailable concept follow-ups are required"));
+        }
+    }
+
+    /** 概念 resolve 的成功回應 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ResolveConceptResponse(String repoId, String analyzedRevision, ConceptCandidateResponse candidate) {
+        public ResolveConceptResponse {
+            candidate = Objects.requireNonNull(candidate, "resolved concept candidate is required");
+        }
+    }
+
+    /** 事件監聽器候選及其精確 target */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record EventListenerCandidateResponse(MethodTargetPayload target, List<ListenerAnnotationEvidenceResponse> listenerAnnotations,
+                                                 TextRangePayload sourceRange,
+                                                 List<AvailableFollowUp> availableFollowUps) {
+        public EventListenerCandidateResponse {
+            target = Objects.requireNonNull(target, "listener target is required");
+            listenerAnnotations = List.copyOf(Objects.requireNonNull(listenerAnnotations,
+                    "listener annotations are required"));
+            sourceRange = Objects.requireNonNull(sourceRange, "listener source range is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "listener follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ListenerAnnotationEvidenceResponse(String kind, String matchKind) {
+    }
+
+    /** 事件監聽器的封閉 issue 摘要 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ListenerObservationSummaryResponse(String code, long totalCount, List<SourceRangePayload> samples) {
+        public ListenerObservationSummaryResponse {
+            samples = List.copyOf(Objects.requireNonNull(samples, "listener observation samples are required"));
+        }
+    }
+
+    /** 事件監聽器探索的成功回應 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record DiscoverEventListenersResponse(String repoId, String analyzedRevision, String requestedEventType,
+                                                 List<EventListenerCandidateResponse> candidates, PageResponse page,
+                                                 List<ListenerObservationSummaryResponse> observationSummaries,
+                                                 List<AvailableFollowUp> availableFollowUps) {
+        public DiscoverEventListenersResponse {
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "listener candidates are required"));
+            page = Objects.requireNonNull(page, "listener page is required");
+            observationSummaries = List.copyOf(Objects.requireNonNull(observationSummaries,
+                    "listener observations are required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "listener response follow-ups are required"));
+        }
+    }
+
+    /** 方法實作候選及其後續操作 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record MethodImplementationCandidateResponse(MethodTargetPayload target, boolean primary, List<String> qualifiers,
+                                                        List<String> profiles,
+                                                        List<AvailableFollowUp> availableFollowUps) {
+        public MethodImplementationCandidateResponse {
+            target = Objects.requireNonNull(target, "implementation target is required");
+            qualifiers = List.copyOf(Objects.requireNonNull(qualifiers, "implementation qualifiers are required"));
+            profiles = List.copyOf(Objects.requireNonNull(profiles, "implementation profiles are required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "implementation follow-ups are required"));
+        }
+    }
+
+    /** 方法實作探索的封閉 resolution */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record MethodImplementationResolutionResponse(String status, List<IssueSummaryResponse> issueSummaries) {
+        public MethodImplementationResolutionResponse {
+            issueSummaries = List.copyOf(Objects.requireNonNull(issueSummaries,
+                    "implementation issues are required"));
+        }
+    }
+
+    /** 方法實作探索的成功回應 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record DiscoverMethodImplementationsResponse(String repoId, String revision,
+                                                        MethodTargetPayload requestedTarget,
+                                                        List<MethodImplementationCandidateResponse> candidates,
+                                                        BoundedResultResponse limits,
+                                                        MethodImplementationResolutionResponse resolution) {
+        public DiscoverMethodImplementationsResponse {
+            requestedTarget = Objects.requireNonNull(requestedTarget, "requested method target is required");
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "implementation candidates are required"));
+            limits = Objects.requireNonNull(limits, "implementation limits are required");
+            resolution = Objects.requireNonNull(resolution, "implementation resolution is required");
+        }
+    }
+
+    /** 型別成員回應的封閉變體 */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
+    @JsonSubTypes({@JsonSubTypes.Type(MethodTypeMemberResponse.class), @JsonSubTypes.Type(FieldTypeMemberResponse.class)})
+    public sealed interface TypeMemberResponse permits MethodTypeMemberResponse, FieldTypeMemberResponse {
+        List<AvailableFollowUp> availableFollowUps();
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record MethodTypeMemberResponse(String kind, MethodTargetPayload target,
+                                           List<AvailableFollowUp> availableFollowUps) implements TypeMemberResponse {
+        public MethodTypeMemberResponse {
+            target = Objects.requireNonNull(target, "member method target is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "member method follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record FieldTypeMemberResponse(String kind, SourceMemberIdentityPayload identity, String writtenType,
+                                          Optional<String> resolvedType, List<String> annotations, List<String> limitations,
+                                          List<AvailableFollowUp> availableFollowUps) implements TypeMemberResponse {
+        public FieldTypeMemberResponse {
+            identity = Objects.requireNonNull(identity, "member field identity is required");
+            writtenType = Objects.requireNonNull(writtenType, "member field written type is required");
+            resolvedType = optional(resolvedType);
+            annotations = List.copyOf(Objects.requireNonNull(annotations, "member field annotations are required"));
+            limitations = List.copyOf(Objects.requireNonNull(limitations, "member field limitations are required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "member field follow-ups are required"));
+        }
+    }
+
+    /** 型別成員探索的成功回應 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record DiscoverTypeMembersResponse(String repoId, String analyzedRevision, SourceTypeIdentityPayload sourceType,
+                                              String typeKind, List<String> annotations, List<String> implementedTypes,
+                                              List<String> extendedTypes,
+                                              List<TypeMemberResponse> members, PageResponse page,
+                                              ConceptCoverageResponse coverage,
+                                              List<AvailableFollowUp> availableFollowUps) {
+        public DiscoverTypeMembersResponse {
+            sourceType = Objects.requireNonNull(sourceType, "member source type is required");
+            typeKind = Objects.requireNonNull(typeKind, "type member kind is required");
+            annotations = List.copyOf(Objects.requireNonNull(annotations, "type annotations are required"));
+            implementedTypes = List.copyOf(Objects.requireNonNull(implementedTypes, "implemented types are required"));
+            extendedTypes = List.copyOf(Objects.requireNonNull(extendedTypes, "extended types are required"));
+            members = List.copyOf(Objects.requireNonNull(members, "type members are required"));
+            page = Objects.requireNonNull(page, "member page is required");
+            coverage = Objects.requireNonNull(coverage, "member coverage is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "member response follow-ups are required"));
+        }
+    }
+
+    /** 可 materialize 的來源片段 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record SourceSegmentPayload(SourceRangePayload location, String content,
+                                       Optional<SourceRangePayload> nextLocation) {
+        public SourceSegmentPayload {
+            location = Objects.requireNonNull(location, "source segment location is required");
+            content = Objects.requireNonNull(content, "source segment content is required");
+            nextLocation = optional(nextLocation);
+        }
+    }
+
+    /** 方法來源、evidence 與 range continuation 共用的成功回應 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record MethodSourceResponse(String repoId, String analyzedRevision, SourceRangePayload declarationLocation,
+                                       SourceSegmentPayload segment, List<AvailableFollowUp> availableFollowUps) {
+        public MethodSourceResponse {
+            declarationLocation = Objects.requireNonNull(declarationLocation, "method declaration location is required");
+            segment = Objects.requireNonNull(segment, "method source segment is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "method source follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record SourceSegmentResponse(String repoId, String analyzedRevision, SourceSegmentPayload segment,
+                                        boolean contextTruncated, List<AvailableFollowUp> availableFollowUps) {
+        public SourceSegmentResponse {
+            segment = Objects.requireNonNull(segment, "source segment is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "source segment follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record EvidenceSourceResponse(String repoId, String analyzedRevision,
+                                         EvidenceSourceFollowUpIdentity identity, SourceRangePayload location,
+                                         SourceSegmentPayload segment, List<AvailableFollowUp> availableFollowUps) {
+        public EvidenceSourceResponse {
+            identity = Objects.requireNonNull(identity, "evidence identity is required");
+            location = Objects.requireNonNull(location, "evidence location is required");
+            segment = Objects.requireNonNull(segment, "evidence segment is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "evidence follow-ups are required"));
+        }
+    }
+
+    /** source symbol context candidate 的精確 provider 變體 */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind", visible = true)
+    @JsonSubTypes({@JsonSubTypes.Type(value = SourceTypeContextCandidateResponse.class, name = "SOURCE_TYPE"),
+            @JsonSubTypes.Type(value = SourceMethodContextCandidateResponse.class, name = "METHOD")})
+    public sealed interface SourceContextCandidateResponse permits SourceTypeContextCandidateResponse,
+            SourceMethodContextCandidateResponse {
+        AvailableFollowUp retry();
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record SourceTypeContextCandidateResponse(String kind, String sourceFile, AvailableFollowUp retry)
+            implements SourceContextCandidateResponse {
+        public SourceTypeContextCandidateResponse {
+            sourceFile = Objects.requireNonNull(sourceFile, "source type context file is required");
+            retry = Objects.requireNonNull(retry, "source type context retry is required");
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record SourceMethodContextCandidateResponse(String kind, MethodTargetPayload target, AvailableFollowUp retry)
+            implements SourceContextCandidateResponse {
+        public SourceMethodContextCandidateResponse {
+            target = Objects.requireNonNull(target, "source method context target is required");
+            retry = Objects.requireNonNull(retry, "source method context retry is required");
+        }
+    }
+
+    /** source symbol candidate 的精確 provider 變體 */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind", visible = true)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = VariableLikeSourceSymbolCandidateResponse.class, name = "FIELD"),
+            @JsonSubTypes.Type(value = VariableLikeSourceSymbolCandidateResponse.class, name = "RECORD_COMPONENT"),
+            @JsonSubTypes.Type(value = VariableLikeSourceSymbolCandidateResponse.class, name = "PARAMETER"),
+            @JsonSubTypes.Type(value = VariableLikeSourceSymbolCandidateResponse.class, name = "LOCAL_VARIABLE"),
+            @JsonSubTypes.Type(value = VariableLikeSourceSymbolCandidateResponse.class, name = "ENUM_CONSTANT"),
+            @JsonSubTypes.Type(value = StaticConstantSourceSymbolCandidateResponse.class, name = "STATIC_CONSTANT"),
+            @JsonSubTypes.Type(value = MethodSourceSymbolCandidateResponse.class, name = "METHOD"),
+            @JsonSubTypes.Type(value = SourceTypeSymbolCandidateResponse.class, name = "SOURCE_TYPE")
+    })
+    public sealed interface SourceSymbolCandidateResponse permits VariableLikeSourceSymbolCandidateResponse,
+            StaticConstantSourceSymbolCandidateResponse, MethodSourceSymbolCandidateResponse,
+            SourceTypeSymbolCandidateResponse {
+        String kind();
+
+        TextRangePayload declarationRange();
+
+        TextRangePayload representativeOccurrence();
+
+        int occurrenceCount();
+
+        List<AvailableFollowUp> availableFollowUps();
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record VariableLikeSourceSymbolCandidateResponse(String kind, SourceMemberIdentityPayload identity,
+                                                            DeclaredTypeResponse declaredType,
+                                                            TextRangePayload declarationRange,
+                                                            TextRangePayload representativeOccurrence,
+                                                            int occurrenceCount,
+                                                            List<AvailableFollowUp> availableFollowUps)
+            implements SourceSymbolCandidateResponse {
+        public VariableLikeSourceSymbolCandidateResponse {
+            identity = Objects.requireNonNull(identity, "variable symbol identity is required");
+            declaredType = Objects.requireNonNull(declaredType, "variable declared type is required");
+            declarationRange = Objects.requireNonNull(declarationRange, "variable declaration range is required");
+            representativeOccurrence = Objects.requireNonNull(representativeOccurrence,
+                    "variable representative occurrence is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "variable symbol follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record StaticConstantSourceSymbolCandidateResponse(String kind, SourceMemberIdentityPayload identity,
+                                                              DeclaredTypeResponse declaredType, String initializerSource,
+                                                              TextRangePayload declarationRange,
+                                                              TextRangePayload representativeOccurrence,
+                                                              int occurrenceCount,
+                                                              List<AvailableFollowUp> availableFollowUps)
+            implements SourceSymbolCandidateResponse {
+        public StaticConstantSourceSymbolCandidateResponse {
+            identity = Objects.requireNonNull(identity, "constant symbol identity is required");
+            declaredType = Objects.requireNonNull(declaredType, "constant declared type is required");
+            initializerSource = Objects.requireNonNull(initializerSource, "constant initializer source is required");
+            declarationRange = Objects.requireNonNull(declarationRange, "constant declaration range is required");
+            representativeOccurrence = Objects.requireNonNull(representativeOccurrence,
+                    "constant representative occurrence is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "constant symbol follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record MethodSourceSymbolCandidateResponse(String kind, MethodTargetPayload target,
+                                                      TextRangePayload declarationRange,
+                                                      TextRangePayload representativeOccurrence, int occurrenceCount,
+                                                      List<AvailableFollowUp> availableFollowUps)
+            implements SourceSymbolCandidateResponse {
+        public MethodSourceSymbolCandidateResponse {
+            target = Objects.requireNonNull(target, "method symbol target is required");
+            declarationRange = Objects.requireNonNull(declarationRange, "method declaration range is required");
+            representativeOccurrence = Objects.requireNonNull(representativeOccurrence,
+                    "method representative occurrence is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "method symbol follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record SourceTypeSymbolCandidateResponse(String kind, SourceTypeIdentityPayload identity,
+                                                    TextRangePayload declarationRange,
+                                                    TextRangePayload representativeOccurrence, int occurrenceCount,
+                                                    List<AvailableFollowUp> availableFollowUps)
+            implements SourceSymbolCandidateResponse {
+        public SourceTypeSymbolCandidateResponse {
+            identity = Objects.requireNonNull(identity, "source type symbol identity is required");
+            declarationRange = Objects.requireNonNull(declarationRange, "source type declaration range is required");
+            representativeOccurrence = Objects.requireNonNull(representativeOccurrence,
+                    "source type representative occurrence is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "source type symbol follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record DeclaredTypeResponse(String writtenType, Optional<String> resolvedType) {
+        public DeclaredTypeResponse {
+            writtenType = Objects.requireNonNull(writtenType, "declared written type is required");
+            resolvedType = optional(resolvedType);
+        }
+    }
+
+    /** source symbol resolve 的成功回應 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ResolveSourceSymbolResponse(String repoId, String analyzedRevision, String status,
+                                              List<SourceContextCandidateResponse> contextCandidates,
+                                              BoundedResultResponse contextCandidateLimits,
+                                              List<SourceSymbolCandidateResponse> candidates,
+                                              List<SourceSymbolIssueSummaryResponse> issues) {
+        public ResolveSourceSymbolResponse {
+            contextCandidates = List.copyOf(Objects.requireNonNull(contextCandidates,
+                    "source symbol context candidates are required"));
+            contextCandidateLimits = Objects.requireNonNull(contextCandidateLimits,
+                    "source symbol context candidate limits are required");
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "source symbol candidates are required"));
+            issues = List.copyOf(Objects.requireNonNull(issues, "source symbol issues are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record SourceSymbolIssueSummaryResponse(String code, int count) {
+    }
+
+    /** internal reference 代表 occurrence */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ReferenceOccurrenceResponse(TextRangePayload range, List<AvailableFollowUp> availableFollowUps) {
+        public ReferenceOccurrenceResponse {
+            range = Objects.requireNonNull(range, "reference range is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "reference occurrence follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ReferenceGroupResponse(InternalReferenceContextResponse context,
+                                         List<ReferenceOccurrenceResponse> representativeReferences,
+                                         BoundedResultResponse limits, List<AvailableFollowUp> availableFollowUps,
+                                         List<UnavailableFollowUpResponse> unavailableFollowUps) {
+        public ReferenceGroupResponse {
+            context = Objects.requireNonNull(context, "reference group context is required");
+            representativeReferences = List.copyOf(Objects.requireNonNull(representativeReferences,
+                    "representative references are required"));
+            limits = Objects.requireNonNull(limits, "reference limits are required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "reference group follow-ups are required"));
+            unavailableFollowUps = List.copyOf(Objects.requireNonNull(unavailableFollowUps,
+                    "unavailable reference group follow-ups are required"));
+        }
+    }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind", visible = true)
+    @JsonSubTypes({@JsonSubTypes.Type(value = InternalReferenceTypeContextResponse.class, name = "TYPE"),
+            @JsonSubTypes.Type(value = InternalReferenceMethodContextResponse.class, name = "METHOD")})
+    public sealed interface InternalReferenceContextResponse permits InternalReferenceTypeContextResponse,
+            InternalReferenceMethodContextResponse {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record InternalReferenceTypeContextResponse(String kind, SourceTypeIdentityPayload sourceType)
+            implements InternalReferenceContextResponse {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record InternalReferenceMethodContextResponse(String kind, MethodTargetPayload method)
+            implements InternalReferenceContextResponse {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record InternalReferenceTargetDeclarationResponse(InternalReferenceFollowUpTarget target,
+                                                             TextRangePayload declarationRange,
+                                                             List<AvailableFollowUp> availableFollowUps) {
+        public InternalReferenceTargetDeclarationResponse {
+            target = Objects.requireNonNull(target, "reference declaration target is required");
+            declarationRange = Objects.requireNonNull(declarationRange, "reference declaration range is required");
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "reference declaration follow-ups are required"));
+        }
+    }
+
+    /** internal reference 成功回應 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record FindInternalReferencesResponse(String repoId, String analyzedRevision, String status,
+                                                 InternalReferenceTargetDeclarationResponse targetDeclaration,
+                                                 int totalReferenceCount,
+                                                 List<ReferenceGroupResponse> referenceGroups, PageResponse page,
+                                                 List<IssueSummaryResponse> issueSummaries,
+                                                 List<AvailableFollowUp> availableFollowUps) {
+        public FindInternalReferencesResponse {
+            targetDeclaration = Objects.requireNonNull(targetDeclaration, "reference target declaration is required");
+            referenceGroups = List.copyOf(Objects.requireNonNull(referenceGroups,
+                    "reference groups are required"));
+            page = Objects.requireNonNull(page, "reference page is required");
+            issueSummaries = List.copyOf(Objects.requireNonNull(issueSummaries, "reference issues are required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "reference response follow-ups are required"));
+        }
+    }
+
+    /** provider 已封閉的 issue code/count */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record IssueSummaryResponse(String code, int count) {
+    }
+
+    /** provider 不可執行後續動作的封閉理由 */
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record UnavailableFollowUpResponse(String reason, String recommendedAction) {
     }
 
     public record ApiErrorResponse(String errorCode, String message, String repoId, String expectedRevision,
