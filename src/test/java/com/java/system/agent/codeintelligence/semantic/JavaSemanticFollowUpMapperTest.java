@@ -183,6 +183,19 @@ class JavaSemanticFollowUpMapperTest {
     }
 
     @Test
+    void rejects_source_segment_follow_up_with_reversed_range() {
+        SemanticDtos.AvailableFollowUp reversedRange = new SemanticDtos.AvailableFollowUp("GET_SOURCE_SEGMENT",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/source-segment", "getSourceSegment"),
+                new SemanticDtos.SourceSegmentFollowUpRequest("orders", "FIXTURE",
+                        new SemanticDtos.SourceRangePayload("Orders.java", new SemanticDtos.TextRangePayload(
+                                new SemanticDtos.Position(10, 0), new SemanticDtos.Position(9, 0))), 0));
+
+        assertThatThrownBy(() -> new JavaSemanticFollowUpMapper().map(
+                new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), reversedRange))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
     void maps_the_remaining_operation_specific_request_shapes() {
         SemanticDtos.MethodTargetPayload target = methodTarget();
         SemanticDtos.SourceTypeIdentityPayload sourceType = target.sourceType();

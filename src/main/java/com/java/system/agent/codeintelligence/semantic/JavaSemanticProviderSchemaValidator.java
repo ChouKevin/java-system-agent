@@ -1095,6 +1095,13 @@ final class JavaSemanticProviderSchemaValidator {
         SemanticDtos.TextRangePayload required = requiredObject(range, description);
         position(required.start(), description + " start");
         position(required.end(), description + " end");
+        int startLine = required.start().line();
+        int startCharacter = required.start().character();
+        int endLine = required.end().line();
+        int endCharacter = required.end().character();
+        if (endLine < startLine || (endLine == startLine && endCharacter < startCharacter)) {
+            throw contract(description + " end must not precede start");
+        }
     }
 
     private void position(SemanticDtos.Position position, String description) {
