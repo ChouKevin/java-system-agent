@@ -157,7 +157,7 @@ class JavaSemanticServiceLiveContractIT {
                 CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName(),
                 targetCandidate(repositoryId, revision, revisions, defaultLookupTarget(), "default-order-lookup"),
                 payloadCodec.encode(new com.java.system.agent.codeintelligence.planning.ResolveSourceSymbolExecutionInput(
-                        "findById", Optional.empty(), Optional.empty())),
+                        "findById", Optional.of(new SemanticDtos.Position(11, 18)), Optional.empty())),
                 revisions, executedCapabilities);
         FollowUpCandidate methodSource = followUp(resolved, CodeIntelligenceQuery.GET_METHOD_SOURCE, revision);
         CapabilityInvocation methodSourceInvocation = invocation(
