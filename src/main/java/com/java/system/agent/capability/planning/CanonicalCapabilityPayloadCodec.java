@@ -49,8 +49,11 @@ public final class CanonicalCapabilityPayloadCodec {
             rejectNulls(tree);
             E input = mapper.readValue(rawPayload, inputType);
             Set<ConstraintViolation<E>> violations = validator.validate(input);
-            if (!violations.isEmpty() || !rawPayload.equals(canonicalValue(mapper.valueToTree(input)))) {
-                throw contractFailure();
+            if (!violations.isEmpty()) {
+                throw new CapabilityExecutionContractException("canonical capability payload violates Jakarta validation");
+            }
+            if (!rawPayload.equals(canonicalValue(mapper.valueToTree(input)))) {
+                throw new CapabilityExecutionContractException("canonical capability payload is not canonical");
             }
             return input;
         } catch (CapabilityExecutionContractException exception) {
