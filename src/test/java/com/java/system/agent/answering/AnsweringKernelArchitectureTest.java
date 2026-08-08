@@ -59,6 +59,17 @@ class AnsweringKernelArchitectureTest {
                     "..answering.port.out..");
 
     @ArchTest
+    static final ArchRule APPLICATION_LOOP_DOES_NOT_DEPEND_ON_CAPABILITY_RUNTIME_OR_FRAMEWORKS = noClasses()
+            .that().resideInAPackage("..answering.application.loop..")
+            .and().doNotHaveSimpleName("package-info")
+            .should().dependOnClassesThat()
+            .resideInAnyPackage(
+                    "com.java.system.agent.codeintelligence..",
+                    "com.java.system.agent.capability..",
+                    "org.springframework..",
+                    "com.fasterxml.jackson.databind..");
+
+    @ArchTest
     static final ArchRule INBOUND_PORTS_ONLY_DEPEND_ON_DOMAIN_AND_JAVA = noClasses()
             .that().resideInAPackage("..answering.port.in..")
             .and().doNotHaveSimpleName("package-info")
