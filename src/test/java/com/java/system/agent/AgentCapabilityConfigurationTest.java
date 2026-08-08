@@ -11,6 +11,7 @@ import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.model.action.SpringAiPlanningToolCallbackAdapter;
 import com.java.system.agent.model.action.SpringAiPlanningToolSchemaFactory;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
@@ -50,7 +51,18 @@ class AgentCapabilityConfigurationTest {
         assertThat(required(schemas, "codebase_list_entry_points")).doesNotContain("type");
         assertThat(required(schemas, "codebase_outgoing_call_graph")).doesNotContain("depth");
         assertThat(required(schemas, "codebase_incoming_call_graph")).doesNotContain("depth");
-        assertThat(schemas).hasSize(7).containsKeys("agent_submit_answer", "agent_request_clarification");
+        assertThat(schemas).hasSize(12).containsKeys("agent_submit_answer", "agent_request_clarification",
+                CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
+                CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
+                CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
+                CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
+                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName())
+                .doesNotContainKeys(
+                        CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
+                        CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
+                        CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
+                        CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
+                        CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
         assertThat(required(schemas, "agent_submit_answer")).containsExactly("statements");
         assertThat(required(schemas, "agent_request_clarification"))
                 .containsExactlyInAnyOrder("question", "candidateHandles", "reason");
@@ -63,6 +75,26 @@ class AgentCapabilityConfigurationTest {
             assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
                     .isGreaterThanOrEqualTo(1);
         }
+        assertThat(schemas.get(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName())
+                .path("properties").has("boundTarget")).isFalse();
+        assertThat(schemas.get(CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName())
+                .path("properties").has("boundTarget")).isFalse();
+        assertThat(schemas.get(CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName())
+                .path("properties").has("boundContext")).isFalse();
+    }
+
+    @Test
+    void catalogExposesEverySemanticQueryButNoRepositoryCatalogOperations() {
+        PlanningToolRegistry registry = registry();
+
+        assertThat(registry.availableCapabilities())
+                .extracting(CapabilityPolicy::name)
+                .containsExactlyInAnyOrderElementsOf(java.util.Arrays.stream(CodeIntelligenceQuery.values())
+                        .map(CodeIntelligenceQuery::capabilityName)
+                        .toList())
+                .doesNotContain("codebase_list_repositories", "codebase_get_repository");
+        assertThat(registry.availableCapabilities())
+                .allSatisfy(policy -> assertThat(policy.version()).isEqualTo(CodeIntelligenceQuery.LIST_ENTRY_POINTS.version()));
     }
 
     @Test
