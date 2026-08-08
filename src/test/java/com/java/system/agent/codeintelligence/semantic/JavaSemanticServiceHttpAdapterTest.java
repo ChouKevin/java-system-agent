@@ -284,6 +284,54 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
+    void rejectsEvidenceAndSourceSegmentResponsesForAnotherBoundIdentityOrNonContainingLocation() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/evidence-source"))
+                .andRespond(withSuccess(evidenceIdentityMismatchSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/source-segment"))
+                .andRespond(withSuccess(segmentNonContainingLocationSuccess(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        GetEvidenceSourceExecutionInput evidence = new GetEvidenceSourceExecutionInput(evidenceIdentity());
+        GetSourceSegmentExecutionInput segment = new GetSourceSegmentExecutionInput(sourceRange(), 0);
+
+        assertThatThrownBy(() -> adapter.getEvidenceSource(
+                followUpContext("codebase_get_evidence_source", evidence), evidence))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.getSourceSegment(
+                followUpContext("codebase_get_source_segment", segment), segment))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        client.server().verify();
+    }
+
+    @Test
+    void acceptsSourceSegmentResponseWithExpandedContextThatContainsTheRequestedRange() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/source-segment"))
+                .andRespond(withSuccess(segmentExpandedContextSuccess(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        GetSourceSegmentExecutionInput input = new GetSourceSegmentExecutionInput(sourceRange(), 0);
+
+        assertThat(adapter.getSourceSegment(followUpContext("codebase_get_source_segment", input), input))
+                .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsProviderFollowUpWithoutRequiredIdentityWithoutExposingSourceContent() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/evidence-source"))
+                .andRespond(withSuccess(evidenceSuccessWithMissingFollowUpIdentity(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        GetEvidenceSourceExecutionInput input = new GetEvidenceSourceExecutionInput(evidenceIdentity());
+
+        assertThatThrownBy(() -> adapter.getEvidenceSource(
+                followUpContext("codebase_get_evidence_source", input), input))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageNotContaining("secret source body");
+        client.server().verify();
+    }
+
+    @Test
     void sendsTheConfiguredTokenAndMapsRepositoryCatalogAndRevision() {
         TestClient client = testClient();
         client.server().expect(once(), requestTo("https://semantic.test/v1/repositories"))
@@ -644,6 +692,17 @@ class JavaSemanticServiceHttpAdapterTest {
         return implementationsSuccess().replace("\"methodName\":\"find\"", "\"methodName\":\"other\"");
     }
 
+    private static String evidenceIdentityMismatchSuccess() {
+        return evidenceSuccess().replace("\"statementId\":\"find\"", "\"statementId\":\"other\"");
+    }
+
+    private static String evidenceSuccessWithMissingFollowUpIdentity() {
+        return evidenceSuccess().replace("\"content\":\"x\"", "\"content\":\"secret source body\"")
+                .replace("\"availableFollowUps\":[]", """
+                        "availableFollowUps":[{"operation":"GET_EVIDENCE_SOURCE","api":{"method":"POST","path":"/v1/discovery/evidence-source","operationId":"getEvidenceSource"},"request":{"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}]
+                        """);
+    }
+
     private static String membersSuccess() {
         return """
                 {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"typeKind":"CLASS","annotations":[],"implementedTypes":[],"extendedTypes":[],"members":[],"page":{"offset":0,"limit":1,"returnedCount":0,"totalCount":0,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":0,"extractedFileCount":0,"syntaxFailedFileCount":0},"availableFollowUps":[]}
@@ -662,9 +721,27 @@ class JavaSemanticServiceHttpAdapterTest {
                 """;
     }
 
-    private static String methodSourceSuccess() { return evidenceSuccess().replace("\"identity\":{\"kind\":\"MAPPER_STATEMENT\",\"statementIdentity\":{\"statementKey\":{\"namespace\":\"orders\",\"statementId\":\"find\"},\"resourcePath\":\"src/OrdersMapper.xml\",\"documentOrdinal\":0,\"representation\":\"MAPPER_XML_ELEMENT\"}},\"location\":", "\"declarationLocation\":"); }
-    private static String segmentSuccess() { return "{\"repoId\":\"orders\",\"analyzedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"segment\":{\"location\":{\"sourceFile\":\"src/Orders.java\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":1}}},\"content\":\"x\"},\"contextTruncated\":false,\"availableFollowUps\":[]}"; }
-    private static String symbolSuccess() { return "{\"repoId\":\"orders\",\"analyzedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"status\":\"RESOLVED\",\"contextCandidates\":[],\"contextCandidateLimits\":{\"limit\":1,\"returnedCount\":0,\"totalCount\":0,\"truncated\":false},\"candidates\":[],\"issues\":[]}"; }
+    private static String methodSourceSuccess() {
+        return evidenceSuccess().replace("\"identity\":{\"kind\":\"MAPPER_STATEMENT\",\"statementIdentity\":{\"statementKey\":{\"namespace\":\"orders\",\"statementId\":\"find\"},\"resourcePath\":\"src/OrdersMapper.xml\",\"documentOrdinal\":0,\"representation\":\"MAPPER_XML_ELEMENT\"}},\"location\":",
+                "\"declarationLocation\":");
+    }
+
+    private static String segmentSuccess() {
+        return "{\"repoId\":\"orders\",\"analyzedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"segment\":{\"location\":{\"sourceFile\":\"src/Orders.java\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":1}}},\"content\":\"x\"},\"contextTruncated\":false,\"availableFollowUps\":[]}";
+    }
+
+    private static String segmentNonContainingLocationSuccess() {
+        return segmentSuccess().replace("\"sourceFile\":\"src/Orders.java\"", "\"sourceFile\":\"src/Other.java\"");
+    }
+
+    private static String segmentExpandedContextSuccess() {
+        return segmentSuccess().replace("\"end\":{\"line\":0,\"character\":1}",
+                "\"end\":{\"line\":0,\"character\":2}");
+    }
+
+    private static String symbolSuccess() {
+        return "{\"repoId\":\"orders\",\"analyzedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"status\":\"RESOLVED\",\"contextCandidates\":[],\"contextCandidateLimits\":{\"limit\":1,\"returnedCount\":0,\"totalCount\":0,\"truncated\":false},\"candidates\":[],\"issues\":[]}";
+    }
 
     private static String symbolSuccessWithUnsupportedIssue() {
         return symbolSuccess().replace("\"issues\":[]",

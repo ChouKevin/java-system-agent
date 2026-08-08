@@ -89,7 +89,11 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private final JavaSemanticErrorMapper errorMapper;
 
     public JavaSemanticServiceHttpAdapter(RestClient restClient) {
-        this(restClient, defaultResultMapper(), defaultPayloadCodec());
+        this(restClient, defaultDependencies());
+    }
+
+    private JavaSemanticServiceHttpAdapter(RestClient restClient, DefaultDependencies dependencies) {
+        this(restClient, dependencies.resultMapper(), dependencies.payloadCodec());
     }
 
     public JavaSemanticServiceHttpAdapter(RestClient restClient, JavaSemanticResultMapper resultMapper,
@@ -106,12 +110,11 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         this.errorMapper = new JavaSemanticErrorMapper(resultMapper);
     }
 
-    private static CanonicalCapabilityPayloadCodec defaultPayloadCodec() {
-        return new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator());
-    }
-
-    private static JavaSemanticResultMapper defaultResultMapper() {
-        return new JavaSemanticResultMapper();
+    private static DefaultDependencies defaultDependencies() {
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper(new JavaSemanticFollowUpMapper(codec));
+        return new DefaultDependencies(mapper, codec);
     }
 
     @Override
@@ -394,6 +397,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                     scope.expectedRevision().value(), input.identity());
             SemanticDtos.EvidenceSourceResponse response = discoveryPost("/v1/discovery/evidence-source", request,
                     SemanticDtos.EvidenceSourceResponse.class, "evidence source");
+            if (!input.identity().equals(response.identity())) {
+                throw contract("evidence source response identity does not match the requested identity");
+            }
             return resultMapper.getEvidenceSource(scope.repositoryId(), scope.expectedRevision(), response);
         }));
     }
@@ -419,6 +425,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                     scope.expectedRevision().value(), input.location(), input.contextLines());
             SemanticDtos.SourceSegmentResponse response = discoveryPost("/v1/discovery/source-segment", request,
                     SemanticDtos.SourceSegmentResponse.class, "source segment");
+            if (!contains(input.location(), response.segment().location())) {
+                throw contract("source segment response location does not contain the requested location");
+            }
             return resultMapper.getSourceSegment(scope.repositoryId(), scope.expectedRevision(), response);
         }));
     }
@@ -522,6 +531,19 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         return new SemanticDtos.SourceSymbolContextPayload(method.sourceType().javaType(),
                 Optional.of(method.sourceType().sourceFile()),
                 Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(method.methodName(), method.parameterTypes())));
+    }
+
+    private boolean contains(SemanticDtos.SourceRangePayload requested, SemanticDtos.SourceRangePayload response) {
+        if (!requested.sourceFile().equals(response.sourceFile())) {
+            return false;
+        }
+        return atOrBefore(response.range().start(), requested.range().start())
+                && atOrBefore(requested.range().end(), response.range().end());
+    }
+
+    private boolean atOrBefore(SemanticDtos.Position left, SemanticDtos.Position right) {
+        return left.line() < right.line()
+                || (left.line() == right.line() && left.character() <= right.character());
     }
 
     private RepositoryRevisionResult observeRevisionOperation(
@@ -657,5 +679,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     private record DiscoveryScope(RepositoryId repositoryId, RepositoryRevision expectedRevision,
                                   AnalysisCandidate selected, boolean followUp) {
+    }
+
+    private record DefaultDependencies(JavaSemanticResultMapper resultMapper,
+                                       CanonicalCapabilityPayloadCodec payloadCodec) {
     }
 }
