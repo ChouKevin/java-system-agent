@@ -2,6 +2,7 @@ package com.java.system.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.interaction.application.SessionInboxProcessor;
@@ -91,6 +92,11 @@ class AgentRuntimeConfigurationTest {
             assertThat(context.getBeansOfType(AgentActionPort.class)).hasSize(1);
             assertThat(context.getBeansOfType(AnswerVerificationPort.class)).hasSize(1);
             assertThat(context.getBeansOfType(JavaSemanticServiceHttpAdapter.class)).hasSize(1);
+            assertThat(context.getBean(PlanningToolRegistry.class).availableCapabilities())
+                    .extracting(capability -> capability.name())
+                    .containsExactlyInAnyOrderElementsOf(java.util.Arrays.stream(CodeIntelligenceQuery.values())
+                            .map(CodeIntelligenceQuery::capabilityName)
+                            .toList());
 
             MockRestServiceServer server = context.getBean(MockRestServiceServer.class);
             server.expect(requestTo("http://localhost:8081/v1/repositories"))

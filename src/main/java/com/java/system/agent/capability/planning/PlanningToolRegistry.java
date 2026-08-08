@@ -32,7 +32,7 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
 
     private final List<PlanningToolRegistration<?>> registrations;
     private final Map<String, PlanningToolRegistration<?>> planningRegistrations;
-    private final Map<CapabilityIdentity, QueryPlanningToolRegistration<?, ?>> queryRegistrations;
+    private final Map<CapabilityIdentity, QueryCapabilityRegistration<?>> queryRegistrations;
     private final StrictPlanningToolDecoder decoder;
     private final CanonicalCapabilityPayloadCodec payloadCodec;
 
@@ -101,6 +101,13 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
                 policy, planningInputType, executionInputType, mapper, executor, payloadCodec);
     }
 
+    public static <E> FollowUpOnlyQueryRegistration<E> followUpOnlyRegistration(
+            CapabilityPolicy policy,
+            Class<E> executionInputType,
+            CapabilityExecutor<E> executor) {
+        return new FollowUpOnlyQueryRegistration<>(policy, executionInputType, executor);
+    }
+
     private <I> AgentAction interpret(
             PlanningToolRegistration<I> registration,
             String rawInput,
@@ -110,7 +117,7 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
     }
 
     private <E> CapabilityExecutionResult executeTyped(
-            QueryPlanningToolRegistration<?, E> registration,
+            QueryCapabilityRegistration<E> registration,
             CapabilityInvocation invocation) {
         E input = payloadCodec.decode(invocation.payload(), registration.executionInputType());
         CapabilityExecutionContext context = new CapabilityExecutionContext(
@@ -122,12 +129,12 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
         return result;
     }
 
-    private QueryPlanningToolRegistration<?, ?> queryRegistration(CapabilityPolicy policy) {
+    private QueryCapabilityRegistration<?> queryRegistration(CapabilityPolicy policy) {
         return queryRegistration(new CapabilityIdentity(policy.name(), policy.version()));
     }
 
-    private QueryPlanningToolRegistration<?, ?> queryRegistration(CapabilityIdentity identity) {
-        QueryPlanningToolRegistration<?, ?> registration = queryRegistrations.get(identity);
+    private QueryCapabilityRegistration<?> queryRegistration(CapabilityIdentity identity) {
+        QueryCapabilityRegistration<?> registration = queryRegistrations.get(identity);
         if (Objects.isNull(registration)) {
             throw new CapabilityExecutionContractException("validated capability has no registered executor");
         }
@@ -138,12 +145,12 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
         Objects.requireNonNull(providers, "planning tool providers must not be null");
         List<PlanningToolRegistration<?>> values = registrations(providers);
         Map<String, PlanningToolRegistration<?>> planningRegistrations = new LinkedHashMap<>();
-        Map<CapabilityIdentity, QueryPlanningToolRegistration<?, ?>> queryRegistrations = new LinkedHashMap<>();
+        Map<CapabilityIdentity, QueryCapabilityRegistration<?>> queryRegistrations = new LinkedHashMap<>();
         Set<String> names = new HashSet<>();
         for (PlanningToolRegistration<?> registration : values) {
             PlanningToolRegistration<?> required = Objects.requireNonNull(
                     registration, "planning registration must not contain null");
-            if (required instanceof QueryPlanningToolRegistration<?, ?> queryRegistration) {
+            if (required instanceof QueryCapabilityRegistration<?> queryRegistration) {
                 CapabilityIdentity identity = new CapabilityIdentity(queryRegistration.policy().name(),
                         queryRegistration.policy().version());
                 if (Objects.nonNull(queryRegistrations.putIfAbsent(identity, queryRegistration))) {
@@ -185,7 +192,7 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
     private record RegistrationIndex(
             List<PlanningToolRegistration<?>> registrations,
             Map<String, PlanningToolRegistration<?>> planningRegistrations,
-            Map<CapabilityIdentity, QueryPlanningToolRegistration<?, ?>> queryRegistrations) {
+            Map<CapabilityIdentity, QueryCapabilityRegistration<?>> queryRegistrations) {
     }
 
 }

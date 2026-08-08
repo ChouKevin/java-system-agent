@@ -1,18 +1,24 @@
 package com.java.system.agent.codeintelligence.semantic;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
+import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.RouteCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,6 +29,382 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class JavaSemanticResultMapperTest {
 
     private static final String REVISION = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    private static final RepositoryId REPOSITORY_ID = new RepositoryId("orders");
+    private static final RepositoryRevision REPOSITORY_REVISION = new RepositoryRevision(REVISION);
+
+    @Test
+    void projectsDiscoveryConceptResponseDecodedFromTheProviderWireContract() throws Exception {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.DiscoverConceptsResponse response = new ObjectMapper().findAndRegisterModules().readValue("""
+                {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","normalizedTerms":["order"],"searchedKinds":["TYPE"],"supportedKinds":["TYPE"],"limitations":[],"candidates":[],"page":{"offset":0,"limit":10,"returnedCount":0,"totalCount":0,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":1,"extractedFileCount":1,"syntaxFailedFileCount":0},"issueSummaries":[],"availableFollowUps":[],"unavailableFollowUps":[]}
+                """, SemanticDtos.DiscoverConceptsResponse.class);
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.discoverConcepts(
+                REPOSITORY_ID, REPOSITORY_REVISION, response);
+
+        assertThat(result.discoveredCandidates()).isEmpty();
+    }
+
+    @Test
+    void decodesAndProjectsEachDiscoverySuccessEndpointFromExactProviderJson() throws Exception {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        String sourceType = """
+                {"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"}
+                """;
+        String target = """
+                {"sourceType":%s,"methodName":"find","parameterTypes":[]}
+                """.formatted(sourceType);
+        String range = """
+                {"start":{"line":0,"character":0},"end":{"line":0,"character":1}}
+                """;
+        String location = """
+                {"sourceFile":"src/Orders.java","range":%s}
+                """.formatted(range);
+        String page = """
+                {"offset":0,"limit":10,"returnedCount":1,"totalCount":1,"hasMore":false}
+                """;
+        String memberPage = """
+                {"offset":0,"limit":10,"returnedCount":2,"totalCount":2,"hasMore":false}
+                """;
+        String segment = """
+                {"location":%s,"content":"class Orders {}"}
+                """.formatted(location);
+        String followUp = """
+                {"operation":"GET_METHOD_SOURCE","api":{"method":"POST","path":"/v1/discovery/method-source","operationId":"getMethodSource"},"request":{"repoId":"orders","expectedRevision":"%s","target":%s}}
+                """.formatted(REVISION, target);
+        String followUps = "[" + followUp + "]";
+        String concept = """
+                {"identity":{"kind":"METHOD","target":%s},"displayValue":"Orders.find","matchedTerms":["order"],"authority":"SYNTAX_RESOLVED","evidence":[{"identity":{"kind":"METHOD","target":%s}}],"availableFollowUps":%s}
+                """.formatted(target, target, followUps);
+
+        SemanticDtos.DiscoverConceptsResponse concepts = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","normalizedTerms":["order"],"searchedKinds":["METHOD"],"supportedKinds":["METHOD"],"limitations":[],"candidates":[%s],"page":%s,"coverage":{"status":"COMPLETE","scannedFileCount":1,"extractedFileCount":1,"syntaxFailedFileCount":0},"issueSummaries":[],"availableFollowUps":[],"unavailableFollowUps":[]}
+                """.formatted(REVISION, concept, page), SemanticDtos.DiscoverConceptsResponse.class);
+        SemanticDtos.ResolveConceptResponse resolvedConcept = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","candidate":%s}
+                """.formatted(REVISION, concept), SemanticDtos.ResolveConceptResponse.class);
+        SemanticDtos.DiscoverEventListenersResponse listeners = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","requestedEventType":"com.example.Event","candidates":[{"target":%s,"listenerAnnotations":[{"kind":"EVENT_LISTENER","matchKind":"RESOLVED_IDENTITY"}],"sourceRange":%s,"availableFollowUps":%s}],"page":%s,"observationSummaries":[],"availableFollowUps":[]}
+                """.formatted(REVISION, target, range, followUps, page), SemanticDtos.DiscoverEventListenersResponse.class);
+        SemanticDtos.DiscoverMethodImplementationsResponse implementations = objectMapper.readValue("""
+                {"repoId":"orders","revision":"%s","requestedTarget":%s,"candidates":[{"target":%s,"primary":true,"qualifiers":[],"profiles":[],"availableFollowUps":%s}],"limits":{"limit":10,"returnedCount":1,"totalCount":1,"truncated":false},"resolution":{"status":"COMPLETE","issueSummaries":[]}}
+                """.formatted(REVISION, target, target, followUps), SemanticDtos.DiscoverMethodImplementationsResponse.class);
+        SemanticDtos.DiscoverTypeMembersResponse members = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","sourceType":%s,"typeKind":"CLASS","annotations":[],"implementedTypes":[],"extendedTypes":[],"members":[{"kind":"METHOD","target":%s,"availableFollowUps":%s},{"kind":"FIELD","identity":{"scope":"TYPE","ownerType":%s,"name":"id"},"writtenType":"long","resolvedType":"long","annotations":[],"limitations":[],"availableFollowUps":%s}],"page":%s,"coverage":{"status":"COMPLETE","scannedFileCount":1,"extractedFileCount":1,"syntaxFailedFileCount":0},"availableFollowUps":[]}
+                """.formatted(REVISION, sourceType, target, followUps, sourceType, followUps, memberPage),
+                SemanticDtos.DiscoverTypeMembersResponse.class);
+        SemanticDtos.FindInternalReferencesResponse references = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","status":"COMPLETE","targetDeclaration":{"target":{"kind":"TYPE","identity":%s},"declarationRange":%s,"availableFollowUps":%s},"totalReferenceCount":1,"referenceGroups":[{"context":{"kind":"TYPE","sourceType":%s},"representativeReferences":[{"range":%s,"availableFollowUps":%s}],"limits":{"limit":10,"returnedCount":1,"totalCount":1,"truncated":false},"availableFollowUps":%s,"unavailableFollowUps":[{"reason":"SEARCH_INCOMPLETE","recommendedAction":"FIX_SOURCE_OR_RETRY"}]},{"context":{"kind":"METHOD","method":%s},"representativeReferences":[],"limits":{"limit":10,"returnedCount":0,"totalCount":0,"truncated":false},"availableFollowUps":[],"unavailableFollowUps":[]}],"page":{"offset":0,"limit":10,"returnedCount":1,"totalCount":1,"hasMore":false},"issueSummaries":[],"availableFollowUps":[]}
+                """.formatted(REVISION, sourceType, range, followUps, sourceType, range, followUps, followUps, target),
+                SemanticDtos.FindInternalReferencesResponse.class);
+        SemanticDtos.EvidenceSourceResponse evidence = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","identity":{"kind":"MAPPER_STATEMENT","statementIdentity":{"statementKey":{"namespace":"orders","statementId":"find"},"resourcePath":"src/OrdersMapper.xml","documentOrdinal":0,"representation":"MAPPER_XML_ELEMENT"}},"location":%s,"segment":%s,"availableFollowUps":%s}
+                """.formatted(REVISION, location, segment, followUps), SemanticDtos.EvidenceSourceResponse.class);
+        SemanticDtos.MethodSourceResponse methodSource = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","declarationLocation":%s,"segment":%s,"availableFollowUps":%s}
+                """.formatted(REVISION, location, segment, followUps), SemanticDtos.MethodSourceResponse.class);
+        SemanticDtos.SourceSegmentResponse sourceSegment = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","segment":%s,"contextTruncated":false,"availableFollowUps":%s}
+                """.formatted(REVISION, segment, followUps), SemanticDtos.SourceSegmentResponse.class);
+        SemanticDtos.ResolveSourceSymbolResponse sourceSymbols = objectMapper.readValue("""
+                {"repoId":"orders","analyzedRevision":"%s","status":"RESOLVED","contextCandidates":[{"kind":"SOURCE_TYPE","sourceFile":"src/Orders.java","retry":%s},{"kind":"METHOD","target":%s,"retry":%s}],"contextCandidateLimits":{"limit":10,"returnedCount":2,"totalCount":2,"truncated":false},"candidates":[{"kind":"METHOD","target":%s,"declarationRange":%s,"representativeOccurrence":%s,"occurrenceCount":1,"availableFollowUps":%s},{"kind":"FIELD","identity":{"scope":"TYPE","ownerType":%s,"name":"id"},"declaredType":{"writtenType":"long"},"declarationRange":%s,"representativeOccurrence":%s,"occurrenceCount":1,"availableFollowUps":%s},{"kind":"STATIC_CONSTANT","identity":{"scope":"TYPE","ownerType":%s,"name":"MAX"},"declaredType":{"writtenType":"int"},"initializerSource":"1","declarationRange":%s,"representativeOccurrence":%s,"occurrenceCount":1,"availableFollowUps":%s},{"kind":"SOURCE_TYPE","identity":%s,"declarationRange":%s,"representativeOccurrence":%s,"occurrenceCount":1,"availableFollowUps":%s}],"issues":[]}
+                """.formatted(REVISION, followUp, target, followUp, target, range, range, followUps, sourceType, range, range, followUps,
+                        sourceType, range, range, followUps, sourceType, range, range, followUps),
+                SemanticDtos.ResolveSourceSymbolResponse.class);
+
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverConcepts(REPOSITORY_ID, REPOSITORY_REVISION,
+                concepts)).discoveredCandidates()).hasSize(3);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.resolveConcept(REPOSITORY_ID, REPOSITORY_REVISION,
+                resolvedConcept)).discoveredCandidates()).hasSize(3);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverEventListeners(REPOSITORY_ID,
+                REPOSITORY_REVISION, listeners)).discoveredCandidates()).hasSize(2);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverMethodImplementations(REPOSITORY_ID,
+                REPOSITORY_REVISION, implementations)).discoveredCandidates()).hasSize(2);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION,
+                members)).discoveredCandidates()).hasSize(3);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.findInternalReferences(REPOSITORY_ID,
+                REPOSITORY_REVISION, references)).discoveredCandidates()).hasSize(5);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.getEvidenceSource(REPOSITORY_ID, REPOSITORY_REVISION,
+                evidence)).evidence()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.getMethodSource(REPOSITORY_ID, REPOSITORY_REVISION,
+                methodSource)).evidence()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.getSourceSegment(REPOSITORY_ID, REPOSITORY_REVISION,
+                sourceSegment)).evidence()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.resolveSourceSymbol(REPOSITORY_ID, REPOSITORY_REVISION,
+                sourceSymbols)).discoveredCandidates()).hasSize(13);
+    }
+
+    @Test
+    void decodesEveryFieldTypeReferenceWireVariant() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        List<String> payloads = List.of(
+                "{\"kind\":\"NAMED\",\"writtenType\":\"Orders\",\"simpleTypeName\":\"Orders\",\"sourceDefined\":true}",
+                "{\"kind\":\"PARAMETERIZED\",\"writtenType\":\"List<Orders>\",\"rawType\":{\"kind\":\"NAMED\",\"writtenType\":\"List\",\"simpleTypeName\":\"List\",\"sourceDefined\":false},\"typeArguments\":[]}",
+                "{\"kind\":\"PRIMITIVE\",\"writtenType\":\"int\"}",
+                "{\"kind\":\"ARRAY\",\"writtenType\":\"int[]\",\"elementType\":{\"kind\":\"PRIMITIVE\",\"writtenType\":\"int\"},\"dimensions\":1}",
+                "{\"kind\":\"WILDCARD\",\"writtenType\":\"?\",\"sourceDefined\":false}",
+                "{\"kind\":\"TYPE_VARIABLE\",\"writtenType\":\"T\",\"variableName\":\"T\",\"upperBounds\":[],\"sourceDefined\":true}");
+
+        for (String payload : payloads) {
+            SemanticDtos.FieldTypeReferenceResponse decoded = objectMapper.readValue(payload,
+                    SemanticDtos.FieldTypeReferenceResponse.class);
+            assertThat(decoded.writtenType()).isNotBlank();
+        }
+    }
+
+    @Test
+    void projectsTheRemainingDiscoveryResponseFamiliesWithTypedTargetsAndSourceEvidence() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTargetPayload target = methodTargetPayload();
+        SemanticDtos.PageResponse page = new SemanticDtos.PageResponse(0, 10, 0, 0, false);
+        SemanticDtos.ConceptCoverageResponse coverage = new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0);
+        SemanticDtos.SourceRangePayload location = sourceRange();
+        SemanticDtos.SourceSegmentPayload segment = new SemanticDtos.SourceSegmentPayload(location, "class Orders {}",
+                Optional.empty());
+
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.resolveConcept(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.ResolveConceptResponse("orders", REVISION, conceptCandidate()))).discoveredCandidates()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverEventListeners(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.DiscoverEventListenersResponse("orders", REVISION, "com.example.Event", List.of(
+                        new SemanticDtos.EventListenerCandidateResponse(target, List.of(
+                                new SemanticDtos.ListenerAnnotationEvidenceResponse("EVENT_LISTENER", "RESOLVED_IDENTITY")),
+                                location.range(), List.of())), page, List.of(), List.of())))
+                .discoveredCandidates()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverMethodImplementations(REPOSITORY_ID,
+                REPOSITORY_REVISION,
+                new SemanticDtos.DiscoverMethodImplementationsResponse("orders", REVISION, target, List.of(
+                        new SemanticDtos.MethodImplementationCandidateResponse(target, true, List.of(), List.of(), List.of())),
+                        new SemanticDtos.BoundedResultResponse(10, 1, 1, false),
+                        new SemanticDtos.MethodImplementationResolutionResponse("COMPLETE", List.of())))).discoveredCandidates()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION, target.sourceType(), "CLASS", List.of(),
+                        List.of(), List.of(), List.of(new SemanticDtos.MethodTypeMemberResponse("METHOD", target, List.of())),
+                        page, coverage, List.of())))
+                .discoveredCandidates()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.findInternalReferences(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.FindInternalReferencesResponse("orders", REVISION, "COMPLETE",
+                        new SemanticDtos.InternalReferenceTargetDeclarationResponse(
+                        new SemanticDtos.InternalReferenceFollowUpTarget("TYPE", target.sourceType()), location.range(), List.of()),
+                        0, List.of(new SemanticDtos.ReferenceGroupResponse(new SemanticDtos.InternalReferenceTypeContextResponse("TYPE",
+                                target.sourceType()), List.of(), new SemanticDtos.BoundedResultResponse(10, 0, 0, false),
+                                List.of(), List.of())), page, List.of(), List.of()))).discoveredCandidates()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.getMethodSource(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.MethodSourceResponse("orders", REVISION, location, segment, List.of()))).evidence())
+                .extracting(EvidenceRef::artifactRef).containsExactly(JavaSemanticArtifactDigest.fromContent("class Orders {}"));
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.getSourceSegment(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.SourceSegmentResponse("orders", REVISION, segment, false, List.of()))).evidence()).hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.getEvidenceSource(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.EvidenceSourceResponse("orders", REVISION, evidenceIdentity(), location, segment, List.of()))).evidence())
+                .hasSize(1);
+        assertThat(((CapabilityExecutionResult.Succeeded) mapper.resolveSourceSymbol(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.ResolveSourceSymbolResponse("orders", REVISION, "RESOLVED", List.of(),
+                        new SemanticDtos.BoundedResultResponse(10, 0, 0, false), List.of(
+                        new SemanticDtos.MethodSourceSymbolCandidateResponse("METHOD", target, location.range(),
+                                location.range(), 1, List.of())), List.of()))).discoveredCandidates()).hasSize(1);
+    }
+
+    @Test
+    void projectsDiscoveryUncertaintyAndSourceLocationsWithoutPublishingSourceBodies() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTargetPayload target = methodTargetPayload();
+        SemanticDtos.SourceRangePayload location = sourceRange();
+        SemanticDtos.PageResponse partialPage = new SemanticDtos.PageResponse(0, 10, 1, 2, true);
+        SemanticDtos.ConceptCoverageResponse partialCoverage = new SemanticDtos.ConceptCoverageResponse("PARTIAL", 2, 1, 1);
+        SemanticDtos.SourceMemberIdentityPayload.TypeMember field = new SemanticDtos.SourceMemberIdentityPayload.TypeMember(
+                "TYPE", target.sourceType(), "id");
+
+        CapabilityExecutionResult.Succeeded concepts = (CapabilityExecutionResult.Succeeded) mapper.discoverConcepts(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverConceptsResponse("orders", REVISION,
+                List.of("order"), List.of("TYPE"), List.of("TYPE"), List.of("SOURCE_BODY_NOT_SEARCHED"), List.of(),
+                partialPage, partialCoverage, List.of(new SemanticDtos.IssueSummaryResponse("MQ_DESTINATION_UNRESOLVED", 2)),
+                List.of(), List.of(new SemanticDtos.UnavailableFollowUpResponse("SEARCH_INCOMPLETE", "FIX_SOURCE_OR_RETRY"))));
+        CapabilityExecutionResult.Succeeded listeners = (CapabilityExecutionResult.Succeeded) mapper.discoverEventListeners(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverEventListenersResponse("orders", REVISION,
+                "com.example.Event", List.of(), partialPage, List.of(new SemanticDtos.ListenerObservationSummaryResponse(
+                "LISTENER_TARGET_UNRESOLVED", 2, List.of(location))), List.of()));
+        CapabilityExecutionResult.Succeeded implementations = (CapabilityExecutionResult.Succeeded)
+                mapper.discoverMethodImplementations(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.DiscoverMethodImplementationsResponse("orders", REVISION, target, List.of(),
+                new SemanticDtos.BoundedResultResponse(10, 1, 2, true),
+                new SemanticDtos.MethodImplementationResolutionResponse("PARTIAL", List.of(
+                new SemanticDtos.IssueSummaryResponse("CANONICAL_TARGET_UNRESOLVED", 2)))));
+        CapabilityExecutionResult.Succeeded members = (CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
+                target.sourceType(), "CLASS", List.of(), List.of(), List.of(), List.of(
+                new SemanticDtos.FieldTypeMemberResponse("FIELD", field, "long", Optional.empty(), List.of(),
+                        List.of("FIELD_USAGE_NOT_INDEXED"), List.of())), partialPage, partialCoverage, List.of()));
+        CapabilityExecutionResult.Succeeded references = (CapabilityExecutionResult.Succeeded) mapper.findInternalReferences(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.FindInternalReferencesResponse("orders", REVISION,
+                "PARTIAL", new SemanticDtos.InternalReferenceTargetDeclarationResponse(
+                new SemanticDtos.InternalReferenceFollowUpTarget("TYPE", target.sourceType()), location.range(), List.of()), 2,
+                List.of(new SemanticDtos.ReferenceGroupResponse(new SemanticDtos.InternalReferenceTypeContextResponse("TYPE",
+                target.sourceType()), List.of(new SemanticDtos.ReferenceOccurrenceResponse(location.range(), List.of())),
+                new SemanticDtos.BoundedResultResponse(10, 1, 2, true), List.of(), List.of(
+                new SemanticDtos.UnavailableFollowUpResponse("SEARCH_INCOMPLETE", "FIX_SOURCE_OR_RETRY")))), partialPage,
+                List.of(new SemanticDtos.IssueSummaryResponse("REFERENCE_CONTEXT_UNRESOLVED", 2)), List.of()));
+        CapabilityExecutionResult.Succeeded symbols = (CapabilityExecutionResult.Succeeded) mapper.resolveSourceSymbol(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.ResolveSourceSymbolResponse("orders", REVISION,
+                "UNRESOLVED_BINDING", List.of(), new SemanticDtos.BoundedResultResponse(10, 1, 2, true), List.of(
+                new SemanticDtos.VariableLikeSourceSymbolCandidateResponse("FIELD", field,
+                new SemanticDtos.DeclaredTypeResponse("long", Optional.empty()), location.range(), location.range(), 2,
+                List.of())), List.of(new SemanticDtos.SourceSymbolIssueSummaryResponse("SOURCE_BINDING_UNRESOLVED", 2))));
+
+        assertThat(concepts.observations()).extracting(CapabilityObservation::code).contains(
+                ObservationCode.TRUNCATED_CANDIDATES, ObservationCode.MISSING_SOURCE, ObservationCode.UNSUPPORTED_CLAIM,
+                ObservationCode.UNRESOLVED_CALL, ObservationCode.UNADDRESSED_PART);
+        assertThat(listeners.observations()).extracting(CapabilityObservation::code).contains(ObservationCode.UNRESOLVED_CALL);
+        assertThat(implementations.observations()).extracting(CapabilityObservation::code).contains(
+                ObservationCode.TRUNCATED_CANDIDATES, ObservationCode.UNRESOLVED_CALL);
+        assertThat(members.observations()).extracting(CapabilityObservation::code).contains(
+                ObservationCode.MISSING_SOURCE, ObservationCode.UNSUPPORTED_CLAIM);
+        assertThat(references.discoveredCandidates()).hasSize(2).allMatch(SemanticTargetCandidate.class::isInstance);
+        assertThat(references.observations()).extracting(CapabilityObservation::code).contains(
+                ObservationCode.TRUNCATED_CANDIDATES, ObservationCode.UNRESOLVED_CALL, ObservationCode.UNADDRESSED_PART);
+        assertThat(symbols.discoveredCandidates()).hasSize(2).allMatch(SemanticTargetCandidate.class::isInstance);
+        assertThat(symbols.observations()).extracting(CapabilityObservation::code).contains(
+                ObservationCode.TRUNCATED_CANDIDATES, ObservationCode.UNRESOLVED_CALL);
+        assertThat(symbols.observations()).extracting(CapabilityObservation::description)
+                .noneMatch(description -> description.contains("initializerSource"));
+    }
+
+    @Test
+    void rejectsDiscoveryResponseScopeThatDoesNotMatchTheSelectedCandidate() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.ResolveConceptResponse response = new SemanticDtos.ResolveConceptResponse("orders", REVISION,
+                conceptCandidate());
+
+        assertThatThrownBy(() -> mapper.resolveConcept(new RepositoryId("billing"), new RepositoryRevision(REVISION), response))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.resolveConcept(new RepositoryId("orders"),
+                new RepositoryRevision("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), response))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
+    void rejectsConceptDetailsThatDoNotMatchTheConceptIdentityKind() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.ConceptCandidateResponse candidate = new SemanticDtos.ConceptCandidateResponse(
+                conceptCandidate().identity(), "Orders.find", List.of("order"), "SYNTAX_RESOLVED",
+                Optional.of(new SemanticDtos.FieldConceptCandidateDetailsResponse("FIELD",
+                        new SemanticDtos.PrimitiveFieldTypeReferenceResponse("PRIMITIVE", "int"))),
+                List.of(), List.of());
+
+        assertThatThrownBy(() -> mapper.resolveConcept(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.ResolveConceptResponse("orders", REVISION, candidate)))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
+    void rejectsMapperStatementDetailsWhoseStatementDoesNotMatchTheConceptIdentity() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MapperStatementKeyPayload identityKey = new SemanticDtos.MapperStatementKeyPayload("orders", "find");
+        SemanticDtos.MapperStatementKeyPayload mappingKey = new SemanticDtos.MapperStatementKeyPayload("orders", "load");
+        SemanticDtos.ConceptFollowUpIdentity identity = new SemanticDtos.ConceptFollowUpIdentity("MAPPER_STATEMENT",
+                Optional.empty(), Optional.empty(), Optional.of(identityKey), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        SemanticDtos.MapperStatementMappingResponse mapping = new SemanticDtos.ResolvedMapperStatementMappingResponse(
+                mappingKey, "RESOLVED", List.of(new SemanticDtos.MapperSourceMethodCandidateResponse(methodTargetPayload(),
+                List.of())));
+        SemanticDtos.ConceptCandidateResponse candidate = new SemanticDtos.ConceptCandidateResponse(identity, "orders.find",
+                List.of("find"), "SYNTAX_RESOLVED", Optional.of(new SemanticDtos.MapperStatementConceptCandidateDetailsResponse(
+                "MAPPER_STATEMENT", mapping)), List.of(), List.of());
+
+        assertThatThrownBy(() -> mapper.resolveConcept(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.ResolveConceptResponse("orders", REVISION, candidate)))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
+    void projectsTruncatedSourceSegmentAsAProviderBoundObservation() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceRangePayload location = sourceRange();
+        SemanticDtos.SourceSegmentPayload segment = new SemanticDtos.SourceSegmentPayload(location, "class Orders {}",
+                Optional.empty());
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.getSourceSegment(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.SourceSegmentResponse("orders", REVISION, segment,
+                true, List.of()));
+
+        assertThat(result.observations()).extracting(CapabilityObservation::code)
+                .containsExactly(ObservationCode.TRUNCATED_CANDIDATES);
+        assertThat(result.observations().getFirst().description()).doesNotContain("class Orders");
+    }
+
+    @Test
+    void projectsListenerObservationSamplesAsOrderedSourceRangeCandidates() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceRangePayload first = sourceRange();
+        SemanticDtos.SourceRangePayload second = new SemanticDtos.SourceRangePayload("src/Other.java",
+                new SemanticDtos.TextRangePayload(new SemanticDtos.Position(2, 3), new SemanticDtos.Position(2, 4)));
+        SemanticDtos.PageResponse page = new SemanticDtos.PageResponse(0, 10, 0, 0, false);
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.discoverEventListeners(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverEventListenersResponse("orders", REVISION,
+                "com.example.Event", List.of(), page, List.of(new SemanticDtos.ListenerObservationSummaryResponse(
+                "LISTENER_TARGET_UNRESOLVED", 2, List.of(first, second))), List.of()));
+
+        assertThat(result.discoveredCandidates()).extracting(candidate -> ((SemanticTargetCandidate) candidate).semanticTarget().key())
+                .containsExactly("src/ResponseService.java", "src/Other.java");
+        assertThat(result.observations().getFirst().candidates()).isEqualTo(result.discoveredCandidates());
+    }
+
+    @Test
+    void preservesNonMethodSourceSymbolDeclarationAndOccurrenceRangesInOrder() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTargetPayload target = methodTargetPayload();
+        SemanticDtos.TextRangePayload declaration = new SemanticDtos.TextRangePayload(new SemanticDtos.Position(1, 0),
+                new SemanticDtos.Position(1, 2));
+        SemanticDtos.TextRangePayload occurrence = new SemanticDtos.TextRangePayload(new SemanticDtos.Position(4, 1),
+                new SemanticDtos.Position(4, 3));
+        SemanticDtos.VariableLikeSourceSymbolCandidateResponse candidate =
+                new SemanticDtos.VariableLikeSourceSymbolCandidateResponse("FIELD",
+                new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", target.sourceType(), "id"),
+                new SemanticDtos.DeclaredTypeResponse("long", Optional.empty()), declaration, occurrence, 2, List.of());
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.resolveSourceSymbol(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.ResolveSourceSymbolResponse("orders", REVISION,
+                "RESOLVED", List.of(), new SemanticDtos.BoundedResultResponse(10, 1, 1, false), List.of(candidate), List.of()));
+
+        assertThat(result.discoveredCandidates()).extracting(candidateValue -> ((SemanticTargetCandidate) candidateValue)
+                .semanticTarget().sourceRange().orElseThrow().startLine()).containsExactly(2, 5);
+        assertThat(result.discoveredCandidates()).extracting(AnalysisCandidate::description)
+                .containsExactly("source symbol FIELD declaration", "source symbol FIELD occurrence");
+    }
+
+    @Test
+    void rejectsUnknownTypeMemberEnums() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTargetPayload target = methodTargetPayload();
+        SemanticDtos.PageResponse page = new SemanticDtos.PageResponse(0, 10, 0, 0, false);
+        SemanticDtos.ConceptCoverageResponse coverage = new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0);
+        SemanticDtos.DiscoverTypeMembersResponse unknownTypeKind = new SemanticDtos.DiscoverTypeMembersResponse("orders",
+                REVISION, target.sourceType(), "OTHER", List.of(), List.of(), List.of(), List.of(), page, coverage, List.of());
+        SemanticDtos.DiscoverTypeMembersResponse unknownLimitation = new SemanticDtos.DiscoverTypeMembersResponse("orders",
+                REVISION, target.sourceType(), "CLASS", List.of(), List.of(), List.of(), List.of(
+                new SemanticDtos.FieldTypeMemberResponse("FIELD", new SemanticDtos.SourceMemberIdentityPayload.TypeMember(
+                        "TYPE", target.sourceType(), "id"), "long", Optional.empty(), List.of(), List.of("OTHER"), List.of())),
+                page, coverage, List.of());
+
+        assertThatThrownBy(() -> mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION, unknownTypeKind))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION, unknownLimitation))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
+    void rejectsUnknownDiscoveryStatusAndMalformedProviderJson() throws Exception {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+
+        assertThatThrownBy(() -> mapper.resolveSourceSymbol(REPOSITORY_ID, REPOSITORY_REVISION,
+                new SemanticDtos.ResolveSourceSymbolResponse("orders", REVISION,
+                "OTHER", List.of(), new SemanticDtos.BoundedResultResponse(10, 0, 0, false), List.of(), List.of()))
+                ).isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> new ObjectMapper().findAndRegisterModules().readValue("""
+                {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","normalizedTerms":[],"searchedKinds":[],"supportedKinds":[],"limitations":[],"candidates":[],"page":{"offset":0,"limit":1,"returnedCount":0,"totalCount":0,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":0,"extractedFileCount":0,"syntaxFailedFileCount":0},"issueSummaries":[],"availableFollowUps":[],"unavailableFollowUps":[],"unknown":true}
+                """, SemanticDtos.DiscoverConceptsResponse.class)).isInstanceOf(Exception.class);
+    }
 
     @Test
     void preservesProviderOrderAndConvertsAmbiguityAndTruncationToObservations() {
@@ -124,7 +506,7 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
-    void usesTheUniqueResponseRootTargetAndPreservesCompleteGraphEvidence() {
+    void rejectsAGraphResponseWhoseRootDoesNotMatchTheRequestedTarget() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.MethodTarget requested = methodTarget("RequestedService", "find");
         SemanticDtos.MethodTarget responseRoot = methodTarget("ResponseService", "load");
@@ -136,16 +518,10 @@ class JavaSemanticResultMapperTest {
                 "MYBATIS_MAPPER", "RESOLVED_OPAQUE", List.of("proof"))), List.of(
                 new SemanticDtos.GraphWarning("NODE_BUDGET_REACHED", longMessage, "root", null, null, List.of(), List.of())), List.of(
                 new SemanticDtos.GraphError("CHILD_SEMANTIC_QUERY_FAILED", "tail error", "root")));
-        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(requested), response);
-
-        EvidenceRef evidence = result.evidence().getFirst();
-        assertThat(evidence.semanticTarget()).isEqualTo(mapper.semanticTarget(responseRoot));
-        assertThat(evidence.content()).contains("warning=NODE_BUDGET_REACHED:")
-                .contains("error=CHILD_SEMANTIC_QUERY_FAILED:tail error").hasSizeGreaterThan(1_000);
-        assertThat(evidence.artifactRef()).isEqualTo(JavaSemanticArtifactDigest.fromContent(evidence.content()));
-        assertThat(result.observations()).extracting(observation -> observation.code())
-                .contains(ObservationCode.OPAQUE_EXTERNAL_CALL);
+        assertThatThrownBy(() -> mapper.outgoingCallGraph(
+                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(requested), response))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageContaining("root target");
     }
 
     @Test
@@ -191,6 +567,30 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.TextRangePayload range = new SemanticDtos.TextRangePayload(
                 new SemanticDtos.Position(0, 0), new SemanticDtos.Position(0, 1));
         return new SemanticDtos.SourceRangePayload("src/ResponseService.java", range);
+    }
+
+    private static SemanticDtos.MethodTargetPayload methodTargetPayload() {
+        SemanticDtos.JavaTypeIdentityPayload javaType = new SemanticDtos.JavaTypeIdentityPayload("com.example",
+                "Orders");
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(javaType,
+                "src/Orders.java");
+        return new SemanticDtos.MethodTargetPayload(sourceType, "find", List.of());
+    }
+
+    private static SemanticDtos.ConceptCandidateResponse conceptCandidate() {
+        SemanticDtos.ConceptFollowUpIdentity identity = new SemanticDtos.ConceptFollowUpIdentity("METHOD",
+                Optional.empty(), Optional.of(methodTargetPayload()), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        return new SemanticDtos.ConceptCandidateResponse(identity, "Orders.find", List.of("order"), "SYNTAX_RESOLVED",
+                Optional.empty(), List.of(), List.of());
+    }
+
+    private static SemanticDtos.EvidenceSourceFollowUpIdentity evidenceIdentity() {
+        SemanticDtos.MapperStatementKeyPayload key = new SemanticDtos.MapperStatementKeyPayload("orders", "find");
+        SemanticDtos.MapperStatementIdentityPayload statement = new SemanticDtos.MapperStatementIdentityPayload(key,
+                "src/OrdersMapper.xml", Optional.empty(), 0, "MAPPER_XML_ELEMENT");
+        return new SemanticDtos.EvidenceSourceFollowUpIdentity("MAPPER_STATEMENT", Optional.of(statement), Optional.empty());
     }
 
     private static SemanticDtos.MethodTarget methodTarget(String className, String methodName) {

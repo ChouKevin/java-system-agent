@@ -4,9 +4,18 @@ import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import org.junit.jupiter.api.Test;
 
@@ -46,5 +55,26 @@ class AgentActionPromptRendererTest {
                 .startsWith("Choose exactly one registered planning tool call.\n");
         assertThat(prompt).contains("Remaining budget:\nagentSteps=2, queryExecutions=1, executeExecutions=1, actionRejections=1");
         assertThat(prompt).doesNotContain("- user:", "  type:");
+    }
+
+    @Test
+    void rendersFollowUpDescriptionWithoutExposingItsCanonicalPayload() {
+        RepositoryId repositoryId = new RepositoryId("repository-1");
+        RepositoryRevision revision = new RepositoryRevision("revision-1");
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
+                RevisionVector.empty().pin(repositoryId, revision));
+        CandidateHandle handle = new CandidateHandle("candidate-follow-up", binding, CandidateKind.FOLLOW_UP);
+        CapabilityInputPayload payload = new CapabilityInputPayload("{\"sourceFile\":\"Sensitive.java\",\"line\":42}");
+        FollowUpCandidate followUp = new FollowUpCandidate(repositoryId, revision, "codebase_get_source_segment", "v1",
+                payload, "Read the remaining bounded source segment");
+        AgentPromptContext context = new AgentPromptContext(
+                "Read source", SessionHistory.empty(), new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
+                Map.of(), Map.of(handle, new IssuedCandidate(handle, followUp)), Map.of(), Map.of(), Optional.empty(),
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+
+        String prompt = new AgentActionPromptRenderer().render(context);
+
+        assertThat(prompt).contains("Read the remaining bounded source segment");
+        assertThat(prompt).doesNotContain(payload.value());
     }
 }

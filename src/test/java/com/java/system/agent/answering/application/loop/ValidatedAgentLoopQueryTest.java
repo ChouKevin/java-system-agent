@@ -20,6 +20,8 @@ import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.evidence.ArtifactRef;
@@ -38,6 +40,8 @@ import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.RunRequestIdentity;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunAttempt;
+import com.java.system.agent.answering.domain.run.RunResponseKind;
+import com.java.system.agent.answering.domain.run.RuntimeNoticeReason;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -50,6 +54,7 @@ import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
@@ -78,7 +83,7 @@ class ValidatedAgentLoopQueryTest {
     private static final RepositoryId REPOSITORY_ID = new RepositoryId("repo-1");
     private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
     private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy(
-            "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+            "trace", "v1", Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP), 1, 1);
 
     @Test
     void executesOneQueryAndIssuesItsEvidenceToTheNextModelPrompt() {
@@ -144,6 +149,74 @@ class ValidatedAgentLoopQueryTest {
         assertThat(prompts.get(1).attemptId()).isEqualTo(new AnalysisAttemptId("attempt-2"));
     }
 
+    @Test
+    void executesASelectedFollowUpCandidateInTheSameAttempt() {
+        CapabilityInputPayload firstPayload = new CapabilityInputPayload("first-payload");
+        CapabilityInputPayload followUpPayload = new CapabilityInputPayload("follow-up-payload");
+        FollowUpCandidate followUp = followUpCandidate(followUpPayload);
+        List<CapabilityInvocation> invocations = new ArrayList<>();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        EvidenceRef evidence = evidence("rev-1", "follow-up-result");
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                invocation -> {
+                    invocations.add(invocation);
+                    if (invocations.size() == 1) {
+                        return new CapabilityExecutionResult.Succeeded(List.of(followUp), List.of(), List.of());
+                    }
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(evidence), List.of());
+                },
+                context -> nextFollowUpAction(prompts, context, firstPayload, followUpPayload));
+
+        AgentLoopResult result = loop.execute(followUpRequest());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(invocations).extracting(CapabilityInvocation::payload)
+                .containsExactly(firstPayload, followUpPayload);
+        assertThat(invocations.get(1).candidates()).extracting(IssuedCandidate::candidate)
+                .containsExactly(followUp);
+        assertThat(transitions.events()).filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance).hasSize(2);
+        assertThat(prompts).hasSize(3);
+        assertThat(prompts.get(1).issuedCandidates().values())
+                .extracting(IssuedCandidate::candidate)
+                .anyMatch(FollowUpCandidate.class::isInstance);
+    }
+
+    @Test
+    void stopsBeforeExecutingAFollowUpWhenTheSingleQueryBudgetIsConsumed() {
+        CapabilityInputPayload followUpPayload = new CapabilityInputPayload("follow-up-payload");
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(
+                            List.of(followUpCandidate(followUpPayload)), List.of(), List.of());
+                },
+                context -> {
+                    prompts.add(context);
+                    return new AgentActionProposal.Proposed(query(context));
+                });
+
+        AgentLoopResult result = loop.execute(singleQueryRequest());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(result.responseKind()).isEqualTo(RunResponseKind.RUNTIME_NOTICE);
+        assertThat(capabilityCalls).hasValue(1);
+        assertThat(prompts).hasSize(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance).hasSize(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance).singleElement()
+                .satisfies(event -> assertThat(((AgentEvent.RunConcluded) event).runtimeNoticeReason())
+                        .contains(RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED));
+    }
+
     private AgentActionProposal nextAction(
             List<AgentPromptContext> prompts,
             AgentPromptContext context,
@@ -163,11 +236,42 @@ class ValidatedAgentLoopQueryTest {
         return new AgentActionProposal.Proposed(answer(context, "Recovered after revision drift"));
     }
 
+    private AgentActionProposal nextFollowUpAction(
+            List<AgentPromptContext> prompts,
+            AgentPromptContext context,
+            CapabilityInputPayload firstPayload,
+            CapabilityInputPayload followUpPayload) {
+        prompts.add(context);
+        if (prompts.size() == 1) {
+            return new AgentActionProposal.Proposed(query(context, firstPayload));
+        }
+        if (prompts.size() == 2) {
+            return new AgentActionProposal.Proposed(followUpQuery(context, followUpPayload));
+        }
+        return new AgentActionProposal.Proposed(answer(context, "Follow-up evidence is available"));
+    }
+
     private QueryAction query(AgentPromptContext context) {
+        return query(context, new CapabilityInputPayload("trace"));
+    }
+
+    private QueryAction query(AgentPromptContext context, CapabilityInputPayload payload) {
         return new QueryAction(
                 context.issuedCapabilities().keySet().iterator().next(),
                 List.of(new CandidateHandleRef(context.issuedCandidates().keySet().iterator().next().value())),
-                "Trace the repository flow", new CapabilityInputPayload("trace"), "Need repository evidence");
+                "Trace the repository flow", payload, "Need repository evidence");
+    }
+
+    private QueryAction followUpQuery(AgentPromptContext context, CapabilityInputPayload payload) {
+        CandidateHandleRef followUpHandle = context.issuedCandidates().entrySet().stream()
+                .filter(entry -> entry.getValue().candidate() instanceof FollowUpCandidate)
+                .map(entry -> new CandidateHandleRef(entry.getKey().value()))
+                .findFirst()
+                .orElseThrow();
+        return new QueryAction(
+                context.issuedCapabilities().keySet().iterator().next(),
+                List.of(followUpHandle),
+                "Read the discovered follow-up", payload, "Need follow-up evidence");
     }
 
     private AnswerAction answer(AgentPromptContext context, String text) {
@@ -223,6 +327,24 @@ class ValidatedAgentLoopQueryTest {
                 1);
     }
 
+    private AgentLoopRequest singleQueryRequest() {
+        return new AgentLoopRequest(
+                RUN_ID,
+                new SessionId("session-1"),
+                PARTICIPANT,
+                "What does this repository flow do?",
+                new AttemptBudget(4, 0, 1, 0, 1, 0, 2, 0, 1, 0));
+    }
+
+    private AgentLoopRequest followUpRequest() {
+        return new AgentLoopRequest(
+                RUN_ID,
+                new SessionId("session-1"),
+                PARTICIPANT,
+                "What does this repository flow do?",
+                new AttemptBudget(4, 0, 3, 0, 1, 0, 2, 0, 1, 0));
+    }
+
     private void seedPinnedRun(RecordingTransitionPort transitions) {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         AttemptBudget budget = new AttemptBudget(4, 0, 2, 0, 1, 0, 2, 0, 1, 0);
@@ -250,6 +372,16 @@ class ValidatedAgentLoopQueryTest {
                 "The repository calls the order workflow",
                 List.of(),
                 new ArtifactRef(digest));
+    }
+
+    private FollowUpCandidate followUpCandidate(CapabilityInputPayload payload) {
+        return new FollowUpCandidate(
+                REPOSITORY_ID,
+                new RepositoryRevision("rev-1"),
+                "trace",
+                "v1",
+                payload,
+                "Read the next bounded source segment");
     }
 
     private List<Class<?>> eventTypes(List<AgentEvent> events) {

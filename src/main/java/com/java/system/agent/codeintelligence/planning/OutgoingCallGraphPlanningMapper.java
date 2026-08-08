@@ -15,6 +15,6 @@ public final class OutgoingCallGraphPlanningMapper implements QueryPlanningMappe
     public QueryPlanningSelection<OutgoingCallGraphExecutionInput> map(OutgoingCallGraphPlanningInput input) {
         int depth = Optional.ofNullable(input.depth()).orElse(2);
         return new QueryPlanningSelection<>(input.candidateHandles().stream().map(CandidateHandleRef::new).toList(),
-                input.questionToResolve(), input.rationale(), new OutgoingCallGraphExecutionInput(depth));
+                input.questionToResolve(), input.rationale(), new OutgoingCallGraphExecutionInput(depth, Optional.empty()));
     }
 }

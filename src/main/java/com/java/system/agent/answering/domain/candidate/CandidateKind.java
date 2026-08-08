@@ -6,5 +6,6 @@ package com.java.system.agent.answering.domain.candidate;
 public enum CandidateKind {
     REPOSITORY,
     ROUTE,
-    SEMANTIC_TARGET
+    SEMANTIC_TARGET,
+    FOLLOW_UP
 }

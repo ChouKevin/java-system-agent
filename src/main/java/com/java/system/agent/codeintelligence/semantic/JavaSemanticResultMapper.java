@@ -1,7 +1,10 @@
 package com.java.system.agent.codeintelligence.semantic;
 
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import jakarta.validation.Validation;
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RouteCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
@@ -9,6 +12,7 @@ import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.evidence.EvidenceWarning;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.evidence.SourceRange;
 import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
@@ -23,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 將 Java Semantic Service v1 DTO 依原始順序轉成 answering 未配發的結果
@@ -35,6 +40,16 @@ public final class JavaSemanticResultMapper {
     private static final String METHOD_TARGET_TERMINATOR = ":!";
 
     private final JavaSemanticProviderSchemaValidator schemaValidator = new JavaSemanticProviderSchemaValidator();
+    private final JavaSemanticFollowUpMapper followUpMapper;
+
+    public JavaSemanticResultMapper() {
+        this(new JavaSemanticFollowUpMapper(new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator())));
+    }
+
+    public JavaSemanticResultMapper(JavaSemanticFollowUpMapper followUpMapper) {
+        this.followUpMapper = Objects.requireNonNull(followUpMapper, "Semantic follow-up mapper must not be null");
+    }
 
     public List<RepositoryDescriptor> repositories(List<SemanticDtos.RepositoryStatusResponse> responses) {
         List<SemanticDtos.RepositoryStatusResponse> required = schemaValidator.repositories(responses);
@@ -106,15 +121,33 @@ public final class JavaSemanticResultMapper {
 
     public CapabilityExecutionResult outgoingCallGraph(CapabilityInvocation invocation,
                                                         SemanticDtos.OutgoingCallGraphResponse response) {
+        SemanticTargetCandidate target = selectedTarget(invocation);
+        return outgoingCallGraph(target.repositoryId(), target.analyzedRevision(),
+                methodTargetPayload(target.semanticTarget()), response);
+    }
+
+    CapabilityExecutionResult outgoingCallGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
+                                                SemanticDtos.MethodTargetPayload requestedTarget,
+                                                SemanticDtos.OutgoingCallGraphResponse response) {
         SemanticDtos.OutgoingCallGraphResponse required = requireProviderObject(response, "outgoing call graph response");
-        return callGraph(invocation, required.status(), required.analyzedRevision(), required.rootNodeId(),
+        return callGraph(repositoryId, expectedRevision, requestedTarget, required.status(), required.analyzedRevision(),
+                required.rootNodeId(),
                 required.traversal(), required.nodes(), required.edges(), required.warnings(), required.errors());
     }
 
     public CapabilityExecutionResult incomingCallGraph(CapabilityInvocation invocation,
                                                         SemanticDtos.IncomingCallGraphResponse response) {
+        SemanticTargetCandidate target = selectedTarget(invocation);
+        return incomingCallGraph(target.repositoryId(), target.analyzedRevision(),
+                methodTargetPayload(target.semanticTarget()), response);
+    }
+
+    CapabilityExecutionResult incomingCallGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
+                                                SemanticDtos.MethodTargetPayload requestedTarget,
+                                                SemanticDtos.IncomingCallGraphResponse response) {
         SemanticDtos.IncomingCallGraphResponse required = requireProviderObject(response, "incoming call graph response");
-        return callGraph(invocation, required.status(), required.analyzedRevision(), required.rootNodeId(),
+        return callGraph(repositoryId, expectedRevision, requestedTarget, required.status(), required.analyzedRevision(),
+                required.rootNodeId(),
                 required.traversal(), required.nodes(), required.edges(), required.warnings(), required.errors());
     }
 
@@ -157,14 +190,413 @@ public final class JavaSemanticResultMapper {
         return new SemanticTarget(SemanticTargetKind.SYMBOL, encodeMethodTargetKey(keyParts), Optional.empty());
     }
 
-    private CapabilityExecutionResult callGraph(CapabilityInvocation invocation, String status, String analyzedRevision,
+    /** 投影 provider 的結構化概念探索結果 */
+    public CapabilityExecutionResult discoverConcepts(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                      SemanticDtos.DiscoverConceptsResponse response) {
+        SemanticDtos.DiscoverConceptsResponse required = schemaValidator.discoverConcepts(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        RepositoryId repositoryId = expectedRepositoryId;
+        RepositoryRevision revision = expectedRevision;
+        List<AnalysisCandidate> candidates = new ArrayList<>();
+        for (SemanticDtos.ConceptCandidateResponse candidate : required.candidates()) {
+            addConceptCandidate(repositoryId, revision, candidate, candidates);
+        }
+        addFollowUps(repositoryId, revision, required.availableFollowUps(), candidates);
+        List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(),
+                required.coverage().status()));
+        addLimitations(observations, required.limitations(), "concept limitation");
+        addIssueSummaries(observations, required.issueSummaries(), "concept issue");
+        addUnavailableFollowUps(observations, required.unavailableFollowUps(), "concept follow-up");
+        return succeeded(candidates, List.of(), List.copyOf(observations));
+    }
+
+    /** 投影 provider 的精確概念 resolve 結果 */
+    public CapabilityExecutionResult resolveConcept(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                    SemanticDtos.ResolveConceptResponse response) {
+        SemanticDtos.ResolveConceptResponse required = schemaValidator.resolveConcept(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        RepositoryId repositoryId = expectedRepositoryId;
+        RepositoryRevision revision = expectedRevision;
+        List<AnalysisCandidate> candidates = new ArrayList<>();
+        addConceptCandidate(repositoryId, revision, required.candidate(), candidates);
+        return succeeded(candidates, List.of(), List.of());
+    }
+
+    /** 投影 provider 的事件監聽器探索結果 */
+    public CapabilityExecutionResult discoverEventListeners(RepositoryId expectedRepositoryId,
+                                                            RepositoryRevision expectedRevision,
+                                                            SemanticDtos.DiscoverEventListenersResponse response) {
+        SemanticDtos.DiscoverEventListenersResponse required = schemaValidator.discoverEventListeners(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        RepositoryId repositoryId = expectedRepositoryId;
+        RepositoryRevision revision = expectedRevision;
+        List<AnalysisCandidate> candidates = new ArrayList<>();
+        for (SemanticDtos.EventListenerCandidateResponse candidate : required.candidates()) {
+            candidates.add(new SemanticTargetCandidate(repositoryId, revision, semanticTarget(candidate.target()),
+                    "event listener " + candidate.target().methodName()));
+            addFollowUps(repositoryId, revision, candidate.availableFollowUps(), candidates);
+        }
+        addFollowUps(repositoryId, revision, required.availableFollowUps(), candidates);
+        List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(), "COMPLETE"));
+        for (SemanticDtos.ListenerObservationSummaryResponse summary : required.observationSummaries()) {
+            List<AnalysisCandidate> sampleCandidates = new ArrayList<>();
+            int sampleIndex = 0;
+            for (SemanticDtos.SourceRangePayload sample : summary.samples()) {
+                sampleIndex++;
+                SemanticTargetCandidate sampleCandidate = new SemanticTargetCandidate(repositoryId, revision,
+                        sourceTarget(sample), "listener observation " + summary.code() + " sample=" + sampleIndex);
+                candidates.add(sampleCandidate);
+                sampleCandidates.add(sampleCandidate);
+            }
+            observations.add(observation(ObservationCode.UNRESOLVED_CALL, "listener observation " + summary.code()
+                    + " count=" + summary.totalCount(), List.copyOf(sampleCandidates)));
+        }
+        return succeeded(candidates, List.of(), List.copyOf(observations));
+    }
+
+    /** 投影 provider 的方法實作探索結果 */
+    public CapabilityExecutionResult discoverMethodImplementations(RepositoryId expectedRepositoryId,
+                                                                    RepositoryRevision expectedRevision,
+            SemanticDtos.DiscoverMethodImplementationsResponse response) {
+        SemanticDtos.DiscoverMethodImplementationsResponse required = schemaValidator.discoverMethodImplementations(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.revision());
+        RepositoryId repositoryId = expectedRepositoryId;
+        RepositoryRevision revision = expectedRevision;
+        List<AnalysisCandidate> candidates = new ArrayList<>();
+        for (SemanticDtos.MethodImplementationCandidateResponse candidate : required.candidates()) {
+            candidates.add(new SemanticTargetCandidate(repositoryId, revision, semanticTarget(candidate.target()),
+                    "method implementation " + candidate.target().methodName()));
+            addFollowUps(repositoryId, revision, candidate.availableFollowUps(), candidates);
+        }
+        List<CapabilityObservation> observations = new ArrayList<>();
+        if (required.limits().truncated()) {
+            observations.add(observation(ObservationCode.TRUNCATED_CANDIDATES, "method implementation limits returned="
+                    + required.limits().returnedCount() + " total=" + required.limits().totalCount(), List.of()));
+        }
+        if ("PARTIAL".equals(required.resolution().status())) {
+            observations.add(observation(ObservationCode.TRUNCATED_CANDIDATES,
+                    "method implementation resolution status=PARTIAL", List.of()));
+        }
+        addIssueSummaries(observations, required.resolution().issueSummaries(), "method implementation issue");
+        return succeeded(candidates, List.of(), List.copyOf(observations));
+    }
+
+    /** 投影 provider 的型別成員探索結果 */
+    public CapabilityExecutionResult discoverTypeMembers(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                         SemanticDtos.DiscoverTypeMembersResponse response) {
+        SemanticDtos.DiscoverTypeMembersResponse required = schemaValidator.discoverTypeMembers(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        RepositoryId repositoryId = expectedRepositoryId;
+        RepositoryRevision revision = expectedRevision;
+        List<AnalysisCandidate> candidates = new ArrayList<>();
+        List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(),
+                required.coverage().status()));
+        for (SemanticDtos.TypeMemberResponse member : required.members()) {
+            if (member instanceof SemanticDtos.MethodTypeMemberResponse method) {
+                candidates.add(new SemanticTargetCandidate(repositoryId, revision, semanticTarget(method.target()),
+                        "type member " + method.target().methodName()));
+            } else if (member instanceof SemanticDtos.FieldTypeMemberResponse field) {
+                addLimitations(observations, field.limitations(), "type member field limitation");
+            }
+            addFollowUps(repositoryId, revision, member.availableFollowUps(), candidates);
+        }
+        addFollowUps(repositoryId, revision, required.availableFollowUps(), candidates);
+        return succeeded(candidates, List.of(), List.copyOf(observations));
+    }
+
+    /** 投影 provider 的內部 reference 結果 */
+    public CapabilityExecutionResult findInternalReferences(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                            SemanticDtos.FindInternalReferencesResponse response) {
+        SemanticDtos.FindInternalReferencesResponse required = schemaValidator.findInternalReferences(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        RepositoryId repositoryId = expectedRepositoryId;
+        RepositoryRevision revision = expectedRevision;
+        List<AnalysisCandidate> candidates = new ArrayList<>();
+        List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(), "COMPLETE"));
+        SemanticDtos.InternalReferenceTargetDeclarationResponse declaration = required.targetDeclaration();
+        addInternalReferenceCandidate(repositoryId, revision, declaration.target(), declaration.declarationRange(),
+                "internal reference declaration", candidates);
+        addFollowUps(repositoryId, revision, declaration.availableFollowUps(), candidates);
+        for (SemanticDtos.ReferenceGroupResponse group : required.referenceGroups()) {
+            if (group.limits().truncated()) {
+                observations.add(observation(ObservationCode.TRUNCATED_CANDIDATES, "internal reference group returned="
+                        + group.limits().returnedCount() + " total=" + group.limits().totalCount(), List.of()));
+            }
+            addUnavailableFollowUps(observations, group.unavailableFollowUps(), "internal reference follow-up");
+            addFollowUps(repositoryId, revision, group.availableFollowUps(), candidates);
+            for (SemanticDtos.ReferenceOccurrenceResponse occurrence : group.representativeReferences()) {
+                addInternalReferenceCandidate(repositoryId, revision, group.context(), occurrence.range(),
+                        "internal reference occurrence", candidates);
+                addFollowUps(repositoryId, revision, occurrence.availableFollowUps(), candidates);
+            }
+        }
+        addFollowUps(repositoryId, revision, required.availableFollowUps(), candidates);
+        if ("PARTIAL".equals(required.status())) {
+            observations.add(observation(ObservationCode.TRUNCATED_CANDIDATES,
+                    "internal reference status=PARTIAL", List.of()));
+        }
+        addIssueSummaries(observations, required.issueSummaries(), "internal reference issue");
+        return succeeded(candidates, List.of(), List.copyOf(observations));
+    }
+
+    /** 投影 provider 的 evidence source 結果 */
+    public CapabilityExecutionResult getEvidenceSource(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                       SemanticDtos.EvidenceSourceResponse response) {
+        SemanticDtos.EvidenceSourceResponse required = schemaValidator.evidenceSource(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        return sourceResult(expectedRepositoryId, expectedRevision, required.location(), required.segment(),
+                required.availableFollowUps());
+    }
+
+    /** 投影 provider 的方法來源結果 */
+    public CapabilityExecutionResult getMethodSource(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                     SemanticDtos.MethodSourceResponse response) {
+        SemanticDtos.MethodSourceResponse required = schemaValidator.methodSource(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        return sourceResult(expectedRepositoryId, expectedRevision, required.declarationLocation(), required.segment(),
+                required.availableFollowUps());
+    }
+
+    /** 投影 provider 的 bounded source segment 結果 */
+    public CapabilityExecutionResult getSourceSegment(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                      SemanticDtos.SourceSegmentResponse response) {
+        SemanticDtos.SourceSegmentResponse required = schemaValidator.sourceSegment(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        CapabilityExecutionResult.Succeeded result = sourceResult(expectedRepositoryId, expectedRevision,
+                required.segment().location(), required.segment(), required.availableFollowUps());
+        if (!required.contextTruncated()) {
+            return result;
+        }
+        return succeeded(result.discoveredCandidates(), result.evidence(), List.of(observation(
+                ObservationCode.TRUNCATED_CANDIDATES, "source segment context is truncated", List.of())));
+    }
+
+    /** 投影 provider 的 source symbol resolve 結果 */
+    public CapabilityExecutionResult resolveSourceSymbol(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                         SemanticDtos.ResolveSourceSymbolResponse response) {
+        SemanticDtos.ResolveSourceSymbolResponse required = schemaValidator.resolveSourceSymbol(response);
+        discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
+        RepositoryId repositoryId = expectedRepositoryId;
+        RepositoryRevision revision = expectedRevision;
+        List<AnalysisCandidate> candidates = new ArrayList<>();
+        List<CapabilityObservation> observations = new ArrayList<>();
+        for (SemanticDtos.SourceContextCandidateResponse context : required.contextCandidates()) {
+            addFollowUp(repositoryId, revision, context.retry(), candidates);
+        }
+        for (SemanticDtos.SourceSymbolCandidateResponse candidate : required.candidates()) {
+            if (candidate instanceof SemanticDtos.MethodSourceSymbolCandidateResponse method) {
+                candidates.add(new SemanticTargetCandidate(repositoryId, revision, semanticTarget(method.target()),
+                        "source symbol " + method.target().methodName()));
+            } else {
+                addSourceSymbolCandidate(repositoryId, revision, candidate, candidates);
+            }
+            addFollowUps(repositoryId, revision, candidate.availableFollowUps(), candidates);
+        }
+        if (required.contextCandidateLimits().truncated()) {
+            observations.add(observation(ObservationCode.TRUNCATED_CANDIDATES, "source symbol context returned="
+                    + required.contextCandidateLimits().returnedCount() + " total="
+                    + required.contextCandidateLimits().totalCount(), List.of()));
+        }
+        if (Set.of("AMBIGUOUS_CONTEXT", "AMBIGUOUS_SYMBOL", "AMBIGUOUS_OCCURRENCE").contains(required.status())) {
+            observations.add(observation(ObservationCode.AMBIGUOUS_SEMANTIC_TARGET,
+                    "source symbol status=" + required.status(), List.of()));
+        }
+        if (Set.of("CONTEXT_NOT_FOUND", "SYMBOL_NOT_FOUND", "UNRESOLVED_BINDING", "POSITION_MISMATCH")
+                .contains(required.status())) {
+            observations.add(observation(ObservationCode.UNRESOLVED_CALL,
+                    "source symbol status=" + required.status(), List.of()));
+        }
+        for (SemanticDtos.SourceSymbolIssueSummaryResponse issue : required.issues()) {
+            observations.add(observation(ObservationCode.UNRESOLVED_CALL, "source symbol issue " + issue.code()
+                    + " count=" + issue.count(), List.of()));
+        }
+        return succeeded(candidates, List.of(), List.copyOf(observations));
+    }
+
+    private CapabilityExecutionResult.Succeeded sourceResult(RepositoryId repositoryId, RepositoryRevision revision,
+                                                             SemanticDtos.SourceRangePayload location,
+                                                             SemanticDtos.SourceSegmentPayload segment,
+                                                             List<SemanticDtos.AvailableFollowUp> followUps) {
+        String content = description(segment.content(), "source content");
+        SemanticTarget target = sourceTarget(location);
+        EvidenceRef evidence = new EvidenceRef(SOURCE_SERVICE, repositoryId, revision, target, content, List.of(),
+                JavaSemanticArtifactDigest.fromContent(content));
+        List<AnalysisCandidate> candidates = new ArrayList<>();
+        addFollowUps(repositoryId, revision, followUps, candidates);
+        return succeeded(candidates, List.of(evidence), List.of());
+    }
+
+    private void addLimitations(List<CapabilityObservation> observations, List<String> limitations, String subject) {
+        for (String limitation : limitations) {
+            observations.add(observation(ObservationCode.UNSUPPORTED_CLAIM, subject + " " + limitation, List.of()));
+        }
+    }
+
+    private void addIssueSummaries(List<CapabilityObservation> observations,
+                                   List<SemanticDtos.IssueSummaryResponse> summaries, String subject) {
+        for (SemanticDtos.IssueSummaryResponse summary : summaries) {
+            observations.add(observation(ObservationCode.UNRESOLVED_CALL, subject + " " + summary.code()
+                    + " count=" + summary.count(), List.of()));
+        }
+    }
+
+    private void addUnavailableFollowUps(List<CapabilityObservation> observations,
+                                         List<SemanticDtos.UnavailableFollowUpResponse> unavailableFollowUps,
+                                         String subject) {
+        for (SemanticDtos.UnavailableFollowUpResponse unavailable : unavailableFollowUps) {
+            observations.add(observation(ObservationCode.UNADDRESSED_PART, subject + " " + unavailable.reason()
+                    + " action=" + unavailable.recommendedAction(), List.of()));
+        }
+    }
+
+    private void addInternalReferenceCandidate(RepositoryId repositoryId, RepositoryRevision revision,
+                                               SemanticDtos.InternalReferenceFollowUpTarget target,
+                                               SemanticDtos.TextRangePayload range, String description,
+                                               List<AnalysisCandidate> candidates) {
+        candidates.add(new SemanticTargetCandidate(repositoryId, revision,
+                sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile(target.identity()), range)), description));
+    }
+
+    private void addInternalReferenceCandidate(RepositoryId repositoryId, RepositoryRevision revision,
+                                               SemanticDtos.InternalReferenceContextResponse context,
+                                               SemanticDtos.TextRangePayload range, String description,
+                                               List<AnalysisCandidate> candidates) {
+        String sourceFile;
+        if (context instanceof SemanticDtos.InternalReferenceTypeContextResponse type) {
+            sourceFile = type.sourceType().sourceFile();
+        } else if (context instanceof SemanticDtos.InternalReferenceMethodContextResponse method) {
+            sourceFile = method.method().sourceType().sourceFile();
+        } else {
+            throw contract("unsupported internal reference context");
+        }
+        candidates.add(new SemanticTargetCandidate(repositoryId, revision,
+                sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile, range)), description));
+    }
+
+    private void addSourceSymbolCandidate(RepositoryId repositoryId, RepositoryRevision revision,
+                                          SemanticDtos.SourceSymbolCandidateResponse candidate,
+                                          List<AnalysisCandidate> candidates) {
+        String sourceFile;
+        if (candidate instanceof SemanticDtos.VariableLikeSourceSymbolCandidateResponse variable) {
+            sourceFile = sourceFile(variable.identity());
+        } else if (candidate instanceof SemanticDtos.StaticConstantSourceSymbolCandidateResponse constant) {
+            sourceFile = sourceFile(constant.identity());
+        } else if (candidate instanceof SemanticDtos.SourceTypeSymbolCandidateResponse type) {
+            sourceFile = type.identity().sourceFile();
+        } else {
+            throw contract("unsupported source symbol candidate");
+        }
+        candidates.add(new SemanticTargetCandidate(repositoryId, revision,
+                sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile, candidate.declarationRange())),
+                "source symbol " + candidate.kind() + " declaration"));
+        candidates.add(new SemanticTargetCandidate(repositoryId, revision,
+                sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile, candidate.representativeOccurrence())),
+                "source symbol " + candidate.kind() + " occurrence"));
+    }
+
+    private String sourceFile(SemanticDtos.InternalReferenceIdentity identity) {
+        if (identity instanceof SemanticDtos.SourceTypeIdentityPayload type) {
+            return type.sourceFile();
+        }
+        if (identity instanceof SemanticDtos.MethodTargetPayload method) {
+            return method.sourceType().sourceFile();
+        }
+        if (identity instanceof SemanticDtos.SourceMemberIdentityPayload.TypeMember member) {
+            return member.ownerType().sourceFile();
+        }
+        if (identity instanceof SemanticDtos.SourceMemberIdentityPayload.MethodScoped member) {
+            return member.declaringMethod().sourceType().sourceFile();
+        }
+        throw contract("unsupported internal reference identity");
+    }
+
+    private void addConceptCandidate(RepositoryId repositoryId, RepositoryRevision revision,
+                                     SemanticDtos.ConceptCandidateResponse candidate,
+                                     List<AnalysisCandidate> candidates) {
+        candidate.identity().target().ifPresent(target -> candidates.add(new SemanticTargetCandidate(repositoryId, revision,
+                semanticTarget(target), description(candidate.displayValue(), "structured concept"))));
+        for (SemanticDtos.ConceptEvidenceResponse evidence : candidate.evidence()) {
+            evidence.identity().target().ifPresent(target -> candidates.add(new SemanticTargetCandidate(repositoryId, revision,
+                    semanticTarget(target), "concept evidence")));
+        }
+        candidate.details().ifPresent(details -> addConceptDetailsFollowUps(repositoryId, revision, details, candidates));
+        addFollowUps(repositoryId, revision, candidate.availableFollowUps(), candidates);
+    }
+
+    private void addConceptDetailsFollowUps(RepositoryId repositoryId, RepositoryRevision revision,
+                                            SemanticDtos.ConceptCandidateDetailsResponse details,
+                                            List<AnalysisCandidate> candidates) {
+        if (details instanceof SemanticDtos.MapperStatementConceptCandidateDetailsResponse mapper) {
+            for (SemanticDtos.MapperSourceMethodCandidateResponse candidate : mapper.mapping().candidates()) {
+                candidates.add(new SemanticTargetCandidate(repositoryId, revision, semanticTarget(candidate.target()),
+                        "mapper source method " + candidate.target().methodName()));
+                addFollowUps(repositoryId, revision, candidate.availableFollowUps(), candidates);
+            }
+        }
+    }
+
+    private void discoveryScope(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                String responseRepositoryId, String responseRevision) {
+        RepositoryId requiredRepositoryId = requireProviderObject(expectedRepositoryId, "expected repository ID");
+        RepositoryRevision requiredRevision = requireProviderObject(expectedRevision, "expected repository revision");
+        if (!requiredRepositoryId.value().equals(responseRepositoryId)
+                || !requiredRevision.value().equals(responseRevision)) {
+            throw contract("discovery response scope does not match the selected candidate");
+        }
+    }
+
+    private void addFollowUps(RepositoryId repositoryId, RepositoryRevision revision,
+                              List<SemanticDtos.AvailableFollowUp> followUps, List<AnalysisCandidate> candidates) {
+        for (SemanticDtos.AvailableFollowUp followUp : followUps) {
+            addFollowUp(repositoryId, revision, followUp, candidates);
+        }
+    }
+
+    private void addFollowUp(RepositoryId repositoryId, RepositoryRevision revision,
+                             SemanticDtos.AvailableFollowUp followUp, List<AnalysisCandidate> candidates) {
+        FollowUpCandidate candidate = followUpMapper.map(repositoryId, revision, followUp);
+        candidates.add(candidate);
+    }
+
+    private SemanticTarget semanticTarget(SemanticDtos.MethodTargetPayload target) {
+        return semanticTarget(new SemanticDtos.MethodTarget(target.sourceType().sourceFile(),
+                target.sourceType().javaType().packageName(), target.sourceType().javaType().className(),
+                target.methodName(), target.parameterTypes()));
+    }
+
+    private SemanticTarget sourceTarget(SemanticDtos.SourceRangePayload location) {
+        SemanticDtos.SourceRangePayload required = requireProviderObject(location, "source location");
+        SemanticDtos.TextRangePayload range = requireProviderObject(required.range(), "source location range");
+        SourceRange sourceRange = new SourceRange(required.sourceFile(), range.start().line() + 1,
+                range.start().character() + 1, range.end().line() + 1, range.end().character() + 1);
+        return new SemanticTarget(SemanticTargetKind.SOURCE_RANGE, required.sourceFile(), Optional.of(sourceRange));
+    }
+
+    private List<CapabilityObservation> pageObservations(SemanticDtos.PageResponse page, String coverageStatus) {
+        List<CapabilityObservation> observations = new ArrayList<>();
+        if (page.hasMore()) {
+            observations.add(observation(ObservationCode.TRUNCATED_CANDIDATES, "additional results are available", List.of()));
+        }
+        if ("PARTIAL".equals(coverageStatus)) {
+            observations.add(observation(ObservationCode.MISSING_SOURCE, "provider coverage is partial", List.of()));
+        }
+        return List.copyOf(observations);
+    }
+
+    private CapabilityExecutionResult callGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
+                                                SemanticDtos.MethodTargetPayload requestedTarget, String status,
+                                                String analyzedRevision,
                                                 String rootNodeId, SemanticDtos.GraphTraversal traversal,
                                                 List<SemanticDtos.GraphNode> nodes, List<SemanticDtos.GraphEdge> edges,
                                                 List<SemanticDtos.GraphWarning> warnings,
                                                 List<SemanticDtos.GraphError> errors) {
-        requireProviderObject(invocation, "capability invocation");
+        Objects.requireNonNull(repositoryId, "graph repository ID must not be null");
+        Objects.requireNonNull(expectedRevision, "graph expected revision must not be null");
+        Objects.requireNonNull(requestedTarget, "graph requested target must not be null");
         schemaValidator.graph(status, analyzedRevision, rootNodeId, traversal, nodes, edges, warnings, errors);
-        RepositoryId repositoryId = selectedTarget(invocation).repositoryId();
+        if (!expectedRevision.value().equals(analyzedRevision)) {
+            throw contract("graph response revision does not match the expected revision");
+        }
         RepositoryRevision revision = new RepositoryRevision(analyzedRevision);
         List<SemanticDtos.GraphNode> requiredNodes = requiredList(nodes, "graph node");
         List<SemanticDtos.GraphEdge> requiredEdges = requiredList(edges, "graph edge");
@@ -173,6 +605,9 @@ public final class JavaSemanticResultMapper {
         List<AnalysisCandidate> candidates = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>();
         SemanticDtos.GraphNode root = responseRoot(rootNodeId, requiredNodes);
+        if (!matches(requestedTarget, root.target())) {
+            throw contract("graph response root target does not match the requested target");
+        }
         for (SemanticDtos.GraphNode node : requiredNodes) {
             if (Objects.nonNull(node.target())) {
                 candidates.add(new SemanticTargetCandidate(repositoryId, revision, semanticTarget(node.target()),
@@ -212,6 +647,14 @@ public final class JavaSemanticResultMapper {
         EvidenceRef evidence = new EvidenceRef(SOURCE_SERVICE, repositoryId, revision, semanticTarget(root.target()), content,
                 evidenceWarnings(requiredWarnings, requiredErrors), JavaSemanticArtifactDigest.fromContent(content));
         return succeeded(candidates, List.of(evidence), observations);
+    }
+
+    private boolean matches(SemanticDtos.MethodTargetPayload requested, SemanticDtos.MethodTarget response) {
+        return requested.sourceType().sourceFile().equals(response.sourceFile())
+                && requested.sourceType().javaType().packageName().equals(response.packageName())
+                && requested.sourceType().javaType().className().equals(response.className())
+                && requested.methodName().equals(response.methodName())
+                && requested.parameterTypes().equals(response.parameterTypes());
     }
 
     private void addResolutionCandidates(RepositoryId repositoryId, RepositoryRevision revision,

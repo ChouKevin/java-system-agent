@@ -1,12 +1,15 @@
 package com.java.system.agent.answering.application.loop;
 
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.evidence.ArtifactRef;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
@@ -160,6 +163,51 @@ class ContextIssuerTest {
                 Set.of(repositoryId)))
                 .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("duplicate evidence");
+    }
+
+    @Test
+    void issues_follow_up_handles_and_rebinds_without_changing_the_payload() {
+        RepositoryRevision revision = new RepositoryRevision("rev-1");
+        RevisionVector pinned = pin(repositoryId, revision);
+        RunAttempt initial = issuer.issueInitial(
+                runId,
+                attemptId,
+                pinned,
+                List.of(capability("find")),
+                List.of(new RepositoryDescriptor(repositoryId, "Repository one")));
+        FollowUpCandidate followUp = new FollowUpCandidate(
+                repositoryId,
+                revision,
+                "codebase_get_source_segment",
+                "v1",
+                new CapabilityInputPayload("{\"contextLines\":0,\"location\":{\"sourceFile\":\"Example.java\"}}"),
+                "Read the next bounded source segment");
+
+        ContextIssuer.CapabilityIssue issue = issuer.issueCapabilityResult(
+                runId,
+                initial,
+                new CapabilityExecutionResult.Succeeded(List.of(followUp), List.of(), List.of()),
+                Set.of(repositoryId));
+        CandidateHandle followUpHandle = issue.context().issuedCandidates().keySet().stream()
+                .filter(handle -> handle.kind() == CandidateKind.FOLLOW_UP)
+                .findFirst()
+                .orElseThrow();
+        RepositoryId additionalRepository = new RepositoryId("repo-2");
+        RevisionVector reissuedRevisions = pinned.pin(additionalRepository, new RepositoryRevision("rev-2"));
+
+        RunAttempt rebound = issuer.reissue(runId, issue.context(), reissuedRevisions);
+        CandidateHandle reboundHandle = rebound.issuedCandidates().keySet().stream()
+                .filter(handle -> handle.kind() == CandidateKind.FOLLOW_UP)
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(followUpHandle.binding().revisionVector()).isEqualTo(pinned);
+        assertThat(reboundHandle.binding().revisionVector()).isEqualTo(reissuedRevisions);
+        assertThat(reboundHandle).isNotEqualTo(followUpHandle);
+        assertThat(rebound.issuedCandidates().get(reboundHandle).candidate())
+                .isEqualTo(followUp);
+        assertThat(((FollowUpCandidate) rebound.issuedCandidates().get(reboundHandle).candidate()).payload())
+                .isEqualTo(followUp.payload());
     }
 
     private CapabilityPolicy capability(String name) {

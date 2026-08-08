@@ -1,10 +1,14 @@
 package com.java.system.agent.codeintelligence.semantic;
 
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
@@ -17,7 +21,16 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.RepositoryRevisionFailureCode;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
+import com.java.system.agent.answering.port.out.CapabilityInvocation;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import com.java.system.agent.capability.spi.CapabilityExecutionContext;
+import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
+import com.java.system.agent.codeintelligence.planning.CodeIntelligencePlanningToolProvider;
+import com.java.system.agent.codeintelligence.planning.DiscoverConceptsExecutionInput;
+import com.java.system.agent.codeintelligence.planning.DiscoverEventListenersExecutionInput;
+import com.java.system.agent.codeintelligence.planning.DiscoverMethodImplementationsExecutionInput;
 import com.java.system.agent.codeintelligence.planning.EntryPointType;
 import com.java.system.agent.codeintelligence.planning.IncomingCallGraphExecutionInput;
 import com.java.system.agent.codeintelligence.planning.ListEntryPointsExecutionInput;
@@ -25,14 +38,17 @@ import com.java.system.agent.codeintelligence.planning.LookupApiRouteExecutionIn
 import com.java.system.agent.codeintelligence.planning.OutgoingCallGraphExecutionInput;
 import com.java.system.agent.codeintelligence.planning.SuggestApiRouteExecutionInput;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
+import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,11 +56,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 驗證 Agent 對 Java Semantic Service 的 live HTTP consumer contract
  */
-@EnabledIfEnvironmentVariable(named = "M5_SEMANTIC_BASE_URL", matches = ".+")
+@EnabledIfEnvironmentVariable(named = "M6_SEMANTIC_BASE_URL", matches = ".+")
 class JavaSemanticServiceLiveContractIT {
 
-    private static final String REPOSITORY_ID = requiredEnvironment("M5_REPO_ID");
-    private static final String REVISION = requiredEnvironment("M5_EXPECTED_REVISION");
+    private static final String AGENT_REPOSITORY_ID = requiredEnvironment("M6_AGENT_REPO_ID");
+    private static final String AGENT_REVISION = requiredEnvironment("M6_AGENT_EXPECTED_REVISION");
+    private static final String DISCOVERY_REPOSITORY_ID = requiredEnvironment("M6_DISCOVERY_REPO_ID");
+    private static final String DISCOVERY_REVISION = requiredEnvironment("M6_DISCOVERY_EXPECTED_REVISION");
     private static final String SOURCE_FILE =
             "src/main/java/com/java/system/agent/codeintelligence/semantic/JavaSemanticServiceHttpAdapter.java";
     private static final String PACKAGE_NAME = "com.java.system.agent.codeintelligence.semantic";
@@ -54,19 +72,24 @@ class JavaSemanticServiceLiveContractIT {
     private static final String UNKNOWN_REVISION = "0000000000000000000000000000000000000000";
 
     private final RestClient restClient = RestClient.builder()
-            .baseUrl(requiredEnvironment("M5_SEMANTIC_BASE_URL"))
-            .defaultHeader("X-Api-Token", requiredEnvironment("M5_SEMANTIC_API_TOKEN"))
+            .baseUrl(requiredEnvironment("M6_SEMANTIC_BASE_URL"))
+            .defaultHeader("X-Api-Token", requiredEnvironment("M6_SEMANTIC_API_TOKEN"))
             .build();
     private final JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(restClient);
+    private final CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+            Validation.buildDefaultValidatorFactory().getValidator());
+    private final PlanningToolRegistry registry = new PlanningToolRegistry(
+            List.of(new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+            new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
 
     @Test
     void executesTheM5ReadOnlyConsumerContractAgainstThePinnedRepository() {
-        RepositoryId repositoryId = new RepositoryId(REPOSITORY_ID);
-        RepositoryRevision revision = new RepositoryRevision(REVISION);
+        RepositoryId repositoryId = new RepositoryId(AGENT_REPOSITORY_ID);
+        RepositoryRevision revision = new RepositoryRevision(AGENT_REVISION);
 
         assertThat(adapter.availableRepositories())
                 .extracting(descriptor -> descriptor.repositoryId().value())
-                .contains(REPOSITORY_ID);
+                .contains(AGENT_REPOSITORY_ID);
         assertThat(adapter.currentRevision(repositoryId))
                 .isEqualTo(new RepositoryRevisionResult.Ready(revision));
         assertThat(adapter.listEntryPoints(repositoryContext("codebase_list_entry_points", revision),
@@ -90,10 +113,84 @@ class JavaSemanticServiceLiveContractIT {
     }
 
     @Test
+    void executesTheM6SemanticConsumerContractAgainstThePinnedFixtureRepository() {
+        RepositoryId repositoryId = new RepositoryId(DISCOVERY_REPOSITORY_ID);
+        RepositoryRevision revision = new RepositoryRevision(DISCOVERY_REVISION);
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        List<String> executedCapabilities = new ArrayList<>();
+
+        assertThat(adapter.currentRevision(repositoryId)).isEqualTo(new RepositoryRevisionResult.Ready(revision));
+
+        CapabilityExecutionResult.Succeeded concepts = executeDiscovery(
+                CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
+                repositoryCandidate(repositoryId, revisions),
+                payloadCodec.encode(new DiscoverConceptsExecutionInput(
+                        List.of(new DiscoverConceptsExecutionInput.Term("Default", "TOKEN_PREFIX")),
+                        List.of("TYPE", "MAPPER_STATEMENT"), Optional.of("com.example.m6"), 0, 20)),
+                revisions, executedCapabilities);
+        FollowUpCandidate typeMembers = followUp(concepts, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, revision);
+        FollowUpCandidate evidenceSource = followUp(concepts, CodeIntelligenceQuery.GET_EVIDENCE_SOURCE, revision);
+
+        CapabilityExecutionResult.Succeeded members = executeDiscovery(
+                CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
+                followUpCandidate(typeMembers, revisions), typeMembers.payload(), revisions, executedCapabilities);
+        FollowUpCandidate resolveConcept = followUp(members, CodeIntelligenceQuery.RESOLVE_CONCEPT, revision);
+        FollowUpCandidate internalReferences = followUp(members, CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES, revision);
+
+        executeDiscovery(CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
+                followUpCandidate(resolveConcept, revisions), resolveConcept.payload(), revisions, executedCapabilities);
+        executeDiscovery(CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
+                followUpCandidate(internalReferences, revisions), internalReferences.payload(), revisions, executedCapabilities);
+        executeDiscovery(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
+                followUpCandidate(evidenceSource, revisions), evidenceSource.payload(), revisions, executedCapabilities);
+
+        executeDiscovery(CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
+                repositoryCandidate(repositoryId, revisions), payloadCodec.encode(
+                        new DiscoverEventListenersExecutionInput("com.example.m6.OrderChanged", 0, 20)),
+                revisions, executedCapabilities);
+        executeDiscovery(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
+                targetCandidate(repositoryId, revision, revisions, orderLookupTarget(), "order-lookup-interface"),
+                payloadCodec.encode(new DiscoverMethodImplementationsExecutionInput(Optional.empty())),
+                revisions, executedCapabilities);
+
+        CapabilityExecutionResult.Succeeded resolved = executeDiscovery(
+                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName(),
+                targetCandidate(repositoryId, revision, revisions, defaultLookupTarget(), "default-order-lookup"),
+                payloadCodec.encode(new com.java.system.agent.codeintelligence.planning.ResolveSourceSymbolExecutionInput(
+                        "findById", Optional.of(new SemanticDtos.Position(11, 18)), Optional.empty())),
+                revisions, executedCapabilities);
+        FollowUpCandidate methodSource = followUp(resolved, CodeIntelligenceQuery.GET_METHOD_SOURCE, revision);
+        CapabilityInvocation methodSourceInvocation = invocation(
+                CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(), followUpCandidate(methodSource, revisions),
+                methodSource.payload(), revisions);
+        assertThat(methodSourceInvocation.payload()).isEqualTo(methodSource.payload());
+        CapabilityExecutionResult.Succeeded methodSourceResult = execute(methodSourceInvocation, executedCapabilities);
+
+        FollowUpCandidate sourceSegment = followUp(methodSourceResult, CodeIntelligenceQuery.GET_SOURCE_SEGMENT, revision);
+        CapabilityInvocation sourceSegmentInvocation = invocation(
+                CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(), followUpCandidate(sourceSegment, revisions),
+                sourceSegment.payload(), revisions);
+        assertThat(sourceSegmentInvocation.payload()).isEqualTo(sourceSegment.payload());
+        execute(sourceSegmentInvocation, executedCapabilities);
+
+        assertThat(executedCapabilities).containsExactlyInAnyOrder(
+                CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
+                CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
+                CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
+                CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
+                CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
+                CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
+                CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
+                CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
+                CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(),
+                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
+    }
+
+    @Test
     void mapsRepresentativeLiveFailuresToProviderNeutralResults() {
-        RepositoryId repositoryId = new RepositoryId(REPOSITORY_ID);
+        RepositoryId repositoryId = new RepositoryId(AGENT_REPOSITORY_ID);
         JavaSemanticServiceHttpAdapter unauthorizedAdapter = new JavaSemanticServiceHttpAdapter(RestClient.builder()
-                .baseUrl(requiredEnvironment("M5_SEMANTIC_BASE_URL"))
+                .baseUrl(requiredEnvironment("M6_SEMANTIC_BASE_URL"))
                 .defaultHeader("X-Api-Token", "m5-contract-invalid-token")
                 .build());
 
@@ -114,10 +211,10 @@ class JavaSemanticServiceLiveContractIT {
         SemanticDtos.ApiErrorResponse revisionError = rawRevisionConflict(wrongRevision);
         assertThat(revisionError.errorCode()).isEqualTo("REPOSITORY_REVISION_MISMATCH");
         assertThat(revisionError.expectedRevision()).isEqualTo(UNKNOWN_REVISION);
-        assertThat(revisionError.currentRevision()).isEqualTo(REVISION);
+        assertThat(revisionError.currentRevision()).isEqualTo(AGENT_REVISION);
 
         assertThat(adapter.lookupApiRoute(repositoryContext("codebase_lookup_api_route",
-                new RepositoryRevision(REVISION)), new LookupApiRouteExecutionInput("", null)))
+                new RepositoryRevision(AGENT_REVISION)), new LookupApiRouteExecutionInput("", null)))
                 .isInstanceOfSatisfying(CapabilityExecutionResult.Failed.class,
                         failed -> assertThat(failed.failure().code())
                                 .isEqualTo(CapabilityExecutionFailureCode.DEPENDENCY_FAILURE));
@@ -125,7 +222,7 @@ class JavaSemanticServiceLiveContractIT {
 
     private SemanticDtos.OutgoingCallGraphResponse rawOutgoingCallGraph(RepositoryRevision revision) {
         SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
-                REPOSITORY_ID, revision.value(), 1, methodTargetPayload());
+                AGENT_REPOSITORY_ID, revision.value(), 1, methodTargetPayload());
         SemanticDtos.OutgoingCallGraphResponse response = restClient.post()
                 .uri("/v1/analyses/call-graphs/outgoing")
                 .body(request)
@@ -139,13 +236,13 @@ class JavaSemanticServiceLiveContractIT {
                 .uri(uriBuilder -> uriBuilder.path("/v1/repositories/{repoId}/entry-points")
                         .queryParam("expectedRevision", expectedRevision.value())
                         .queryParam("types", EntryPointType.API.name())
-                        .build(REPOSITORY_ID))
+                        .build(AGENT_REPOSITORY_ID))
                 .exchange((request, clientResponse) -> clientResponse.bodyTo(SemanticDtos.ApiErrorResponse.class));
         return Objects.requireNonNull(response, "live revision conflict response must not be null");
     }
 
     private void assertOutgoingGraphContract(SemanticDtos.OutgoingCallGraphResponse response) {
-        assertThat(response.analyzedRevision()).isEqualTo(REVISION);
+        assertThat(response.analyzedRevision()).isEqualTo(AGENT_REVISION);
         assertThat(response.traversal().requestedDepth()).isEqualTo(1);
         assertThat(response.traversal().expandedNodeCount()).isGreaterThanOrEqualTo(0);
         assertThat(response.traversal().nodeBudget()).isGreaterThanOrEqualTo(0);
@@ -212,21 +309,122 @@ class JavaSemanticServiceLiveContractIT {
             assertThat(followUp.api().path()).isNotBlank();
             assertThat(followUp.api().operationId()).isNotBlank();
             switch (followUp.request()) {
-                case SemanticDtos.MethodSourceFollowUpRequest request -> assertFollowUpScope(
+                case SemanticDtos.TargetFollowUpRequest request -> assertFollowUpScope(
                         request.repoId(), request.expectedRevision());
                 case SemanticDtos.SourceSegmentFollowUpRequest request -> assertFollowUpScope(
                         request.repoId(), request.expectedRevision());
+                default -> assertFollowUpScope(followUp.request().repoId(), followUp.request().expectedRevision());
             }
         }
     }
 
     private void assertFollowUpScope(String repositoryId, String expectedRevision) {
-        assertThat(repositoryId).isEqualTo(REPOSITORY_ID);
-        assertThat(expectedRevision).isEqualTo(REVISION);
+        assertThat(repositoryId).isEqualTo(AGENT_REPOSITORY_ID);
+        assertThat(expectedRevision).isEqualTo(AGENT_REVISION);
+    }
+
+    private CapabilityExecutionResult.Succeeded executeDiscovery(
+            String capabilityName,
+            IssuedCandidate candidate,
+            CapabilityInputPayload payload,
+            RevisionVector revisions,
+            List<String> executedCapabilities) {
+        return execute(invocation(capabilityName, candidate, payload, revisions), executedCapabilities);
+    }
+
+    private CapabilityExecutionResult.Succeeded execute(
+            CapabilityInvocation invocation,
+            List<String> executedCapabilities) {
+        executedCapabilities.add(invocation.capability().name());
+        CapabilityExecutionResult result = registry.execute(invocation);
+        assertThat(result).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
+        CapabilityExecutionResult.Succeeded succeeded = (CapabilityExecutionResult.Succeeded) result;
+        assertDiscoveryRevision(succeeded);
+        return succeeded;
+    }
+
+    private void assertDiscoveryRevision(CapabilityExecutionResult.Succeeded result) {
+        List<RepositoryRevision> observedRevisions = new ArrayList<>();
+        for (AnalysisCandidate candidate : result.discoveredCandidates()) {
+            assertThat(candidate.repositoryId().value()).isEqualTo(DISCOVERY_REPOSITORY_ID);
+            candidate.repositoryRevision().ifPresent(observedRevisions::add);
+        }
+        for (EvidenceRef evidence : result.evidence()) {
+            assertThat(evidence.repositoryId().value()).isEqualTo(DISCOVERY_REPOSITORY_ID);
+            observedRevisions.add(evidence.repositoryRevision());
+        }
+        assertThat(observedRevisions).isNotEmpty().allSatisfy(
+                observedRevision -> assertThat(observedRevision.value()).isEqualTo(DISCOVERY_REVISION));
+    }
+
+    private CapabilityInvocation invocation(
+            String capabilityName,
+            IssuedCandidate candidate,
+            CapabilityInputPayload payload,
+            RevisionVector revisions) {
+        CapabilityPolicy policy = registry.availableCapabilities().stream()
+                .filter(availableCapability -> availableCapability.name().equals(capabilityName))
+                .findFirst()
+                .orElseThrow();
+        return new CapabilityInvocation(policy, List.of(candidate), "Verify M6 semantic consumer contract", payload, revisions);
+    }
+
+    private FollowUpCandidate followUp(
+            CapabilityExecutionResult.Succeeded result,
+            CodeIntelligenceQuery target,
+            RepositoryRevision expectedRevision) {
+        FollowUpCandidate candidate = result.discoveredCandidates().stream()
+                .filter(FollowUpCandidate.class::isInstance)
+                .map(FollowUpCandidate.class::cast)
+                .filter(followUp -> followUp.targetCapabilityName().equals(target.capabilityName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("missing provider-issued follow-up " + target.capabilityName()));
+        assertThat(candidate.repositoryId().value()).isEqualTo(DISCOVERY_REPOSITORY_ID);
+        assertThat(candidate.analyzedRevision()).isEqualTo(expectedRevision);
+        assertThat(candidate.targetCapabilityVersion()).isEqualTo(target.version());
+        return candidate;
+    }
+
+    private IssuedCandidate repositoryCandidate(RepositoryId repositoryId, RevisionVector revisions) {
+        return new IssuedCandidate(new CandidateHandle("m6-fixture-repository",
+                fixtureBinding(revisions), CandidateKind.REPOSITORY),
+                new RepositoryCandidate(repositoryId, "M6 semantic contract fixture repository"));
+    }
+
+    private IssuedCandidate targetCandidate(
+            RepositoryId repositoryId,
+            RepositoryRevision revision,
+            RevisionVector revisions,
+            SemanticTarget target,
+            String handleId) {
+        return new IssuedCandidate(new CandidateHandle(handleId, fixtureBinding(revisions), CandidateKind.SEMANTIC_TARGET),
+                new SemanticTargetCandidate(repositoryId, revision, target, "M6 semantic contract fixture target"));
+    }
+
+    private IssuedCandidate followUpCandidate(FollowUpCandidate candidate, RevisionVector revisions) {
+        return new IssuedCandidate(new CandidateHandle("m6-follow-up-" + candidate.targetCapabilityName(),
+                fixtureBinding(revisions), CandidateKind.FOLLOW_UP), candidate);
+    }
+
+    private HandleBinding fixtureBinding(RevisionVector revisions) {
+        return new HandleBinding(new AnalysisRunId("m6-live-run"), new AnalysisAttemptId("m6-live-attempt"), revisions);
+    }
+
+    private SemanticTarget orderLookupTarget() {
+        return fixtureTarget("src/main/java/com/example/m6/OrderLookup.java", "OrderLookup", "findById");
+    }
+
+    private SemanticTarget defaultLookupTarget() {
+        return fixtureTarget("src/main/java/com/example/m6/DefaultOrderLookup.java", "DefaultOrderLookup", "findById");
+    }
+
+    private SemanticTarget fixtureTarget(String sourceFile, String className, String methodName) {
+        return new JavaSemanticResultMapper().semanticTarget(new SemanticDtos.MethodTarget(sourceFile,
+                "com.example.m6", className, methodName, List.of("java.lang.String")));
     }
 
     private CapabilityExecutionContext repositoryContext(String name, RepositoryRevision revision) {
-        RepositoryId repositoryId = new RepositoryId(REPOSITORY_ID);
+        RepositoryId repositoryId = new RepositoryId(AGENT_REPOSITORY_ID);
         RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
         IssuedCandidate candidate = new IssuedCandidate(
                 new CandidateHandle("live-repository-candidate", new HandleBinding(new AnalysisRunId("live-run"),
@@ -237,7 +435,7 @@ class JavaSemanticServiceLiveContractIT {
     }
 
     private CapabilityExecutionContext targetContext(String name, RepositoryRevision revision) {
-        RepositoryId repositoryId = new RepositoryId(REPOSITORY_ID);
+        RepositoryId repositoryId = new RepositoryId(AGENT_REPOSITORY_ID);
         RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
         SemanticTarget target = new JavaSemanticResultMapper().semanticTarget(methodTarget());
         IssuedCandidate candidate = new IssuedCandidate(

@@ -1,6 +1,9 @@
 package com.java.system.agent;
 
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticFollowUpMapper;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticResultMapper;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,7 +36,11 @@ public final class AgentCodebaseConfiguration {
     }
 
     @Bean
-    JavaSemanticServiceHttpAdapter javaSemanticServiceHttpAdapter(RestClient codebaseRestClient) {
-        return new JavaSemanticServiceHttpAdapter(codebaseRestClient);
+    JavaSemanticServiceHttpAdapter javaSemanticServiceHttpAdapter(
+            RestClient codebaseRestClient,
+            CanonicalCapabilityPayloadCodec payloadCodec) {
+        JavaSemanticFollowUpMapper followUpMapper = new JavaSemanticFollowUpMapper(payloadCodec);
+        JavaSemanticResultMapper resultMapper = new JavaSemanticResultMapper(followUpMapper);
+        return new JavaSemanticServiceHttpAdapter(codebaseRestClient, resultMapper, payloadCodec);
     }
 }
