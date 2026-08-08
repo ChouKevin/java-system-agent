@@ -147,7 +147,7 @@ final class JavaSemanticProviderSchemaValidator {
             conceptIdentity(candidate.identity());
             enumValue(candidate.authority(), Set.of("SYNTAX_RESOLVED", "SYNTAX_DECLARED", "FRAMEWORK_METADATA",
                     "WRITTEN_NAME_FALLBACK", "METADATA_VALUE_UNRESOLVED"), "concept authority");
-            candidate.details().ifPresent(this::conceptCandidateDetails);
+            candidate.details().ifPresent(details -> conceptCandidateDetails(candidate.identity(), details));
             for (SemanticDtos.ConceptEvidenceResponse evidence : requiredList(candidate.evidence(), "concept evidence")) {
                 conceptIdentity(evidence.identity());
             }
@@ -164,7 +164,7 @@ final class JavaSemanticProviderSchemaValidator {
         discoveryScope(required.repoId(), required.analyzedRevision(), "resolve concept");
         SemanticDtos.ConceptCandidateResponse candidate = requiredObject(required.candidate(), "resolved concept candidate");
         conceptIdentity(candidate.identity());
-        candidate.details().ifPresent(this::conceptCandidateDetails);
+        candidate.details().ifPresent(details -> conceptCandidateDetails(candidate.identity(), details));
         for (SemanticDtos.ConceptEvidenceResponse evidence : requiredList(candidate.evidence(), "resolved concept evidence")) {
             conceptIdentity(evidence.identity());
         }
@@ -172,11 +172,18 @@ final class JavaSemanticProviderSchemaValidator {
         return required;
     }
 
-    private void conceptCandidateDetails(SemanticDtos.ConceptCandidateDetailsResponse details) {
+    private void conceptCandidateDetails(SemanticDtos.ConceptFollowUpIdentity identity,
+                                         SemanticDtos.ConceptCandidateDetailsResponse details) {
         if (details instanceof SemanticDtos.FieldConceptCandidateDetailsResponse field) {
+            if (!"FIELD".equals(identity.kind())) {
+                throw contract("field concept details do not match the concept identity");
+            }
             enumValue(field.kind(), Set.of("FIELD"), "field concept details kind");
             fieldTypeReference(field.declaredType());
         } else if (details instanceof SemanticDtos.MapperStatementConceptCandidateDetailsResponse mapper) {
+            if (!"MAPPER_STATEMENT".equals(identity.kind())) {
+                throw contract("mapper statement details do not match the concept identity");
+            }
             enumValue(mapper.kind(), Set.of("MAPPER_STATEMENT"), "mapper statement details kind");
             mapperStatementMapping(mapper.mapping());
         } else {
@@ -254,8 +261,12 @@ final class JavaSemanticProviderSchemaValidator {
         for (SemanticDtos.EventListenerCandidateResponse candidate : requiredList(required.candidates(), "event listener candidate")) {
             methodTargetPayload(candidate.target());
             textRange(candidate.sourceRange(), "event listener source range");
-            for (SemanticDtos.ListenerAnnotationEvidenceResponse annotation : requiredList(candidate.listenerAnnotations(),
-                    "event listener annotation")) {
+            List<SemanticDtos.ListenerAnnotationEvidenceResponse> annotations = requiredList(candidate.listenerAnnotations(),
+                    "event listener annotation");
+            if (annotations.isEmpty()) {
+                throw contract("event listener candidate must have an annotation");
+            }
+            for (SemanticDtos.ListenerAnnotationEvidenceResponse annotation : annotations) {
                 enumValue(annotation.kind(), Set.of("EVENT_LISTENER", "TRANSACTIONAL_EVENT_LISTENER"),
                         "event listener annotation kind");
                 enumValue(annotation.matchKind(), Set.of("RESOLVED_IDENTITY", "WRITTEN_NAME"),
@@ -301,6 +312,10 @@ final class JavaSemanticProviderSchemaValidator {
         SemanticDtos.DiscoverTypeMembersResponse required = requiredObject(response, "type member response");
         discoveryScope(required.repoId(), required.analyzedRevision(), "type member");
         sourceTypePayload(required.sourceType());
+        enumValue(required.typeKind(), Set.of("CLASS", "INTERFACE", "RECORD", "ENUM"), "type member type kind");
+        nonemptyOrEmptyStrings(required.annotations(), "type member annotation");
+        nonemptyOrEmptyStrings(required.implementedTypes(), "type member implemented type");
+        nonemptyOrEmptyStrings(required.extendedTypes(), "type member extended type");
         pageResponse(required.page(), "type member page");
         coverage(required.coverage(), "type member coverage");
         for (SemanticDtos.TypeMemberResponse member : requiredList(required.members(), "type member")) {
@@ -310,6 +325,10 @@ final class JavaSemanticProviderSchemaValidator {
             } else if (member instanceof SemanticDtos.FieldTypeMemberResponse field) {
                 enumValue(field.kind(), Set.of("FIELD"), "type member kind");
                 sourceMemberIdentity(field.identity());
+                nonblank(field.writtenType(), "type member field written type");
+                field.resolvedType().ifPresent(value -> nonblank(value, "type member field resolved type"));
+                nonemptyOrEmptyStrings(field.annotations(), "type member field annotation");
+                enumValues(field.limitations(), Set.of("FIELD_USAGE_NOT_INDEXED"), "type member field limitation");
             } else {
                 throw contract("unsupported type member response");
             }
