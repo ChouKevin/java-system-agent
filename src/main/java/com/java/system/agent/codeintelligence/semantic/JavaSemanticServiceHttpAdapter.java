@@ -215,15 +215,17 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private CapabilityExecutionResult outgoingCallGraphInternal(
             CapabilityExecutionContext context,
             OutgoingCallGraphExecutionInput input) {
-        SemanticTargetCandidate target = selectedTarget(context);
+        DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH, input,
+                OutgoingCallGraphExecutionInput.class, SemanticTargetCandidate.class);
+        SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "outgoing call graph");
         try {
             SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
-                    target.repositoryId().value(), target.analyzedRevision().value(), input.depth(),
-                    resultMapper.methodTargetPayload(target.semanticTarget()));
+                    scope.repositoryId().value(), scope.expectedRevision().value(), input.depth(), target);
             SemanticDtos.OutgoingCallGraphResponse response = restClient.post()
                     .uri("/v1/analyses/call-graphs/outgoing").body(request).retrieve()
                     .body(SemanticDtos.OutgoingCallGraphResponse.class);
-            return resultMapper.outgoingCallGraph(resultInvocation(context), requiredResponse(response, "outgoing call graph"));
+            return resultMapper.outgoingCallGraph(scope.repositoryId(), scope.expectedRevision(), target,
+                    requiredResponse(response, "outgoing call graph"));
         } catch (RestClientResponseException exception) {
             return errorMapper.capability(errorResponse(exception), OUTGOING_OPERATION);
         } catch (ResourceAccessException exception) {
@@ -242,15 +244,17 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private CapabilityExecutionResult incomingCallGraphInternal(
             CapabilityExecutionContext context,
             IncomingCallGraphExecutionInput input) {
-        SemanticTargetCandidate target = selectedTarget(context);
+        DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.INCOMING_CALL_GRAPH, input,
+                IncomingCallGraphExecutionInput.class, SemanticTargetCandidate.class);
+        SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "incoming call graph");
         try {
             SemanticDtos.AnalyzeIncomingCallGraphRequest request = new SemanticDtos.AnalyzeIncomingCallGraphRequest(
-                    target.repositoryId().value(), target.analyzedRevision().value(), input.depth(),
-                    resultMapper.methodTargetPayload(target.semanticTarget()));
+                    scope.repositoryId().value(), scope.expectedRevision().value(), input.depth(), target);
             SemanticDtos.IncomingCallGraphResponse response = restClient.post()
                     .uri("/v1/analyses/call-graphs/incoming").body(request).retrieve()
                     .body(SemanticDtos.IncomingCallGraphResponse.class);
-            return resultMapper.incomingCallGraph(resultInvocation(context), requiredResponse(response, "incoming call graph"));
+            return resultMapper.incomingCallGraph(scope.repositoryId(), scope.expectedRevision(), target,
+                    requiredResponse(response, "incoming call graph"));
         } catch (RestClientResponseException exception) {
             return errorMapper.capability(errorResponse(exception), INCOMING_OPERATION);
         } catch (ResourceAccessException exception) {
@@ -643,15 +647,6 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         RepositoryRevision expectedRevision = context.expectedRevisions().revisionOf(repository.repositoryId())
                 .orElseThrow(() -> contract("capability repository revision is not pinned"));
         return new RepositoryQueryScope(repository.repositoryId(), expectedRevision);
-    }
-
-    private SemanticTargetCandidate selectedTarget(CapabilityExecutionContext context) {
-        Objects.requireNonNull(context, "capability execution context must not be null");
-        if (context.candidates().size() != 1
-                || !(context.candidates().getFirst().candidate() instanceof SemanticTargetCandidate target)) {
-            throw contract("call graph requires exactly one semantic target candidate");
-        }
-        return target;
     }
 
     private CapabilityInvocation resultInvocation(CapabilityExecutionContext context) {

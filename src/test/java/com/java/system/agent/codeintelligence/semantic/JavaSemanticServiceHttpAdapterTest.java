@@ -186,6 +186,68 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
+    void executesBothCallGraphsForAFollowUpCandidateWithItsBoundTargetAndPinnedScope() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+        OutgoingCallGraphExecutionInput outgoing = new OutgoingCallGraphExecutionInput(1, Optional.of(target));
+        IncomingCallGraphExecutionInput incoming = new IncomingCallGraphExecutionInput(1, Optional.of(target));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
+                .andExpect(method(POST))
+                .andExpect(content().json(graphRequest(target)))
+                .andRespond(withSuccess(graphResponse(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/incoming"))
+                .andExpect(method(POST))
+                .andExpect(content().json(graphRequest(target)))
+                .andRespond(withSuccess(graphResponse(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertSucceeded(() -> adapter.outgoingCallGraph(
+                followUpContext("codebase_outgoing_call_graph", outgoing), outgoing));
+        assertSucceeded(() -> adapter.incomingCallGraph(
+                followUpContext("codebase_incoming_call_graph", incoming), incoming));
+
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsBoundTargetsInjectedIntoDirectCallGraphInputsBeforeHttp() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"));
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/analyses/call-graphs/incoming"));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
+                new OutgoingCallGraphExecutionInput(1, Optional.of(target))))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"),
+                new IncomingCallGraphExecutionInput(1, Optional.of(target))))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsCallGraphResponsesThatDoNotMatchThePinnedRevision() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
+                .andRespond(withSuccess(graphResponse().replace(
+                        "\"analyzedRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+                        "\"analyzedRevision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\""),
+                        MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
+                new OutgoingCallGraphExecutionInput(1)))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageContaining("revision");
+
+        client.server().verify();
+    }
+
+    @Test
     void rejectsDiscoveryFollowUpsWithWrongCapabilityOrCanonicalPayloadBeforeHttp() {
         TestClient client = testClient();
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
@@ -510,6 +572,13 @@ class JavaSemanticServiceHttpAdapterTest {
                 """;
     }
 
+    private static String graphRequest(SemanticDtos.MethodTargetPayload target) {
+        return """
+                {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","depth":1,"target":{"sourceType":{"javaType":{"packageName":"%s","className":"%s"},"sourceFile":"%s"},"methodName":"%s","parameterTypes":["java.lang.String"]}}
+                """.formatted(target.sourceType().javaType().packageName(), target.sourceType().javaType().className(),
+                target.sourceType().sourceFile(), target.methodName());
+    }
+
     private static CapabilityExecutionContext repositoryContext(String name) {
         RepositoryId repositoryId = new RepositoryId("orders");
         RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -752,6 +821,12 @@ class JavaSemanticServiceHttpAdapterTest {
         return new SemanticDtos.MethodTargetPayload(new SemanticDtos.SourceTypeIdentityPayload(
                 new SemanticDtos.JavaTypeIdentityPayload("com.example", "Orders"), "src/Orders.java"),
                 "find", List.of());
+    }
+
+    private static SemanticDtos.MethodTargetPayload graphTargetPayload() {
+        return new SemanticDtos.MethodTargetPayload(new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.example", "OrderService"), "src/OrderService.java"),
+                "find", List.of("java.lang.String"));
     }
 
     private static SemanticDtos.ConceptFollowUpIdentity conceptIdentity() {

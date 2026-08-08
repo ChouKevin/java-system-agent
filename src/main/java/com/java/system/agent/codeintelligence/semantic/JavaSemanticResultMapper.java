@@ -121,15 +121,33 @@ public final class JavaSemanticResultMapper {
 
     public CapabilityExecutionResult outgoingCallGraph(CapabilityInvocation invocation,
                                                         SemanticDtos.OutgoingCallGraphResponse response) {
+        SemanticTargetCandidate target = selectedTarget(invocation);
+        return outgoingCallGraph(target.repositoryId(), target.analyzedRevision(),
+                methodTargetPayload(target.semanticTarget()), response);
+    }
+
+    CapabilityExecutionResult outgoingCallGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
+                                                SemanticDtos.MethodTargetPayload requestedTarget,
+                                                SemanticDtos.OutgoingCallGraphResponse response) {
         SemanticDtos.OutgoingCallGraphResponse required = requireProviderObject(response, "outgoing call graph response");
-        return callGraph(invocation, required.status(), required.analyzedRevision(), required.rootNodeId(),
+        return callGraph(repositoryId, expectedRevision, requestedTarget, required.status(), required.analyzedRevision(),
+                required.rootNodeId(),
                 required.traversal(), required.nodes(), required.edges(), required.warnings(), required.errors());
     }
 
     public CapabilityExecutionResult incomingCallGraph(CapabilityInvocation invocation,
                                                         SemanticDtos.IncomingCallGraphResponse response) {
+        SemanticTargetCandidate target = selectedTarget(invocation);
+        return incomingCallGraph(target.repositoryId(), target.analyzedRevision(),
+                methodTargetPayload(target.semanticTarget()), response);
+    }
+
+    CapabilityExecutionResult incomingCallGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
+                                                SemanticDtos.MethodTargetPayload requestedTarget,
+                                                SemanticDtos.IncomingCallGraphResponse response) {
         SemanticDtos.IncomingCallGraphResponse required = requireProviderObject(response, "incoming call graph response");
-        return callGraph(invocation, required.status(), required.analyzedRevision(), required.rootNodeId(),
+        return callGraph(repositoryId, expectedRevision, requestedTarget, required.status(), required.analyzedRevision(),
+                required.rootNodeId(),
                 required.traversal(), required.nodes(), required.edges(), required.warnings(), required.errors());
     }
 
@@ -565,14 +583,20 @@ public final class JavaSemanticResultMapper {
         return List.copyOf(observations);
     }
 
-    private CapabilityExecutionResult callGraph(CapabilityInvocation invocation, String status, String analyzedRevision,
+    private CapabilityExecutionResult callGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
+                                                SemanticDtos.MethodTargetPayload requestedTarget, String status,
+                                                String analyzedRevision,
                                                 String rootNodeId, SemanticDtos.GraphTraversal traversal,
                                                 List<SemanticDtos.GraphNode> nodes, List<SemanticDtos.GraphEdge> edges,
                                                 List<SemanticDtos.GraphWarning> warnings,
                                                 List<SemanticDtos.GraphError> errors) {
-        requireProviderObject(invocation, "capability invocation");
+        Objects.requireNonNull(repositoryId, "graph repository ID must not be null");
+        Objects.requireNonNull(expectedRevision, "graph expected revision must not be null");
+        Objects.requireNonNull(requestedTarget, "graph requested target must not be null");
         schemaValidator.graph(status, analyzedRevision, rootNodeId, traversal, nodes, edges, warnings, errors);
-        RepositoryId repositoryId = selectedTarget(invocation).repositoryId();
+        if (!expectedRevision.value().equals(analyzedRevision)) {
+            throw contract("graph response revision does not match the expected revision");
+        }
         RepositoryRevision revision = new RepositoryRevision(analyzedRevision);
         List<SemanticDtos.GraphNode> requiredNodes = requiredList(nodes, "graph node");
         List<SemanticDtos.GraphEdge> requiredEdges = requiredList(edges, "graph edge");
@@ -581,6 +605,9 @@ public final class JavaSemanticResultMapper {
         List<AnalysisCandidate> candidates = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>();
         SemanticDtos.GraphNode root = responseRoot(rootNodeId, requiredNodes);
+        if (!matches(requestedTarget, root.target())) {
+            throw contract("graph response root target does not match the requested target");
+        }
         for (SemanticDtos.GraphNode node : requiredNodes) {
             if (Objects.nonNull(node.target())) {
                 candidates.add(new SemanticTargetCandidate(repositoryId, revision, semanticTarget(node.target()),
@@ -620,6 +647,14 @@ public final class JavaSemanticResultMapper {
         EvidenceRef evidence = new EvidenceRef(SOURCE_SERVICE, repositoryId, revision, semanticTarget(root.target()), content,
                 evidenceWarnings(requiredWarnings, requiredErrors), JavaSemanticArtifactDigest.fromContent(content));
         return succeeded(candidates, List.of(evidence), observations);
+    }
+
+    private boolean matches(SemanticDtos.MethodTargetPayload requested, SemanticDtos.MethodTarget response) {
+        return requested.sourceType().sourceFile().equals(response.sourceFile())
+                && requested.sourceType().javaType().packageName().equals(response.packageName())
+                && requested.sourceType().javaType().className().equals(response.className())
+                && requested.methodName().equals(response.methodName())
+                && requested.parameterTypes().equals(response.parameterTypes());
     }
 
     private void addResolutionCandidates(RepositoryId repositoryId, RepositoryRevision revision,

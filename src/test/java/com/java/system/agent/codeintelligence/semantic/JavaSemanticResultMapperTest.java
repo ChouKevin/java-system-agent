@@ -506,7 +506,7 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
-    void usesTheUniqueResponseRootTargetAndPreservesCompleteGraphEvidence() {
+    void rejectsAGraphResponseWhoseRootDoesNotMatchTheRequestedTarget() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.MethodTarget requested = methodTarget("RequestedService", "find");
         SemanticDtos.MethodTarget responseRoot = methodTarget("ResponseService", "load");
@@ -518,16 +518,10 @@ class JavaSemanticResultMapperTest {
                 "MYBATIS_MAPPER", "RESOLVED_OPAQUE", List.of("proof"))), List.of(
                 new SemanticDtos.GraphWarning("NODE_BUDGET_REACHED", longMessage, "root", null, null, List.of(), List.of())), List.of(
                 new SemanticDtos.GraphError("CHILD_SEMANTIC_QUERY_FAILED", "tail error", "root")));
-        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(requested), response);
-
-        EvidenceRef evidence = result.evidence().getFirst();
-        assertThat(evidence.semanticTarget()).isEqualTo(mapper.semanticTarget(responseRoot));
-        assertThat(evidence.content()).contains("warning=NODE_BUDGET_REACHED:")
-                .contains("error=CHILD_SEMANTIC_QUERY_FAILED:tail error").hasSizeGreaterThan(1_000);
-        assertThat(evidence.artifactRef()).isEqualTo(JavaSemanticArtifactDigest.fromContent(evidence.content()));
-        assertThat(result.observations()).extracting(observation -> observation.code())
-                .contains(ObservationCode.OPAQUE_EXTERNAL_CALL);
+        assertThatThrownBy(() -> mapper.outgoingCallGraph(
+                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(requested), response))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageContaining("root target");
     }
 
     @Test

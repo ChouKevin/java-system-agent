@@ -1,23 +1,46 @@
 package com.java.system.agent.codeintelligence.planning;
 
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
+import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
+import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.QueryCapabilityRegistration;
 import com.java.system.agent.capability.planning.QueryPlanningToolRegistration;
+import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
+import com.java.system.agent.capability.spi.CapabilityExecutionContext;
 import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
-import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.groups.Tuple.tuple;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * 驗證 repository scoped code intelligence query 必須選定一個 repository
@@ -141,5 +164,45 @@ class CodeIntelligencePlanningToolProviderTest {
                     assertThat(policy.minimumCandidates()).isEqualTo(1);
                     assertThat(policy.maximumCandidates()).isEqualTo(1);
                 });
+    }
+
+    @Test
+    void executesAFollowUpGraphThroughRegistryDecodingAndTheRegisteredExecutor() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        SemanticDtos.MethodTargetPayload target = new SemanticDtos.MethodTargetPayload(
+                new SemanticDtos.SourceTypeIdentityPayload(
+                        new SemanticDtos.JavaTypeIdentityPayload("com.example", "OrderService"),
+                        "src/OrderService.java"), "find", List.of("java.lang.String"));
+        OutgoingCallGraphExecutionInput input = new OutgoingCallGraphExecutionInput(1, Optional.of(target));
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        CapabilityPolicy policy = registry.availableCapabilities().stream()
+                .filter(candidate -> candidate.name().equals(CodeIntelligenceQuery.OUTGOING_CALL_GRAPH.capabilityName()))
+                .findFirst().orElseThrow();
+        CapabilityInputPayload payload = payloadCodec.encode(input);
+        FollowUpCandidate followUp = new FollowUpCandidate(repositoryId, revision, policy.name(), policy.version(), payload,
+                "Continue graph discovery");
+        IssuedCandidate candidate = new IssuedCandidate(new CandidateHandle("candidate-follow-up",
+                new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions),
+                CandidateKind.FOLLOW_UP), followUp);
+        CapabilityInvocation invocation = new CapabilityInvocation(policy, List.of(candidate), "Trace call graph", payload,
+                revisions);
+        CapabilityExecutionResult expected = new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+        when(adapter.outgoingCallGraph(any(CapabilityExecutionContext.class), eq(input))).thenReturn(expected);
+
+        CapabilityExecutionResult result = registry.execute(invocation);
+
+        ArgumentCaptor<CapabilityExecutionContext> context = ArgumentCaptor.forClass(CapabilityExecutionContext.class);
+        assertThat(result).isSameAs(expected);
+        verify(adapter, times(1)).outgoingCallGraph(context.capture(), eq(input));
+        assertThat(context.getValue().capability()).isEqualTo(policy);
+        assertThat(context.getValue().candidates()).containsExactly(candidate);
+        assertThat(context.getValue().expectedRevisions()).isEqualTo(revisions);
     }
 }
