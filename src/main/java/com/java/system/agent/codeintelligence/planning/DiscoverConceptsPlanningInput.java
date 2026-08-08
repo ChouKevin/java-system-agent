@@ -9,11 +9,12 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.Pattern;
-import org.hibernate.validator.constraints.UniqueElements;
+import jakarta.validation.constraints.Size;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** 概念探索規劃工具的模型輸入 */
@@ -22,8 +23,15 @@ public record DiscoverConceptsPlanningInput(
         @JsonProperty(required = true) @NotBlank String questionToResolve,
         @JsonProperty(required = true) @NotBlank String rationale,
         @JsonProperty(required = true) @Valid @NotEmpty @Size(max = 4) List<DiscoverConceptsExecutionInput.Term> terms,
-        @JsonProperty(required = true) @NotEmpty @UniqueElements List<@NotBlank @Pattern(regexp = "TYPE|METHOD|FIELD|ANNOTATION_USAGE|TYPE_USAGE|API_ROUTE|MQ_DESTINATION|SCHEDULE|MAPPER_STATEMENT|SQL_IDENTIFIER|CONFIGURATION_KEY|OUTBOUND_API|MQ_PUBLISHER|ERROR_CONTRACT|ENUM_CONSTANT") String> kinds,
+        @JsonProperty(required = true) @NotEmpty List<@NotBlank @Pattern(regexp = "TYPE|METHOD|FIELD|ANNOTATION_USAGE|TYPE_USAGE|API_ROUTE|MQ_DESTINATION|SCHEDULE|MAPPER_STATEMENT|SQL_IDENTIFIER|CONFIGURATION_KEY|OUTBOUND_API|MQ_PUBLISHER|ERROR_CONTRACT|ENUM_CONSTANT") String> kinds,
         @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) Optional<String> packagePrefix,
         @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) @Min(0) Integer offset,
         @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) @Min(1) @Max(100) Integer limit) {
+
+    public DiscoverConceptsPlanningInput {
+        kinds = List.copyOf(Objects.requireNonNull(kinds, "concept kinds are required"));
+        if (new HashSet<>(kinds).size() != kinds.size()) {
+            throw new IllegalArgumentException("concept kinds must be unique");
+        }
+    }
 }
