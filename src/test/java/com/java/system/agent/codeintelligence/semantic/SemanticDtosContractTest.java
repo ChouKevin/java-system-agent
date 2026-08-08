@@ -5,6 +5,7 @@ import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** 驗證 call graph HTTP follow-up 契約會以完整 typed DTO 保留 */
 class SemanticDtosContractTest {
@@ -82,5 +83,34 @@ class SemanticDtosContractTest {
         assertThat(segmentRequest.location().range().end().line()).isEqualTo(3);
         assertThat(segmentRequest.location().range().end().character()).isEqualTo(12);
         assertThat(segmentRequest.contextLines()).isZero();
+    }
+
+    @Test
+    void deserializes_closed_concept_and_evidence_identities_and_rejects_unknown_members() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        String conceptJson = """
+                {"kind":"API_ROUTE","target":{"sourceType":{"javaType":{"packageName":"com.acme","className":"Orders"},"sourceFile":"Orders.java"},"methodName":"find","parameterTypes":[]},"httpVerb":"GET","route":"/orders"}
+                """;
+        String evidenceJson = """
+                {"kind":"MAPPER_FRAGMENT","fragmentIdentity":{"namespace":"mapper","fragmentId":"find","resourcePath":"src/main/resources/Mapper.xml","documentOrdinal":0,"representation":"MAPPER_XML_ELEMENT"}}
+                """;
+
+        assertThat(mapper.readValue(conceptJson, SemanticDtos.ConceptFollowUpIdentity.class).kind())
+                .isEqualTo("API_ROUTE");
+        assertThat(mapper.readValue(evidenceJson, SemanticDtos.EvidenceSourceFollowUpIdentity.class).fragmentIdentity())
+                .isPresent();
+        SemanticDtos.AvailableFollowUp resolveFollowUp = mapper.readValue("""
+                {"operation":"RESOLVE_CONCEPT","api":{"method":"POST","path":"/v1/discovery/concepts/resolve","operationId":"resolveConcept"},"request":{"repoId":"orders","expectedRevision":"FIXTURE","identity":%s}}
+                """.formatted(conceptJson), SemanticDtos.AvailableFollowUp.class);
+        SemanticDtos.AvailableFollowUp evidenceFollowUp = mapper.readValue("""
+                {"operation":"GET_EVIDENCE_SOURCE","api":{"method":"POST","path":"/v1/discovery/evidence-source","operationId":"getEvidenceSource"},"request":{"repoId":"orders","expectedRevision":"FIXTURE","identity":%s}}
+                """.formatted(evidenceJson), SemanticDtos.AvailableFollowUp.class);
+        assertThat(((SemanticDtos.IdentityFollowUpRequest) resolveFollowUp.request()).identity())
+                .isInstanceOf(SemanticDtos.ConceptFollowUpIdentity.class);
+        assertThat(((SemanticDtos.IdentityFollowUpRequest) evidenceFollowUp.request()).identity())
+                .isInstanceOf(SemanticDtos.EvidenceSourceFollowUpIdentity.class);
+        assertThatThrownBy(() -> mapper.readValue("""
+                {"kind":"TYPE","sourceType":{"javaType":{"packageName":"com.acme","className":"Orders"},"sourceFile":"Orders.java"},"unknown":true}
+                """, SemanticDtos.ConceptFollowUpIdentity.class)).isInstanceOf(Exception.class);
     }
 }

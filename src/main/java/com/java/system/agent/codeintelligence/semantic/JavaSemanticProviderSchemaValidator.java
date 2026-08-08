@@ -7,6 +7,7 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -140,7 +141,381 @@ final class JavaSemanticProviderSchemaValidator {
         SemanticDtos.AvailableFollowUpRequest request = requiredObject(required.request(), "Semantic follow-up request");
         repositoryId(request.repoId(), "Semantic follow-up repository ID");
         revision(request.expectedRevision(), "Semantic follow-up expected revision");
+        validateFollowUpOperation(required.operation(), request);
         return required;
+    }
+
+    private void validateFollowUpOperation(String operation, SemanticDtos.AvailableFollowUpRequest request) {
+        switch (operation) {
+            case "GET_METHOD_SOURCE" -> validateMethodSource(request);
+            case "ANALYZE_OUTGOING_CALL_GRAPH", "ANALYZE_INCOMING_CALL_GRAPH" -> validateGraph(request);
+            case "DISCOVER_METHOD_IMPLEMENTATIONS" -> methodTargetPayload(
+                    require(request, SemanticDtos.DiscoverMethodImplementationsFollowUpRequest.class).declarationTarget());
+            case "RESOLVE_CONCEPT" -> conceptIdentity(
+                    require(request, SemanticDtos.IdentityFollowUpRequest.class).identity());
+            case "GET_TYPE_MEMBERS", "DISCOVER_TYPE_MEMBERS" -> typeMembers(
+                    require(request, SemanticDtos.TypeMembersFollowUpRequest.class));
+            case "DISCOVER_CONCEPTS" -> concepts(require(request, SemanticDtos.DiscoverConceptsFollowUpRequest.class));
+            case "DISCOVER_EVENT_LISTENERS" -> listeners(
+                    require(request, SemanticDtos.DiscoverEventListenersFollowUpRequest.class));
+            case "RESOLVE_SOURCE_SYMBOL" -> sourceSymbol(
+                    require(request, SemanticDtos.ResolveSourceSymbolFollowUpRequest.class));
+            case "FIND_INTERNAL_REFERENCES" -> internalReferences(request);
+            case "GET_SOURCE_SEGMENT" -> sourceSegment(
+                    require(request, SemanticDtos.SourceSegmentFollowUpRequest.class));
+            case "GET_EVIDENCE_SOURCE" -> evidenceIdentity(
+                    require(request, SemanticDtos.IdentityFollowUpRequest.class).identity());
+            default -> throw contract("unsupported Semantic follow-up operation");
+        }
+    }
+
+    private void validateMethodSource(SemanticDtos.AvailableFollowUpRequest request) {
+        SemanticDtos.TargetFollowUpRequest target = require(request, SemanticDtos.TargetFollowUpRequest.class);
+        methodTargetPayload(requireFollowUpTarget(target.target(), SemanticDtos.MethodTargetPayload.class));
+        if (target.depth().isPresent() || target.offset().isPresent() || target.limit().isPresent()) {
+            throw contract("method source target follow-up has mixed fields");
+        }
+    }
+
+    private void validateGraph(SemanticDtos.AvailableFollowUpRequest request) {
+        SemanticDtos.TargetFollowUpRequest target = require(request, SemanticDtos.TargetFollowUpRequest.class);
+        methodTargetPayload(requireFollowUpTarget(target.target(), SemanticDtos.MethodTargetPayload.class));
+        int depth = target.depth().orElseThrow(() -> contract("call graph depth is required"));
+        range(depth, 1, 2, "call graph depth");
+        if (target.offset().isPresent() || target.limit().isPresent()) {
+            throw contract("call graph target follow-up has mixed fields");
+        }
+    }
+
+    private void internalReferences(SemanticDtos.AvailableFollowUpRequest request) {
+        SemanticDtos.TargetFollowUpRequest target = require(request, SemanticDtos.TargetFollowUpRequest.class);
+        SemanticDtos.InternalReferenceFollowUpTarget internal = requireFollowUpTarget(
+                target.target(), SemanticDtos.InternalReferenceFollowUpTarget.class);
+        internalReferenceTarget(internal);
+        if (target.depth().isPresent()) {
+            throw contract("internal references target follow-up has mixed fields");
+        }
+        minimum(target.offset().orElseThrow(() -> contract("reference offset is required")), 0, "reference offset");
+        range(target.limit().orElseThrow(() -> contract("reference limit is required")), 1, 100, "reference limit");
+    }
+
+    private void typeMembers(SemanticDtos.TypeMembersFollowUpRequest request) {
+        sourceTypePayload(request.sourceType());
+        nonemptyStrings(request.memberKinds(), "member kind");
+        request.namePrefix().ifPresent(value -> nonblank(value, "member name prefix"));
+        page(request.offset(), request.limit(), "type members");
+    }
+
+    private void concepts(SemanticDtos.DiscoverConceptsFollowUpRequest request) {
+        List<SemanticDtos.ConceptSearchTermPayload> terms = requiredList(request.terms(), "concept search term");
+        if (terms.isEmpty() || terms.size() > 4) {
+            throw contract("concept search terms are outside their supported range");
+        }
+        for (SemanticDtos.ConceptSearchTermPayload term : terms) {
+            String value = requiredString(term.value(), "concept search term value");
+            if (value.length() < 2 || value.length() > 128) {
+                throw contract("concept search term value is outside its supported range");
+            }
+            nonblank(term.matchMode(), "concept search term match mode");
+        }
+        nonemptyStrings(request.kinds(), "concept kind");
+        enumValue(request.operator(), Set.of("ALL"), "concept operator");
+        request.packagePrefix().ifPresent(value -> nonblank(value, "concept package prefix"));
+        page(request.offset(), request.limit(), "concepts");
+    }
+
+    private void listeners(SemanticDtos.DiscoverEventListenersFollowUpRequest request) {
+        nonblank(request.eventType(), "event type");
+        page(request.offset(), request.limit(), "event listeners");
+    }
+
+    private void sourceSymbol(SemanticDtos.ResolveSourceSymbolFollowUpRequest request) {
+        sourceSymbolContext(request.context());
+        nonblank(request.symbol(), "source symbol");
+        request.position().ifPresent(value -> position(value, "source symbol position"));
+    }
+
+    private void sourceSegment(SemanticDtos.SourceSegmentFollowUpRequest request) {
+        sourceRange(request.location(), "source segment location");
+        range(request.contextLines(), 0, 20, "source segment context lines");
+    }
+
+    private void conceptIdentity(SemanticDtos.FollowUpIdentity identity) {
+        if (!(identity instanceof SemanticDtos.ConceptFollowUpIdentity concept)) {
+            throw contract("follow-up identity does not match resolve concept operation");
+        }
+        switch (enumValue(concept.kind(), Set.of("TYPE", "METHOD", "FIELD", "ANNOTATION_USAGE", "TYPE_USAGE",
+                "API_ROUTE", "MQ_DESTINATION", "SCHEDULE", "MAPPER_STATEMENT", "MAPPER_STATEMENT_VARIANT"),
+                "concept identity kind")) {
+            case "TYPE" -> {
+                rejectUnexpected(concept, "sourceType");
+                sourceTypePayload(requiredOnly(concept.sourceType(), concept, "sourceType"));
+            }
+            case "METHOD" -> {
+                rejectUnexpected(concept, "target");
+                methodTargetPayload(requiredOnly(concept.target(), concept, "target"));
+            }
+            case "FIELD" -> {
+                rejectUnexpected(concept, "identity");
+                SemanticDtos.ConceptIdentityTargetPayload fieldIdentity = requiredOnly(
+                        concept.identity(), concept, "identity");
+                if (!(fieldIdentity instanceof SemanticDtos.SourceMemberIdentityPayload.TypeMember)
+                        && !(fieldIdentity instanceof SemanticDtos.SourceMemberIdentityPayload.MethodScoped)) {
+                    throw contract("concept FIELD identity subtype does not match kind");
+                }
+                sourceMemberIdentity((SemanticDtos.SourceMemberIdentityPayload) fieldIdentity);
+            }
+            case "ANNOTATION_USAGE" -> {
+                rejectUnexpected(concept, "declaration", "annotationType");
+                declarationSubject(requiredOnly(concept.declaration(), concept, "declaration"));
+                annotationType(requiredOnly(concept.annotationType(), concept, "annotationType"));
+            }
+            case "TYPE_USAGE" -> {
+                rejectUnexpected(concept, "owner", "location", "path", "referencedType");
+                declarationSubject(requiredOnly(concept.owner(), concept, "owner"));
+                typeUsageLocation(requiredOnly(concept.location(), concept, "location"));
+                for (SemanticDtos.TypeUsagePathPayload path : requiredList(
+                        requiredOnly(concept.path(), concept, "path"), "type usage path")) {
+                    typeUsagePath(path);
+                }
+                referencedType(requiredOnly(concept.referencedType(), concept, "referencedType"));
+            }
+            case "API_ROUTE" -> {
+                rejectUnexpected(concept, "target", "httpVerb", "route");
+                methodTargetPayload(requiredOnly(concept.target(), concept, "target"));
+                nonblank(requiredOnly(concept.httpVerb(), concept, "httpVerb"), "API route HTTP verb");
+                nonblank(requiredOnly(concept.route(), concept, "route"), "API route");
+            }
+            case "MQ_DESTINATION" -> {
+                rejectUnexpected(concept, "target", "broker", "destination");
+                methodTargetPayload(requiredOnly(concept.target(), concept, "target"));
+                nonblank(requiredOnly(concept.broker(), concept, "broker"), "MQ broker");
+                nonblank(requiredOnly(concept.destination(), concept, "destination"), "MQ destination");
+            }
+            case "SCHEDULE" -> {
+                rejectUnexpected(concept, "target", "triggerKind", "triggerValue");
+                methodTargetPayload(requiredOnly(concept.target(), concept, "target"));
+                nonblank(requiredOnly(concept.triggerKind(), concept, "triggerKind"), "schedule trigger kind");
+                concept.triggerValue().ifPresent(trigger -> nonblank(trigger, "schedule trigger value"));
+            }
+            case "MAPPER_STATEMENT" -> {
+                rejectUnexpected(concept, "identity");
+                mapperStatementKey(requiredConceptIdentity(concept, SemanticDtos.MapperStatementKeyPayload.class));
+            }
+            case "MAPPER_STATEMENT_VARIANT" -> {
+                rejectUnexpected(concept, "identity");
+                mapperStatementIdentity(requiredConceptIdentity(concept, SemanticDtos.MapperStatementIdentityPayload.class));
+            }
+            default -> throw contract("unsupported concept identity kind");
+        }
+    }
+
+    private void evidenceIdentity(SemanticDtos.FollowUpIdentity identity) {
+        if (!(identity instanceof SemanticDtos.EvidenceSourceFollowUpIdentity evidence)) {
+            throw contract("follow-up identity does not match evidence source operation");
+        }
+        String kind = enumValue(evidence.kind(), Set.of("ANNOTATION_SQL", "MAPPER_STATEMENT", "MAPPER_FRAGMENT"),
+                "evidence identity kind");
+        boolean statementKind = "ANNOTATION_SQL".equals(kind) || "MAPPER_STATEMENT".equals(kind);
+        if (statementKind != evidence.statementIdentity().isPresent()
+                || "MAPPER_FRAGMENT".equals(kind) != evidence.fragmentIdentity().isPresent()) {
+            throw contract("evidence identity does not match kind");
+        }
+        evidence.statementIdentity().ifPresent(this::mapperStatementIdentity);
+        evidence.fragmentIdentity().ifPresent(this::mapperFragmentIdentity);
+    }
+
+    private <T> T requiredOnly(Optional<T> value, SemanticDtos.ConceptFollowUpIdentity concept, String name) {
+        return value.orElseThrow(() -> contract("concept " + concept.kind() + " identity requires " + name));
+    }
+
+    private <T extends SemanticDtos.ConceptIdentityTargetPayload> T requiredConceptIdentity(
+            SemanticDtos.ConceptFollowUpIdentity concept, Class<T> type) {
+        SemanticDtos.ConceptIdentityTargetPayload identity = requiredOnly(concept.identity(), concept, "identity");
+        if (!type.isInstance(identity)) {
+            throw contract("concept " + concept.kind() + " identity subtype does not match kind");
+        }
+        return type.cast(identity);
+    }
+
+    private void rejectUnexpected(SemanticDtos.ConceptFollowUpIdentity concept, String... allowed) {
+        Set<String> allowedFields = Set.of(allowed);
+        boolean unexpected = (concept.sourceType().isPresent() && !allowedFields.contains("sourceType"))
+                || (concept.target().isPresent() && !allowedFields.contains("target"))
+                || (concept.identity().isPresent() && !allowedFields.contains("identity"))
+                || (concept.declaration().isPresent() && !allowedFields.contains("declaration"))
+                || (concept.annotationType().isPresent() && !allowedFields.contains("annotationType"))
+                || (concept.owner().isPresent() && !allowedFields.contains("owner"))
+                || (concept.location().isPresent() && !allowedFields.contains("location"))
+                || (concept.path().isPresent() && !allowedFields.contains("path"))
+                || (concept.referencedType().isPresent() && !allowedFields.contains("referencedType"))
+                || (concept.httpVerb().isPresent() && !allowedFields.contains("httpVerb"))
+                || (concept.route().isPresent() && !allowedFields.contains("route"))
+                || (concept.broker().isPresent() && !allowedFields.contains("broker"))
+                || (concept.destination().isPresent() && !allowedFields.contains("destination"))
+                || (concept.triggerKind().isPresent() && !allowedFields.contains("triggerKind"))
+                || (concept.triggerValue().isPresent() && !allowedFields.contains("triggerValue"));
+        if (unexpected) {
+            throw contract("concept identity has fields that do not match kind");
+        }
+    }
+
+    private void internalReferenceTarget(SemanticDtos.InternalReferenceFollowUpTarget target) {
+        String kind = enumValue(target.kind(), Set.of("TYPE", "METHOD", "MEMBER"), "internal reference target kind");
+        SemanticDtos.InternalReferenceIdentity identity = target.identity();
+        boolean match = ("TYPE".equals(kind) && identity instanceof SemanticDtos.SourceTypeIdentityPayload)
+                || ("METHOD".equals(kind) && identity instanceof SemanticDtos.MethodTargetPayload)
+                || ("MEMBER".equals(kind) && identity instanceof SemanticDtos.SourceMemberIdentityPayload);
+        if (!match) {
+            throw contract("internal reference identity does not match kind");
+        }
+        switch (identity) {
+            case SemanticDtos.SourceTypeIdentityPayload value -> sourceTypePayload(value);
+            case SemanticDtos.MethodTargetPayload value -> methodTargetPayload(value);
+            case SemanticDtos.SourceMemberIdentityPayload value -> sourceMemberIdentity(value);
+        }
+    }
+
+    private void sourceTypePayload(SemanticDtos.SourceTypeIdentityPayload value) {
+        SemanticDtos.SourceTypeIdentityPayload required = requiredObject(value, "source type identity");
+        javaTypePayload(required.javaType());
+        sourceFile(required.sourceFile());
+    }
+
+    private void javaTypePayload(SemanticDtos.JavaTypeIdentityPayload value) {
+        SemanticDtos.JavaTypeIdentityPayload required = requiredObject(value, "Java type identity");
+        requiredString(required.packageName(), "Java type package");
+        javaQualifiedIdentifier(required.className(), true, "Java type class");
+    }
+
+    private void methodTargetPayload(SemanticDtos.MethodTargetPayload value) {
+        SemanticDtos.MethodTargetPayload required = requiredObject(value, "method target payload");
+        sourceTypePayload(required.sourceType());
+        javaQualifiedIdentifier(required.methodName(), false, "method target method");
+        nonemptyOrEmptyStrings(required.parameterTypes(), "method target parameter type");
+    }
+
+    private void sourceMemberIdentity(SemanticDtos.SourceMemberIdentityPayload value) {
+        switch (requiredObject(value, "source member identity")) {
+            case SemanticDtos.SourceMemberIdentityPayload.TypeMember member -> {
+                sourceTypePayload(member.ownerType());
+                javaQualifiedIdentifier(member.name(), false, "source member name");
+            }
+            case SemanticDtos.SourceMemberIdentityPayload.MethodScoped member -> {
+                methodTargetPayload(member.declaringMethod());
+                textRange(member.declarationRange(), "source member declaration range");
+                javaQualifiedIdentifier(member.name(), false, "source member name");
+            }
+        }
+    }
+
+    private void declarationSubject(SemanticDtos.DeclarationSubjectPayload value) {
+        switch (requiredObject(value, "declaration subject")) {
+            case SemanticDtos.TypeDeclarationSubjectPayload subject -> sourceTypePayload(subject.sourceType());
+            case SemanticDtos.ResolvedMethodDeclarationSubjectPayload subject -> methodTargetPayload(subject.target());
+            case SemanticDtos.UnresolvedMethodDeclarationSubjectPayload subject -> methodTargetPayload(subject.target());
+            case SemanticDtos.FieldDeclarationSubjectPayload subject -> sourceMemberIdentity(subject.identity());
+        }
+    }
+
+    private void annotationType(SemanticDtos.AnnotationTypePayload value) {
+        switch (requiredObject(value, "annotation type")) {
+            case SemanticDtos.ResolvedAnnotationTypePayload type -> javaTypePayload(type.javaType());
+            case SemanticDtos.UnresolvedAnnotationTypePayload type -> nonblank(type.writtenName(), "annotation written name");
+        }
+    }
+
+    private void typeUsageLocation(SemanticDtos.TypeUsageLocationPayload value) {
+        SemanticDtos.TypeUsageLocationPayload required = requiredObject(value, "type usage location");
+        nonblank(required.slot(), "type usage slot");
+        minimum(required.index(), 0, "type usage index");
+    }
+
+    private void typeUsagePath(SemanticDtos.TypeUsagePathPayload value) {
+        switch (requiredObject(value, "type usage path")) {
+            case SemanticDtos.TypeArgumentPathPayload path -> minimum(path.index(), 0, "type argument index");
+            case SemanticDtos.WildcardExtendsBoundPathPayload ignored -> { }
+            case SemanticDtos.WildcardSuperBoundPathPayload ignored -> { }
+            case SemanticDtos.TypeVariableBoundPathPayload path -> minimum(path.index(), 0, "type variable bound index");
+        }
+    }
+
+    private void referencedType(SemanticDtos.ReferencedTypePayload value) {
+        SemanticDtos.ReferencedTypePayload required = requiredObject(value, "referenced type");
+        javaTypePayload(required.javaType());
+        minimum(required.arrayDimensions(), 0, "referenced type array dimensions");
+    }
+
+    private void mapperStatementKey(SemanticDtos.MapperStatementKeyPayload value) {
+        SemanticDtos.MapperStatementKeyPayload required = requiredObject(value, "mapper statement key");
+        nonblank(required.namespace(), "mapper statement namespace");
+        nonblank(required.statementId(), "mapper statement ID");
+    }
+
+    private void mapperStatementIdentity(SemanticDtos.MapperStatementIdentityPayload value) {
+        SemanticDtos.MapperStatementIdentityPayload required = requiredObject(value, "mapper statement identity");
+        mapperStatementKey(required.statementKey());
+        sourceFile(required.resourcePath());
+        required.databaseId().ifPresent(database -> nonblank(database, "mapper database ID"));
+        minimum(required.documentOrdinal(), 0, "mapper statement document ordinal");
+        enumValue(required.representation(), Set.of("MAPPER_XML_ELEMENT", "ANNOTATION_SQL_TEXT"),
+                "mapper statement representation");
+    }
+
+    private void mapperFragmentIdentity(SemanticDtos.MapperFragmentIdentityPayload value) {
+        SemanticDtos.MapperFragmentIdentityPayload required = requiredObject(value, "mapper fragment identity");
+        nonblank(required.namespace(), "mapper fragment namespace");
+        nonblank(required.fragmentId(), "mapper fragment ID");
+        sourceFile(required.resourcePath());
+        minimum(required.documentOrdinal(), 0, "mapper fragment document ordinal");
+        enumValue(required.representation(), Set.of("MAPPER_XML_ELEMENT"), "mapper fragment representation");
+    }
+
+    private void sourceSymbolContext(SemanticDtos.SourceSymbolContextPayload value) {
+        SemanticDtos.SourceSymbolContextPayload required = requiredObject(value, "source symbol context");
+        javaTypePayload(required.javaType());
+        required.sourceFile().ifPresent(this::sourceFile);
+        required.method().ifPresent(method -> {
+            javaQualifiedIdentifier(method.name(), false, "source symbol context method");
+            nonemptyOrEmptyStrings(method.parameterTypes(), "source symbol context parameter type");
+        });
+    }
+
+    private void page(Integer offset, Integer limit, String description) {
+        minimum(requiredInteger(offset, description + " offset"), 0, description + " offset");
+        range(requiredInteger(limit, description + " limit"), 1, 100, description + " limit");
+    }
+
+    private void nonemptyStrings(List<String> values, String description) {
+        List<String> required = requiredStrings(values, description);
+        if (required.isEmpty()) {
+            throw contract(description + " list must not be empty");
+        }
+        for (String value : required) {
+            nonblank(value, description);
+        }
+    }
+
+    private void nonemptyOrEmptyStrings(List<String> values, String description) {
+        for (String value : requiredStrings(values, description)) {
+            nonblank(value, description);
+        }
+    }
+
+    private <T extends SemanticDtos.AvailableFollowUpRequest> T require(
+            SemanticDtos.AvailableFollowUpRequest value, Class<T> type) {
+        if (!type.isInstance(value)) {
+            throw contract("Semantic follow-up request subtype does not match operation");
+        }
+        return type.cast(value);
+    }
+
+    private <T extends SemanticDtos.FollowUpTarget> T requireFollowUpTarget(
+            SemanticDtos.FollowUpTarget value, Class<T> type) {
+        if (!type.isInstance(value)) {
+            throw contract("Semantic follow-up target does not match operation");
+        }
+        return type.cast(value);
     }
 
     SemanticDtos.MethodTarget methodTarget(SemanticDtos.MethodTarget target) {

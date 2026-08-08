@@ -7,7 +7,6 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -224,7 +223,8 @@ public final class SemanticDtos {
     public sealed interface SourceMemberIdentityPayload extends InternalReferenceIdentity permits SourceMemberIdentityPayload.TypeMember,
             SourceMemberIdentityPayload.MethodScoped {
 
-        record TypeMember(SourceTypeIdentityPayload ownerType, String name) implements SourceMemberIdentityPayload {
+        record TypeMember(SourceTypeIdentityPayload ownerType, String name)
+                implements SourceMemberIdentityPayload, ConceptIdentityTargetPayload {
             public TypeMember {
                 ownerType = Objects.requireNonNull(ownerType, "ownerType is required");
                 name = Objects.requireNonNull(name, "name is required");
@@ -232,7 +232,7 @@ public final class SemanticDtos {
         }
 
         record MethodScoped(MethodTargetPayload declaringMethod, TextRangePayload declarationRange, String name)
-                implements SourceMemberIdentityPayload {
+                implements SourceMemberIdentityPayload, ConceptIdentityTargetPayload {
             public MethodScoped {
                 declaringMethod = Objects.requireNonNull(declaringMethod, "declaringMethod is required");
                 declarationRange = Objects.requireNonNull(declarationRange, "declarationRange is required");
@@ -404,17 +404,56 @@ public final class SemanticDtos {
 
     /** 可由欄位集合區分的 concept 或 evidence identity */
     @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
-    @JsonSubTypes({@JsonSubTypes.Type(ConceptIdentityPayload.class), @JsonSubTypes.Type(EvidenceSourceIdentityPayload.class)})
-    public sealed interface FollowUpIdentity permits ConceptIdentityPayload, EvidenceSourceIdentityPayload {
+    @JsonSubTypes({@JsonSubTypes.Type(ConceptFollowUpIdentity.class),
+            @JsonSubTypes.Type(EvidenceSourceFollowUpIdentity.class)})
+    public sealed interface FollowUpIdentity permits ConceptFollowUpIdentity, EvidenceSourceFollowUpIdentity {
     }
 
-    /** provider 概念 identity 的封閉外觀 */
+    public sealed interface ConceptIdentityPayload permits ConceptFollowUpIdentity {
+    }
+
+    /** ten provider concept kinds 的單一 typed superset，validator 依 kind 收緊欄位組合 */
     @JsonIgnoreProperties(ignoreUnknown = false)
-    public record ConceptIdentityPayload(String kind, MethodTargetPayload target) implements FollowUpIdentity {
-        public ConceptIdentityPayload {
+    public record ConceptFollowUpIdentity(String kind, Optional<SourceTypeIdentityPayload> sourceType,
+                                          Optional<MethodTargetPayload> target,
+                                          Optional<ConceptIdentityTargetPayload> identity,
+                                          Optional<DeclarationSubjectPayload> declaration,
+                                          Optional<AnnotationTypePayload> annotationType,
+                                          Optional<DeclarationSubjectPayload> owner,
+                                          Optional<TypeUsageLocationPayload> location,
+                                          Optional<List<TypeUsagePathPayload>> path,
+                                          Optional<ReferencedTypePayload> referencedType,
+                                          Optional<String> httpVerb, Optional<String> route,
+                                          Optional<String> broker, Optional<String> destination,
+                                          Optional<String> triggerKind, Optional<String> triggerValue)
+            implements FollowUpIdentity, ConceptIdentityPayload {
+        public ConceptFollowUpIdentity {
             kind = Objects.requireNonNull(kind, "kind is required");
-            target = Objects.requireNonNull(target, "target is required");
+            sourceType = optional(sourceType);
+            target = optional(target);
+            identity = optional(identity);
+            declaration = optional(declaration);
+            annotationType = optional(annotationType);
+            owner = optional(owner);
+            location = optional(location);
+            path = optional(path).map(List::copyOf);
+            referencedType = optional(referencedType);
+            httpVerb = optional(httpVerb);
+            route = optional(route);
+            broker = optional(broker);
+            destination = optional(destination);
+            triggerKind = optional(triggerKind);
+            triggerValue = optional(triggerValue);
         }
+    }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
+    @JsonSubTypes({@JsonSubTypes.Type(SourceMemberIdentityPayload.TypeMember.class),
+            @JsonSubTypes.Type(SourceMemberIdentityPayload.MethodScoped.class),
+            @JsonSubTypes.Type(MapperStatementKeyPayload.class),
+            @JsonSubTypes.Type(MapperStatementIdentityPayload.class)})
+    public sealed interface ConceptIdentityTargetPayload permits SourceMemberIdentityPayload.TypeMember,
+            SourceMemberIdentityPayload.MethodScoped, MapperStatementKeyPayload, MapperStatementIdentityPayload {
     }
 
     /** provider 概念搜尋詞 */
@@ -440,6 +479,159 @@ public final class SemanticDtos {
         public SourceSymbolMethodContextPayload {
             name = Objects.requireNonNull(name, "name is required");
             parameterTypes = List.copyOf(Objects.requireNonNull(parameterTypes, "parameterTypes are required"));
+        }
+    }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY,
+            property = "kind", visible = true)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = TypeDeclarationSubjectPayload.class, name = "TYPE"),
+            @JsonSubTypes.Type(value = ResolvedMethodDeclarationSubjectPayload.class, name = "METHOD"),
+            @JsonSubTypes.Type(value = UnresolvedMethodDeclarationSubjectPayload.class, name = "METHOD_UNRESOLVED"),
+            @JsonSubTypes.Type(value = FieldDeclarationSubjectPayload.class, name = "FIELD")
+    })
+    public sealed interface DeclarationSubjectPayload permits TypeDeclarationSubjectPayload,
+            ResolvedMethodDeclarationSubjectPayload, UnresolvedMethodDeclarationSubjectPayload,
+            FieldDeclarationSubjectPayload {
+    }
+
+    public record TypeDeclarationSubjectPayload(String kind, SourceTypeIdentityPayload sourceType)
+            implements DeclarationSubjectPayload {
+        public TypeDeclarationSubjectPayload {
+            kind = requiredKind(kind, "TYPE");
+            sourceType = Objects.requireNonNull(sourceType, "sourceType is required");
+        }
+    }
+
+    public record ResolvedMethodDeclarationSubjectPayload(String kind, MethodTargetPayload target)
+            implements DeclarationSubjectPayload {
+        public ResolvedMethodDeclarationSubjectPayload {
+            kind = requiredKind(kind, "METHOD");
+            target = Objects.requireNonNull(target, "target is required");
+        }
+    }
+
+    public record UnresolvedMethodDeclarationSubjectPayload(String kind, MethodTargetPayload target)
+            implements DeclarationSubjectPayload {
+        public UnresolvedMethodDeclarationSubjectPayload {
+            kind = requiredKind(kind, "METHOD_UNRESOLVED");
+            target = Objects.requireNonNull(target, "target is required");
+        }
+    }
+
+    public record FieldDeclarationSubjectPayload(String kind, SourceMemberIdentityPayload identity)
+            implements DeclarationSubjectPayload {
+        public FieldDeclarationSubjectPayload {
+            kind = requiredKind(kind, "FIELD");
+            identity = Objects.requireNonNull(identity, "identity is required");
+        }
+    }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY,
+            property = "status", visible = true)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = ResolvedAnnotationTypePayload.class, name = "RESOLVED"),
+            @JsonSubTypes.Type(value = UnresolvedAnnotationTypePayload.class, name = "UNRESOLVED")
+    })
+    public sealed interface AnnotationTypePayload permits ResolvedAnnotationTypePayload,
+            UnresolvedAnnotationTypePayload {
+    }
+
+    public record ResolvedAnnotationTypePayload(String status, JavaTypeIdentityPayload javaType)
+            implements AnnotationTypePayload {
+        public ResolvedAnnotationTypePayload {
+            status = requiredKind(status, "RESOLVED");
+            javaType = Objects.requireNonNull(javaType, "javaType is required");
+        }
+    }
+
+    public record UnresolvedAnnotationTypePayload(String status, String writtenName)
+            implements AnnotationTypePayload {
+        public UnresolvedAnnotationTypePayload {
+            status = requiredKind(status, "UNRESOLVED");
+            writtenName = Objects.requireNonNull(writtenName, "writtenName is required");
+        }
+    }
+
+    public record TypeUsageLocationPayload(String slot, Integer index) {
+        public TypeUsageLocationPayload {
+            slot = Objects.requireNonNull(slot, "slot is required");
+            index = Objects.requireNonNull(index, "index is required");
+        }
+    }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY,
+            property = "kind", visible = true)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = TypeArgumentPathPayload.class, name = "TYPE_ARGUMENT"),
+            @JsonSubTypes.Type(value = WildcardExtendsBoundPathPayload.class, name = "WILDCARD_EXTENDS_BOUND"),
+            @JsonSubTypes.Type(value = WildcardSuperBoundPathPayload.class, name = "WILDCARD_SUPER_BOUND"),
+            @JsonSubTypes.Type(value = TypeVariableBoundPathPayload.class, name = "TYPE_VARIABLE_BOUND")
+    })
+    public sealed interface TypeUsagePathPayload permits TypeArgumentPathPayload,
+            WildcardExtendsBoundPathPayload, WildcardSuperBoundPathPayload, TypeVariableBoundPathPayload {
+    }
+
+    public record TypeArgumentPathPayload(String kind, Integer index) implements TypeUsagePathPayload {
+        public TypeArgumentPathPayload {
+            kind = requiredKind(kind, "TYPE_ARGUMENT");
+            index = Objects.requireNonNull(index, "index is required");
+        }
+    }
+
+    public record WildcardExtendsBoundPathPayload(String kind) implements TypeUsagePathPayload {
+        public WildcardExtendsBoundPathPayload {
+            kind = requiredKind(kind, "WILDCARD_EXTENDS_BOUND");
+        }
+    }
+
+    public record WildcardSuperBoundPathPayload(String kind) implements TypeUsagePathPayload {
+        public WildcardSuperBoundPathPayload {
+            kind = requiredKind(kind, "WILDCARD_SUPER_BOUND");
+        }
+    }
+
+    public record TypeVariableBoundPathPayload(String kind, Integer index) implements TypeUsagePathPayload {
+        public TypeVariableBoundPathPayload {
+            kind = requiredKind(kind, "TYPE_VARIABLE_BOUND");
+            index = Objects.requireNonNull(index, "index is required");
+        }
+    }
+
+    public record ReferencedTypePayload(JavaTypeIdentityPayload javaType, Integer arrayDimensions) {
+        public ReferencedTypePayload {
+            javaType = Objects.requireNonNull(javaType, "javaType is required");
+            arrayDimensions = Objects.requireNonNull(arrayDimensions, "arrayDimensions is required");
+        }
+    }
+
+    public record MapperStatementKeyPayload(String namespace, String statementId) implements ConceptIdentityTargetPayload {
+        public MapperStatementKeyPayload {
+            namespace = Objects.requireNonNull(namespace, "namespace is required");
+            statementId = Objects.requireNonNull(statementId, "statementId is required");
+        }
+    }
+
+    public record MapperStatementIdentityPayload(MapperStatementKeyPayload statementKey, String resourcePath,
+                                                 Optional<String> databaseId, Integer documentOrdinal,
+                                                 String representation) implements ConceptIdentityTargetPayload {
+        public MapperStatementIdentityPayload {
+            statementKey = Objects.requireNonNull(statementKey, "statementKey is required");
+            resourcePath = Objects.requireNonNull(resourcePath, "resourcePath is required");
+            databaseId = Optional.ofNullable(databaseId).orElse(Optional.empty());
+            documentOrdinal = Objects.requireNonNull(documentOrdinal, "documentOrdinal is required");
+            representation = Objects.requireNonNull(representation, "representation is required");
+        }
+    }
+
+    public record MapperFragmentIdentityPayload(String namespace, String fragmentId, String resourcePath,
+                                                Integer documentOrdinal, String representation) {
+        public MapperFragmentIdentityPayload {
+            namespace = Objects.requireNonNull(namespace, "namespace is required");
+            fragmentId = Objects.requireNonNull(fragmentId, "fragmentId is required");
+            resourcePath = Objects.requireNonNull(resourcePath, "resourcePath is required");
+            documentOrdinal = Objects.requireNonNull(documentOrdinal, "documentOrdinal is required");
+            representation = Objects.requireNonNull(representation, "representation is required");
         }
     }
 
@@ -474,13 +666,38 @@ public final class SemanticDtos {
     }
 
     /** provider evidence source identity */
-    public record EvidenceSourceIdentityPayload(String kind, Optional<MethodTargetPayload> statementIdentity,
-                                                Optional<SourceTypeIdentityPayload> fragmentIdentity) implements FollowUpIdentity {
-        public EvidenceSourceIdentityPayload {
+    public sealed interface EvidenceSourceIdentityPayload permits EvidenceSourceFollowUpIdentity {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record EvidenceSourceFollowUpIdentity(String kind, Optional<MapperStatementIdentityPayload> statementIdentity,
+                                                 Optional<MapperFragmentIdentityPayload> fragmentIdentity)
+            implements FollowUpIdentity, EvidenceSourceIdentityPayload {
+        public EvidenceSourceFollowUpIdentity {
             kind = Objects.requireNonNull(kind, "kind is required");
             statementIdentity = Optional.ofNullable(statementIdentity).orElse(Optional.empty());
             fragmentIdentity = Optional.ofNullable(fragmentIdentity).orElse(Optional.empty());
+            boolean statementKind = "ANNOTATION_SQL".equals(kind) || "MAPPER_STATEMENT".equals(kind);
+            boolean fragmentKind = "MAPPER_FRAGMENT".equals(kind);
+            if (!statementKind && !fragmentKind) {
+                throw new IllegalArgumentException("unsupported evidence identity kind");
+            }
+            if (statementKind != statementIdentity.isPresent() || fragmentKind != fragmentIdentity.isPresent()) {
+                throw new IllegalArgumentException("evidence identity does not match kind");
+            }
         }
+    }
+
+    private static String requiredKind(String value, String expected) {
+        String required = Objects.requireNonNull(value, "kind is required");
+        if (!expected.equals(required)) {
+            throw new IllegalArgumentException("unexpected discriminator");
+        }
+        return required;
+    }
+
+    private static <T> Optional<T> optional(Optional<T> value) {
+        return Optional.ofNullable(value).orElse(Optional.empty());
     }
 
     public record ApiErrorResponse(String errorCode, String message, String repoId, String expectedRevision,
