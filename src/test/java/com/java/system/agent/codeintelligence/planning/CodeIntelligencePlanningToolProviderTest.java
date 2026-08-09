@@ -175,6 +175,22 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
+    void describesTheCandidateKindsAcceptedByDirectQueryTools() {
+        CodeIntelligencePlanningToolProvider provider = new CodeIntelligencePlanningToolProvider(
+                mock(JavaSemanticServiceHttpAdapter.class), new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator()));
+
+        assertThat(provider.registrations())
+                .filteredOn(registration -> registration.name().equals(
+                        CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName()))
+                .singleElement()
+                .extracting(registration -> registration.description())
+                .isEqualTo("Agent QUERY capability. candidateHandles must contain exactly 1 candidate of kinds "
+                        + "[FOLLOW_UP, REPOSITORY]. A FOLLOW_UP candidate must target "
+                        + "codebase_discover_concepts@v1.");
+    }
+
+    @Test
     void exposesMethodImplementationDiscoveryOnlyThroughProviderIssuedFollowUp() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
