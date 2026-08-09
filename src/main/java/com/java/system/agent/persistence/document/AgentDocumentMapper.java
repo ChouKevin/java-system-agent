@@ -36,7 +36,8 @@ final class AgentDocumentMapper {
                 state.failureReason(),
                 state.pendingTerminalResponse(),
                 state.pendingAnswerVerification(),
-                state.requestIdentity());
+                state.requestIdentity(),
+                state.modelInteractions());
     }
 
     AgentRunState state(StateDocument document) {
@@ -55,7 +56,7 @@ final class AgentDocumentMapper {
                 document.pendingTerminalResponse(),
                 document.pendingAnswerVerification(),
                 document.requestIdentity(),
-                List.of());
+                document.modelInteractions());
     }
 
     RunAttemptDocument attemptDocument(RunAttempt attempt) {

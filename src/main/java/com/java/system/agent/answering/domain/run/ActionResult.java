@@ -1,5 +1,7 @@
 package com.java.system.agent.answering.domain.run;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
@@ -13,6 +15,17 @@ import java.util.Objects;
 /**
  * 模型動作在受信任邊界已知的結果摘要
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "result_type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = ActionResult.QuerySucceeded.class, name = "QUERY_SUCCEEDED"),
+        @JsonSubTypes.Type(value = ActionResult.QueryFailed.class, name = "QUERY_FAILED"),
+        @JsonSubTypes.Type(value = ActionResult.QueryInvalidated.class, name = "QUERY_INVALIDATED"),
+        @JsonSubTypes.Type(value = ActionResult.ExecuteCompleted.class, name = "EXECUTE_COMPLETED"),
+        @JsonSubTypes.Type(value = ActionResult.ValidationRejected.class, name = "VALIDATION_REJECTED"),
+        @JsonSubTypes.Type(value = ActionResult.AnswerRejected.class, name = "ANSWER_REJECTED"),
+        @JsonSubTypes.Type(value = ActionResult.AnswerAccepted.class, name = "ANSWER_ACCEPTED"),
+        @JsonSubTypes.Type(value = ActionResult.ClarificationAccepted.class, name = "CLARIFICATION_ACCEPTED")
+})
 public sealed interface ActionResult permits ActionResult.QuerySucceeded, ActionResult.QueryFailed,
         ActionResult.QueryInvalidated, ActionResult.ExecuteCompleted, ActionResult.ValidationRejected,
         ActionResult.AnswerRejected, ActionResult.AnswerAccepted, ActionResult.ClarificationAccepted {
@@ -54,13 +67,20 @@ public sealed interface ActionResult permits ActionResult.QuerySucceeded, Action
     /**
      * EXECUTE 動作完成後的結果摘要
      */
-    record ExecuteCompleted(String outcome, List<String> observationIds, String description) implements ActionResult {
+    record ExecuteCompleted(ExecuteOutcome outcome, List<String> observationIds, String description) implements ActionResult {
 
         public ExecuteCompleted {
-            requireText(outcome, "execute outcome");
+            Objects.requireNonNull(outcome, "execute outcome must not be null");
             observationIds = stableValues(observationIds, "execute observation IDs");
             requireText(description, "execute description");
         }
+    }
+
+    /**
+     * EXECUTE 動作完成後可持久化的封閉結果
+     */
+    enum ExecuteOutcome {
+        NOT_IMPLEMENTED
     }
 
     /**

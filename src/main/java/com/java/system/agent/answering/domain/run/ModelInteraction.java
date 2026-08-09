@@ -1,5 +1,7 @@
 package com.java.system.agent.answering.domain.run;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.java.system.agent.answering.domain.action.AgentAction;
 
 import java.util.Objects;
@@ -7,6 +9,12 @@ import java.util.Objects;
 /**
  * 一次模型選擇或其可確認結果的 run 級不可變歷史項目
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "interaction_type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = ModelInteraction.ActionSelected.class, name = "ACTION_SELECTED"),
+        @JsonSubTypes.Type(value = ModelInteraction.ActionResultRecorded.class, name = "ACTION_RESULT_RECORDED"),
+        @JsonSubTypes.Type(value = ModelInteraction.MalformedResponse.class, name = "MALFORMED_RESPONSE")
+})
 public sealed interface ModelInteraction permits ModelInteraction.ActionSelected,
         ModelInteraction.ActionResultRecorded, ModelInteraction.MalformedResponse {
 

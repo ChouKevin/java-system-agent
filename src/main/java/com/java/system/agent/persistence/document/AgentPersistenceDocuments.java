@@ -12,6 +12,7 @@ import com.java.system.agent.answering.domain.run.AgentRunStatus;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.PendingAnswerVerification;
 import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
 import com.java.system.agent.answering.domain.run.RunFailureReason;
@@ -49,7 +50,8 @@ final class AgentPersistenceDocuments {
             Optional<RunFailureReason> failureReason,
             Optional<PendingTerminalResponse> pendingTerminalResponse,
             Optional<PendingAnswerVerification> pendingAnswerVerification,
-            RunRequestIdentity requestIdentity) {
+            RunRequestIdentity requestIdentity,
+            List<ModelInteraction> modelInteractions) {
 
         StateDocument {
             Objects.requireNonNull(runId, "run ID must not be null");
@@ -62,6 +64,7 @@ final class AgentPersistenceDocuments {
             Objects.requireNonNull(pendingTerminalResponse, "pending terminal response must not be null");
             Objects.requireNonNull(pendingAnswerVerification, "pending answer verification must not be null");
             Objects.requireNonNull(requestIdentity, "request identity must not be null");
+            modelInteractions = List.copyOf(modelInteractions);
         }
     }
 
