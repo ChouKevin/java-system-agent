@@ -22,6 +22,7 @@ import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.CorePlanningToolProvider;
 import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.QueryCapabilityRegistration;
@@ -97,7 +98,7 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
-    void registersTheM6SemanticQueryCatalogWithDirectAndBoundFollowUpContracts() {
+    void registersSemanticQueryCatalogWithDirectAndBoundFollowUpContracts() {
         CodeIntelligencePlanningToolProvider provider = new CodeIntelligencePlanningToolProvider(
                 mock(JavaSemanticServiceHttpAdapter.class), new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator()));
@@ -133,7 +134,6 @@ class CodeIntelligencePlanningToolProviderTest {
                         CodeIntelligenceQuery.INCOMING_CALL_GRAPH.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
-                        CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                         CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
                         CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
         assertThat(provider.registrations())
@@ -141,6 +141,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 .extracting(registration -> registration.name())
                 .containsExactly(
                         CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
+                        CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
                         CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
                         CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
@@ -156,7 +157,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 Map.entry(CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(), Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(), Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
-                Map.entry(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(), Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
+                Map.entry(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
@@ -171,6 +172,48 @@ class CodeIntelligencePlanningToolProviderTest {
                     assertThat(policy.minimumCandidates()).isEqualTo(1);
                     assertThat(policy.maximumCandidates()).isEqualTo(1);
                 });
+    }
+
+    @Test
+    void exposesMethodImplementationDiscoveryOnlyThroughProviderIssuedFollowUp() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CorePlanningToolProvider(),
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS);
+        DiscoverMethodImplementationsExecutionInput input = new DiscoverMethodImplementationsExecutionInput(
+                Optional.of(graphTarget()));
+        IssuedCandidate followUp = followUpCandidate("candidate-implementations", binding, repositoryId, revision,
+                policy, payloadCodec.encode(input));
+        AgentPromptContext context = promptContext(policy, followUp, binding);
+        CapabilityExecutionResult expected = new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+        when(adapter.discoverMethodImplementations(any(CapabilityExecutionContext.class), eq(input)))
+                .thenReturn(expected);
+
+        assertThat(registry.issuedRegistrations(context))
+                .extracting(registration -> registration.name())
+                .contains("codebase_follow_up")
+                .doesNotContain(policy.name());
+        assertThat(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-implementations"],"questionToResolve":"Find implementations","rationale":"Need concrete implementations"}
+                """, context)).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+
+        QueryAction action = queryAction(registry.interpretToolCall("codebase_follow_up", """
+                {"followUpCandidateHandle":"candidate-implementations","questionToResolve":"Find implementations","rationale":"Provider authorized this declaration"}
+                """, context));
+        assertThat(action.capability()).isEqualTo(context.issuedCapabilities().keySet().iterator().next());
+        assertThat(action.candidates()).extracting(candidate -> candidate.value())
+                .containsExactly("candidate-implementations");
+        assertThat(action.payload()).isEqualTo(payloadCodec.encode(input));
+        assertThat(execute(registry, policy, followUp, action, revisions)).isSameAs(expected);
+        verify(adapter, times(1)).discoverMethodImplementations(any(CapabilityExecutionContext.class), eq(input));
     }
 
     @Test

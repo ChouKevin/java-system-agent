@@ -78,11 +78,10 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                                 Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
                         DiscoverEventListenersPlanningInput.class, DiscoverEventListenersExecutionInput.class,
                         new DiscoverEventListenersPlanningMapper(), new DiscoverEventListenersExecutor(requiredAdapter), requiredPayloadCodec),
-                PlanningToolRegistry.registration(
-                        policy(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS,
-                                Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
-                        DiscoverMethodImplementationsPlanningInput.class, DiscoverMethodImplementationsExecutionInput.class,
-                        new DiscoverMethodImplementationsPlanningMapper(), new DiscoverMethodImplementationsExecutor(requiredAdapter), requiredPayloadCodec),
+                PlanningToolRegistry.followUpOnlyRegistration(
+                        policy(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS, Set.of(CandidateKind.FOLLOW_UP)),
+                        DiscoverMethodImplementationsExecutionInput.class,
+                        new DiscoverMethodImplementationsExecutor(requiredAdapter)),
                 PlanningToolRegistry.followUpOnlyRegistration(
                         policy(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, Set.of(CandidateKind.FOLLOW_UP)),
                         DiscoverTypeMembersExecutionInput.class, new DiscoverTypeMembersExecutor(requiredAdapter)),

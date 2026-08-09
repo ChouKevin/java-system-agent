@@ -58,9 +58,6 @@ class CodeIntelligencePlanningPayloadTest {
                         List.of("TYPE"), Optional.empty(), 0, 50));
         assertThat(new DiscoverEventListenersPlanningMapper().map(listeners).executionInput())
                 .isEqualTo(new DiscoverEventListenersExecutionInput("OrderCreated", 0, 50));
-        assertThat(new DiscoverMethodImplementationsPlanningMapper().map(
-                new DiscoverMethodImplementationsPlanningInput(List.of("candidate-1"), "Find implementations", "Need implementations"))
-                .executionInput().boundTarget()).isEmpty();
         assertThat(new GetMethodSourcePlanningMapper().map(
                 new GetMethodSourcePlanningInput(List.of("candidate-1"), "Read method", "Need source"))
                 .executionInput().boundTarget()).isEmpty();

@@ -230,8 +230,8 @@ class AgentActionPromptRendererTest {
         assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
                 .contains("implementation evidence requires codebase_discover_method_implementations")
                 .contains("internal-reference evidence requires codebase_find_internal_references")
-                .contains("Use codebase_discover_method_implementations only on an abstract method declared by an interface or abstract class")
-                .contains("use codebase_discover_concepts and type-member follow-ups to locate the declaration first")
+                .contains("codebase_discover_method_implementations is follow-up-only")
+                .contains("use codebase_discover_concepts and type-member follow-ups to locate an eligible declaration first")
                 .contains("For follow-up-only capabilities, select only an issued FOLLOW_UP candidate whose targetCapability matches the tool");
     }
 }

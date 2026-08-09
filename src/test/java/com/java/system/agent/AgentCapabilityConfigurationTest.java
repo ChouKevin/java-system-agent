@@ -51,14 +51,14 @@ class AgentCapabilityConfigurationTest {
         assertThat(required(schemas, "codebase_list_entry_points")).doesNotContain("type");
         assertThat(required(schemas, "codebase_outgoing_call_graph")).doesNotContain("depth");
         assertThat(required(schemas, "codebase_incoming_call_graph")).doesNotContain("depth");
-        assertThat(schemas).hasSize(12).containsKeys("agent_submit_answer", "agent_request_clarification",
+        assertThat(schemas).hasSize(11).containsKeys("agent_submit_answer", "agent_request_clarification",
                 CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
                 CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
-                CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                 CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
                 CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName())
                 .doesNotContainKeys(
                         CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
+                        CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
                         CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
                         CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
@@ -75,8 +75,6 @@ class AgentCapabilityConfigurationTest {
             assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
                     .isGreaterThanOrEqualTo(1);
         }
-        assertThat(schemas.get(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName())
-                .path("properties").has("boundTarget")).isFalse();
         assertThat(schemas.get(CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName())
                 .path("properties").has("boundTarget")).isFalse();
         assertThat(schemas.get(CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName())
