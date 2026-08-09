@@ -3,6 +3,7 @@ package com.java.system.agent.codeintelligence.semantic;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.RouteCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
@@ -53,7 +54,7 @@ class JavaSemanticResultMapperTest {
                 "create", List.of("CreateOrder"));
         String description = "x".repeat(1_100);
         SemanticDtos.EntryPointsResponse response = new SemanticDtos.EntryPointsResponse("orders", REVISION, List.of(
-                new SemanticDtos.EntryPointClassResponse("Orders", "com.example", "com/example", "Order entry points",
+                new SemanticDtos.EntryPointClassResponse(sourceType("Orders"), "Order entry points",
                 List.of("/orders"), List.of(new SemanticDtos.ApiEntryPointMethodResponse("create", description, "API",
                 "/orders", List.of("POST"), List.of("Creates an order"), resolved(target))))));
 
@@ -87,8 +88,8 @@ class JavaSemanticResultMapperTest {
 
         CapabilityExecutionResult.Succeeded entryPoints = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
                 JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), new SemanticDtos.EntryPointsResponse("orders",
-                REVISION, List.of(new SemanticDtos.EntryPointClassResponse("Orders", "com.example", "com/example",
-                "Order entry points", List.of("/orders"), List.of(
+                REVISION, List.of(new SemanticDtos.EntryPointClassResponse(sourceType("Orders"), "Order entry points",
+                List.of("/orders"), List.of(
                 new SemanticDtos.ApiEntryPointMethodResponse("create", "Create order", "API", "/orders",
                         List.of("POST"), List.of("Creates an order"), resolved(apiTarget)),
                 new SemanticDtos.MqEntryPointMethodResponse("consume", "Consume order", "MQ", "KAFKA",
@@ -147,10 +148,11 @@ class JavaSemanticResultMapperTest {
     void doesNotInventEvidenceForUnresolvedEntryPointTarget() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.EntryPointsResponse response = new SemanticDtos.EntryPointsResponse("orders", REVISION, List.of(
-                new SemanticDtos.EntryPointClassResponse("Orders", "com.example", "com/example", "Order entry points",
-                List.of("/orders"), List.of(new SemanticDtos.ApiEntryPointMethodResponse("create", "Create order", "API",
-                "/orders", List.of("POST"), List.of("Creates an order"), new SemanticDtos.MethodTargetResolutionResponse(
-                "UNRESOLVED", null, List.of(), "SOURCE_BINDING_UNRESOLVED"))))));
+                new SemanticDtos.EntryPointClassResponse(sourceType("Orders"), "Order entry points",
+                        List.of("/orders"), List.of(new SemanticDtos.ApiEntryPointMethodResponse("create", "Create order",
+                                "API", "/orders", List.of("POST"), List.of("Creates an order"),
+                                new SemanticDtos.MethodTargetResolutionResponse("UNRESOLVED", null, List.of(),
+                                        "SOURCE_BINDING_UNRESOLVED", List.of()))))));
 
         CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
                 JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
@@ -158,6 +160,31 @@ class JavaSemanticResultMapperTest {
         assertThat(result.evidence()).isEmpty();
         assertThat(result.observations()).extracting(CapabilityObservation::code)
                 .containsExactly(ObservationCode.UNRESOLVED_CALL);
+    }
+
+    @Test
+    void preservesProviderIssuedEntryPointFollowUps() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Orders");
+        SemanticDtos.MethodTarget target = new SemanticDtos.MethodTarget(sourceType.sourceFile(),
+                sourceType.javaType().packageName(), sourceType.javaType().className(), "create", List.of());
+        SemanticDtos.MethodTargetPayload followUpTarget = new SemanticDtos.MethodTargetPayload(sourceType, "create", List.of());
+        SemanticDtos.AvailableFollowUp followUp = new SemanticDtos.AvailableFollowUp("GET_METHOD_SOURCE",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/method-source", "getMethodSource"),
+                new SemanticDtos.TargetFollowUpRequest("orders", REVISION, followUpTarget, Optional.empty(),
+                        Optional.empty(), Optional.empty()));
+        SemanticDtos.EntryPointsResponse response = new SemanticDtos.EntryPointsResponse("orders", REVISION, List.of(
+                new SemanticDtos.EntryPointClassResponse(sourceType, "Order entry points", List.of("/orders"), List.of(
+                        new SemanticDtos.ApiEntryPointMethodResponse("create", "Create order", "API", "/orders",
+                                List.of("POST"), List.of("Creates an order"),
+                                new SemanticDtos.MethodTargetResolutionResponse("RESOLVED", target, List.of(),
+                                        "RESOLVED_TARGET", List.of(followUp)))))));
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
+                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+
+        assertThat(result.discoveredCandidates()).extracting(AnalysisCandidate::kind)
+                .containsExactly(CandidateKind.ROUTE, CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP);
     }
 
     @Test
@@ -529,7 +556,7 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.ApiRouteCandidatesResponse response = new SemanticDtos.ApiRouteCandidatesResponse(List.of(
                 new SemanticDtos.ApiRouteCandidateResponse("orders", REVISION, "GET", "/orders/{id}",
                         "com.example", "OrderController", "get", new SemanticDtos.MethodTargetResolutionResponse(
-                        "AMBIGUOUS", null, List.of(first, second), "multiple bindings"), List.of("TEMPLATE_MATCH"))),
+                        "AMBIGUOUS", null, List.of(first, second), "multiple bindings", List.of()), List.of("TEMPLATE_MATCH"))),
                 List.of(new SemanticDtos.ApiRouteObservationResponse("TRUNCATED_CANDIDATES", "more\nresults")));
 
         CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.apiRoutes(response);
@@ -609,7 +636,7 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.ApiRouteCandidatesResponse response = new SemanticDtos.ApiRouteCandidatesResponse(List.of(
                 new SemanticDtos.ApiRouteCandidateResponse("orders", REVISION, "GET", "/orders", "com.example",
                         "OrderController", "get", new SemanticDtos.MethodTargetResolutionResponse("RESOLVED", null,
-                        List.of(), "resolved"), List.of("TEMPLATE_MATCH"))), List.of());
+                        List.of(), "resolved", List.of()), List.of("TEMPLATE_MATCH"))), List.of());
         JavaSemanticErrorMapper errorMapper = new JavaSemanticErrorMapper(mapper);
         SemanticDtos.ApiErrorResponse malformedError = new SemanticDtos.ApiErrorResponse("SEMANTIC_REQUEST_TIMEOUT",
                 "timeout", "orders", REVISION, null, null, null, "request");
@@ -713,8 +740,13 @@ class JavaSemanticResultMapperTest {
                 List.of("java.lang.String"));
     }
 
+    private static SemanticDtos.SourceTypeIdentityPayload sourceType(String className) {
+        return new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.example", className), "src/" + className + ".java");
+    }
+
     private static SemanticDtos.MethodTargetResolutionResponse resolved(SemanticDtos.MethodTarget target) {
-        return new SemanticDtos.MethodTargetResolutionResponse("RESOLVED", target, List.of(), "RESOLVED_TARGET");
+        return new SemanticDtos.MethodTargetResolutionResponse("RESOLVED", target, List.of(), "RESOLVED_TARGET", List.of());
     }
 
     private static SemanticDtos.TextRangePayload textRange(int startLine, int startCharacter, int endLine,

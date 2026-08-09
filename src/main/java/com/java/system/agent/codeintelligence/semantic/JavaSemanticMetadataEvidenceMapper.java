@@ -18,9 +18,10 @@ final class JavaSemanticMetadataEvidenceMapper {
     EvidenceRef entryPoint(RepositoryId repositoryId, RepositoryRevision revision,
                            SemanticDtos.EntryPointClassResponse entryPoint,
                            SemanticDtos.EntryPointMethodResponse method, SemanticTarget target) {
-        String content = "entryPoint; kind=" + method.type() + "; class=" + entryPoint.packageName() + "."
-                + entryPoint.className() + "; method=" + method.name() + entryPointMetadata(method) + "; description="
-                + method.description();
+        SemanticDtos.JavaTypeIdentityPayload javaType = entryPoint.sourceType().javaType();
+        String content = "entryPoint; kind=" + method.type() + "; class=" + javaType.packageName() + "."
+                + javaType.className() + "; method=" + method.name() + entryPointMetadata(method)
+                + "; description=" + method.description();
         return evidence(repositoryId, revision, target, content);
     }
 

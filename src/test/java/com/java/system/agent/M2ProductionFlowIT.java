@@ -435,7 +435,7 @@ class M2ProductionFlowIT {
 
     private static String entryPointsJson() {
         return """
-                {"repoId":"demo","analyzedRevision":"FIXTURE","entryPoints":[{"className":"OrderController","packageName":"example.web","packagePath":"example/web","description":"Order entry points","basePaths":["/orders"],"methods":[{"type":"API","name":"list","description":"List orders","apiUrl":"/orders","httpMethods":["GET"],"swaggerDescriptions":["Lists orders"],"analysisTarget":{"status":"UNRESOLVED","target":null,"candidates":[],"reasonCode":"TARGET_NOT_FOUND"}}]}]}
+                {"repoId":"demo","analyzedRevision":"FIXTURE","entryPoints":[{"sourceType":{"javaType":{"packageName":"example.web","className":"OrderController"},"sourceFile":"src/main/java/example/web/OrderController.java"},"description":"Order entry points","basePaths":["/orders"],"methods":[{"type":"API","name":"list","description":"List orders","apiUrl":"/orders","httpMethods":["GET"],"swaggerDescriptions":["Lists orders"],"analysisTarget":{"status":"UNRESOLVED","target":null,"candidates":[],"reasonCode":"TARGET_NOT_FOUND","availableFollowUps":[]}}]}]}
                 """;
     }
 }

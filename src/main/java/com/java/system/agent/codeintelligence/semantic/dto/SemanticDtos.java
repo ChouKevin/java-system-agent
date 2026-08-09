@@ -28,8 +28,7 @@ public final class SemanticDtos {
                                       List<EntryPointClassResponse> entryPoints) {
     }
 
-    public record EntryPointClassResponse(String className, String packageName, String packagePath,
-                                          String description, List<String> basePaths,
+    public record EntryPointClassResponse(SourceTypeIdentityPayload sourceType, String description, List<String> basePaths,
                                           List<EntryPointMethodResponse> methods) {
     }
 
@@ -114,7 +113,8 @@ public final class SemanticDtos {
     }
 
     public record MethodTargetResolutionResponse(String status, MethodTarget target,
-                                                 List<MethodTarget> candidates, String reasonCode) {
+                                                 List<MethodTarget> candidates, String reasonCode,
+                                                 List<AvailableFollowUp> availableFollowUps) {
     }
 
     public record OutgoingCallGraphResponse(String status, String analyzedRevision, String rootNodeId,

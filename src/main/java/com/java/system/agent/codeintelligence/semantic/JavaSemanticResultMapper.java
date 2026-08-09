@@ -93,6 +93,7 @@ public final class JavaSemanticResultMapper {
                 }
                 addResolutionCandidates(repositoryId, revision, method.analysisTarget(), description, candidates,
                         observations);
+                addFollowUps(repositoryId, revision, method.analysisTarget().availableFollowUps(), candidates);
                 if ("RESOLVED".equals(method.analysisTarget().status())) {
                     SemanticTarget target = semanticTarget(method.analysisTarget().target());
                     evidence.add(metadataEvidenceMapper.entryPoint(repositoryId, revision, entryPoint, method, target));
