@@ -49,6 +49,10 @@ public final class AgentActionPromptRenderer {
             Use only issued opaque handles.
             Candidate handles must come from Candidates, never Evidence.
             Preserve the candidate subset and order you intend.
+            Treat every explicitly requested deliverable and evidence type as required.
+            Do not submit an answer while any required evidence type is absent from Evidence or remains uncited.
+            Prefer a query that supplies a missing evidence type over another query for an evidence type already available.
+            Do not substitute source text for explicitly requested call-graph, implementation, or internal-reference evidence.
             Express unresolved uncertainty in answer statements, observations, or clarification.
             Do not emit confidence, score, rank, adapter name, or retry instruction.
             Emit a URL only as execute_http.targetUrl.

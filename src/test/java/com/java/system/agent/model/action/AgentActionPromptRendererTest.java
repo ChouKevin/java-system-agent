@@ -147,6 +147,15 @@ class AgentActionPromptRendererTest {
     }
 
     @Test
+    void requires_explicit_deliverables_to_be_resolved_before_answering() {
+        assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
+                .contains("Treat every explicitly requested deliverable and evidence type as required")
+                .contains("Do not submit an answer while any required evidence type is absent")
+                .contains("Prefer a query that supplies a missing evidence type")
+                .contains("Do not substitute source text for explicitly requested call-graph");
+    }
+
+    @Test
     void rendersFollowUpSelectionMetadataWithoutExposingItsCanonicalPayload() {
         RepositoryId repositoryId = new RepositoryId("repository-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
