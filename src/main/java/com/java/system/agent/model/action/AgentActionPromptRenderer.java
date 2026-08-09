@@ -26,6 +26,7 @@ import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.run.ActionResult;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
@@ -84,7 +85,9 @@ public final class AgentActionPromptRenderer {
         }
         prompt.append("Evidence:\n");
         for (Map.Entry<EvidenceHandle, IssuedEvidence> entry : context.issuedEvidence().entrySet()) {
-            prompt.append("- ").append(entry.getKey().value()).append(": ")
+            prompt.append("- ").append(entry.getKey().value())
+                    .append(" [producedBy=").append(producedBy(entry.getKey(), context.evidenceProvenance()))
+                    .append("]: ")
                     .append(entry.getValue().evidence().content()).append('\n');
         }
         prompt.append("Observations:\n");
@@ -124,6 +127,18 @@ public final class AgentActionPromptRenderer {
                 + ", executeExecutions=" + (context.budget().maxExecuteExecutions()
                 - context.budget().usedExecuteExecutions())
                 + ", actionRejections=" + (context.budget().maxActionRejections() - context.budget().usedActionRejections());
+    }
+
+    private static String producedBy(
+            EvidenceHandle handle,
+            List<EvidenceCapabilityProvenance> provenance) {
+        List<String> capabilities = provenance.stream()
+                .filter(item -> item.evidenceHandle().equals(handle))
+                .map(item -> item.capability().name() + "@" + item.capability().version())
+                .distinct()
+                .sorted()
+                .toList();
+        return capabilities.isEmpty() ? "unrecorded" : String.join(",", capabilities);
     }
 
     private static final class ModelInteractionRenderer {

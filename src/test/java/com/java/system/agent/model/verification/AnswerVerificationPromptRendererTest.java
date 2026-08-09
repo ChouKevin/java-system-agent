@@ -2,13 +2,29 @@ package com.java.system.agent.model.verification;
 
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.ClaimId;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.evidence.ArtifactRef;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
+import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 import org.junit.jupiter.api.Test;
 
@@ -58,5 +74,35 @@ class AnswerVerificationPromptRendererTest {
                 assistant: 退款流程如下
                 """);
         assertThat(prompt).doesNotContain("- user:");
+    }
+
+    @Test
+    void renders_the_capability_that_produced_each_available_and_cited_evidence() {
+        RepositoryId repositoryId = new RepositoryId("repository-1");
+        RepositoryRevision revision = new RepositoryRevision("revision-1");
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
+                RevisionVector.empty().pin(repositoryId, revision));
+        EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-1", binding);
+        IssuedEvidence evidence = new IssuedEvidence(evidenceHandle, new EvidenceRef(
+                "semantic", repositoryId, revision,
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Orders#create", Optional.empty()),
+                "internalReference; target=Orders#create", List.of(), new ArtifactRef("digest-1")));
+        CapabilityPolicy capability = new CapabilityPolicy(
+                "codebase_find_internal_references", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.FACT, "Orders#create is referenced",
+                Optional.of(new ClaimId("claim-1")),
+                Set.of(new EvidenceHandleRef(evidenceHandle.value())), Set.of())));
+        AnswerVerificationContext context = new AnswerVerificationContext(
+                "Find internal references", SessionHistory.empty(), document,
+                List.of(evidence), List.of(), List.of(evidence), List.of(),
+                List.of(new EvidenceCapabilityProvenance(evidenceHandle, capability)));
+
+        String prompt = new AnswerVerificationPromptRenderer().render(context, "response contract");
+
+        assertThat(prompt).contains(
+                "- evidence-1 [evidenceType=codebase_find_internal_references@v1]: internalReference;");
+        assertThat(AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION)
+                .contains("Evidence type metadata is authoritative");
     }
 }
