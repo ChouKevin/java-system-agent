@@ -9,8 +9,13 @@ import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -24,6 +29,7 @@ public final class AnswerVerificationPromptRenderer {
             An explicitly requested evidence type is itself a required part, not an optional way to support another part.
             Evidence type metadata is authoritative; do not infer a different type from evidence content.
             Source text is not call-graph, implementation, or internal-reference evidence; those distinct types must be both available and cited when explicitly requested.
+            For evidence-type matching: outgoing call-graph evidence requires codebase_outgoing_call_graph; implementation evidence requires codebase_discover_method_implementations; internal-reference evidence requires codebase_find_internal_references; complete method source requires codebase_get_method_source.
             Use ACCEPTED_COMPLETE only when every requested part is answered and every FACT is supported by its cited or referenced supplied context.
             Use ACCEPTED_INCONCLUSIVE only when the document explicitly states unavoidable missing information or blocking uncertainty without claiming completeness.
             Use REJECTED when a requested part is omitted from a purported answer, a FACT lacks support, or the document must be revised; list omissions in unaddressedParts and reasons in rejectionReasons.
@@ -51,6 +57,7 @@ public final class AnswerVerificationPromptRenderer {
         evidenceSection(prompt, "Available evidence", context.availableEvidence(), context.evidenceProvenance());
         observationSection(prompt, "Available observations", context.availableObservations());
         evidenceSection(prompt, "Cited evidence", context.citedEvidence(), context.evidenceProvenance());
+        evidenceCoverage(prompt, context);
         observationSection(prompt, "Referenced observations", context.referencedObservations());
         section(prompt, "Response contract", responseContract);
         return prompt.toString();
@@ -87,6 +94,42 @@ public final class AnswerVerificationPromptRenderer {
                 .sorted()
                 .toList();
         return capabilities.isEmpty() ? "unrecorded" : String.join(",", capabilities);
+    }
+
+    private static void evidenceCoverage(StringBuilder prompt, AnswerVerificationContext context) {
+        Map<String, Set<String>> available = evidenceByType(
+                context.availableEvidence(), context.evidenceProvenance());
+        Map<String, Set<String>> cited = evidenceByType(context.citedEvidence(), context.evidenceProvenance());
+        Set<String> evidenceTypes = new TreeSet<>(available.keySet());
+        evidenceTypes.addAll(cited.keySet());
+        prompt.append("Evidence type coverage:\n");
+        for (String evidenceType : evidenceTypes) {
+            prompt.append("- ").append(evidenceType)
+                    .append(": available=").append(joinedHandles(available.getOrDefault(evidenceType, Set.of())))
+                    .append("; cited=").append(joinedHandles(cited.getOrDefault(evidenceType, Set.of())))
+                    .append('\n');
+        }
+    }
+
+    private static Map<String, Set<String>> evidenceByType(
+            List<IssuedEvidence> evidence,
+            List<EvidenceCapabilityProvenance> provenance) {
+        Set<String> evidenceHandleValues = evidence.stream()
+                .map(item -> item.handle().value())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, Set<String>> evidenceByType = new TreeMap<>();
+        for (EvidenceCapabilityProvenance item : provenance) {
+            if (evidenceHandleValues.contains(item.evidenceHandle().value())) {
+                String evidenceType = item.capability().name() + "@" + item.capability().version();
+                evidenceByType.computeIfAbsent(evidenceType, ignored -> new TreeSet<>())
+                        .add(item.evidenceHandle().value());
+            }
+        }
+        return evidenceByType;
+    }
+
+    private static String joinedHandles(Set<String> handles) {
+        return handles.isEmpty() ? "none" : String.join(",", handles);
     }
 
     private static void observationSection(StringBuilder prompt, String label, List<AgentObservation> observations) {

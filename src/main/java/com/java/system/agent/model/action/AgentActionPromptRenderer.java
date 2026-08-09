@@ -54,6 +54,7 @@ public final class AgentActionPromptRenderer {
             Do not submit an answer while any required evidence type is absent from Evidence or remains uncited.
             Prefer a query that supplies a missing evidence type over another query for an evidence type already available.
             Do not substitute source text for explicitly requested call-graph, implementation, or internal-reference evidence.
+            For evidence-type matching: outgoing call-graph evidence requires codebase_outgoing_call_graph; implementation evidence requires codebase_discover_method_implementations; internal-reference evidence requires codebase_find_internal_references; complete method source requires codebase_get_method_source.
             Respect every tool schema limit such as maxItems; when one call accepts one candidate handle, make separate sequential calls instead of batching handles.
             Express unresolved uncertainty in answer statements, observations, or clarification.
             Do not emit confidence, score, rank, adapter name, or retry instruction.
@@ -90,6 +91,7 @@ public final class AgentActionPromptRenderer {
                     .append("]: ")
                     .append(entry.getValue().evidence().content()).append('\n');
         }
+        evidenceCoverage(prompt, context);
         prompt.append("Observations:\n");
         for (Map.Entry<ObservationId, AgentObservation> entry : context.observations().entrySet()) {
             prompt.append("- ").append(entry.getKey().value()).append(": ")
@@ -139,6 +141,22 @@ public final class AgentActionPromptRenderer {
                 .sorted()
                 .toList();
         return capabilities.isEmpty() ? "unrecorded" : String.join(",", capabilities);
+    }
+
+    private static void evidenceCoverage(StringBuilder prompt, AgentPromptContext context) {
+        prompt.append("Evidence coverage by capability:\n");
+        for (Map.Entry<CapabilityHandle, CapabilityPolicy> entry : context.issuedCapabilities().entrySet()) {
+            CapabilityPolicy capability = entry.getValue();
+            List<String> evidenceHandles = context.evidenceProvenance().stream()
+                    .filter(item -> item.capability().equals(capability))
+                    .map(item -> item.evidenceHandle().value())
+                    .distinct()
+                    .sorted()
+                    .toList();
+            prompt.append("- ").append(capability.name()).append('@').append(capability.version()).append(": ")
+                    .append(evidenceHandles.isEmpty() ? "none" : String.join(",", evidenceHandles))
+                    .append('\n');
+        }
     }
 
     private static final class ModelInteractionRenderer {
