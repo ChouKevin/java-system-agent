@@ -199,6 +199,9 @@ class AgentActionPromptRendererTest {
         CapabilityHandle capabilityHandle = new CapabilityHandle("capability-1", binding);
         CapabilityPolicy capability = new CapabilityPolicy(
                 "codebase_outgoing_call_graph", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+        CapabilityHandle missingCapabilityHandle = new CapabilityHandle("capability-2", binding);
+        CapabilityPolicy missingCapability = new CapabilityPolicy(
+                "codebase_find_internal_references", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
         EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-1", binding);
         IssuedEvidence evidence = new IssuedEvidence(evidenceHandle, new EvidenceRef(
                 "semantic", repositoryId, revision,
@@ -209,7 +212,8 @@ class AgentActionPromptRendererTest {
                 new CapabilityInputPayload("{}"), "Need graph evidence");
         AgentPromptContext context = new AgentPromptContext(
                 "Trace orders", SessionHistory.empty(), runId, attemptId,
-                Map.of(capabilityHandle, capability), Map.of(), Map.of(evidenceHandle, evidence), Map.of(),
+                Map.of(capabilityHandle, capability, missingCapabilityHandle, missingCapability),
+                Map.of(), Map.of(evidenceHandle, evidence), Map.of(),
                 List.of(
                         new ModelInteraction.ActionSelected(attemptId, query),
                         new ModelInteraction.ActionResultRecorded(attemptId,
@@ -220,5 +224,11 @@ class AgentActionPromptRendererTest {
 
         assertThat(prompt).contains(
                 "- evidence-1 [producedBy=codebase_outgoing_call_graph@v1]: root=Orders#create");
+        assertThat(prompt)
+                .contains("- codebase_outgoing_call_graph@v1: evidence-1")
+                .contains("- codebase_find_internal_references@v1: none");
+        assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
+                .contains("implementation evidence requires codebase_discover_method_implementations")
+                .contains("internal-reference evidence requires codebase_find_internal_references");
     }
 }

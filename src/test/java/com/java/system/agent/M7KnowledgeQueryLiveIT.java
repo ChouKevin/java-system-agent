@@ -238,9 +238,9 @@ class M7KnowledgeQueryLiveIT {
         assertThat(Set.of(apiEntryPoint.handle().value(), scheduleEntryPoint.handle().value(),
                 rabbitEntryPoint.handle().value())).hasSize(3);
 
-        assertCitedGraphRelationship(citedEvidence, "OrderController", "submitOrder");
-        assertCitedGraphRelationship(citedEvidence, "OrderRecoveryJob", "retryPendingOrders");
-        assertCitedGraphRelationship(citedEvidence, "OrderMessageListener", "onOrderRequested");
+        assertCitedGraphRelationship(citedEvidence, "OrderController", "submitOrder", "DefaultOrderWorkflow");
+        assertCitedGraphRelationship(citedEvidence, "OrderRecoveryJob", "retryPendingOrders", "DefaultOrderWorkflow");
+        assertCitedGraphRelationship(citedEvidence, "OrderMessageListener", "onOrderRequested", "DefaultOrderWorkflow");
         requireCitedEvidence(citedEvidence,
                 "methodImplementation;", "requested=", "OrderWorkflow.processOrder(", "implementation=",
                 "DefaultOrderWorkflow.processOrder(");
@@ -278,12 +278,16 @@ class M7KnowledgeQueryLiveIT {
         return true;
     }
 
-    private void assertCitedGraphRelationship(List<IssuedEvidence> citedEvidence, String callerClass, String callerMethod) {
+    private void assertCitedGraphRelationship(
+            List<IssuedEvidence> citedEvidence,
+            String callerClass,
+            String callerMethod,
+            String calleeClass) {
         boolean relationshipFound = citedEvidence.stream()
                 .anyMatch(issued -> containsGraphRelationship(issued.evidence().content(), callerClass, callerMethod,
-                        "OrderWorkflow", "processOrder"));
+                        calleeClass, "processOrder"));
         assertThat(relationshipFound)
-                .as("cited graph evidence connects %s.%s to OrderWorkflow.processOrder", callerClass, callerMethod)
+                .as("cited graph evidence connects %s.%s to %s.processOrder", callerClass, callerMethod, calleeClass)
                 .isTrue();
     }
 

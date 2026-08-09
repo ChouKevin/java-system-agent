@@ -102,7 +102,11 @@ class AnswerVerificationPromptRendererTest {
 
         assertThat(prompt).contains(
                 "- evidence-1 [evidenceType=codebase_find_internal_references@v1]: internalReference;");
+        assertThat(prompt).contains(
+                "- codebase_find_internal_references@v1: available=evidence-1; cited=evidence-1");
         assertThat(AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION)
-                .contains("Evidence type metadata is authoritative");
+                .contains("Evidence type metadata is authoritative")
+                .contains("implementation evidence requires codebase_discover_method_implementations")
+                .contains("internal-reference evidence requires codebase_find_internal_references");
     }
 }
