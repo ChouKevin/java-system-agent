@@ -315,7 +315,8 @@ class SpringAiAgentActionAdapterTest {
 
             assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
             assertThat(formattedMessages(handler)).allSatisfy(message -> assertThat(message)
-                    .contains("resultCategory=MALFORMED", "actionType=NONE", "actionFingerprint=NONE"));
+                    .contains("resultCategory=MALFORMED", "malformedReason=INVALID_TOOL_INPUT",
+                            "actionType=NONE", "actionFingerprint=NONE"));
         } finally {
             releaseActionLogs(handler);
         }

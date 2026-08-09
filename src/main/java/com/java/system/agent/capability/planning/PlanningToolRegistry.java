@@ -12,6 +12,7 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionContractExcep
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.CapabilityInvocation;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -21,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 /**
@@ -29,6 +32,7 @@ import java.util.regex.Pattern;
 public final class PlanningToolRegistry implements CapabilityCatalogPort {
 
     private static final Pattern TOOL_NAME = Pattern.compile("[a-z][a-z0-9_]*");
+    private static final Logger LOGGER = Logger.getLogger(PlanningToolRegistry.class.getName());
 
     private final List<PlanningToolRegistration<?>> registrations;
     private final Map<String, PlanningToolRegistration<?>> planningRegistrations;
@@ -77,12 +81,24 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
             }
             return new AgentActionProposal.Proposed(interpret(registration, rawArguments, context));
         } catch (PlanningToolInputException exception) {
+            PlanningToolRegistration<?> rejectedRegistration = planningRegistrations.get(toolName);
+            String inputType = Objects.isNull(rejectedRegistration)
+                    ? "UNKNOWN"
+                    : rejectedRegistration.planningInputType().getSimpleName();
+            LOGGER.log(Level.WARNING,
+                    "planning tool operation=INTERPRET toolName={0} inputType={1} rawUtf8Bytes={2} "
+                            + "resultCategory=INVALID_TOOL_INPUT",
+                    new Object[]{toolName, inputType, utf8Bytes(rawArguments)});
             return new AgentActionProposal.Malformed("INVALID_TOOL_INPUT");
         } catch (AgentActionContractException exception) {
             throw exception;
         } catch (RuntimeException exception) {
             throw new AgentActionContractException("planning tool registry contract failed", exception);
         }
+    }
+
+    private static int utf8Bytes(String value) {
+        return Objects.isNull(value) ? 0 : value.getBytes(StandardCharsets.UTF_8).length;
     }
 
     public CapabilityExecutionResult execute(CapabilityInvocation invocation) {
