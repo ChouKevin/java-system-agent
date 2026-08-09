@@ -2,6 +2,7 @@ package com.java.system.agent.answering.application.loop;
 
 import com.java.system.agent.answering.application.state.AgentStateReducer;
 import com.java.system.agent.answering.application.state.AgentTransitionCommitter;
+import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
@@ -78,10 +79,13 @@ class AgentRunTransitionsTest {
         AgentRunTransitions transitions = new AgentRunTransitions(new AgentTransitionCommitter(
                 new AgentStateReducer(), new TerminalCancelledTransitionPort()));
         AgentRunState state = runningState(transitions);
-        AgentRunState proposed = transitions.apply(state, new AgentEvent.AnswerProposed(
-                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
+        AnswerDocument document = answerDocument();
+        AgentRunState selected = transitions.apply(state, new AgentEvent.ActionSelected(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), new AnswerAction(document)));
+        AgentRunState proposed = transitions.apply(selected, new AgentEvent.AnswerProposed(
+                selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(),
                 new PendingAnswerVerification(state.currentAttempt().attemptId(), RevisionVector.empty(),
-                        answerDocument(), AnswerVerificationMode.CONTRACT_ONLY)));
+                        document, AnswerVerificationMode.CONTRACT_ONLY)));
         AgentEvent acceptance = answerAccepted(proposed);
 
         assertThatThrownBy(() -> transitions.applyTerminalAcceptance(proposed, acceptance))

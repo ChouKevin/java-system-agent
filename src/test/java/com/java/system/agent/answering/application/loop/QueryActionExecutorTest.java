@@ -88,12 +88,14 @@ class QueryActionExecutorTest {
                 transitions,
                 new TerminalResponseCoordinator(transitions, new FakeSessionAdapter()));
         QueryAction action = query(state);
+        AgentRunState selectedState = transitions.apply(state, new AgentEvent.ActionSelected(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), action));
 
         assertThatThrownBy(() -> executor.execute(
                 request(),
-                state,
+                selectedState,
                 action,
-                List.copyOf(state.currentAttempt().issuedCandidates().values()),
+                List.copyOf(selectedState.currentAttempt().issuedCandidates().values()),
                 1,
                 List.of(CAPABILITY),
                 List.of(repositoryDescriptor()),
