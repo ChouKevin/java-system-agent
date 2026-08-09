@@ -30,6 +30,9 @@ class AnswerVerificationPromptRendererTest {
                 .contains("ACCEPTED_COMPLETE only when every requested part is answered")
                 .contains("ACCEPTED_INCONCLUSIVE only when the document explicitly states unavoidable missing information")
                 .contains("REJECTED when a requested part is omitted")
+                .contains("An explicitly requested evidence type is itself a required part")
+                .contains("Source text is not call-graph, implementation, or internal-reference evidence")
+                .contains("both available and cited")
                 .contains("unaddressedParts", "rejectionReasons");
     }
 
