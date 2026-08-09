@@ -215,7 +215,8 @@ class CodeIntelligencePlanningToolProviderTest {
 
         assertThat(registry.issuedRegistrations(context))
                 .extracting(registration -> registration.name())
-                .contains("codebase_follow_up", policy.name());
+                .contains(policy.name())
+                .doesNotContain("codebase_follow_up");
 
         QueryAction action = queryAction(registry.interpretToolCall(policy.name(), """
                 {"followUpCandidateHandle":"candidate-implementations","questionToResolve":"Find implementations","rationale":"Provider authorized this declaration"}

@@ -55,7 +55,7 @@ public final class FollowUpOnlyQueryRegistration<E>
     public boolean isIssued(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
         return context.issuedCandidates().entrySet().stream()
-                .anyMatch(candidate -> FollowUpPlanningToolRegistration
+                .anyMatch(candidate -> ProviderBoundFollowUp
                         .targetCapability(context, candidate, policy)
                         .isPresent());
     }
@@ -68,10 +68,10 @@ public final class FollowUpOnlyQueryRegistration<E>
                 .filter(entry -> entry.getKey().value().equals(input.followUpCandidateHandle()))
                 .findFirst()
                 .orElseThrow(PlanningToolInputException::new);
-        CapabilityHandle capability = FollowUpPlanningToolRegistration.targetCapability(context, selected, policy)
+        CapabilityHandle capability = ProviderBoundFollowUp.targetCapability(context, selected, policy)
                 .orElseThrow(PlanningToolInputException::new);
         CandidateHandleRef reference = new CandidateHandleRef(selected.getKey().value());
-        CapabilityInputPayload payload = FollowUpPlanningToolRegistration.boundPayload(
+        CapabilityInputPayload payload = ProviderBoundFollowUp.boundPayload(
                 context, capability, policy, List.of(reference)).orElseThrow(PlanningToolInputException::new);
         return new QueryAction(capability, List.of(reference), input.questionToResolve(), payload, input.rationale());
     }

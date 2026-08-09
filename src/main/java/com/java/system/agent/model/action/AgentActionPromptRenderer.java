@@ -57,7 +57,6 @@ public final class AgentActionPromptRenderer {
             For evidence-type matching: outgoing call-graph evidence requires codebase_outgoing_call_graph; implementation evidence requires codebase_discover_method_implementations; internal-reference evidence requires codebase_find_internal_references; complete method source requires codebase_get_method_source.
             codebase_discover_method_implementations is follow-up-only. When no eligible FOLLOW_UP exists, use codebase_discover_concepts and type-member follow-ups to locate an eligible declaration first.
             For a follow-up-only operation, call the registered tool named by targetCapability and pass its opaque handle as followUpCandidateHandle.
-            Use codebase_follow_up only when no targetCapability tool is registered; it executes the provider-bound target capability and payload.
             Do not repeat a discovery query when its result already issued an eligible FOLLOW_UP for the missing evidence path.
             Respect every tool schema limit such as maxItems; when one call accepts one candidate handle, make separate sequential calls instead of batching handles.
             Express unresolved uncertainty in answer statements, observations, or clarification.

@@ -234,7 +234,7 @@ class AgentActionPromptRendererTest {
                 .contains("use codebase_discover_concepts and type-member follow-ups to locate an eligible declaration first")
                 .contains("For a follow-up-only operation, call the registered tool named by targetCapability")
                 .contains("pass its opaque handle as followUpCandidateHandle")
-                .contains("Use codebase_follow_up only when no targetCapability tool is registered")
+                .doesNotContain("codebase_follow_up")
                 .contains("Do not repeat a discovery query when its result already issued an eligible FOLLOW_UP");
     }
 }

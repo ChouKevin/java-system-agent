@@ -78,7 +78,7 @@ public final class QueryPlanningToolRegistration<P, E>
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("planning tool was not issued"));
         QueryPlanningSelection<E> selection = mapper.map(input);
-        CapabilityInputPayload payload = FollowUpPlanningToolRegistration.boundPayload(context, capability, policy,
+        CapabilityInputPayload payload = ProviderBoundFollowUp.boundPayload(context, capability, policy,
                         selection.candidateReferences())
                 .orElseGet(() -> payloadCodec.encode(selection.executionInput()));
         return new QueryAction(capability, selection.candidateReferences(), selection.questionToResolve(),
