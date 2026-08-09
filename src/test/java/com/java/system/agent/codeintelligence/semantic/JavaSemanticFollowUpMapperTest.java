@@ -50,9 +50,39 @@ class JavaSemanticFollowUpMapperTest {
         for (String operation : List.of("GET_TYPE_MEMBERS", "DISCOVER_TYPE_MEMBERS")) {
             SemanticDtos.AvailableFollowUp followUp = new SemanticDtos.AvailableFollowUp(operation,
                     new SemanticDtos.FollowUpApi("POST", "/v1/discovery/type-members", "discoverTypeMembers"), request);
-            assertThat(mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), followUp)
-                    .targetCapabilityName()).isEqualTo("codebase_discover_type_members");
+            com.java.system.agent.answering.domain.candidate.FollowUpCandidate candidate = mapper.map(
+                    new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), followUp);
+            assertThat(candidate.targetCapabilityName()).isEqualTo("codebase_discover_type_members");
+            assertThat(candidate.description())
+                    .isEqualTo("Semantic follow-up DISCOVER_TYPE_MEMBERS target=com.acme.Orders");
         }
+    }
+
+    @Test
+    void describes_implementation_and_internal_reference_follow_up_targets_without_exposing_payloads() {
+        SemanticDtos.MethodTargetPayload method = methodTarget();
+        SemanticDtos.SourceMemberIdentityPayload field = new SemanticDtos.SourceMemberIdentityPayload.TypeMember(
+                "TYPE", method.sourceType(), "repository");
+        SemanticDtos.AvailableFollowUp implementation = new SemanticDtos.AvailableFollowUp(
+                "DISCOVER_METHOD_IMPLEMENTATIONS",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/method-implementations",
+                        "discoverMethodImplementations"),
+                new SemanticDtos.DiscoverMethodImplementationsFollowUpRequest("orders", "FIXTURE", method));
+        SemanticDtos.AvailableFollowUp references = new SemanticDtos.AvailableFollowUp(
+                "FIND_INTERNAL_REFERENCES",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/internal-references",
+                        "findInternalReferences"),
+                new SemanticDtos.TargetFollowUpRequest("orders", "FIXTURE",
+                        new SemanticDtos.InternalReferenceFollowUpTarget("MEMBER", field),
+                        Optional.empty(), Optional.of(0), Optional.of(50)));
+        JavaSemanticFollowUpMapper mapper = new JavaSemanticFollowUpMapper();
+
+        assertThat(mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), implementation)
+                .description()).isEqualTo(
+                        "Semantic follow-up DISCOVER_METHOD_IMPLEMENTATIONS target=com.acme.Orders#find()");
+        assertThat(mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), references)
+                .description()).isEqualTo(
+                        "Semantic follow-up FIND_INTERNAL_REFERENCES target=MEMBER com.acme.Orders#repository");
     }
 
     @Test

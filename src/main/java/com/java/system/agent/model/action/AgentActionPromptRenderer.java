@@ -53,12 +53,15 @@ public final class AgentActionPromptRenderer {
             Treat every explicitly requested deliverable and evidence type as required.
             Do not submit an answer while any required evidence type is absent from Evidence or remains uncited.
             Prefer a query that supplies a missing evidence type over another query for an evidence type already available.
+            When a question requests evidence for each item, execute the requested capability once for every distinct issued item before answering.
             Do not substitute source text for explicitly requested call-graph, implementation, or internal-reference evidence.
             For evidence-type matching: outgoing call-graph evidence requires codebase_outgoing_call_graph; implementation evidence requires codebase_discover_method_implementations; internal-reference evidence requires codebase_find_internal_references; complete method source requires codebase_get_method_source.
             codebase_discover_method_implementations is follow-up-only. When no eligible FOLLOW_UP exists, use codebase_discover_concepts and type-member follow-ups to locate an eligible declaration first.
-            A METHOD concept issues only source and call-graph navigation. For implementation evidence, discover its declaring TYPE and execute the TYPE's codebase_discover_type_members follow-up, then choose codebase_discover_method_implementations from the eligible abstract or interface method member.
+            A METHOD concept issues only source and call-graph navigation. For implementation evidence, discover the abstract or interface declaration TYPE named in the method contract, execute that TYPE's codebase_discover_type_members follow-up, then choose codebase_discover_method_implementations from the eligible abstract or interface method member. A concrete implementation method does not issue implementation discovery.
+            When complete implementation source is requested, obtain implementation evidence first and read source from the selected implementation candidate; do not use entry-point source as a substitute.
             For internal-reference evidence, discover its owning TYPE, inspect FIELD members, and choose the field's codebase_find_internal_references follow-up.
             For a follow-up-only operation, call the registered tool named by targetCapability and pass its opaque handle as followUpCandidateHandle.
+            Before another search or unrelated source read, execute an already issued exact provider-bound FOLLOW_UP for a still-missing evidence type.
             Do not repeat a discovery query when its result already issued an eligible FOLLOW_UP for the missing evidence path.
             Do not repeat the same discovery execution payload when it did not issue the required targetCapability; change the concept kind or search term, or choose an eligible current FOLLOW_UP.
             Respect every tool schema limit such as maxItems; when one call accepts one candidate handle, make separate sequential calls instead of batching handles.

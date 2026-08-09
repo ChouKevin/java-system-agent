@@ -117,8 +117,8 @@ class AgentRuntimeConfigurationTest {
             assertThat(context).hasNotFailed();
             assertThat(context.getBeansOfType(AttemptBudget.class)).hasSize(1);
             AttemptBudget budget = context.getBean(AttemptBudget.class);
-            assertThat(budget.maxAgentSteps()).isEqualTo(10);
-            assertThat(budget.maxQueryExecutions()).isEqualTo(10);
+            assertThat(budget.maxAgentSteps()).isEqualTo(12);
+            assertThat(budget.maxQueryExecutions()).isEqualTo(12);
             assertThat(budget.maxExecuteExecutions()).isEqualTo(1);
             assertThat(budget.maxActionRejections()).isEqualTo(3);
             assertThat(budget.maxRevisionRestarts()).isEqualTo(1);

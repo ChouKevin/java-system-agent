@@ -43,8 +43,7 @@ public final class JavaSemanticFollowUpMapper {
             case "GET_METHOD_SOURCE" -> methodSourceCandidate(repositoryId, revision, followUp);
             case "ANALYZE_OUTGOING_CALL_GRAPH" -> graphCandidate(repositoryId, revision, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH, followUp);
             case "ANALYZE_INCOMING_CALL_GRAPH" -> graphCandidate(repositoryId, revision, CodeIntelligenceQuery.INCOMING_CALL_GRAPH, followUp);
-            case "DISCOVER_METHOD_IMPLEMENTATIONS" -> candidate(repositoryId, revision, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS,
-                    new DiscoverMethodImplementationsExecutionInput(Optional.of(require(followUp.request(), SemanticDtos.DiscoverMethodImplementationsFollowUpRequest.class).declarationTarget())));
+            case "DISCOVER_METHOD_IMPLEMENTATIONS" -> implementationsCandidate(repositoryId, revision, followUp);
             case "RESOLVE_CONCEPT" -> candidate(repositoryId, revision, CodeIntelligenceQuery.RESOLVE_CONCEPT,
                     new ResolveConceptExecutionInput(conceptIdentity(require(followUp.request(), SemanticDtos.IdentityFollowUpRequest.class).identity())));
             case "GET_TYPE_MEMBERS", "DISCOVER_TYPE_MEMBERS" -> typeMembersCandidate(repositoryId, revision, followUp);
@@ -77,11 +76,21 @@ public final class JavaSemanticFollowUpMapper {
                 new GetMethodSourceExecutionInput(Optional.of(target)), methodTargetDescription(target));
     }
 
+    private FollowUpCandidate implementationsCandidate(RepositoryId repositoryId, RepositoryRevision revision,
+                                                        SemanticDtos.AvailableFollowUp followUp) {
+        SemanticDtos.DiscoverMethodImplementationsFollowUpRequest request = require(followUp.request(),
+                SemanticDtos.DiscoverMethodImplementationsFollowUpRequest.class);
+        SemanticDtos.MethodTargetPayload target = request.declarationTarget();
+        return candidate(repositoryId, revision, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS,
+                new DiscoverMethodImplementationsExecutionInput(Optional.of(target)), methodTargetDescription(target));
+    }
+
     private FollowUpCandidate typeMembersCandidate(RepositoryId repositoryId, RepositoryRevision revision,
                                                     SemanticDtos.AvailableFollowUp followUp) {
         SemanticDtos.TypeMembersFollowUpRequest request = require(followUp.request(), SemanticDtos.TypeMembersFollowUpRequest.class);
         return candidate(repositoryId, revision, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS,
-                new DiscoverTypeMembersExecutionInput(request.sourceType(), request.memberKinds(), request.namePrefix(), request.offset(), request.limit()));
+                new DiscoverTypeMembersExecutionInput(request.sourceType(), request.memberKinds(), request.namePrefix(),
+                        request.offset(), request.limit()), sourceTypeDescription(request.sourceType()));
     }
 
     private FollowUpCandidate conceptsCandidate(RepositoryId repositoryId, RepositoryRevision revision, SemanticDtos.AvailableFollowUp followUp) {
@@ -109,7 +118,7 @@ public final class JavaSemanticFollowUpMapper {
         SemanticDtos.InternalReferenceFollowUpTarget target = internalReferenceTarget(request.target());
         return candidate(repositoryId, revision, CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES,
                 new FindInternalReferencesExecutionInput(target, requiredOptional(request.offset(), "reference offset"),
-                        requiredOptional(request.limit(), "reference limit")));
+                        requiredOptional(request.limit(), "reference limit")), internalReferenceTargetDescription(target));
     }
 
     private FollowUpCandidate segmentCandidate(RepositoryId repositoryId, RepositoryRevision revision, SemanticDtos.AvailableFollowUp followUp) {
@@ -130,11 +139,27 @@ public final class JavaSemanticFollowUpMapper {
     }
 
     private static String methodTargetDescription(SemanticDtos.MethodTargetPayload target) {
-        SemanticDtos.JavaTypeIdentityPayload javaType = target.sourceType().javaType();
-        String qualifiedType = javaType.packageName().isBlank()
+        return sourceTypeDescription(target.sourceType()) + "#" + target.methodName()
+                + "(" + String.join(",", target.parameterTypes()) + ")";
+    }
+
+    private static String sourceTypeDescription(SemanticDtos.SourceTypeIdentityPayload sourceType) {
+        SemanticDtos.JavaTypeIdentityPayload javaType = sourceType.javaType();
+        return javaType.packageName().isBlank()
                 ? javaType.className()
                 : javaType.packageName() + "." + javaType.className();
-        return qualifiedType + "#" + target.methodName() + "(" + String.join(",", target.parameterTypes()) + ")";
+    }
+
+    private static String internalReferenceTargetDescription(SemanticDtos.InternalReferenceFollowUpTarget target) {
+        String identity = switch (target.identity()) {
+            case SemanticDtos.SourceTypeIdentityPayload sourceType -> sourceTypeDescription(sourceType);
+            case SemanticDtos.MethodTargetPayload method -> methodTargetDescription(method);
+            case SemanticDtos.SourceMemberIdentityPayload.TypeMember member ->
+                    sourceTypeDescription(member.ownerType()) + "#" + member.name();
+            case SemanticDtos.SourceMemberIdentityPayload.MethodScoped member ->
+                    methodTargetDescription(member.declaringMethod()) + "::" + member.name();
+        };
+        return target.kind() + " " + identity;
     }
 
     private void verifyScope(RepositoryId repositoryId, RepositoryRevision revision, SemanticDtos.AvailableFollowUp followUp) {
