@@ -18,7 +18,11 @@ public final class AnswerVerificationPromptRenderer {
 
     public static final String SYSTEM_INSTRUCTION = """
             Evaluate the proposed answer only against the supplied context.
-            Return one complete, inconclusive, or rejected disposition and a judgment for every statement.
+            Judge factual support and whether every explicit part of the current question is addressed.
+            Use ACCEPTED_COMPLETE only when every requested part is answered and every FACT is supported by its cited or referenced supplied context.
+            Use ACCEPTED_INCONCLUSIVE only when the document explicitly states unavoidable missing information or blocking uncertainty without claiming completeness.
+            Use REJECTED when a requested part is omitted from a purported answer, a FACT lacks support, or the document must be revised; list omissions in unaddressedParts and reasons in rejectionReasons.
+            Return SUPPORTED or UNSUPPORTED for every FACT statement, using exactly the values defined by the response contract.
             Do not rewrite the proposed answer.
             """;
 

@@ -24,6 +24,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AnswerVerificationPromptRendererTest {
 
     @Test
+    void requires_complete_answers_to_cover_every_explicit_part_of_the_question() {
+        assertThat(AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION)
+                .contains("every explicit part of the current question")
+                .contains("ACCEPTED_COMPLETE only when every requested part is answered")
+                .contains("ACCEPTED_INCONCLUSIVE only when the document explicitly states unavoidable missing information")
+                .contains("REJECTED when a requested part is omitted")
+                .contains("unaddressedParts", "rejectionReasons");
+    }
+
+    @Test
     void renders_each_history_turn_with_its_stable_participant_label() {
         SessionHistory history = new SessionHistory(List.of(
                 new ConversationTurn(new AnalysisRunId("run-1"), new ParticipantRef("slack", "U123456"),

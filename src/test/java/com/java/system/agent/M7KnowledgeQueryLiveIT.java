@@ -1,11 +1,14 @@
 package com.java.system.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentRunStatus;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
@@ -148,10 +151,8 @@ class M7KnowledgeQueryLiveIT {
             assertThat(handle.binding().runId()).isEqualTo(state.runId());
             assertThat(handle.binding().attemptId()).isEqualTo(state.currentAttempt().attemptId());
             assertThat(handle.binding().revisionVector()).isEqualTo(EXPECTED_REVISIONS);
-            assertThat(issued.candidate().repositoryId()).isEqualTo(REPOSITORY_ID);
-            issued.candidate().repositoryRevision().ifPresent(revision ->
-                    assertThat(revision).isEqualTo(REPOSITORY_REVISION));
         });
+        assertSelectedQueryCandidateScope(state);
         state.currentAttempt().issuedEvidence().forEach((handle, issued) -> {
             assertThat(handle.binding().runId()).isEqualTo(state.runId());
             assertThat(handle.binding().attemptId()).isEqualTo(state.currentAttempt().attemptId());
@@ -166,6 +167,27 @@ class M7KnowledgeQueryLiveIT {
         assertThat(acceptedAnswer.acceptance().verdict()).hasValueSatisfying(verdict ->
                 assertThat(verdict.disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE));
         return acceptedAnswer;
+    }
+
+    private void assertSelectedQueryCandidateScope(AgentRunState state) {
+        Map<String, IssuedCandidate> candidatesByHandle = new LinkedHashMap<>();
+        state.currentAttempt().issuedCandidates().forEach((handle, issued) ->
+                candidatesByHandle.put(handle.value(), issued));
+        List<IssuedCandidate> selectedQueryCandidates = state.modelInteractions().stream()
+                .filter(interaction -> interaction instanceof ModelInteraction.ActionSelected)
+                .map(interaction -> (ModelInteraction.ActionSelected) interaction)
+                .filter(selected -> selected.action() instanceof QueryAction)
+                .map(selected -> (QueryAction) selected.action())
+                .flatMap(query -> query.candidates().stream())
+                .map(reference -> Optional.ofNullable(candidatesByHandle.get(reference.value()))
+                        .orElseThrow(() -> new AssertionError(
+                                "selected query candidate did not resolve to issued context: " + reference.value())))
+                .toList();
+        assertThat(selectedQueryCandidates).isNotEmpty().allSatisfy(issued -> {
+            assertThat(issued.candidate().repositoryId()).isEqualTo(REPOSITORY_ID);
+            issued.candidate().repositoryRevision().ifPresent(revision ->
+                    assertThat(revision).isEqualTo(REPOSITORY_REVISION));
+        });
     }
 
     private Set<String> assertCitationsAndEvidence(
