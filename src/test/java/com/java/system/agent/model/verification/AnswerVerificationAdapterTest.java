@@ -50,6 +50,9 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -215,6 +218,42 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
+    void rendersTheExactFactVerdictIdsRequiredEvenForARejectedAnswer() {
+        String prompt = new AnswerVerificationPromptRenderer().render(richContext(), "response-schema");
+
+        assertThat(prompt).contains("""
+                Required FACT statement verdict IDs (exactly once, including when disposition is REJECTED):
+                - statement-a
+                - statement-b
+                """);
+        assertThat(prompt.indexOf("Required FACT statement verdict IDs"))
+                .isLessThan(prompt.indexOf("Response contract"));
+    }
+
+    @Test
+    void logsOnlySafeCountsWhenVerifierOmitsAFactVerdict() {
+        CountingChatModel model = new CountingChatModel("""
+                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-a","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":["Incomplete"]}
+                """);
+        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        Logger logger = Logger.getLogger(AnswerVerdictResponseInterpreter.class.getName());
+        CapturingLogHandler handler = new CapturingLogHandler();
+        logger.addHandler(handler);
+
+        try {
+            assertThatThrownBy(() -> adapter.verify(AnswerVerificationMode.LLM, richContext()))
+                    .isInstanceOf(AnswerVerificationUnavailableException.class);
+        } finally {
+            logger.removeHandler(handler);
+        }
+
+        assertThat(handler.formattedMessage())
+                .contains("expectedFactStatementCount=2", "returnedStatementVerdictCount=1",
+                        "missingFactStatementVerdictCount=1", "unexpectedStatementVerdictCount=0")
+                .doesNotContain("statement-a", "statement-b", "First fact", "Second fact");
+    }
+
+    @Test
     void dispatcherRejectsDuplicateMissingExtraAndNullStrategies() {
         AnswerVerificationStrategy llm = new FixedStrategy(AnswerVerificationMode.LLM);
         AnswerVerificationStrategy contractOnly = new FixedStrategy(AnswerVerificationMode.CONTRACT_ONLY);
@@ -338,6 +377,28 @@ class AnswerVerificationAdapterTest {
         @Override
         public AnswerVerificationResult verify(AnswerVerificationMode mode, AnswerVerificationContext context) {
             return new AnswerVerificationResult.ContractAccepted();
+        }
+    }
+
+    private static final class CapturingLogHandler extends Handler {
+
+        private String formattedMessage = "";
+
+        @Override
+        public void publish(LogRecord record) {
+            formattedMessage = java.text.MessageFormat.format(record.getMessage(), record.getParameters());
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+
+        private String formattedMessage() {
+            return formattedMessage;
         }
     }
 }

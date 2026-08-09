@@ -13,11 +13,15 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * 將 verifier DTO 轉為 answering verdict 並檢查文件的精確 statement 集合
  */
 public final class AnswerVerdictResponseInterpreter {
+
+    private static final Logger LOGGER = Logger.getLogger(AnswerVerdictResponseInterpreter.class.getName());
 
     /**
      * 任何遺漏、重複或外來 statement ID 都拒絕為不可用的結構輸出
@@ -40,6 +44,13 @@ public final class AnswerVerdictResponseInterpreter {
                 .filter(statement -> statement.type() == StatementType.FACT)
                 .forEach(statement -> factStatementIds.add(statement.statementId()));
         if (!factStatementIds.equals(responseIds)) {
+            long missingCount = factStatementIds.stream().filter(statementId -> !responseIds.contains(statementId)).count();
+            long unexpectedCount = responseIds.stream().filter(statementId -> !factStatementIds.contains(statementId)).count();
+            LOGGER.log(Level.WARNING,
+                    "answer verifier contract mismatch expectedFactStatementCount={0} "
+                            + "returnedStatementVerdictCount={1} missingFactStatementVerdictCount={2} "
+                            + "unexpectedStatementVerdictCount={3}",
+                    new Object[]{factStatementIds.size(), responseIds.size(), missingCount, unexpectedCount});
             throw new IllegalArgumentException("statement verdict IDs must exactly match fact statements");
         }
         return new AnswerVerdict(response.disposition(), statementVerdicts,

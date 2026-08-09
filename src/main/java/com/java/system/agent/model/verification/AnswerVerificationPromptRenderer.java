@@ -1,6 +1,7 @@
 package com.java.system.agent.model.verification;
 
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
@@ -34,6 +35,7 @@ public final class AnswerVerificationPromptRenderer {
             Use ACCEPTED_INCONCLUSIVE only when the document explicitly states unavoidable missing information or blocking uncertainty without claiming completeness.
             Use REJECTED when a requested part is omitted from a purported answer, a FACT lacks support, or the document must be revised; list omissions in unaddressedParts and reasons in rejectionReasons.
             Return SUPPORTED or UNSUPPORTED for every FACT statement, using exactly the values defined by the response contract.
+            Return exactly one statement verdict for each supplied FACT statement ID even when the disposition is REJECTED, and return no verdict for any other statement ID.
             Do not rewrite the proposed answer.
             """;
 
@@ -59,8 +61,25 @@ public final class AnswerVerificationPromptRenderer {
         evidenceSection(prompt, "Cited evidence", context.citedEvidence(), context.evidenceProvenance());
         evidenceCoverage(prompt, context);
         observationSection(prompt, "Referenced observations", context.referencedObservations());
+        requiredFactStatementVerdicts(prompt, context.document().statements());
         section(prompt, "Response contract", responseContract);
         return prompt.toString();
+    }
+
+    private static void requiredFactStatementVerdicts(StringBuilder prompt, List<AnswerStatement> statements) {
+        prompt.append("Required FACT statement verdict IDs (exactly once, including when disposition is REJECTED):\n");
+        List<String> factStatementIds = statements.stream()
+                .filter(statement -> statement.type() == StatementType.FACT)
+                .map(statement -> statement.statementId().value())
+                .sorted()
+                .toList();
+        if (factStatementIds.isEmpty()) {
+            prompt.append("- none; statementVerdicts must be []\n");
+            return;
+        }
+        for (String statementId : factStatementIds) {
+            prompt.append("- ").append(statementId).append('\n');
+        }
     }
 
     private static void statement(StringBuilder prompt, AnswerStatement statement) {
