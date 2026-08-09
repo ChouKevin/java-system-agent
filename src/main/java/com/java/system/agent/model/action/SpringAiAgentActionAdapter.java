@@ -68,6 +68,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         Objects.requireNonNull(context, "agent prompt context must not be null");
         long startedNanos = System.nanoTime();
         String resultCategory = "CONTRACT_EXCEPTION";
+        String malformedReason = "NONE";
         String actionType = "NONE";
         String actionFingerprint = "NONE";
         String executionPayloadFingerprint = "NONE";
@@ -96,6 +97,9 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             AgentActionProposal proposal = proposal(response, context);
             actionType = actionType(proposal);
             resultCategory = proposal instanceof AgentActionProposal.Proposed ? "PROPOSED" : "MALFORMED";
+            if (proposal instanceof AgentActionProposal.Malformed malformed) {
+                malformedReason = malformed.description();
+            }
             if (proposal instanceof AgentActionProposal.Proposed proposed) {
                 AgentActionFingerprint fingerprint = AgentActionFingerprint.from(proposed.action());
                 actionFingerprint = fingerprint.value();
@@ -108,7 +112,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             }
             return proposal;
         } finally {
-            logOperation(context, promptMetadata, resultCategory, actionType, actionFingerprint,
+            logOperation(context, promptMetadata, resultCategory, malformedReason, actionType, actionFingerprint,
                     executionPayloadFingerprint, priorIdenticalCurrentAttemptSelectionCount,
                     priorEquivalentCurrentAttemptPayloadSelectionCount, startedNanos);
         }
@@ -171,6 +175,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             AgentPromptContext context,
             PromptMetadata promptMetadata,
             String resultCategory,
+            String malformedReason,
             String actionType,
             String actionFingerprint,
             String executionPayloadFingerprint,
@@ -187,14 +192,14 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         LOGGER.log(level,
                 "agent action operation=NEXT_ACTION runId={0} attemptId={1} promptCharacterCount={2} promptSha256={3} "
                         + "interactionCount={4} remainingAgentSteps={5} remainingQueryExecutions={6} "
-                        + "remainingExecuteExecutions={7} remainingActionRejections={8} resultCategory={9} actionType={10} "
-                        + "actionFingerprint={11} executionPayloadFingerprint={12} "
-                        + "priorIdenticalCurrentAttemptSelectionCount={13} "
-                        + "priorEquivalentCurrentAttemptPayloadSelectionCount={14} elapsedMs={15}",
+                        + "remainingExecuteExecutions={7} remainingActionRejections={8} resultCategory={9} "
+                        + "malformedReason={10} actionType={11} actionFingerprint={12} executionPayloadFingerprint={13} "
+                        + "priorIdenticalCurrentAttemptSelectionCount={14} "
+                        + "priorEquivalentCurrentAttemptPayloadSelectionCount={15} elapsedMs={16}",
                 new Object[]{context.runId().value(), context.attemptId().value(), promptMetadata.characterCount(),
                         promptMetadata.sha256(), context.modelInteractions().size(), remainingAgentSteps,
                         remainingQueryExecutions, remainingExecuteExecutions, remainingActionRejections, resultCategory,
-                        actionType, actionFingerprint, executionPayloadFingerprint,
+                        malformedReason, actionType, actionFingerprint, executionPayloadFingerprint,
                         priorIdenticalCurrentAttemptSelectionCount, priorEquivalentCurrentAttemptPayloadSelectionCount,
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }

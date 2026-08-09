@@ -15,8 +15,12 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -83,6 +87,29 @@ class StrictPlanningToolDecoderTest {
     }
 
     @Test
+    void logs_only_safe_input_shape_diagnostics_for_constraint_failures() {
+        Logger logger = Logger.getLogger(StrictPlanningToolDecoder.class.getName());
+        boolean originalUseParentHandlers = logger.getUseParentHandlers();
+        List<LogRecord> records = new ArrayList<>();
+        Handler handler = recordingHandler(records);
+        logger.setUseParentHandlers(false);
+        logger.addHandler(handler);
+
+        try {
+            assertThatThrownBy(() -> decoder.decode(
+                    "{\"candidateHandles\":[\"SENSITIVE_VALUE\"],\"required\":\" \",\"limit\":2}", Input.class))
+                    .isInstanceOf(PlanningToolInputException.class);
+
+            assertThat(records).hasSize(1);
+            assertThat(records.getFirst().getParameters()).contains("Input", "BEAN_VALIDATION", 1)
+                    .doesNotContain("SENSITIVE_VALUE");
+        } finally {
+            logger.removeHandler(handler);
+            logger.setUseParentHandlers(originalUseParentHandlers);
+        }
+    }
+
+    @Test
     void planning_protocol_components_do_not_accept_a_host_object_mapper() {
         assertThat(Arrays.stream(StrictPlanningToolDecoder.class.getConstructors())
                 .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes())))
@@ -105,5 +132,22 @@ class StrictPlanningToolDecoderTest {
     private record Nested(
             @JsonProperty(required = true) @NotBlank String required,
             @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String optional) {
+    }
+
+    private static Handler recordingHandler(List<LogRecord> records) {
+        return new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                records.add(record);
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
     }
 }
