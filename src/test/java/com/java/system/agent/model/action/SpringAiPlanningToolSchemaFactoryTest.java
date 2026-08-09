@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.java.system.agent.capability.planning.ExecuteHttpPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
+import com.java.system.agent.codeintelligence.planning.DiscoverConceptsPlanningInput;
 import com.java.system.agent.codeintelligence.planning.EntryPointType;
 import com.java.system.agent.codeintelligence.planning.IncomingCallGraphPlanningInput;
 import com.java.system.agent.codeintelligence.planning.ListEntryPointsPlanningInput;
@@ -75,6 +76,25 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(statement.path("properties").fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("statementId", "type", "text", "claimId", "citationHandles", "observationIds");
         assertThat(statement.at("/properties/additionalProperties").isMissingNode()).isTrue();
+    }
+
+    @Test
+    void exposes_discover_concepts_allowed_values_to_the_model() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode schema = mapper.readTree(
+                new SpringAiPlanningToolSchemaFactory().createSchema(DiscoverConceptsPlanningInput.class));
+
+        JsonNode properties = schema.path("properties");
+        assertThat(properties.path("terms").path("items").path("properties")
+                .path("matchMode").path("enum"))
+                .extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("TOKEN_EXACT", "TOKEN_PREFIX");
+        assertThat(properties.path("kinds").path("items").path("enum"))
+                .extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder(
+                        "TYPE", "METHOD", "FIELD", "ANNOTATION_USAGE", "TYPE_USAGE", "API_ROUTE",
+                        "MQ_DESTINATION", "SCHEDULE", "MAPPER_STATEMENT", "SQL_IDENTIFIER",
+                        "CONFIGURATION_KEY", "OUTBOUND_API", "MQ_PUBLISHER", "ERROR_CONTRACT", "ENUM_CONSTANT");
     }
 
     @Test

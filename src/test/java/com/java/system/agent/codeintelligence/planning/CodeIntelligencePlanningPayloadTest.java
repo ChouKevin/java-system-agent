@@ -45,7 +45,9 @@ class CodeIntelligencePlanningPayloadTest {
     void maps_direct_discovery_inputs_with_provider_defaults_and_unbound_exact_targets() {
         DiscoverConceptsPlanningInput concepts = new DiscoverConceptsPlanningInput(
                 List.of("candidate-1"), "Find orders", "Need concept matches",
-                List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")), List.of("TYPE"),
+                List.of(new DiscoverConceptsPlanningInput.Term(
+                        "orders", DiscoverConceptsPlanningInput.MatchMode.TOKEN_EXACT)),
+                List.of(DiscoverConceptsPlanningInput.Kind.TYPE),
                 Optional.empty(), null, null);
         DiscoverEventListenersPlanningInput listeners = new DiscoverEventListenersPlanningInput(
                 List.of("candidate-1"), "Find listeners", "Need event listeners", "OrderCreated", null, null);
