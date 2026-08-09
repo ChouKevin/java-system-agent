@@ -57,12 +57,12 @@ class AgentActionPromptRendererTest {
                 new CapabilityHandle("capability-1", binding),
                 List.of(new CandidateHandleRef("candidate-1")),
                 "resolve query",
-                new CapabilityInputPayload("{\"scope\":\"all\"}"),
+                new CapabilityInputPayload("{\"secret\":\"canonical-follow-up\"}"),
                 "need evidence");
         ExecuteAction execute = new ExecuteAction(
                 ExternalHttpMethod.PATCH,
-                "https://example.invalid/items/1",
-                Optional.of("{\"status\":\"active\"}"),
+                "https://secret.example.invalid/items/1?token=execute-secret",
+                Optional.of("{\"credential\":\"execute-secret-body\"}"),
                 "apply requested change");
         AnswerAction answer = new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.UNCERTAINTY, "answer text", Optional.empty(),
@@ -100,11 +100,11 @@ class AgentActionPromptRendererTest {
 
         assertThat(prompt).endsWith("""
                 Previous model choices and results:
-                - attempt=attempt-1 selected QUERY: capability=capability-1, candidates=[candidate-1], questionToResolve=resolve query, payload={"scope":"all"}, rationale=need evidence
+                - attempt=attempt-1 selected QUERY: capability=capability-1, candidates=[candidate-1], questionToResolve=resolve query, payloadSummary=sha256=f05c6026d4bfadefc1db7002777678ef10ed226118b19fc1731a70ee8ed33192, characters=32, rationale=need evidence
                 - attempt=attempt-1 result QUERY_SUCCEEDED: candidateHandles=[candidate-3], evidenceHandles=[evidence-1], observationIds=[observation-1]
-                - attempt=attempt-1 selected EXECUTE: method=PATCH, targetUrl=https://example.invalid/items/1, jsonBody={"status":"active"}, rationale=apply requested change
+                - attempt=attempt-1 selected EXECUTE: method=PATCH, targetUrlSummary=sha256=40112b3220b2a402fe33ff4f3c9014ba6253b29ec1803751d6e094173c970e5a, characters=59, jsonBodySummary=sha256=18fb61743402320294aa1f70bb215b13699f4a6e6ba529a162081cc52713450f, characters=36, rationale=apply requested change
                 - attempt=attempt-1 result EXECUTE_COMPLETED: outcome=NOT_IMPLEMENTED, observationIds=[observation-2], description=not implemented
-                - attempt=attempt-1 selected QUERY: capability=capability-1, candidates=[candidate-1], questionToResolve=resolve query, payload={"scope":"all"}, rationale=need evidence
+                - attempt=attempt-1 selected QUERY: capability=capability-1, candidates=[candidate-1], questionToResolve=resolve query, payloadSummary=sha256=f05c6026d4bfadefc1db7002777678ef10ed226118b19fc1731a70ee8ed33192, characters=32, rationale=need evidence
                 - attempt=attempt-1 result VALIDATION_REJECTED: code=INVALID_ACTION, description=invalid action
                 - attempt=attempt-1 malformed response: description=malformed tool call
                 - attempt=attempt-1 selected ANSWER: document.statements=[{statementId=statement-1, type=UNCERTAINTY, text=answer text, claimId=none, citations=[], observationIds=[]}]
@@ -112,6 +112,11 @@ class AgentActionPromptRendererTest {
                 - attempt=attempt-1 selected CLARIFY: question=which item?, candidates=[candidate-2], reason=need selection
                 - attempt=attempt-1 result ACTION_INTERRUPTED: code=RECOVERY_INTERRUPTED, description=outcome unknown
                 """);
+        assertThat(prompt).doesNotContain(
+                "canonical-follow-up",
+                "secret.example.invalid",
+                "execute-secret",
+                "execute-secret-body");
     }
 
     @Test

@@ -24,6 +24,10 @@ import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -124,11 +128,13 @@ public final class AgentActionPromptRenderer {
                 case QueryAction query -> "QUERY: capability=" + query.capability().value()
                         + ", candidates=" + candidateHandles(query.candidates())
                         + ", questionToResolve=" + query.questionToResolve()
-                        + ", payload=" + query.payload().value()
+                        + ", payloadSummary=" + contentSummary(query.payload().value())
                         + ", rationale=" + query.rationale();
                 case ExecuteAction execute -> "EXECUTE: method=" + execute.method()
-                        + ", targetUrl=" + execute.targetUrl()
-                        + ", jsonBody=" + execute.jsonBody().orElse("none")
+                        + ", targetUrlSummary=" + contentSummary(execute.targetUrl())
+                        + ", jsonBodySummary=" + execute.jsonBody()
+                        .map(ModelInteractionRenderer::contentSummary)
+                        .orElse("none")
                         + ", rationale=" + execute.rationale();
                 case AnswerAction answer -> "ANSWER: document.statements=" + renderDocument(answer.document());
                 case ClarifyAction clarify -> "CLARIFY: question=" + clarify.question()
@@ -196,6 +202,16 @@ public final class AgentActionPromptRenderer {
 
         private static List<String> evidenceHandles(java.util.Set<EvidenceHandleRef> citations) {
             return citations.stream().map(EvidenceHandleRef::value).sorted().toList();
+        }
+
+        private static String contentSummary(String value) {
+            try {
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                String hash = HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+                return "sha256=" + hash + ", characters=" + value.length();
+            } catch (NoSuchAlgorithmException exception) {
+                throw new IllegalStateException("SHA-256 digest must be available", exception);
+            }
         }
     }
 }
