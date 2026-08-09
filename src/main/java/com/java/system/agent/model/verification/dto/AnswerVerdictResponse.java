@@ -1,11 +1,13 @@
 package com.java.system.agent.model.verification.dto;
 
+import com.java.system.agent.answering.domain.answer.AnswerDisposition;
+
 import java.util.List;
 
 /**
  * 模型回答 verifier 的完整結構輸出
  */
-public record AnswerVerdictResponse(String disposition, List<StatementVerdictResponse> statementVerdicts,
+public record AnswerVerdictResponse(AnswerDisposition disposition, List<StatementVerdictResponse> statementVerdicts,
                                     List<String> unaddressedParts, List<String> blockingUncertainties,
                                     List<String> rejectionReasons) {
 }
