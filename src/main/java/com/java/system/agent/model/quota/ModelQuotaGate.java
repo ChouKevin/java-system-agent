@@ -9,6 +9,7 @@ import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 
@@ -89,6 +90,16 @@ public final class ModelQuotaGate implements ChatModel {
     @Override
     public Flux<ChatResponse> stream(Prompt prompt) {
         return Flux.error(new UnsupportedOperationException(STREAMING_UNSUPPORTED));
+    }
+
+    @Override
+    public ChatOptions getOptions() {
+        return provider.getOptions();
+    }
+
+    @Override
+    public ChatOptions getDefaultOptions() {
+        return provider.getDefaultOptions();
     }
 
     private ModelQuotaWindow.Reservation reserve(Instant now, long estimatedTokens) {

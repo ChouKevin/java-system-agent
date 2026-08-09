@@ -17,7 +17,6 @@ import org.springframework.ai.chat.client.AdvisorParams;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -73,10 +72,9 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             ChatClientResponse response;
             try {
                 List<org.springframework.ai.tool.ToolCallback> callbacks = callbackAdapter.issuedCallbacks(context);
-                ToolCallingChatOptions.Builder<?> options = ToolCallingChatOptions.builder().toolCallbacks(callbacks);
                 response = chatClient.prompt()
                         .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false))
-                        .options(options)
+                        .toolCallbacks(callbacks)
                         .system(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
                         .user(promptRenderer.render(context))
                         .call()

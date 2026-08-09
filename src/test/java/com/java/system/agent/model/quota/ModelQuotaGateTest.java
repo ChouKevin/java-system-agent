@@ -7,13 +7,18 @@ import com.java.system.agent.answering.domain.run.ExecutionDeferralReason;
 import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
@@ -26,12 +31,44 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ModelQuotaGateTest {
+
+    @Test
+    void preservesProviderSpecificOptionsAndRequestScopedCallbacksThroughChatClient() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-28T01:02:03Z"));
+        ProviderOptionsChatModel provider = new ProviderOptionsChatModel();
+        ModelQuotaGate gate = gate(provider, clock, 15, 10, 500);
+        ToolCallback callback = mock(ToolCallback.class);
+        ToolDefinition definition = ToolDefinition.builder()
+                .name("test_tool")
+                .description("test callback")
+                .inputSchema("{\"type\":\"object\"}")
+                .build();
+        when(callback.getToolDefinition()).thenReturn(definition);
+
+        assertThat(gate.getOptions()).isSameAs(provider.options());
+        assertThat(gate.getDefaultOptions()).isSameAs(provider.defaultOptions());
+
+        ChatClient.builder(gate).build().prompt()
+                .toolCallbacks(callback)
+                .user("test")
+                .call()
+                .chatResponse();
+
+        assertThat(provider.receivedOptions())
+                .isInstanceOfSatisfying(GoogleGenAiChatOptions.class, options -> {
+                    assertThat(options.getModel()).isEqualTo("gemini-test");
+                    assertThat(options.getToolCallbacks()).containsExactly(callback);
+                });
+    }
 
     @Test
     void dispatchesTheFirstFifteenRequestsAndDefersTheSixteenthUntilTheOldestExpires() {
@@ -275,7 +312,7 @@ class ModelQuotaGateTest {
         assertThat(provider.calls()).isEqualTo(1);
     }
 
-    private ModelQuotaGate gate(CountingChatModel provider, Clock clock, int requestsPerMinute,
+    private ModelQuotaGate gate(ChatModel provider, Clock clock, int requestsPerMinute,
             int inputTokensPerMinute, int requestsPerDay) {
         AgentModelRateLimitProperties properties = new AgentModelRateLimitProperties(requestsPerMinute,
                 inputTokensPerMinute, requestsPerDay, Duration.ofSeconds(45));
@@ -326,6 +363,45 @@ class ModelQuotaGateTest {
 
         private int calls() {
             return calls.get();
+        }
+    }
+
+    private static final class ProviderOptionsChatModel implements ChatModel {
+
+        private final GoogleGenAiChatOptions options = GoogleGenAiChatOptions.builder()
+                .model("gemini-test")
+                .build();
+        private final GoogleGenAiChatOptions defaultOptions = GoogleGenAiChatOptions.builder()
+                .model("gemini-default")
+                .build();
+        private Optional<Prompt> receivedPrompt = Optional.empty();
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            receivedPrompt = Optional.of(prompt);
+            return new ChatResponse(List.of(new Generation(new AssistantMessage("response"))));
+        }
+
+        @Override
+        public ChatOptions getOptions() {
+            return options;
+        }
+
+        @Override
+        public ChatOptions getDefaultOptions() {
+            return defaultOptions;
+        }
+
+        private ChatOptions receivedOptions() {
+            return receivedPrompt.orElseThrow().getOptions();
+        }
+
+        private ChatOptions options() {
+            return options;
+        }
+
+        private ChatOptions defaultOptions() {
+            return defaultOptions;
         }
     }
 
