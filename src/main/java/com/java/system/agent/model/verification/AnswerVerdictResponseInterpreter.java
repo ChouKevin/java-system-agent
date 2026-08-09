@@ -2,12 +2,10 @@ package com.java.system.agent.model.verification;
 
 import com.java.system.agent.model.verification.dto.AnswerVerdictResponse;
 import com.java.system.agent.model.verification.dto.StatementVerdictResponse;
-import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.answer.StatementVerdict;
-import com.java.system.agent.answering.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 
 import java.util.ArrayList;
@@ -35,8 +33,7 @@ public final class AnswerVerdictResponseInterpreter {
             if (!responseIds.add(statementId)) {
                 throw new IllegalArgumentException("statement verdict IDs must be unique");
             }
-            statementVerdicts.add(new StatementVerdict(statementId, StatementVerdictStatus.valueOf(statement.status()),
-                    statement.description()));
+            statementVerdicts.add(new StatementVerdict(statementId, statement.status(), statement.description()));
         }
         Set<StatementId> factStatementIds = new LinkedHashSet<>();
         context.document().statements().stream()
@@ -45,7 +42,7 @@ public final class AnswerVerdictResponseInterpreter {
         if (!factStatementIds.equals(responseIds)) {
             throw new IllegalArgumentException("statement verdict IDs must exactly match fact statements");
         }
-        return new AnswerVerdict(AnswerDisposition.valueOf(response.disposition()), statementVerdicts,
+        return new AnswerVerdict(response.disposition(), statementVerdicts,
                 requiredList(response.unaddressedParts(), "unaddressed parts"),
                 requiredList(response.blockingUncertainties(), "blocking uncertainties"),
                 requiredList(response.rejectionReasons(), "rejection reasons"));

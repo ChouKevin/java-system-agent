@@ -8,6 +8,7 @@ import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
@@ -42,6 +43,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.converter.BeanOutputConverter;
 
 import java.util.List;
 import java.time.Instant;
@@ -112,7 +114,7 @@ class AnswerVerificationAdapterTest {
     @Test
     void treatsMalformedVerifierOutputAsUnavailableNotRejected() {
         CountingChatModel model = new CountingChatModel("""
-                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-1","status":"UNSUPPORTED","description":"Unsupported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
+                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-1","status":"UNDECIDED","description":"Unknown"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """);
         SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
 
@@ -190,6 +192,14 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
+    void constrainsVerifierResponseContractToTheSupportedDomainValues() {
+        String responseContract = new BeanOutputConverter<>(AnswerVerdictResponse.class).getFormat();
+
+        assertThat(responseContract).contains("ACCEPTED_COMPLETE", "ACCEPTED_INCONCLUSIVE", "REJECTED",
+                "SUPPORTED", "UNSUPPORTED");
+    }
+
+    @Test
     void rendersStatementReferencesAndGlobalVerifierContextInDeterministicOrder() {
         String prompt = new AnswerVerificationPromptRenderer().render(richContext(), "response-schema");
 
@@ -216,18 +226,20 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
-    void rejectsDuplicateMissingAndUnknownStatementVerdictShapes() {
+    void rejectsDuplicateMissingAndNullStatementVerdictShapes() {
         AnswerVerdictResponseInterpreter interpreter = new AnswerVerdictResponseInterpreter();
-        AnswerVerdictResponse duplicate = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(
-                new StatementVerdictResponse("statement-a", "SUPPORTED", "Supported"),
-                new StatementVerdictResponse("statement-a", "SUPPORTED", "Supported twice")), List.of(), List.of(), List.of());
-        AnswerVerdictResponse missing = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(), List.of(), List.of(), List.of());
-        AnswerVerdictResponse unknownStatus = new AnswerVerdictResponse("ACCEPTED_COMPLETE", List.of(
-                new StatementVerdictResponse("statement-a", "UNDECIDED", "Unknown")), List.of(), List.of(), List.of());
+        AnswerVerdictResponse duplicate = new AnswerVerdictResponse(AnswerDisposition.ACCEPTED_COMPLETE, List.of(
+                new StatementVerdictResponse("statement-a", StatementVerdictStatus.SUPPORTED, "Supported"),
+                new StatementVerdictResponse("statement-a", StatementVerdictStatus.SUPPORTED, "Supported twice")),
+                List.of(), List.of(), List.of());
+        AnswerVerdictResponse missing = new AnswerVerdictResponse(AnswerDisposition.ACCEPTED_COMPLETE,
+                List.of(), List.of(), List.of(), List.of());
+        AnswerVerdictResponse missingStatus = new AnswerVerdictResponse(AnswerDisposition.ACCEPTED_COMPLETE, List.of(
+                new StatementVerdictResponse("statement-a", null, "Unknown")), List.of(), List.of(), List.of());
 
         assertThatThrownBy(() -> interpreter.interpret(duplicate, richContext())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> interpreter.interpret(missing, richContext())).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> interpreter.interpret(unknownStatus, richContext())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> interpreter.interpret(missingStatus, richContext())).isInstanceOf(NullPointerException.class);
     }
 
     private AnswerVerificationContext context() {
