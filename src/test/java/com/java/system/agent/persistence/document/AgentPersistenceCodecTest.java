@@ -99,7 +99,8 @@ class AgentPersistenceCodecTest {
         QueryAction selectedAction = new QueryAction(
                 new CapabilityHandle("capability-1", new HandleBinding(runId(), attemptId(), RevisionVector.empty())),
                 List.of(), "question", new CapabilityInputPayload("{}"), "reason");
-        ActionResult result = new ActionResult.QuerySucceeded(List.of(), List.of("evidence-1"), List.of());
+        ActionResult result = new ActionResult.ActionInterrupted(
+                "RECOVERY_INTERRUPTED", "Selected action outcome was not durably known when execution resumed");
         List<ModelInteraction> interactions = List.of(
                 new ModelInteraction.ActionSelected(attemptId(), selectedAction),
                 new ModelInteraction.ActionResultRecorded(attemptId(), result));

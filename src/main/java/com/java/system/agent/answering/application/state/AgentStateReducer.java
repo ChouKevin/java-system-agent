@@ -305,6 +305,9 @@ public final class AgentStateReducer {
     }
 
     private void validateConclusion(AgentRunState state, AgentEvent.RunConcluded event) {
+        if (state.unresolvedSelectedAction().isPresent()) {
+            throw new IllegalArgumentException("agent run conclusion requires every selected action to have a result");
+        }
         switch (event.outcome()) {
             case COMPLETED -> {
                 if (state.pendingTerminalResponse().isEmpty()) {

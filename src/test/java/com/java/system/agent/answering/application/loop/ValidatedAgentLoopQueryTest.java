@@ -168,6 +168,53 @@ class ValidatedAgentLoopQueryTest {
     }
 
     @Test
+    void capacityResumeClosesAnUnresolvedSelectionBeforePlanningTheNextAction() {
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        AtomicInteger modelCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    throw new AssertionError("recovery must not replay the unresolved query");
+                },
+                context -> {
+                    modelCalls.incrementAndGet();
+                    return new AgentActionProposal.Proposed(answer(context, "Recovery status is recorded"));
+                });
+        seedPinnedRun(transitions);
+        AgentRunState running = transitions.state(RUN_ID);
+        QueryAction selectedQuery = new QueryAction(
+                running.currentAttempt().issuedCapabilities().keySet().iterator().next(),
+                List.of(new CandidateHandleRef(running.currentAttempt().issuedCandidates().keySet().iterator().next().value())),
+                "Trace the repository flow", new CapabilityInputPayload("trace"), "Need repository evidence");
+        new AgentTransitionCommitter(new AgentStateReducer(), transitions).apply(running, new AgentEvent.ActionSelected(
+                running.runId(), running.currentAttempt().attemptId(), running.stateRevision(), selectedQuery));
+
+        AgentLoopResult result = loop.execute(capacityResumeRequest());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(modelCalls).hasValue(1);
+        assertThat(capabilityCalls).hasValue(0);
+        assertThat(transitions.events())
+                .filteredOn(event -> event instanceof AgentEvent.ActionSelected
+                        || event instanceof AgentEvent.ActionResultRecorded)
+                .extracting(event -> event.getClass().getSimpleName())
+                .containsExactly("ActionSelected", "ActionResultRecorded", "ActionSelected");
+        assertThat(transitions.state(RUN_ID).unresolvedSelectedAction()).isEmpty();
+        assertThat(transitions.state(RUN_ID).modelInteractions())
+                .filteredOn(ModelInteraction.ActionResultRecorded.class::isInstance)
+                .hasSize(2);
+        assertThat(transitions.state(RUN_ID).modelInteractions()).contains(
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.ActionInterrupted(
+                                "RECOVERY_INTERRUPTED",
+                                "Selected action outcome was not durably known when execution resumed")));
+    }
+
+    @Test
     void recordsTheCapabilityFailureAgainstItsNewObservation() {
         AtomicInteger capabilityCalls = new AtomicInteger();
         List<AgentPromptContext> prompts = new ArrayList<>();

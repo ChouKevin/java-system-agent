@@ -22,13 +22,15 @@ import java.util.Objects;
         @JsonSubTypes.Type(value = ActionResult.QueryInvalidated.class, name = "QUERY_INVALIDATED"),
         @JsonSubTypes.Type(value = ActionResult.ExecuteCompleted.class, name = "EXECUTE_COMPLETED"),
         @JsonSubTypes.Type(value = ActionResult.ValidationRejected.class, name = "VALIDATION_REJECTED"),
+        @JsonSubTypes.Type(value = ActionResult.ActionInterrupted.class, name = "ACTION_INTERRUPTED"),
         @JsonSubTypes.Type(value = ActionResult.AnswerRejected.class, name = "ANSWER_REJECTED"),
         @JsonSubTypes.Type(value = ActionResult.AnswerAccepted.class, name = "ANSWER_ACCEPTED"),
         @JsonSubTypes.Type(value = ActionResult.ClarificationAccepted.class, name = "CLARIFICATION_ACCEPTED")
 })
 public sealed interface ActionResult permits ActionResult.QuerySucceeded, ActionResult.QueryFailed,
         ActionResult.QueryInvalidated, ActionResult.ExecuteCompleted, ActionResult.ValidationRejected,
-        ActionResult.AnswerRejected, ActionResult.AnswerAccepted, ActionResult.ClarificationAccepted {
+        ActionResult.ActionInterrupted, ActionResult.AnswerRejected, ActionResult.AnswerAccepted,
+        ActionResult.ClarificationAccepted {
 
     /**
      * QUERY 動作成功後產生的穩定參考值
@@ -95,6 +97,17 @@ public sealed interface ActionResult permits ActionResult.QuerySucceeded, Action
     }
 
     /**
+     * 模型動作因中斷而無法得知已持久化結果的封閉紀錄
+     */
+    record ActionInterrupted(String code, String description) implements ActionResult {
+
+        public ActionInterrupted {
+            requireText(code, "interrupted action code");
+            requireText(description, "interrupted action description");
+        }
+    }
+
+    /**
      * 回答驗證拒絕的完整判定
      */
     record AnswerRejected(AnswerVerdict verdict) implements ActionResult {
@@ -121,7 +134,7 @@ public sealed interface ActionResult permits ActionResult.QuerySucceeded, Action
      */
     default boolean matches(AgentAction action) {
         Objects.requireNonNull(action, "selected agent action must not be null");
-        if (this instanceof ValidationRejected) {
+        if (this instanceof ValidationRejected || this instanceof ActionInterrupted) {
             return true;
         }
         return switch (action) {

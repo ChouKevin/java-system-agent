@@ -688,6 +688,18 @@ class ValidatedAgentLoopAnswerTest {
                 .singleElement()
                 .satisfies(event -> assertThat(((AgentEvent.RunConcluded) event).outcome())
                         .isEqualTo(RunOutcome.CANCELLED));
+        assertThat(transitions.events())
+                .filteredOn(event -> event instanceof AgentEvent.ActionSelected
+                        || event instanceof AgentEvent.ActionResultRecorded
+                        || event instanceof AgentEvent.RunConcluded)
+                .extracting(event -> event.getClass().getSimpleName())
+                .containsExactly("ActionSelected", "ActionResultRecorded", "RunConcluded");
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().unresolvedSelectedAction()).isEmpty();
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions()).contains(
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.ActionInterrupted(
+                                "TERMINAL_CANCELLED_INTERRUPTED",
+                                "Selected action outcome was not durably known because the run was cancelled")));
     }
 
     @Test
