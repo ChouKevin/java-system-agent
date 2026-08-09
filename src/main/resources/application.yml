@@ -21,7 +21,7 @@ agent:
     base-url: ${CODEBASE_SERVICE_BASE_URL:http://localhost:8081}
     api-token: ${CODEBASE_SERVICE_API_TOKEN:}
     connect-timeout: 2s
-    read-timeout: 15s
+    read-timeout: 60s
 
 logging:
   level:
