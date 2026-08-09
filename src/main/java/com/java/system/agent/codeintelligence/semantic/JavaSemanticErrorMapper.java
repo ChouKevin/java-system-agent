@@ -53,6 +53,8 @@ public final class JavaSemanticErrorMapper {
                     description, operationSource);
             case "SEMANTIC_ENGINE_START_FAILED" -> failed(CapabilityExecutionFailureCode.DEPENDENCY_UNAVAILABLE,
                     description, operationSource);
+            case "IMPLEMENTATION_TARGET_UNSUPPORTED" -> failed(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE,
+                    description, operationSource);
             case "REQUEST_INVALID", "INTERNAL_ERROR" -> failed(CapabilityExecutionFailureCode.DEPENDENCY_FAILURE,
                     description, operationSource);
             case "SEMANTIC_BINDING_AMBIGUOUS" -> observationResult(ObservationCode.AMBIGUOUS_SEMANTIC_TARGET,
