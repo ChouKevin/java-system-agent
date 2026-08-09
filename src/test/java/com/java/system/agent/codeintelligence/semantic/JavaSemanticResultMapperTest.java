@@ -8,6 +8,7 @@ import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.evidence.SourceRange;
 import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
@@ -43,6 +44,101 @@ class JavaSemanticResultMapperTest {
                 REPOSITORY_ID, REPOSITORY_REVISION, response);
 
         assertThat(result.discoveredCandidates()).isEmpty();
+    }
+
+    @Test
+    void mapsProviderMetadataToRevisionPinnedEvidence() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        RepositoryRevision revision = REPOSITORY_REVISION;
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.example", "Orders"), "src/Orders.java");
+        SemanticDtos.MethodTarget apiTarget = new SemanticDtos.MethodTarget("src/Orders.java", "com.example",
+                "Orders", "create", List.of("CreateOrder"));
+        SemanticDtos.MethodTarget mqTarget = new SemanticDtos.MethodTarget("src/Orders.java", "com.example",
+                "Orders", "consume", List.of("OrderCreated"));
+        SemanticDtos.MethodTarget scheduleTarget = new SemanticDtos.MethodTarget("src/Orders.java", "com.example",
+                "Orders", "reconcile", List.of());
+        SemanticDtos.MethodTargetPayload requestedTarget = new SemanticDtos.MethodTargetPayload(sourceType, "find",
+                List.of("java.lang.String"));
+        SemanticDtos.MethodTargetPayload implementationTarget = new SemanticDtos.MethodTargetPayload(
+                new SemanticDtos.SourceTypeIdentityPayload(new SemanticDtos.JavaTypeIdentityPayload("com.example",
+                        "OrderLookupService"), "src/OrderLookupService.java"), "find", List.of("java.lang.String"));
+        SemanticDtos.TextRangePayload declarationRange = textRange(2, 4, 2, 10);
+        SemanticDtos.TextRangePayload firstOccurrence = textRange(8, 2, 8, 8);
+        SemanticDtos.TextRangePayload secondOccurrence = textRange(12, 6, 12, 12);
+
+        CapabilityExecutionResult.Succeeded entryPoints = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
+                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), new SemanticDtos.EntryPointsResponse("orders",
+                REVISION, List.of(new SemanticDtos.EntryPointClassResponse("Orders", "com.example", "com/example",
+                "Order entry points", List.of("/orders"), List.of(
+                new SemanticDtos.ApiEntryPointMethodResponse("create", "Create order", "API", "/orders",
+                        List.of("POST"), List.of("Creates an order"), resolved(apiTarget)),
+                new SemanticDtos.MqEntryPointMethodResponse("consume", "Consume order", "MQ", "KAFKA",
+                        List.of("orders.created"), resolved(mqTarget)),
+                new SemanticDtos.ScheduleEntryPointMethodResponse("reconcile", "Reconcile orders", "SCHEDULE",
+                        "CRON", "0 * * * * *", resolved(scheduleTarget)))))));
+        CapabilityExecutionResult.Succeeded implementations = (CapabilityExecutionResult.Succeeded)
+                mapper.discoverMethodImplementations(REPOSITORY_ID, revision,
+                new SemanticDtos.DiscoverMethodImplementationsResponse("orders", REVISION, requestedTarget, List.of(
+                new SemanticDtos.MethodImplementationCandidateResponse(implementationTarget, true, List.of("orders"),
+                        List.of("prod"), List.of())), new SemanticDtos.BoundedResultResponse(10, 1, 1, false),
+                new SemanticDtos.MethodImplementationResolutionResponse("COMPLETE", List.of())));
+        CapabilityExecutionResult.Succeeded references = (CapabilityExecutionResult.Succeeded) mapper.findInternalReferences(
+                REPOSITORY_ID, revision, new SemanticDtos.FindInternalReferencesResponse("orders", REVISION, "COMPLETE",
+                new SemanticDtos.InternalReferenceTargetDeclarationResponse(
+                        new SemanticDtos.InternalReferenceFollowUpTarget("TYPE", sourceType), declarationRange, List.of()), 7,
+                List.of(new SemanticDtos.ReferenceGroupResponse(
+                        new SemanticDtos.InternalReferenceTypeContextResponse("TYPE", sourceType), List.of(
+                        new SemanticDtos.ReferenceOccurrenceResponse(firstOccurrence, List.of()),
+                        new SemanticDtos.ReferenceOccurrenceResponse(secondOccurrence, List.of())),
+                        new SemanticDtos.BoundedResultResponse(10, 2, 7, true), List.of(), List.of())),
+                new SemanticDtos.PageResponse(0, 10, 2, 7, true), List.of(), List.of()));
+
+        assertMetadataEvidence(entryPoints.evidence(), 3, revision);
+        assertThat(entryPoints.evidence()).extracting(EvidenceRef::semanticTarget)
+                .containsExactly(mapper.semanticTarget(apiTarget), mapper.semanticTarget(mqTarget), mapper.semanticTarget(scheduleTarget));
+        assertThat(entryPoints.evidence().get(0).content()).contains("url=/orders", "httpMethods=POST",
+                "swagger=Creates an order", "kind=API");
+        assertThat(entryPoints.evidence().get(1).content()).contains("broker=KAFKA", "destinations=orders.created",
+                "kind=MQ");
+        assertThat(entryPoints.evidence().get(2).content()).contains("trigger=CRON:0 * * * * *", "kind=SCHEDULE");
+
+        assertMetadataEvidence(implementations.evidence(), 1, revision);
+        assertThat(implementations.evidence().getFirst().semanticTarget()).isEqualTo(mapper.semanticTarget(
+                new SemanticDtos.MethodTarget("src/OrderLookupService.java", "com.example", "OrderLookupService",
+                        "find", List.of("java.lang.String"))));
+        assertThat(implementations.evidence().getFirst().content()).contains("requested=src/Orders.java#Orders.find",
+                "implementation=src/OrderLookupService.java#OrderLookupService.find", "primary=true", "qualifiers=orders",
+                "profiles=prod");
+
+        assertMetadataEvidence(references.evidence(), 3, revision);
+        assertThat(references.evidence()).extracting(EvidenceRef::semanticTarget).containsExactly(
+                sourceRangeTarget("src/Orders.java", declarationRange), sourceRangeTarget("src/Orders.java", firstOccurrence),
+                sourceRangeTarget("src/Orders.java", secondOccurrence));
+        assertThat(references.evidence().get(0).content()).contains("reference=declaration", "target=TYPE", "total=7");
+        assertThat(references.evidence().subList(1, 3)).extracting(EvidenceRef::content)
+                .allSatisfy(content -> assertThat(content).contains("reference=occurrence", "context=TYPE", "total=7"));
+        assertThat(entryPoints.observations()).isEmpty();
+        assertThat(implementations.observations()).isEmpty();
+        assertThat(references.observations()).extracting(CapabilityObservation::code)
+                .containsExactly(ObservationCode.TRUNCATED_CANDIDATES, ObservationCode.TRUNCATED_CANDIDATES);
+    }
+
+    @Test
+    void doesNotInventEvidenceForUnresolvedEntryPointTarget() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.EntryPointsResponse response = new SemanticDtos.EntryPointsResponse("orders", REVISION, List.of(
+                new SemanticDtos.EntryPointClassResponse("Orders", "com.example", "com/example", "Order entry points",
+                List.of("/orders"), List.of(new SemanticDtos.ApiEntryPointMethodResponse("create", "Create order", "API",
+                "/orders", List.of("POST"), List.of("Creates an order"), new SemanticDtos.MethodTargetResolutionResponse(
+                "UNRESOLVED", null, List.of(), "SOURCE_BINDING_UNRESOLVED"))))));
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
+                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+
+        assertThat(result.evidence()).isEmpty();
+        assertThat(result.observations()).extracting(CapabilityObservation::code)
+                .containsExactly(ObservationCode.UNRESOLVED_CALL);
     }
 
     @Test
@@ -596,5 +692,34 @@ class JavaSemanticResultMapperTest {
     private static SemanticDtos.MethodTarget methodTarget(String className, String methodName) {
         return new SemanticDtos.MethodTarget("src/" + className + ".java", "com.example", className, methodName,
                 List.of("java.lang.String"));
+    }
+
+    private static SemanticDtos.MethodTargetResolutionResponse resolved(SemanticDtos.MethodTarget target) {
+        return new SemanticDtos.MethodTargetResolutionResponse("RESOLVED", target, List.of(), "RESOLVED_TARGET");
+    }
+
+    private static SemanticDtos.TextRangePayload textRange(int startLine, int startCharacter, int endLine,
+                                                            int endCharacter) {
+        return new SemanticDtos.TextRangePayload(new SemanticDtos.Position(startLine, startCharacter),
+                new SemanticDtos.Position(endLine, endCharacter));
+    }
+
+    private static SemanticTarget sourceRangeTarget(String sourceFile, SemanticDtos.TextRangePayload range) {
+        return new SemanticTarget(SemanticTargetKind.SOURCE_RANGE, sourceFile, Optional.of(new SourceRange(sourceFile,
+                range.start().line() + 1, range.start().character() + 1, range.end().line() + 1,
+                range.end().character() + 1)));
+    }
+
+    private static void assertMetadataEvidence(List<EvidenceRef> evidence, int expectedCount,
+                                               RepositoryRevision revision) {
+        assertThat(evidence).hasSize(expectedCount);
+        for (EvidenceRef reference : evidence) {
+            assertThat(reference.sourceService()).isEqualTo("java-semantic-service");
+            assertThat(reference.repositoryId()).isEqualTo(REPOSITORY_ID);
+            assertThat(reference.repositoryRevision()).isEqualTo(revision);
+            assertThat(reference.content()).isNotBlank().doesNotContain("\n", "\r");
+            assertThat(reference.warnings()).isEmpty();
+            assertThat(reference.artifactRef()).isEqualTo(JavaSemanticArtifactDigest.fromContent(reference.content()));
+        }
     }
 }
