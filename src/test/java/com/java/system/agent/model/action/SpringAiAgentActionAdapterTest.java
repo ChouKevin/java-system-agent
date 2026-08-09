@@ -134,7 +134,8 @@ class SpringAiAgentActionAdapterTest {
                     .contains("promptCharacterCount=" + renderedPrompt.length(), "promptSha256=", "interactionCount=2")
                     .contains("remainingAgentSteps=3", "remainingQueryExecutions=3", "remainingExecuteExecutions=1")
                     .contains("remainingActionRejections=3", "resultCategory=PROPOSED", "actionType=QUERY")
-                    .contains("actionFingerprint=", "priorIdenticalSelectionCount=1", "elapsedMs=")
+                    .contains("actionFingerprint=", "executionPayloadFingerprint=", "priorIdenticalSelectionCount=0",
+                            "priorEquivalentPayloadSelectionCount=1", "elapsedMs=")
                     .doesNotContain("PROMPT_SECRET", "TOKEN_SECRET", "source=evidence secret", "Previous question secret",
                             "Previous rationale secret", "Changed question secret", "Changed rationale secret", "candidate-1");
         } finally {
@@ -151,6 +152,9 @@ class SpringAiAgentActionAdapterTest {
         QueryAction queryWithChangedProse = new QueryAction(capability(), List.of(new CandidateHandleRef("candidate-1")),
                 "Changed question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
                 "Changed rationale");
+        QueryAction queryWithChangedRationale = new QueryAction(
+                capability(), List.of(new CandidateHandleRef("candidate-1")), "Original question",
+                new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"), "Changed rationale");
         QueryAction queryWithChangedPayload = new QueryAction(capability(), List.of(new CandidateHandleRef("candidate-1")),
                 "Original question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-2\"]}"),
                 "Original rationale");
@@ -180,15 +184,31 @@ class SpringAiAgentActionAdapterTest {
         ClarifyAction clarifyWithChangedQuestion = new ClarifyAction("Which branch?",
                 List.of(new CandidateHandleRef("candidate-1")), "Original reason");
 
-        assertThat(fingerprint(query, promptContext)).isEqualTo(fingerprint(queryWithChangedProse, promptContext))
+        assertThat(fingerprint(query, promptContext)).isEqualTo(fingerprint(queryWithChangedRationale, promptContext))
+                .isNotEqualTo(fingerprint(queryWithChangedProse, promptContext))
                 .isNotEqualTo(fingerprint(queryWithChangedPayload, promptContext))
                 .isNotEqualTo(fingerprint(queryWithChangedCapability, promptContext));
+        assertThat(payloadFingerprint(query, promptContext))
+                .isEqualTo(payloadFingerprint(queryWithChangedProse, promptContext))
+                .isNotEqualTo(payloadFingerprint(queryWithChangedPayload, promptContext));
         assertThat(fingerprint(execute, promptContext)).isEqualTo(fingerprint(executeWithChangedRationale, promptContext))
                 .isNotEqualTo(fingerprint(executeWithChangedBody, promptContext));
         assertThat(fingerprint(answer, promptContext)).isEqualTo(fingerprint(answerWithReorderedReferences, promptContext))
                 .isNotEqualTo(fingerprint(answerWithChangedStatement, promptContext));
         assertThat(fingerprint(clarify, promptContext)).isEqualTo(fingerprint(clarifyWithChangedReason, promptContext))
                 .isNotEqualTo(fingerprint(clarifyWithChangedQuestion, promptContext));
+
+        AgentPromptContext restartedContext = restartedFingerprintContext();
+        QueryAction priorAttemptQuery = new QueryAction(
+                new CapabilityHandle("attempt-1:C1", binding("attempt-1")),
+                List.of(new CandidateHandleRef("attempt-1:R1")), "Original question",
+                new CapabilityInputPayload("{\"candidateHandles\":[\"repository\"]}"), "Original rationale");
+        QueryAction restartedQuery = new QueryAction(
+                new CapabilityHandle("attempt-2:C1", binding("attempt-2")),
+                List.of(new CandidateHandleRef("attempt-2:R1")), "Original question",
+                new CapabilityInputPayload("{\"candidateHandles\":[\"repository\"]}"), "Original rationale");
+        assertThat(fingerprint(priorAttemptQuery, restartedContext))
+                .isEqualTo(fingerprint(restartedQuery, restartedContext));
     }
 
     @Test
@@ -512,7 +532,8 @@ class SpringAiAgentActionAdapterTest {
             assertThat(malformedModel.calls()).isEqualTo(1);
             assertThat(unavailableModel.calls()).isEqualTo(1);
             assertThat(formattedMessages(handler)).allSatisfy(message -> assertThat(message)
-                    .contains("actionFingerprint=NONE", "priorIdenticalSelectionCount=0")
+                    .contains("actionFingerprint=NONE", "executionPayloadFingerprint=NONE",
+                            "priorIdenticalSelectionCount=0", "priorEquivalentPayloadSelectionCount=0")
                     .doesNotContain("provider response omitted"));
         } finally {
             releaseActionLogs(handler);
@@ -703,6 +724,33 @@ class SpringAiAgentActionAdapterTest {
             AgentAction action,
             AgentPromptContext context) {
         return AgentActionFingerprint.from(action, context);
+    }
+
+    private static AgentActionFingerprint payloadFingerprint(
+            AgentAction action,
+            AgentPromptContext context) {
+        return AgentActionFingerprint.executionPayloadFrom(action, context);
+    }
+
+    private AgentPromptContext restartedFingerprintContext() {
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-2");
+        HandleBinding binding = binding(attemptId.value());
+        CapabilityHandle capability = new CapabilityHandle("attempt-2:C1", binding);
+        CandidateHandle candidate = new CandidateHandle("attempt-2:R1", binding, CandidateKind.REPOSITORY);
+        CapabilityPolicy descriptor = new CapabilityPolicy(
+                "callers", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
+        return new AgentPromptContext(
+                "Where is it called?", SessionHistory.empty(), new AnalysisRunId("run-1"), attemptId,
+                Map.of(capability, descriptor),
+                Map.of(candidate, new IssuedCandidate(candidate,
+                        new RepositoryCandidate(new RepositoryId("repo-1"), "first"))),
+                Map.of(), Map.of(), List.of(), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private HandleBinding binding(String attemptId) {
+        return new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId(attemptId),
+                RevisionVector.empty().pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1")));
     }
 
     private static AnswerDocument answerDocument(

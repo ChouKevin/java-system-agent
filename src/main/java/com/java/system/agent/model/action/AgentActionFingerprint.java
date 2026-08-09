@@ -33,15 +33,29 @@ public record AgentActionFingerprint(String value) {
     }
 
     /**
-     * 依 action 類型的語意欄位產生可安全記錄的摘要
+     * 依 action 實際交給 executor 的欄位產生可安全記錄的摘要
      */
     public static AgentActionFingerprint from(AgentAction action, AgentPromptContext context) {
+        return create(action, context, true);
+    }
+
+    /**
+     * 忽略 QUERY 問題措辭，用於判斷外部執行 payload 是否重複
+     */
+    public static AgentActionFingerprint executionPayloadFrom(AgentAction action, AgentPromptContext context) {
+        return create(action, context, false);
+    }
+
+    private static AgentActionFingerprint create(
+            AgentAction action,
+            AgentPromptContext context,
+            boolean includeQueryQuestion) {
         Objects.requireNonNull(action, "agent action must not be null");
         Objects.requireNonNull(context, "agent prompt context must not be null");
         MessageDigest digest = messageDigest();
         frame(digest, "format", "agent-action-fingerprint-v1");
         switch (action) {
-            case QueryAction query -> query(digest, query, context);
+            case QueryAction query -> query(digest, query, context, includeQueryQuestion);
             case ExecuteAction execute -> execute(digest, execute);
             case AnswerAction answer -> answer(digest, answer);
             case ClarifyAction clarify -> clarify(digest, clarify);
@@ -59,19 +73,43 @@ public record AgentActionFingerprint(String value) {
         return HexFormat.of().formatHex(digest.digest());
     }
 
-    private static void query(MessageDigest digest, QueryAction action, AgentPromptContext context) {
+    private static void query(
+            MessageDigest digest,
+            QueryAction action,
+            AgentPromptContext context,
+            boolean includeQuestion) {
         frame(digest, "actionType", "QUERY");
-        Optional<CapabilityPolicy> capability = Optional.ofNullable(context.issuedCapabilities().get(action.capability()));
+        Optional<CapabilityPolicy> capability = resolveCapability(action, context);
         if (capability.isPresent()) {
             CapabilityPolicy resolvedCapability = capability.orElseThrow();
             frame(digest, "capabilityName", resolvedCapability.name());
             frame(digest, "capabilityVersion", resolvedCapability.version());
         } else {
-            frame(digest, "capabilityHandle", action.capability().value());
+            frame(digest, "capabilityHandle", stableIssuedHandle(action.capability().value()));
         }
         sequence(digest, "candidateHandle", action.candidates().stream()
-                .map(candidate -> candidate.value()).toList());
+                .map(candidate -> stableIssuedHandle(candidate.value())).toList());
+        if (includeQuestion) {
+            frame(digest, "questionToResolve", action.questionToResolve());
+        }
         frame(digest, "canonicalPayload", action.payload().value());
+    }
+
+    private static Optional<CapabilityPolicy> resolveCapability(QueryAction action, AgentPromptContext context) {
+        String selectedHandle = stableIssuedHandle(action.capability().value());
+        return context.issuedCapabilities().entrySet().stream()
+                .filter(entry -> stableIssuedHandle(entry.getKey().value()).equals(selectedHandle))
+                .map(entry -> entry.getValue())
+                .findFirst();
+    }
+
+    private static String stableIssuedHandle(String value) {
+        int separator = value.lastIndexOf(':');
+        if (separator < 0 || separator == value.length() - 1) {
+            return value;
+        }
+        String suffix = value.substring(separator + 1);
+        return suffix.matches("[CRT][1-9][0-9]*") ? suffix : value;
     }
 
     private static void execute(MessageDigest digest, ExecuteAction action) {

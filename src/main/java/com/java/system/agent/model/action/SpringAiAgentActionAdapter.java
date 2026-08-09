@@ -70,7 +70,9 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         String resultCategory = "CONTRACT_EXCEPTION";
         String actionType = "NONE";
         String actionFingerprint = "NONE";
+        String executionPayloadFingerprint = "NONE";
         long priorIdenticalSelectionCount = 0;
+        long priorEquivalentPayloadSelectionCount = 0;
         PromptMetadata promptMetadata = PromptMetadata.notRendered();
         try {
             ChatClientResponse response;
@@ -97,12 +99,17 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             if (proposal instanceof AgentActionProposal.Proposed proposed) {
                 AgentActionFingerprint fingerprint = AgentActionFingerprint.from(proposed.action(), context);
                 actionFingerprint = fingerprint.value();
-                priorIdenticalSelectionCount = priorIdenticalSelectionCount(context, fingerprint);
+                AgentActionFingerprint payloadFingerprint = AgentActionFingerprint.executionPayloadFrom(
+                        proposed.action(), context);
+                executionPayloadFingerprint = payloadFingerprint.value();
+                priorIdenticalSelectionCount = priorSelectionCount(context, fingerprint, true);
+                priorEquivalentPayloadSelectionCount = priorSelectionCount(context, payloadFingerprint, false);
             }
             return proposal;
         } finally {
             logOperation(context, promptMetadata, resultCategory, actionType, actionFingerprint,
-                    priorIdenticalSelectionCount, startedNanos);
+                    executionPayloadFingerprint, priorIdenticalSelectionCount, priorEquivalentPayloadSelectionCount,
+                    startedNanos);
         }
     }
 
@@ -140,12 +147,24 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         };
     }
 
-    private static long priorIdenticalSelectionCount(AgentPromptContext context, AgentActionFingerprint fingerprint) {
+    private static long priorSelectionCount(
+            AgentPromptContext context,
+            AgentActionFingerprint fingerprint,
+            boolean includeQueryQuestion) {
         return context.modelInteractions().stream()
                 .filter(interaction -> interaction instanceof ModelInteraction.ActionSelected)
                 .map(interaction -> ((ModelInteraction.ActionSelected) interaction).action())
-                .filter(action -> AgentActionFingerprint.from(action, context).equals(fingerprint))
+                .filter(action -> fingerprint(action, context, includeQueryQuestion).equals(fingerprint))
                 .count();
+    }
+
+    private static AgentActionFingerprint fingerprint(
+            AgentAction action,
+            AgentPromptContext context,
+            boolean includeQueryQuestion) {
+        return includeQueryQuestion
+                ? AgentActionFingerprint.from(action, context)
+                : AgentActionFingerprint.executionPayloadFrom(action, context);
     }
 
     private static void logOperation(
@@ -154,7 +173,9 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             String resultCategory,
             String actionType,
             String actionFingerprint,
+            String executionPayloadFingerprint,
             long priorIdenticalSelectionCount,
+            long priorEquivalentPayloadSelectionCount,
             long startedNanos) {
         Level level = "PROPOSED".equals(resultCategory) ? Level.INFO : Level.WARNING;
         int remainingAgentSteps = context.budget().maxAgentSteps() - context.budget().usedAgentSteps();
@@ -167,11 +188,13 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
                 "agent action operation=NEXT_ACTION runId={0} attemptId={1} promptCharacterCount={2} promptSha256={3} "
                         + "interactionCount={4} remainingAgentSteps={5} remainingQueryExecutions={6} "
                         + "remainingExecuteExecutions={7} remainingActionRejections={8} resultCategory={9} actionType={10} "
-                        + "actionFingerprint={11} priorIdenticalSelectionCount={12} elapsedMs={13}",
+                        + "actionFingerprint={11} executionPayloadFingerprint={12} "
+                        + "priorIdenticalSelectionCount={13} priorEquivalentPayloadSelectionCount={14} elapsedMs={15}",
                 new Object[]{context.runId().value(), context.attemptId().value(), promptMetadata.characterCount(),
                         promptMetadata.sha256(), context.modelInteractions().size(), remainingAgentSteps,
                         remainingQueryExecutions, remainingExecuteExecutions, remainingActionRejections, resultCategory,
-                        actionType, actionFingerprint, priorIdenticalSelectionCount,
+                        actionType, actionFingerprint, executionPayloadFingerprint, priorIdenticalSelectionCount,
+                        priorEquivalentPayloadSelectionCount,
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }
 
