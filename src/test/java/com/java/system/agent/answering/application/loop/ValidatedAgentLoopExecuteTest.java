@@ -27,12 +27,14 @@ import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentTransition;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.RunFailureReason;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunResponseKind;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
@@ -132,6 +134,15 @@ class ValidatedAgentLoopExecuteTest {
                     assertThat(recorded.observation().candidateHandles()).isEmpty();
                     assertThat(recorded.observation().evidenceHandles()).isEmpty();
                 });
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions())
+                .anySatisfy(interaction -> assertThat(interaction)
+                        .isEqualTo(new ModelInteraction.ActionResultRecorded(
+                                new AnalysisAttemptId("attempt-1"),
+                                new ActionResult.ExecuteCompleted(ActionResult.ExecuteOutcome.NOT_IMPLEMENTED,
+                                        List.of("attempt-1:O1"), ExecuteActionExecutor.NOT_IMPLEMENTED_OBSERVATION))));
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions())
+                .contains(new ModelInteraction.ActionResultRecorded(
+                        new AnalysisAttemptId("attempt-1"), new ActionResult.ClarificationAccepted()));
     }
 
     @Test
@@ -203,8 +214,35 @@ class ValidatedAgentLoopExecuteTest {
                 .satisfies(event -> {
                     AgentEvent.ActionRejected rejected = (AgentEvent.ActionRejected) event;
                     assertThat(rejected.originalAction()).contains(rejectedAction);
+                    assertThat(rejected.rejectionCode()).isEqualTo(ActionRejectionCode.EXECUTE_BUDGET_EXHAUSTED.name());
                     assertThat(rejected.description()).isEqualTo(ActionRejectionCode.EXECUTE_BUDGET_EXHAUSTED.name());
                 });
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions())
+                .anySatisfy(interaction -> assertThat(interaction)
+                        .isEqualTo(new com.java.system.agent.answering.domain.run.ModelInteraction.ActionResultRecorded(
+                                new AnalysisAttemptId("attempt-1"),
+                                new ActionResult.ValidationRejected(
+                                        ActionRejectionCode.EXECUTE_BUDGET_EXHAUSTED.name(),
+                                        ActionRejectionCode.EXECUTE_BUDGET_EXHAUSTED.name()))));
+    }
+
+    @Test
+    void recordsMalformedProposalWithoutCreatingASyntheticSelectedAction() {
+        AtomicInteger actionCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        AgentActionPort actions = context -> actionCalls.getAndIncrement() == 0
+                ? new AgentActionProposal.Malformed("model response is not an action")
+                : new AgentActionProposal.Proposed(new ClarifyAction(
+                        "Which environment should receive the change?", List.of(), "Need the target environment"));
+
+        AgentLoopResult result = loop(actions, action -> new HttpMutationResult.NotImplemented(),
+                new FakeCancellationAdapter(), transitions).execute(request(
+                        new AnalysisRunId("run-1"), new AttemptBudget(3, 0, 1, 0, 1, 0, 2, 0, 1, 0)));
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions())
+                .contains(new com.java.system.agent.answering.domain.run.ModelInteraction.MalformedResponse(
+                        new AnalysisAttemptId("attempt-1"), "model response is not an action"));
     }
 
     @Test

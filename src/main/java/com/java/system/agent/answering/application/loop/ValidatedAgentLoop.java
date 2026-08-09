@@ -203,7 +203,7 @@ public final class ValidatedAgentLoop {
                         state, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty(), Optional.empty());
             }
             if (proposal instanceof AgentActionProposal.Malformed malformed) {
-                state = reject(state, Optional.empty(), malformed.description());
+                state = reject(state, Optional.empty(), "MALFORMED_RESPONSE", malformed.description());
                 state = transitions.recordRuntimeObservation(
                         state, ObservationCode.ACTION_REJECTED, malformed.description(), Set.of(), Set.of(),
                         "agent-action-parser");
@@ -211,9 +211,11 @@ public final class ValidatedAgentLoop {
                 continue;
             }
             AgentAction action = ((AgentActionProposal.Proposed) proposal).action();
+            state = transitions.apply(state, new AgentEvent.ActionSelected(
+                    state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), action));
             ActionValidation validation = actionValidator.validate(action, validationContext(state));
             if (validation instanceof ActionValidation.Rejected rejected) {
-                state = reject(state, Optional.of(action), rejected.description());
+                state = reject(state, Optional.of(action), rejected.code().name(), rejected.description());
                 state = transitions.recordRuntimeObservation(
                         state, ObservationCode.ACTION_REJECTED, rejected.description(), Set.of(), Set.of(),
                         "agent-action-validator");
@@ -250,12 +252,17 @@ public final class ValidatedAgentLoop {
         }
     }
 
-    private AgentRunState reject(AgentRunState state, Optional<AgentAction> action, String description) {
+    private AgentRunState reject(
+            AgentRunState state,
+            Optional<AgentAction> action,
+            String rejectionCode,
+            String description) {
         return transitions.apply(state, new AgentEvent.ActionRejected(
                 state.runId(),
                 state.currentAttempt().attemptId(),
                 state.stateRevision(),
                 action,
+                rejectionCode,
                 description));
     }
 

@@ -219,6 +219,20 @@ class ContextIssuerTest {
         assertThat(secondIssue.context().issuedEvidence()).hasSize(2);
         assertThat(secondIssue.context().issuedEvidence())
                 .containsKey(repeatedEvidenceHandle);
+        assertThat(secondIssue.resultCandidateHandleValues())
+                .containsExactly(repeatedCandidateHandle.value(),
+                        secondIssue.context().issuedCandidates().entrySet().stream()
+                                .filter(entry -> entry.getValue().candidate().equals(newCandidate))
+                                .map(entry -> entry.getKey().value())
+                                .findFirst()
+                                .orElseThrow());
+        assertThat(secondIssue.resultEvidenceHandleValues())
+                .containsExactly(repeatedEvidenceHandle.value(),
+                        secondIssue.context().issuedEvidence().entrySet().stream()
+                                .filter(entry -> entry.getValue().evidence().equals(newEvidence))
+                                .map(entry -> entry.getKey().value())
+                                .findFirst()
+                                .orElseThrow());
         assertThat(secondIssue.observations()).singleElement().satisfies(issued -> {
             assertThat(issued.candidateHandles()).contains(repeatedCandidateHandle);
             assertThat(issued.evidenceHandles()).contains(repeatedEvidenceHandle);

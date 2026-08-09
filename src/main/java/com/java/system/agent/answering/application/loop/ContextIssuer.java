@@ -136,11 +136,15 @@ public final class ContextIssuer {
                 currentAttempt.issuedCandidates(), newCandidates, "candidate handle");
         Map<EvidenceHandle, IssuedEvidence> evidence = appendDistinct(
                 currentAttempt.issuedEvidence(), newEvidence, "evidence handle");
+        Map<AnalysisCandidate, CandidateHandle> resultCandidateHandles = resultCandidateHandles(
+                result.discoveredCandidates(), previouslyIssuedCandidates, newCandidates);
+        Map<EvidenceRef, EvidenceHandle> resultEvidenceHandles = resultEvidenceHandles(
+                result.evidence(), previouslyIssuedEvidence, newEvidence);
         List<AgentObservation> observations = issueObservations(
                 currentAttempt,
                 result.observations(),
-                resultCandidateHandles(result.discoveredCandidates(), previouslyIssuedCandidates, newCandidates),
-                resultEvidenceHandles(result.evidence(), previouslyIssuedEvidence, newEvidence));
+                resultCandidateHandles,
+                resultEvidenceHandles);
         RunAttempt context = new RunAttempt(
                 currentAttempt.attemptId(),
                 currentAttempt.revisionVector(),
@@ -148,7 +152,11 @@ public final class ContextIssuer {
                 candidates,
                 evidence,
                 currentAttempt.observations());
-        return new CapabilityIssue(context, observations);
+        return new CapabilityIssue(
+                context,
+                observations,
+                resultCandidateHandles.values().stream().map(CandidateHandle::value).toList(),
+                resultEvidenceHandles.values().stream().map(EvidenceHandle::value).toList());
     }
 
     private Map<CapabilityHandle, CapabilityPolicy> issueCapabilities(
@@ -501,11 +509,19 @@ public final class ContextIssuer {
     /**
      * 一次 capability response 配發後的完整 context 與待追加 observations
      */
-    public record CapabilityIssue(RunAttempt context, List<AgentObservation> observations) {
+    public record CapabilityIssue(
+            RunAttempt context,
+            List<AgentObservation> observations,
+            List<String> resultCandidateHandleValues,
+            List<String> resultEvidenceHandleValues) {
         public CapabilityIssue {
             Objects.requireNonNull(context, "issued capability context must not be null");
             Objects.requireNonNull(observations, "issued capability observations must not be null");
+            Objects.requireNonNull(resultCandidateHandleValues, "result candidate handles must not be null");
+            Objects.requireNonNull(resultEvidenceHandleValues, "result evidence handles must not be null");
             observations = List.copyOf(observations);
+            resultCandidateHandleValues = List.copyOf(resultCandidateHandleValues);
+            resultEvidenceHandleValues = List.copyOf(resultEvidenceHandleValues);
         }
     }
 

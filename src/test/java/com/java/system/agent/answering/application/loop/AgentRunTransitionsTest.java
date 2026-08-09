@@ -123,7 +123,8 @@ class AgentRunTransitionsTest {
 
     private AgentEvent runtimeEvent(AgentRunState state) {
         return new AgentEvent.ActionRejected(
-                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), Optional.empty(), "rejected");
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), Optional.empty(),
+                "MALFORMED_RESPONSE", "rejected");
     }
 
     private AgentEvent answerAccepted(AgentRunState state) {

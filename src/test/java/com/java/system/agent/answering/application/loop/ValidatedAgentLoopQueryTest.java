@@ -37,6 +37,7 @@ import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentTransition;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
@@ -45,6 +46,7 @@ import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunAttempt;
 import com.java.system.agent.answering.domain.run.RunResponseKind;
 import com.java.system.agent.answering.domain.run.RuntimeNoticeReason;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -56,6 +58,8 @@ import com.java.system.agent.answering.port.out.AgentTransitionConflictException
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
+import com.java.system.agent.answering.port.out.CapabilityExecutionFailure;
+import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
@@ -119,6 +123,11 @@ class ValidatedAgentLoopQueryTest {
                         AgentEvent.ActionAccepted.class,
                         AgentEvent.QueryBudgetConsumed.class,
                         AgentEvent.ContextIssued.class);
+        String issuedEvidenceHandle = prompts.get(1).issuedEvidence().keySet().iterator().next().value();
+        assertThat(transitions.state(RUN_ID).modelInteractions()).containsSubsequence(
+                new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QuerySucceeded(List.of(), List.of(issuedEvidenceHandle), List.of())));
     }
 
     @Test
@@ -145,11 +154,66 @@ class ValidatedAgentLoopQueryTest {
         List<Class<?>> eventTypes = eventTypes(transitions.events());
         assertThat(eventTypes)
                 .containsSubsequence(
+                        AgentEvent.ActionSelected.class,
+                        AgentEvent.ActionResultRecorded.class,
                         AgentEvent.AttemptInvalidated.class,
                         AgentEvent.AttemptStarted.class);
         assertThat(transitions.state(RUN_ID).attemptSequence()).isEqualTo(2);
         assertThat(prompts).hasSize(2);
         assertThat(prompts.get(1).attemptId()).isEqualTo(new AnalysisAttemptId("attempt-2"));
+        assertThat(transitions.state(RUN_ID).modelInteractions()).containsSubsequence(
+                new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QueryInvalidated("selected repository revision changed")));
+    }
+
+    @Test
+    void recordsTheCapabilityFailureAgainstItsNewObservation() {
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        CapabilityExecutionFailure failure = new CapabilityExecutionFailure(
+                CapabilityExecutionFailureCode.DEPENDENCY_FAILURE,
+                "semantic service is unavailable",
+                "semantic-service");
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Failed(failure);
+                },
+                context -> nextAction(prompts, context, "Capability failure is reported"));
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(capabilityCalls).hasValue(1);
+        assertThat(transitions.state(RUN_ID).modelInteractions()).containsSubsequence(
+                new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QueryFailed(List.of("attempt-1:O1"), failure.description())));
+    }
+
+    @Test
+    void recordsAnEmptySuccessfulCapabilityResultWithoutCumulativeHandles() {
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                invocation -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
+                context -> nextAction(prompts, context, "No capability result was returned"));
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(transitions.state(RUN_ID).modelInteractions()).containsSubsequence(
+                new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QuerySucceeded(List.of(), List.of(), List.of())));
     }
 
     @Test
@@ -228,6 +292,19 @@ class ValidatedAgentLoopQueryTest {
                 .containsExactly(evidence);
         assertThat(prompts.get(2).observations()).hasSize(2);
         assertThat(transitions.events()).filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance).hasSize(2);
+        String followUpHandle = prompts.get(1).issuedCandidates().entrySet().stream()
+                .filter(entry -> entry.getValue().candidate() instanceof FollowUpCandidate)
+                .map(entry -> entry.getKey().value())
+                .findFirst()
+                .orElseThrow();
+        String evidenceHandle = prompts.get(1).issuedEvidence().keySet().iterator().next().value();
+        assertThat(transitions.state(RUN_ID).modelInteractions()).containsSubsequence(
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QuerySucceeded(
+                                List.of(followUpHandle), List.of(evidenceHandle), List.of("attempt-1:O1"))),
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QuerySucceeded(
+                                List.of(followUpHandle), List.of(evidenceHandle), List.of("attempt-1:O2"))));
     }
 
     @Test

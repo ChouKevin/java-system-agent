@@ -122,11 +122,15 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
     }
 
     record ActionRejected(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
-                          Optional<AgentAction> originalAction, String description) implements AgentEvent {
+                          Optional<AgentAction> originalAction, String rejectionCode, String description) implements AgentEvent {
         public ActionRejected {
             validateEnvelope(runId, attemptId, expectedStateRevision);
             Objects.requireNonNull(originalAction, "rejected original action must not be null");
+            Objects.requireNonNull(rejectionCode, "action rejection code must not be null");
             Objects.requireNonNull(description, "action rejection description must not be null");
+            if (rejectionCode.isBlank()) {
+                throw new IllegalArgumentException("action rejection code must not be blank");
+            }
             if (description.isBlank()) {
                 throw new IllegalArgumentException("action rejection description must not be blank");
             }

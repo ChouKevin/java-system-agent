@@ -28,12 +28,14 @@ import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentRunStatus;
 import com.java.system.agent.answering.domain.run.AgentTransition;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.ExecutionDeferral;
 import com.java.system.agent.answering.domain.run.ExecutionDeferralReason;
 import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
@@ -103,6 +105,9 @@ class ValidatedAgentLoopAnswerTest {
                         || event instanceof AgentEvent.RunConcluded)
                 .extracting(event -> event.getClass().getSimpleName())
                 .containsExactly("AnswerAccepted", "RunConcluded");
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions())
+                .contains(new ModelInteraction.ActionResultRecorded(
+                        new AnalysisAttemptId("attempt-1"), new ActionResult.AnswerAccepted()));
         assertThat(session.read(new SessionId("session-1")).turns())
                 .singleElement()
                 .extracting(conversationTurn -> conversationTurn.assistantMessage())
@@ -117,18 +122,18 @@ class ValidatedAgentLoopAnswerTest {
     void verifierRejectionIsCarriedToRewriteAndRejectedDraftIsNotPersisted() {
         AnswerDocument rejected = document("Rejected draft");
         AnswerDocument accepted = document("Rewritten answer");
-        Deque<AnswerVerdict> verdicts = new ArrayDeque<>(List.of(
-                new AnswerVerdict(
-                        AnswerDisposition.REJECTED,
-                        List.of(),
-                        List.of(),
-                        List.of(),
-                        List.of("The answer does not address the question")),
-                acceptedComplete()));
+        AnswerVerdict rejectedVerdict = new AnswerVerdict(
+                AnswerDisposition.REJECTED,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("The answer does not address the question"));
+        Deque<AnswerVerdict> verdicts = new ArrayDeque<>(List.of(rejectedVerdict, acceptedComplete()));
         FakeSessionAdapter session = new FakeSessionAdapter();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(
                 session,
-                new RecordingTransitionPort(),
+                transitions,
                 (mode, context) -> new AnswerVerificationResult.LlmVerdict(verdicts.removeFirst()),
                 new AgentActionProposal.Proposed(new AnswerAction(rejected)),
                 new AgentActionProposal.Proposed(new AnswerAction(accepted)));
@@ -140,6 +145,9 @@ class ValidatedAgentLoopAnswerTest {
                 .singleElement()
                 .extracting(conversationTurn -> conversationTurn.assistantMessage())
                 .isEqualTo("Rewritten answer");
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions())
+                .contains(new ModelInteraction.ActionResultRecorded(
+                        new AnalysisAttemptId("attempt-1"), new ActionResult.AnswerRejected(rejectedVerdict)));
     }
 
     @Test

@@ -20,9 +20,10 @@ class AgentEventPayloadTest {
     void preserves_rejection_description_without_final_response_mode() {
         String description = "  retry after revision drift  ";
         AgentEvent.ActionRejected rejected = new AgentEvent.ActionRejected(runId(), attemptId(), 0,
-                Optional.empty(), description);
+                Optional.empty(), "MALFORMED_RESPONSE", description);
 
         assertThat(rejected.description()).isEqualTo(description);
+        assertThat(rejected.rejectionCode()).isEqualTo("MALFORMED_RESPONSE");
     }
 
     @Test

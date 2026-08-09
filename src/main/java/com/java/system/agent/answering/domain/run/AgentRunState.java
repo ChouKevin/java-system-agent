@@ -138,6 +138,23 @@ public record AgentRunState(
         return initial(runId, firstAttemptId, 1, budget, requestIdentity);
     }
 
+    /**
+     * 回傳目前 attempt 尚未以結果關閉的模型動作
+     */
+    public Optional<AgentAction> unresolvedSelectedAction() {
+        Optional<AgentAction> unresolved = Optional.empty();
+        for (ModelInteraction interaction : modelInteractions) {
+            if (interaction instanceof ModelInteraction.ActionSelected selected
+                    && selected.attemptId().equals(currentAttempt.attemptId())) {
+                unresolved = Optional.of(selected.action());
+            } else if (interaction instanceof ModelInteraction.ActionResultRecorded recorded
+                    && recorded.attemptId().equals(currentAttempt.attemptId())) {
+                unresolved = Optional.empty();
+            }
+        }
+        return unresolved;
+    }
+
     private static List<ModelInteraction> immutableModelInteractions(List<ModelInteraction> interactions) {
         Objects.requireNonNull(interactions, "model interactions must not be null");
         List<ModelInteraction> copied = new ArrayList<>();

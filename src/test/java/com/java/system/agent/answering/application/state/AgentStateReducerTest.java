@@ -175,6 +175,27 @@ class AgentStateReducerTest {
                 .hasMessageContaining("does not match");
     }
 
+    @Test
+    void requires_accepted_and_rejected_actions_to_match_the_unresolved_selection() {
+        AgentRunState state = runningState();
+        QueryAction selectedQuery = queryAction(state);
+        state = reduce(state, new AgentEvent.ActionSelected(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), selectedQuery));
+        ExecuteAction anotherAction = new ExecuteAction(ExternalHttpMethod.POST, "https://example.test/orders",
+                Optional.empty(), "Preview the requested mutation");
+
+        AgentRunState selected = state;
+        assertThatThrownBy(() -> reduce(selected, new AgentEvent.ActionAccepted(
+                selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(), anotherAction)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unresolved selected action");
+        assertThatThrownBy(() -> reduce(selected, new AgentEvent.ActionRejected(
+                selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(),
+                Optional.of(anotherAction), "INVALID_ACTION", "rejected")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unresolved selected action");
+    }
+
     private AgentRunState runningState() {
         AgentRunState initial = AgentRunState.initial(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0),

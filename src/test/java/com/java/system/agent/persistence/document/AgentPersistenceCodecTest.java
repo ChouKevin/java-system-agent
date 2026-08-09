@@ -343,7 +343,8 @@ class AgentPersistenceCodecTest {
                 new AgentEvent.ContextIssued(
                         runId(), attemptId(), 0, RevisionVector.empty(), Map.of(), Map.of(), Map.of(), Map.of()),
                 new AgentEvent.ActionAccepted(runId(), attemptId(), 0, executeAction()),
-                new AgentEvent.ActionRejected(runId(), attemptId(), 0, Optional.of(executeAction()), "rejected"),
+                new AgentEvent.ActionRejected(runId(), attemptId(), 0, Optional.of(executeAction()),
+                        "INVALID_EXECUTE_TARGET", "rejected"),
                 new AgentEvent.QueryBudgetConsumed(runId(), attemptId(), 0),
                 new AgentEvent.ExecuteBudgetConsumed(runId(), attemptId(), 0),
                 new AgentEvent.ObservationRecorded(runId(), attemptId(), 0, observation),
