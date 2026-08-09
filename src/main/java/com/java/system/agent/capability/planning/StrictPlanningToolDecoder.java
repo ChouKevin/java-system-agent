@@ -1,7 +1,9 @@
 package com.java.system.agent.capability.planning;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Path;
 import jakarta.validation.Validator;
@@ -10,6 +12,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.RecordComponent;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
@@ -134,16 +137,57 @@ public final class StrictPlanningToolDecoder {
             Exception cause) {
         String inputTypeName = Objects.isNull(inputType) ? "UNKNOWN" : inputType.getSimpleName();
         String causeType = Objects.isNull(cause) ? "NONE" : cause.getClass().getSimpleName();
+        String mappingPath = safeMappingPath(cause);
+        String targetType = safeTargetType(cause);
         LOGGER.log(Level.WARNING,
                 "planning tool input rejected inputType={0} reason={1} invalidFieldCount={2} "
                         + "invalidFields={3} constraintCount={4} constraints={5} violationCount={6} "
-                        + "rawUtf8Bytes={7} causeType={8}",
+                        + "rawUtf8Bytes={7} causeType={8} mappingPath={9} targetType={10}",
                 new Object[]{inputTypeName, reason, invalidFields.size(), invalidFields, constraints.size(), constraints,
-                        violationCount, rawUtf8Bytes, causeType});
+                        violationCount, rawUtf8Bytes, causeType, mappingPath, targetType});
         String safeDiagnostic = "reason=" + reason;
         if (!invalidFields.isEmpty()) {
             safeDiagnostic += "; invalidFields=" + invalidFields + "; constraints=" + constraints;
         }
         return new PlanningToolInputException(safeDiagnostic, cause);
+    }
+
+    private static String safeMappingPath(Exception cause) {
+        if (!(cause instanceof JsonMappingException mappingException)) {
+            return "NONE";
+        }
+        StringJoiner path = new StringJoiner(".");
+        for (JsonMappingException.Reference reference : mappingException.getPath()) {
+            String fieldName = reference.getFieldName();
+            if (Objects.nonNull(fieldName) && isDeclaredRecordProperty(reference.getFrom(), fieldName)) {
+                path.add(fieldName);
+            }
+        }
+        String safePath = path.toString();
+        return safePath.isBlank() ? "input" : safePath;
+    }
+
+    private static boolean isDeclaredRecordProperty(Object owner, String fieldName) {
+        if (Objects.isNull(owner)) {
+            return false;
+        }
+        Class<?> ownerType = owner instanceof Class<?> type ? type : owner.getClass();
+        if (!ownerType.isRecord()) {
+            return false;
+        }
+        for (RecordComponent component : ownerType.getRecordComponents()) {
+            if (component.getName().equals(fieldName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String safeTargetType(Exception cause) {
+        if (!(cause instanceof MismatchedInputException mismatchedInput)
+                || Objects.isNull(mismatchedInput.getTargetType())) {
+            return "NONE";
+        }
+        return mismatchedInput.getTargetType().getSimpleName();
     }
 }

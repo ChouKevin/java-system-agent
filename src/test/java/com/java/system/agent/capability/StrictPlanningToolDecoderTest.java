@@ -112,6 +112,37 @@ class StrictPlanningToolDecoderTest {
     }
 
     @Test
+    void logs_only_safe_mapping_path_and_target_type_for_json_contract_failures() {
+        Logger logger = Logger.getLogger(StrictPlanningToolDecoder.class.getName());
+        boolean originalUseParentHandlers = logger.getUseParentHandlers();
+        List<LogRecord> records = new ArrayList<>();
+        Handler handler = recordingHandler(records);
+        logger.setUseParentHandlers(false);
+        logger.addHandler(handler);
+
+        try {
+            assertThatThrownBy(() -> decoder.decode(
+                    "{\"nested\":{\"required\":[\"SENSITIVE_VALUE\"]}}", NestedInput.class))
+                    .isInstanceOf(PlanningToolInputException.class);
+            assertThatThrownBy(() -> decoder.decode(
+                    "{\"candidateHandles\":[\"candidate-1\"],\"required\":\"value\",\"limit\":2,"
+                            + "\"SENSITIVE_FIELD\":true}", Input.class))
+                    .isInstanceOf(PlanningToolInputException.class);
+
+            assertThat(records).hasSize(2);
+            assertThat(records.getFirst().getParameters())
+                    .contains("NestedInput", "JSON_CONTRACT", "nested.required", "String")
+                    .doesNotContain("SENSITIVE_VALUE");
+            assertThat(records.get(1).getParameters())
+                    .contains("Input", "JSON_CONTRACT", "input", "NONE")
+                    .doesNotContain("SENSITIVE_FIELD");
+        } finally {
+            logger.removeHandler(handler);
+            logger.setUseParentHandlers(originalUseParentHandlers);
+        }
+    }
+
+    @Test
     void exposes_bounded_safe_feedback_without_input_values() {
         assertThatThrownBy(() -> decoder.decode(
                 "{\"candidateHandles\":[\"SENSITIVE_ONE\",\"SENSITIVE_TWO\"]}", BoundedInput.class))
