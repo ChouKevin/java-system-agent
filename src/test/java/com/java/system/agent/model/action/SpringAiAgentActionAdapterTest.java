@@ -16,10 +16,17 @@ import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningMapper;
 import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
+import com.java.system.agent.answering.domain.answer.AnswerDocument;
+import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.ClaimId;
+import com.java.system.agent.answering.domain.answer.StatementId;
+import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
@@ -35,9 +42,11 @@ import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.ExecutionDeferral;
 import com.java.system.agent.answering.domain.run.ExecutionDeferralReason;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -77,11 +86,13 @@ import java.util.function.Function;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -90,6 +101,123 @@ import static org.mockito.Mockito.when;
  * Spring AI action adapter 的結構輸出與單次 transport 邊界測試
  */
 class SpringAiAgentActionAdapterTest {
+
+    @Test
+    void logsContentSafeQueryFingerprintAndPriorSelectionWithoutChangingTheSinglePromptOrModelCall() {
+        AnalysisAttemptId priorAttemptId = new AnalysisAttemptId("attempt-0");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        AgentPromptContext promptContext = contextWithInteractions(List.of(
+                new ModelInteraction.ActionSelected(priorAttemptId, new QueryAction(
+                        new CapabilityHandle("cap-1", binding("attempt-0", "rev-1")),
+                        List.of(new CandidateHandleRef("candidate-1")), "Changed question secret",
+                        new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
+                        "Prior attempt rationale secret")),
+                new ModelInteraction.ActionResultRecorded(priorAttemptId,
+                        new ActionResult.QuerySucceeded(List.of(), List.of(), List.of())),
+                new ModelInteraction.ActionSelected(attemptId, new QueryAction(capability(),
+                        List.of(new CandidateHandleRef("candidate-1")), "Previous question secret",
+                        new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
+                        "Previous rationale secret")),
+                new ModelInteraction.ActionResultRecorded(attemptId,
+                        new ActionResult.QuerySucceeded(List.of(), List.of(), List.of()))));
+        AgentActionPromptRenderer renderer = mock(AgentActionPromptRenderer.class);
+        String renderedPrompt = "PROMPT_SECRET apiKey=TOKEN_SECRET source=evidence secret";
+        when(renderer.render(promptContext)).thenReturn(renderedPrompt);
+        CountingChatModel model = new CountingChatModel(toolCall("callers", """
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Changed question secret","rationale":"Changed rationale secret"}
+                """));
+        SpringAiAgentActionAdapter adapter = fingerprintAdapter(model, renderer);
+        CapturingHandler handler = captureActionLogs();
+
+        try {
+            AgentActionProposal proposal = adapter.nextAction(promptContext);
+
+            assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
+            assertThat(model.calls()).isEqualTo(1);
+            assertThat(model.lastPrompt().orElseThrow().getUserMessage().getText()).isEqualTo(renderedPrompt);
+            verify(renderer, times(1)).render(promptContext);
+            List<String> logMessages = formattedMessages(handler);
+            assertThat(logMessages).hasSize(1);
+            assertThat(logMessages.getFirst())
+                    .contains("promptCharacterCount=" + renderedPrompt.length(), "promptSha256=", "interactionCount=4")
+                    .contains("remainingAgentSteps=3", "remainingQueryExecutions=3", "remainingExecuteExecutions=1")
+                    .contains("remainingActionRejections=3", "resultCategory=PROPOSED", "actionType=QUERY")
+                    .contains("actionFingerprint=", "executionPayloadFingerprint=",
+                            "priorIdenticalCurrentAttemptSelectionCount=0",
+                            "priorEquivalentCurrentAttemptPayloadSelectionCount=1", "elapsedMs=")
+                    .doesNotContain("PROMPT_SECRET", "TOKEN_SECRET", "source=evidence secret", "Previous question secret",
+                            "Previous rationale secret", "Prior attempt rationale secret", "Changed question secret",
+                            "Changed rationale secret", "candidate-1");
+        } finally {
+            releaseActionLogs(handler);
+        }
+    }
+
+    @Test
+    void fingerprintsAllActionTypesBySemanticFieldsOnly() {
+        QueryAction query = new QueryAction(capability(), List.of(new CandidateHandleRef("candidate-1")),
+                "Original question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
+                "Original rationale");
+        QueryAction queryWithChangedProse = new QueryAction(capability(), List.of(new CandidateHandleRef("candidate-1")),
+                "Changed question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
+                "Changed rationale");
+        QueryAction queryWithChangedRationale = new QueryAction(
+                capability(), List.of(new CandidateHandleRef("candidate-1")), "Original question",
+                new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"), "Changed rationale");
+        QueryAction queryWithChangedPayload = new QueryAction(capability(), List.of(new CandidateHandleRef("candidate-1")),
+                "Original question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-2\"]}"),
+                "Original rationale");
+        QueryAction queryWithChangedCapability = new QueryAction(
+                new CapabilityHandle("cap-2", capability().binding()), List.of(new CandidateHandleRef("candidate-1")),
+                "Original question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
+                "Original rationale");
+        ExecuteAction execute = new ExecuteAction(ExternalHttpMethod.POST, "https://service.example/orders",
+                Optional.of("{\"status\":\"approved\"}"), "Original rationale");
+        ExecuteAction executeWithChangedRationale = new ExecuteAction(ExternalHttpMethod.POST,
+                "https://service.example/orders", Optional.of("{\"status\":\"approved\"}"), "Changed rationale");
+        ExecuteAction executeWithChangedBody = new ExecuteAction(ExternalHttpMethod.POST, "https://service.example/orders",
+                Optional.of("{\"status\":\"rejected\"}"), "Original rationale");
+        AnswerAction answer = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-b"),
+                new EvidenceHandleRef("evidence-a")), Set.of(new ObservationId("observation-b"),
+                new ObservationId("observation-a")), "Checkout calls the route"));
+        AnswerAction answerWithReorderedReferences = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-a"),
+                new EvidenceHandleRef("evidence-b")), Set.of(new ObservationId("observation-a"),
+                new ObservationId("observation-b")), "Checkout calls the route"));
+        AnswerAction answerWithChangedStatement = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-a"),
+                new EvidenceHandleRef("evidence-b")), Set.of(new ObservationId("observation-a"),
+                new ObservationId("observation-b")), "Checkout does not call the route"));
+        ClarifyAction clarify = new ClarifyAction("Which repository?", List.of(new CandidateHandleRef("candidate-1")),
+                "Original reason");
+        ClarifyAction clarifyWithChangedReason = new ClarifyAction("Which repository?",
+                List.of(new CandidateHandleRef("candidate-1")), "Changed reason");
+        ClarifyAction clarifyWithChangedQuestion = new ClarifyAction("Which branch?",
+                List.of(new CandidateHandleRef("candidate-1")), "Original reason");
+
+        assertThat(fingerprint(query)).isEqualTo(fingerprint(queryWithChangedRationale))
+                .isNotEqualTo(fingerprint(queryWithChangedProse))
+                .isNotEqualTo(fingerprint(queryWithChangedPayload))
+                .isNotEqualTo(fingerprint(queryWithChangedCapability));
+        assertThat(payloadFingerprint(query)).isEqualTo(payloadFingerprint(queryWithChangedProse))
+                .isNotEqualTo(payloadFingerprint(queryWithChangedPayload));
+        assertThat(fingerprint(execute)).isEqualTo(fingerprint(executeWithChangedRationale))
+                .isNotEqualTo(fingerprint(executeWithChangedBody));
+        assertThat(fingerprint(answer)).isEqualTo(fingerprint(answerWithReorderedReferences))
+                .isNotEqualTo(fingerprint(answerWithChangedStatement));
+        assertThat(fingerprint(clarify)).isEqualTo(fingerprint(clarifyWithChangedReason))
+                .isNotEqualTo(fingerprint(clarifyWithChangedQuestion));
+
+        HandleBinding originalBinding = binding("attempt-1", "rev-1");
+        HandleBinding reissuedBinding = binding("attempt-1", "rev-2");
+        QueryAction originalRevisionQuery = new QueryAction(
+                new CapabilityHandle("attempt-1:C1", originalBinding),
+                List.of(new CandidateHandleRef("attempt-1:R1")), "Original question",
+                new CapabilityInputPayload("{\"candidateHandles\":[\"repository\"]}"), "Original rationale");
+        QueryAction reissuedRevisionQuery = new QueryAction(
+                new CapabilityHandle("attempt-1:C1", reissuedBinding),
+                List.of(new CandidateHandleRef("attempt-1:R1")), "Original question",
+                new CapabilityInputPayload("{\"candidateHandles\":[\"repository\"]}"), "Original rationale");
+        assertThat(fingerprint(originalRevisionQuery)).isEqualTo(fingerprint(reissuedRevisionQuery));
+    }
 
     @Test
     void mapsQueryAndPreservesModelCandidateOrderWithExactlyOneModelCall() {
@@ -146,24 +274,29 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
-    void mapsExecuteToolAndLogsExecuteActionType() {
+    void mapsExecuteToolAndLogsOnlyBoundedExecuteMetadata() {
         CountingChatModel model = new CountingChatModel(toolCall("execute_http", """
-                {"method":"POST","targetUrl":"https://service.example/orders","jsonBody":"{\\"status\\":\\"approved\\"}","rationale":"Preview the order update"}
+                {"method":"POST","targetUrl":"https://service.example/orders?token=URL_SECRET","jsonBody":"{\\"credential\\":\\"BODY_SECRET\\"}","rationale":"EXECUTE_RATIONALE_SECRET"}
                 """));
+        SpringAiAgentActionAdapter adapter = adapter(model);
         CapturingHandler handler = captureActionLogs();
 
         try {
-            AgentActionProposal proposal = adapter(model).nextAction(context());
+            AgentActionProposal proposal = adapter.nextAction(context());
 
             assertThat(proposal).isEqualTo(new AgentActionProposal.Proposed(new ExecuteAction(
                     ExternalHttpMethod.POST,
-                    "https://service.example/orders",
-                    Optional.of("{\"status\":\"approved\"}"),
-                    "Preview the order update")));
+                    "https://service.example/orders?token=URL_SECRET",
+                    Optional.of("{\"credential\":\"BODY_SECRET\"}"),
+                    "EXECUTE_RATIONALE_SECRET")));
             assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
                     .contains("Emit a URL only as execute_http.targetUrl")
                     .doesNotContain("adapter name, URL, or retry instruction");
-            assertThat(handler.records()).extracting(record -> record.getParameters()[3]).containsExactly("EXECUTE");
+            List<String> logMessages = formattedMessages(handler);
+            assertThat(logMessages).hasSize(1);
+            assertThat(logMessages.getFirst()).contains("resultCategory=PROPOSED", "actionType=EXECUTE",
+                            "actionFingerprint=")
+                    .doesNotContain("URL_SECRET", "BODY_SECRET", "EXECUTE_RATIONALE_SECRET");
         } finally {
             releaseActionLogs(handler);
         }
@@ -174,13 +307,15 @@ class SpringAiAgentActionAdapterTest {
         CountingChatModel model = new CountingChatModel(toolCall("execute_http", """
                 {"method":"POST","targetUrl":"https://service.example/orders","jsonBody":"{]","rationale":"Preview the order update"}
                 """));
+        SpringAiAgentActionAdapter adapter = adapter(model);
         CapturingHandler handler = captureActionLogs();
 
         try {
-            AgentActionProposal proposal = adapter(model).nextAction(context());
+            AgentActionProposal proposal = adapter.nextAction(context());
 
             assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
-            assertThat(handler.records()).extracting(record -> record.getParameters()[3]).containsExactly("NONE");
+            assertThat(formattedMessages(handler)).allSatisfy(message -> assertThat(message)
+                    .contains("resultCategory=MALFORMED", "actionType=NONE", "actionFingerprint=NONE"));
         } finally {
             releaseActionLogs(handler);
         }
@@ -393,15 +528,25 @@ class SpringAiAgentActionAdapterTest {
         SpringAiAgentActionAdapter malformedAdapter = adapter(malformedModel);
         CountingChatModel unavailableModel = new CountingChatModel(new IllegalStateException("provider response omitted"));
         SpringAiAgentActionAdapter unavailableAdapter = adapter(unavailableModel);
+        CapturingHandler handler = captureActionLogs();
 
-        AgentActionProposal malformed = malformedAdapter.nextAction(context());
+        try {
+            AgentActionProposal malformed = malformedAdapter.nextAction(context());
 
-        assertThat(malformed).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
-        assertThatThrownBy(() -> unavailableAdapter.nextAction(context()))
-                .isInstanceOf(AgentActionTransportException.class)
-                .hasMessage("ACTION_MODEL_UNAVAILABLE");
-        assertThat(malformedModel.calls()).isEqualTo(1);
-        assertThat(unavailableModel.calls()).isEqualTo(1);
+            assertThat(malformed).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+            assertThatThrownBy(() -> unavailableAdapter.nextAction(context()))
+                    .isInstanceOf(AgentActionTransportException.class)
+                    .hasMessage("ACTION_MODEL_UNAVAILABLE");
+            assertThat(malformedModel.calls()).isEqualTo(1);
+            assertThat(unavailableModel.calls()).isEqualTo(1);
+            assertThat(formattedMessages(handler)).allSatisfy(message -> assertThat(message)
+                    .contains("actionFingerprint=NONE", "executionPayloadFingerprint=NONE",
+                            "priorIdenticalCurrentAttemptSelectionCount=0",
+                            "priorEquivalentCurrentAttemptPayloadSelectionCount=0")
+                    .doesNotContain("provider response omitted"));
+        } finally {
+            releaseActionLogs(handler);
+        }
     }
 
     @Test
@@ -474,6 +619,14 @@ class SpringAiAgentActionAdapterTest {
         return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry(new ToolInputMapper(), answerMapper));
     }
 
+    private static SpringAiAgentActionAdapter fingerprintAdapter(
+            CountingChatModel model,
+            AgentActionPromptRenderer renderer) {
+        PlanningToolRegistry registry = fingerprintRegistry();
+        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry,
+                new SpringAiPlanningToolCallbackAdapter(registry, new SpringAiPlanningToolSchemaFactory()), renderer);
+    }
+
     private static SpringAiAgentActionAdapter contractDefectAdapter(CountingChatModel model) {
         return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry(input -> {
             throw new IllegalStateException("broken mapper");
@@ -507,6 +660,21 @@ class SpringAiAgentActionAdapterTest {
                 Validation.buildDefaultValidatorFactory().getValidator()),
                 payloadCodec);
         return registry;
+    }
+
+    private static PlanningToolRegistry fingerprintRegistry() {
+        CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
+        CapabilityExecutor<FingerprintExecutionInput> executor = (context, input) ->
+                new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        QueryPlanningMapper<ToolInput, FingerprintExecutionInput> mapper = input -> new QueryPlanningSelection<>(
+                input.candidateHandles().stream().map(CandidateHandleRef::new).toList(), input.questionToResolve(),
+                input.rationale(), new FingerprintExecutionInput(input.candidateHandles()));
+        PlanningToolProvider provider = () -> List.of(PlanningToolRegistry.registration(
+                policy, ToolInput.class, FingerprintExecutionInput.class, mapper, executor, payloadCodec));
+        return new PlanningToolRegistry(List.of(provider), new StrictPlanningToolDecoder(
+                Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
     }
 
     private static AnswerAction failIfAnswerMapperExecutes(AtomicInteger mapperCalls) {
@@ -547,7 +715,45 @@ class SpringAiAgentActionAdapterTest {
                 Map.of(capability, descriptor),
                 Map.of(firstCandidate, new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")),
                         secondCandidate, new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second"))),
-                Map.of(), Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private AgentPromptContext contextWithInteractions(List<ModelInteraction> interactions) {
+        AgentPromptContext context = context();
+        return new AgentPromptContext(context.originalQuestion(), context.sessionHistory(), context.runId(), context.attemptId(),
+                context.issuedCapabilities(), context.issuedCandidates(), context.issuedEvidence(), context.observations(),
+                interactions, context.latestRejection(), context.budget());
+    }
+
+    private CapabilityHandle capability() {
+        return context().issuedCapabilities().keySet().iterator().next();
+    }
+
+    private static AgentActionFingerprint fingerprint(AgentAction action) {
+        return AgentActionFingerprint.from(action);
+    }
+
+    private static AgentActionFingerprint payloadFingerprint(AgentAction action) {
+        return AgentActionFingerprint.executionPayloadFrom(action);
+    }
+
+    private HandleBinding binding(String attemptId, String revision) {
+        return new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId(attemptId),
+                RevisionVector.empty().pin(new RepositoryId("repo-1"), new RepositoryRevision(revision)));
+    }
+
+    private static AnswerDocument answerDocument(
+            Set<EvidenceHandleRef> citations,
+            Set<ObservationId> observationIds,
+            String statementText) {
+        return new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"), StatementType.FACT,
+                statementText, Optional.of(new ClaimId("claim-1")), citations, observationIds)));
+    }
+
+    private static List<String> formattedMessages(CapturingHandler handler) {
+        return handler.records().stream()
+                .map(record -> new MessageFormat(record.getMessage()).format(record.getParameters()))
+                .toList();
     }
 
     private AgentPromptContext answerContext() {
@@ -564,13 +770,16 @@ class SpringAiAgentActionAdapterTest {
                 ObservationCode.PARTIAL_GRAPH, "Graph is partial", Set.of(), Set.of(evidenceHandle), "runtime");
         return new AgentPromptContext("Where is it called?", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
                 Map.of(evidenceHandle, new IssuedEvidence(evidenceHandle, evidence)), Map.of(observationId, observation),
-                Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private record ToolInput(
             @JsonProperty(required = true) List<String> candidateHandles,
             @JsonProperty(required = true) String questionToResolve,
             @JsonProperty(required = true) String rationale) {
+    }
+
+    private record FingerprintExecutionInput(List<String> candidateHandles) {
     }
 
     private static final class ToolInputMapper implements QueryPlanningMapper<ToolInput, ToolInput> {
@@ -587,6 +796,7 @@ class SpringAiAgentActionAdapterTest {
         private final Optional<AssistantMessage> assistantMessage;
         private final Optional<RuntimeException> failure;
         private final AtomicInteger calls = new AtomicInteger();
+        private Optional<Prompt> lastPrompt = Optional.empty();
 
         private CountingChatModel(String response) {
             this.response = response;
@@ -609,6 +819,7 @@ class SpringAiAgentActionAdapterTest {
         @Override
         public ChatResponse call(Prompt prompt) {
             calls.incrementAndGet();
+            lastPrompt = Optional.of(prompt);
             if (failure.isPresent()) {
                 throw failure.orElseThrow();
             }
@@ -617,6 +828,10 @@ class SpringAiAgentActionAdapterTest {
 
         private int calls() {
             return calls.get();
+        }
+
+        private Optional<Prompt> lastPrompt() {
+            return lastPrompt;
         }
     }
 

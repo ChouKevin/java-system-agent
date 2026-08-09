@@ -117,7 +117,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentTransition transition = reducer.reduce(
                 persisted,
                 new AgentEvent.ActionRejected(persisted.runId(), persisted.currentAttempt().attemptId(),
-                        persisted.stateRevision(), Optional.empty(), "action was rejected"));
+                        persisted.stateRevision(), Optional.empty(), "MALFORMED_RESPONSE", "action was rejected"));
 
         AgentRunState published = transitions.commit(transition);
 
@@ -148,7 +148,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentTransition transition = reducer.reduce(
                 persisted,
                 new AgentEvent.ActionRejected(persisted.runId(), persisted.currentAttempt().attemptId(),
-                        persisted.stateRevision(), Optional.empty(), "action was rejected"));
+                        persisted.stateRevision(), Optional.empty(), "MALFORMED_RESPONSE", "action was rejected"));
         AgentRunState forgedCandidate = withRequestIdentity(
                 transition.candidateState(),
                 new RunRequestIdentity(
@@ -200,7 +200,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AgentTransition transition = reducer.reduce(
                 persisted,
                 new AgentEvent.ActionRejected(persisted.runId(), persisted.currentAttempt().attemptId(),
-                        persisted.stateRevision(), Optional.empty(), "action was rejected"));
+                        persisted.stateRevision(), Optional.empty(), "MALFORMED_RESPONSE", "action was rejected"));
         jdbcClient.sql("DROP TABLE agent_run_event").update();
 
         assertThatThrownBy(() -> transitions.commit(transition)).isInstanceOf(JdbcPersistenceException.class);
@@ -333,7 +333,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 state.failureReason(),
                 state.pendingTerminalResponse(),
                 state.pendingAnswerVerification(),
-                identity);
+                identity,
+                state.modelInteractions());
     }
 
     private void insertSession(String sessionId) {

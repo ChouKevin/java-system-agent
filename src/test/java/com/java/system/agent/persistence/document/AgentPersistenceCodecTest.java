@@ -45,6 +45,7 @@ import com.java.system.agent.answering.domain.observation.ObservationSource;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentRunStatus;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AnswerVerificationAbandonReason;
@@ -56,6 +57,7 @@ import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunRequestIdentity;
 import com.java.system.agent.answering.domain.run.RunAttempt;
 import com.java.system.agent.answering.domain.run.RuntimeNoticeReason;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -80,16 +82,143 @@ class AgentPersistenceCodecTest {
     private final AgentEventDocumentCodec eventCodec = new AgentEventDocumentCodec(new ObjectMapper());
 
     @Test
-    void writes_and_reads_only_schema_ten_state_documents() {
+    void writes_and_reads_only_schema_eleven_state_documents() {
         AgentRunState state = AgentRunState.initial(runId(), attemptId(), budget(), identity());
 
         VersionedJsonDocument document = stateCodec.encode(state);
 
-        assertThat(document.schemaVersion()).isEqualTo(10);
+        assertThat(document.schemaVersion()).isEqualTo(11);
         assertThat(stateCodec.decode(document)).isEqualTo(state);
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(9, document.payload())))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(10, document.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported state document schema version");
+    }
+
+    @Test
+    void preserves_model_action_history_in_state_and_action_result_events() {
+        QueryAction selectedAction = new QueryAction(
+                new CapabilityHandle("capability-1", new HandleBinding(runId(), attemptId(), RevisionVector.empty())),
+                List.of(), "question", new CapabilityInputPayload("{}"), "reason");
+        ActionResult result = new ActionResult.ActionInterrupted(
+                "RECOVERY_INTERRUPTED", "Selected action outcome was not durably known when execution resumed");
+        List<ModelInteraction> interactions = List.of(
+                new ModelInteraction.ActionSelected(attemptId(), selectedAction),
+                new ModelInteraction.ActionResultRecorded(attemptId(), result));
+        AgentRunState state = new AgentRunState(
+                runId(), AgentRunStatus.RUNNING,
+                AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(),
+                1, budget(), 0, 0, 1,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), identity(),
+                interactions);
+        AgentEvent event = new AgentEvent.ActionResultRecorded(runId(), attemptId(), 1, result);
+
+        assertThat(stateCodec.decode(stateCodec.encode(state)).modelInteractions()).containsExactlyElementsOf(interactions);
+        assertThat(eventCodec.decode(eventCodec.eventType(event), eventCodec.encode(event))).isEqualTo(event);
+    }
+
+    @Test
+    void round_trips_complete_model_action_history() {
+        AnalysisAttemptId secondAttemptId = attemptId("attempt-2");
+        AnalysisAttemptId thirdAttemptId = attemptId("attempt-3");
+        AnalysisAttemptId fourthAttemptId = attemptId("attempt-4");
+        AnalysisAttemptId unresolvedAttemptId = attemptId("attempt-5");
+        AnswerDocument answer = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
+                StatementType.UNCERTAINTY, "uncertain", Optional.empty(), Set.of(), Set.of())));
+        AnswerVerdict rejectedVerdict = new AnswerVerdict(
+                AnswerDisposition.REJECTED, List.of(), List.of(), List.of(), List.of("rejected"));
+        QueryAction query = queryAction(attemptId());
+        ExecuteAction execute = executeAction();
+        AnswerAction answerAction = new AnswerAction(answer);
+        ClarifyAction clarify = new ClarifyAction("clarify", List.of(), "reason");
+        List<ModelInteraction> interactions = List.of(
+                new ModelInteraction.MalformedResponse(attemptId(), "unparseable response"),
+                new ModelInteraction.ActionSelected(attemptId(), query),
+                new ModelInteraction.ActionResultRecorded(attemptId(),
+                        new ActionResult.QuerySucceeded(List.of(), List.of("evidence-1", "evidence-1"), List.of())),
+                new ModelInteraction.ActionSelected(attemptId(), query),
+                new ModelInteraction.ActionResultRecorded(attemptId(),
+                        new ActionResult.QueryFailed(List.of("observation-1", "observation-1"), "query failed")),
+                new ModelInteraction.ActionSelected(attemptId(), query),
+                new ModelInteraction.ActionResultRecorded(attemptId(),
+                        new ActionResult.QueryInvalidated("revision changed")),
+                new ModelInteraction.ActionSelected(attemptId(), query),
+                new ModelInteraction.ActionResultRecorded(attemptId(),
+                        new ActionResult.ValidationRejected("INVALID", "invalid action")),
+                new ModelInteraction.ActionSelected(secondAttemptId, execute),
+                new ModelInteraction.ActionResultRecorded(secondAttemptId,
+                        new ActionResult.ExecuteCompleted(ActionResult.ExecuteOutcome.NOT_IMPLEMENTED,
+                                List.of("observation-2"), "completed")),
+                new ModelInteraction.ActionSelected(thirdAttemptId, answerAction),
+                new ModelInteraction.ActionResultRecorded(thirdAttemptId, new ActionResult.AnswerRejected(rejectedVerdict)),
+                new ModelInteraction.ActionSelected(thirdAttemptId, answerAction),
+                new ModelInteraction.ActionResultRecorded(thirdAttemptId, new ActionResult.AnswerAccepted()),
+                new ModelInteraction.ActionSelected(fourthAttemptId, clarify),
+                new ModelInteraction.ActionResultRecorded(fourthAttemptId, new ActionResult.ClarificationAccepted()),
+                new ModelInteraction.ActionSelected(unresolvedAttemptId, queryAction(unresolvedAttemptId)));
+        AgentRunState state = new AgentRunState(
+                runId(), AgentRunStatus.RUNNING,
+                AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(),
+                1, budget(), 0, 0, 1,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), identity(),
+                interactions);
+
+        assertThat(stateCodec.decode(stateCodec.encode(state))).isEqualTo(state);
+    }
+
+    @Test
+    void round_trips_action_selected_and_result_recorded_events() {
+        ClarifyAction clarification = new ClarifyAction("clarify", List.of(), "reason");
+        List<AgentEvent> events = List.of(
+                new AgentEvent.ActionSelected(runId(), attemptId(), 1, clarification),
+                new AgentEvent.ActionResultRecorded(runId(), attemptId(), 2, new ActionResult.ClarificationAccepted()));
+
+        for (AgentEvent event : events) {
+            assertThat(eventCodec.decode(eventCodec.eventType(event), eventCodec.encode(event))).isEqualTo(event);
+        }
+    }
+
+    @Test
+    void exposes_not_implemented_as_the_current_closed_execute_outcome() {
+        assertThat(ActionResult.ExecuteOutcome.valueOf("NOT_IMPLEMENTED").name()).isEqualTo("NOT_IMPLEMENTED");
+    }
+
+    @Test
+    void rejects_unknown_model_interaction_and_action_result_discriminators_and_fields() {
+        QueryAction query = queryAction(attemptId());
+        AgentRunState state = new AgentRunState(
+                runId(), AgentRunStatus.RUNNING,
+                AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(),
+                1, budget(), 0, 0, 1,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), identity(),
+                List.of(
+                        new ModelInteraction.ActionSelected(attemptId(), query),
+                        new ModelInteraction.ActionResultRecorded(attemptId(),
+                                new ActionResult.QuerySucceeded(List.of(), List.of(), List.of()))));
+        VersionedJsonDocument stateDocument = stateCodec.encode(state);
+        ObjectNode unknownInteraction = stateDocument.payload().deepCopy();
+        ((ObjectNode) unknownInteraction.path("model_interactions").path(0))
+                .put("interaction_type", "UNKNOWN_INTERACTION");
+        assertThatThrownBy(() -> stateCodec.decode(11, unknownInteraction))
+                .isInstanceOf(PersistenceDocumentException.class);
+
+        ObjectNode unknownInteractionField = stateDocument.payload().deepCopy();
+        ((ObjectNode) unknownInteractionField.path("model_interactions").path(0)).put("unexpected", true);
+        assertThatThrownBy(() -> stateCodec.decode(11, unknownInteractionField))
+                .isInstanceOf(PersistenceDocumentException.class);
+
+        AgentEvent event = new AgentEvent.ActionResultRecorded(
+                runId(), attemptId(), 1, new ActionResult.QuerySucceeded(List.of(), List.of(), List.of()));
+        VersionedJsonDocument eventDocument = eventCodec.encode(event);
+        ObjectNode unknownResult = eventDocument.payload().deepCopy();
+        ((ObjectNode) unknownResult.path("result")).put("result_type", "UNKNOWN_RESULT");
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), eventDocument.schemaVersion(), unknownResult))
+                .isInstanceOf(PersistenceDocumentException.class);
+
+        ObjectNode unknownResultField = eventDocument.payload().deepCopy();
+        ((ObjectNode) unknownResultField.path("result")).put("unexpected", true);
+        assertThatThrownBy(() -> eventCodec.decode(
+                eventCodec.eventType(event), eventDocument.schemaVersion(), unknownResultField))
+                .isInstanceOf(PersistenceDocumentException.class);
     }
 
     @Test
@@ -125,11 +254,11 @@ class AgentPersistenceCodecTest {
                 .payload();
         ObjectNode serializedBudget = (ObjectNode) state.path("budget");
 
-        assertThat(eventDocument.schemaVersion()).isEqualTo(9);
+        assertThat(eventDocument.schemaVersion()).isEqualTo(10);
         assertThat(eventDocument.payload().path("runtime_notice_reason").asText())
                 .isEqualTo("AGENT_STEP_BUDGET_EXHAUSTED");
         assertThat(eventCodec.decode(eventCodec.eventType(event), eventDocument)).isEqualTo(event);
-        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 8, eventDocument.payload()))
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 9, eventDocument.payload()))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported event document schema version");
         assertThat(serializedBudget.fieldNames()).toIterable().containsExactlyInAnyOrder(
@@ -163,7 +292,7 @@ class AgentPersistenceCodecTest {
         AgentRunState terminal = new AgentRunState(runId(), AgentRunStatus.CONCLUDED,
                 AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
                 Optional.of(RunOutcome.COMPLETED), Optional.empty(), Optional.empty(), Optional.of(pendingAnswer),
-                Optional.empty(), identity());
+                Optional.empty(), identity(), List.of());
         ClarifyAction clarification = new ClarifyAction("clarify", List.of(), "reason");
         ConversationTurn clarificationTurn = new ConversationTurn(
                 runId(), identity().participant(), "question", "clarify", ConversationTurnType.CLARIFICATION);
@@ -172,12 +301,12 @@ class AgentPersistenceCodecTest {
         AgentRunState clarificationTerminal = new AgentRunState(runId(), AgentRunStatus.CONCLUDED,
                 AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
                 Optional.of(RunOutcome.INCONCLUSIVE), Optional.empty(), Optional.empty(),
-                Optional.of(pendingClarification), Optional.empty(), identity());
+                Optional.of(pendingClarification), Optional.empty(), identity(), List.of());
         PendingAnswerVerification pending = new PendingAnswerVerification(attemptId(), RevisionVector.empty(), document,
                 AnswerVerificationMode.LLM);
         AgentRunState verificationPending = new AgentRunState(runId(), AgentRunStatus.RUNNING,
                 AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(pending), identity());
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(pending), identity(), List.of());
 
         assertThat(stateCodec.decode(stateCodec.encode(terminal))).isEqualTo(terminal);
         assertThat(stateCodec.decode(stateCodec.encode(clarificationTerminal))).isEqualTo(clarificationTerminal);
@@ -215,7 +344,8 @@ class AgentPersistenceCodecTest {
                 new AgentEvent.ContextIssued(
                         runId(), attemptId(), 0, RevisionVector.empty(), Map.of(), Map.of(), Map.of(), Map.of()),
                 new AgentEvent.ActionAccepted(runId(), attemptId(), 0, executeAction()),
-                new AgentEvent.ActionRejected(runId(), attemptId(), 0, Optional.of(executeAction()), "rejected"),
+                new AgentEvent.ActionRejected(runId(), attemptId(), 0, Optional.of(executeAction()),
+                        "INVALID_EXECUTE_TARGET", "rejected"),
                 new AgentEvent.QueryBudgetConsumed(runId(), attemptId(), 0),
                 new AgentEvent.ExecuteBudgetConsumed(runId(), attemptId(), 0),
                 new AgentEvent.ObservationRecorded(runId(), attemptId(), 0, observation),
@@ -259,37 +389,37 @@ class AgentPersistenceCodecTest {
 
     @Test
     void rejects_unknown_missing_null_and_coerced_event_properties() {
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0,"unexpected":true}
                         """))
                 .isInstanceOf(PersistenceDocumentException.class);
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"}}
                         """))
                 .isInstanceOf(PersistenceDocumentException.class);
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":null,"attempt_id":{"value":"attempt-1"},"expected_state_revision":0}
                         """))
                 .isInstanceOf(PersistenceDocumentException.class);
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":null}
                         """))
                 .isInstanceOf(PersistenceDocumentException.class);
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":"0"}
                         """))
                 .isInstanceOf(PersistenceDocumentException.class);
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0.5}
                         """))
                 .isInstanceOf(PersistenceDocumentException.class);
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":"","attempt_id":{"value":"attempt-1"},"expected_state_revision":0}
                         """))
@@ -298,17 +428,17 @@ class AgentPersistenceCodecTest {
 
     @Test
     void rejects_duplicate_trailing_and_relationally_mismatched_event_discriminators() {
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"run_id":{"value":"run-2"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0}
                         """))
                 .isInstanceOf(PersistenceDocumentException.class);
-        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_STARTED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0} {}
                         """))
                 .isInstanceOf(PersistenceDocumentException.class);
-        assertThatThrownBy(() -> eventCodec.decode("RUN_CONCLUDED", 9,
+        assertThatThrownBy(() -> eventCodec.decode("RUN_CONCLUDED", 10,
                 """
                         {"event_type":"RUN_STARTED","run_id":{"value":"run-1"},"attempt_id":{"value":"attempt-1"},"expected_state_revision":0}
                         """))
@@ -335,15 +465,15 @@ class AgentPersistenceCodecTest {
         RunAttempt attempt = new RunAttempt(attemptId(), revisions, Map.of(), candidates, Map.of(), Map.of());
         AgentRunState state = new AgentRunState(
                 runId(), AgentRunStatus.RUNNING, attempt, 1, budget(), 0, 0, 1,
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), identity());
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), identity(), List.of());
         AgentEvent.ContextIssued event = new AgentEvent.ContextIssued(
                 runId(), attemptId(), 1, revisions, Map.of(), candidates, Map.of(), Map.of());
 
         VersionedJsonDocument stateDocument = stateCodec.encode(state);
         VersionedJsonDocument eventDocument = eventCodec.encode(event);
 
-        assertThat(stateDocument.schemaVersion()).isEqualTo(10);
-        assertThat(eventDocument.schemaVersion()).isEqualTo(9);
+        assertThat(stateDocument.schemaVersion()).isEqualTo(11);
+        assertThat(eventDocument.schemaVersion()).isEqualTo(10);
         assertThat(stateCodec.decode(stateDocument)).isEqualTo(state);
         assertThat(eventCodec.decode(eventCodec.eventType(event), eventDocument)).isEqualTo(event);
         assertThat(eventDocument.payload().path("candidates").path(0).path("value").path("candidate")
@@ -352,13 +482,13 @@ class AgentPersistenceCodecTest {
         ObjectNode unknownCandidateType = eventDocument.payload().deepCopy();
         ((ObjectNode) unknownCandidateType.path("candidates").path(0).path("value").path("candidate"))
                 .put("candidate_type", "UNKNOWN");
-        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 9, unknownCandidateType))
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 10, unknownCandidateType))
                 .isInstanceOf(PersistenceDocumentException.class);
 
         ObjectNode blankTargetCapability = eventDocument.payload().deepCopy();
         ((ObjectNode) blankTargetCapability.path("candidates").path(0).path("value").path("candidate"))
                 .put("target_capability_name", " ");
-        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 9, blankTargetCapability))
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 10, blankTargetCapability))
                 .isInstanceOf(PersistenceDocumentException.class);
     }
 
@@ -398,26 +528,26 @@ class AgentPersistenceCodecTest {
         ObjectNode duplicateMap = document.payload().deepCopy();
         ArrayNode capabilities = (ArrayNode) duplicateMap.path("capabilities");
         capabilities.add(capabilities.get(0).deepCopy());
-        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 9, duplicateMap))
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 10, duplicateMap))
                 .isInstanceOf(PersistenceDocumentException.class);
 
         ObjectNode mismatchedObservation = document.payload().deepCopy();
         ObjectNode observationKey = (ObjectNode) mismatchedObservation.path("observations").path(0).path("key");
         observationKey.put("value", "observation-2");
-        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 9, mismatchedObservation))
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 10, mismatchedObservation))
                 .isInstanceOf(PersistenceDocumentException.class);
 
         ObjectNode duplicateRevision = document.payload().deepCopy();
         ArrayNode revisionEntries = (ArrayNode) duplicateRevision.path("revisions").path("entries");
         revisionEntries.add(revisionEntries.get(0).deepCopy());
-        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 9, duplicateRevision))
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 10, duplicateRevision))
                 .isInstanceOf(PersistenceDocumentException.class);
 
         ObjectNode duplicateSet = document.payload().deepCopy();
         ArrayNode acceptedKinds = (ArrayNode) duplicateSet.path("capabilities").path(0)
                 .path("value").path("accepted_candidate_kinds");
         acceptedKinds.add("REPOSITORY");
-        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 9, duplicateSet))
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(event), 10, duplicateSet))
                 .isInstanceOf(PersistenceDocumentException.class);
 
         AgentObservation observationWithCandidate = new AgentObservation(
@@ -429,7 +559,7 @@ class AgentPersistenceCodecTest {
         ArrayNode candidateHandles = (ArrayNode) duplicateObservationSet.path("observation").path("candidate_handles");
         candidateHandles.add(candidateHandles.get(0).deepCopy());
         assertThatThrownBy(() -> eventCodec.decode(
-                eventCodec.eventType(observationEvent), 9, duplicateObservationSet))
+                eventCodec.eventType(observationEvent), 10, duplicateObservationSet))
                 .isInstanceOf(PersistenceDocumentException.class);
 
         AnswerDocument answer = new AnswerDocument(List.of(new AnswerStatement(
@@ -440,7 +570,7 @@ class AgentPersistenceCodecTest {
         ArrayNode observationIds = (ArrayNode) duplicateAnswerSet.path("action").path("document")
                 .path("statements").path(0).path("observation_ids");
         observationIds.add(observationIds.get(0).deepCopy());
-        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(answerEvent), 9, duplicateAnswerSet))
+        assertThatThrownBy(() -> eventCodec.decode(eventCodec.eventType(answerEvent), 10, duplicateAnswerSet))
                 .isInstanceOf(PersistenceDocumentException.class);
     }
 
@@ -452,6 +582,10 @@ class AgentPersistenceCodecTest {
         return new AnalysisAttemptId("attempt-1");
     }
 
+    private static AnalysisAttemptId attemptId(String value) {
+        return new AnalysisAttemptId(value);
+    }
+
     private static AttemptBudget budget() {
         return new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0);
     }
@@ -459,6 +593,12 @@ class AgentPersistenceCodecTest {
     private static ExecuteAction executeAction() {
         return new ExecuteAction(ExternalHttpMethod.POST, "https://example.test/mutations", Optional.of("{}"),
                 "apply preview mutation");
+    }
+
+    private static QueryAction queryAction(AnalysisAttemptId attemptId) {
+        HandleBinding binding = new HandleBinding(runId(), attemptId, RevisionVector.empty());
+        return new QueryAction(new CapabilityHandle("capability-1", binding), List.of(), "question",
+                new CapabilityInputPayload("{}"), "reason");
     }
 
     private static RunRequestIdentity identity() {

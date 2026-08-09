@@ -61,7 +61,7 @@ class SpringAiPlanningToolCallbackAdapterTest {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
-                Map.of(), Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private record Verified(Class<?> inputType, String projectedSchema) {

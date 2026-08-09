@@ -60,8 +60,10 @@ class TerminalResponseCoordinatorTest {
                 "Which repository should be inspected?",
                 List.of(new CandidateHandleRef(state.currentAttempt().issuedCandidates().keySet().iterator().next().value())),
                 "Need repository scope");
+        AgentRunState selected = transitions.apply(state, new AgentEvent.ActionSelected(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), clarification));
 
-        AgentLoopResult result = coordinator.acceptClarification(request(), state, clarification);
+        AgentLoopResult result = coordinator.acceptClarification(request(), selected, clarification);
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.CANCELLED);
         assertThat(transitionPort.state(RUN_ID).finalOutcome()).contains(RunOutcome.CANCELLED);

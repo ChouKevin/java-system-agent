@@ -1,6 +1,7 @@
 package com.java.system.agent.codeintelligence.semantic;
 
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
@@ -9,6 +10,7 @@ import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
@@ -426,7 +428,7 @@ class JavaSemanticServiceHttpAdapterTest {
         client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders/entry-points?expectedRevision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&types=API"))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("""
-                        {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","entryPoints":[{"className":"OrderController","packageName":"com.example.web","packagePath":"com/example/web","description":"Order entry points","basePaths":["/orders"],"methods":[{"type":"API","name":"list","description":"List orders","apiUrl":"/orders","httpMethods":["GET"],"swaggerDescriptions":["Lists orders"],"analysisTarget":{"status":"UNRESOLVED","target":null,"candidates":[],"reasonCode":"TARGET_NOT_FOUND"}}]}]}
+                        {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","entryPoints":[{"sourceType":{"javaType":{"packageName":"com.example.web","className":"OrderController"},"sourceFile":"src/main/java/com/example/web/OrderController.java"},"description":"Order entry points","basePaths":["/orders"],"methods":[{"type":"API","name":"list","description":"List orders","apiUrl":"/orders","httpMethods":["GET"],"swaggerDescriptions":["Lists orders"],"analysisTarget":{"status":"UNRESOLVED","target":null,"candidates":[],"reasonCode":"TARGET_NOT_FOUND","availableFollowUps":[]}}]}]}
                         """, MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/api-routes/lookup"))
                 .andExpect(method(POST))
@@ -465,6 +467,26 @@ class JavaSemanticServiceHttpAdapterTest {
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"), new IncomingCallGraphExecutionInput(1)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
+        client.server().verify();
+    }
+
+    @Test
+    void mapsTheEntryPointsProviderWireContractWithResolvedEvidence() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders/entry-points?expectedRevision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&types=API"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","entryPoints":[{"sourceType":{"javaType":{"packageName":"com.example.web","className":"OrderController"},"sourceFile":"src/main/java/com/example/web/OrderController.java"},"description":"Order entry points","basePaths":["/orders"],"methods":[{"type":"API","name":"list","description":"List orders","apiUrl":"/orders","httpMethods":["GET"],"swaggerDescriptions":["Lists orders"],"analysisTarget":{"status":"RESOLVED","target":{"sourceType":{"javaType":{"packageName":"com.example.web","className":"OrderController"},"sourceFile":"src/main/java/com/example/web/OrderController.java"},"methodName":"list","parameterTypes":[]},"candidates":[],"reasonCode":"RESOLVED_TARGET","availableFollowUps":[]}}]}]}
+                        """, MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) adapter.listEntryPoints(
+                repositoryContext("codebase_list_entry_points"), new ListEntryPointsExecutionInput(EntryPointType.API));
+
+        assertThat(result.discoveredCandidates()).extracting(AnalysisCandidate::kind)
+                .containsExactly(CandidateKind.ROUTE, CandidateKind.SEMANTIC_TARGET);
+        assertThat(result.evidence()).singleElement().extracting(EvidenceRef::content)
+                .asString().contains("class=com.example.web.OrderController", "method=list", "url=/orders");
         client.server().verify();
     }
 

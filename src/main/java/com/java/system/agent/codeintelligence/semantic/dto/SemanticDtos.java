@@ -28,8 +28,7 @@ public final class SemanticDtos {
                                       List<EntryPointClassResponse> entryPoints) {
     }
 
-    public record EntryPointClassResponse(String className, String packageName, String packagePath,
-                                          String description, List<String> basePaths,
+    public record EntryPointClassResponse(SourceTypeIdentityPayload sourceType, String description, List<String> basePaths,
                                           List<EntryPointMethodResponse> methods) {
     }
 
@@ -114,7 +113,8 @@ public final class SemanticDtos {
     }
 
     public record MethodTargetResolutionResponse(String status, MethodTarget target,
-                                                 List<MethodTarget> candidates, String reasonCode) {
+                                                 List<MethodTarget> candidates, String reasonCode,
+                                                 List<AvailableFollowUp> availableFollowUps) {
     }
 
     public record OutgoingCallGraphResponse(String status, String analyzedRevision, String rootNodeId,
@@ -255,7 +255,7 @@ public final class SemanticDtos {
         }
     }
 
-    /** Java Semantic Service 回傳的 follow-up HTTP contract data，Agent runtime capability exposure 延至下一個 milestone */
+    /** Java Semantic Service 回傳的具型別 follow-up HTTP contract data，供 Agent runtime 建立後續查詢 capability */
     public record AvailableFollowUp(String operation, FollowUpApi api, AvailableFollowUpRequest request) {
 
         public AvailableFollowUp {

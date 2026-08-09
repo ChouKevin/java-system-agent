@@ -141,7 +141,9 @@ class AnswerActionExecutorTest {
                 request.runId(), attemptId, 1, request.budget(),
                 new RunRequestIdentity(
                         request.sessionId().value(), request.participant(), request.question()));
-        AgentRunState state = transitions.bootstrap(initial, RunAttempt.empty(attemptId));
+        AgentRunState bootstrapped = transitions.bootstrap(initial, RunAttempt.empty(attemptId));
+        AgentRunState state = transitions.apply(bootstrapped, new AgentEvent.ActionSelected(
+                bootstrapped.runId(), bootstrapped.currentAttempt().attemptId(), bootstrapped.stateRevision(), answer()));
         return new Fixture(executor, transitions, session, request, state, port);
     }
 

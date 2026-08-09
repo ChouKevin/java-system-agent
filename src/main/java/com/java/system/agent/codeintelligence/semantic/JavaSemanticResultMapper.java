@@ -40,6 +40,7 @@ public final class JavaSemanticResultMapper {
     private static final String METHOD_TARGET_TERMINATOR = ":!";
 
     private final JavaSemanticProviderSchemaValidator schemaValidator = new JavaSemanticProviderSchemaValidator();
+    private final JavaSemanticMetadataEvidenceMapper metadataEvidenceMapper = new JavaSemanticMetadataEvidenceMapper();
     private final JavaSemanticFollowUpMapper followUpMapper;
 
     public JavaSemanticResultMapper() {
@@ -80,6 +81,7 @@ public final class JavaSemanticResultMapper {
         RepositoryId repositoryId = new RepositoryId(requiredResponse.repoId());
         RepositoryRevision revision = new RepositoryRevision(requiredResponse.analyzedRevision());
         List<AnalysisCandidate> candidates = new ArrayList<>();
+        List<EvidenceRef> evidence = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>();
         for (SemanticDtos.EntryPointClassResponse entryPoint : requiredList(requiredResponse.entryPoints(), "entry point")) {
             String classDescription = description(entryPoint.description(), "entry point");
@@ -91,9 +93,14 @@ public final class JavaSemanticResultMapper {
                 }
                 addResolutionCandidates(repositoryId, revision, method.analysisTarget(), description, candidates,
                         observations);
+                addFollowUps(repositoryId, revision, method.analysisTarget().availableFollowUps(), candidates);
+                if ("RESOLVED".equals(method.analysisTarget().status())) {
+                    SemanticTarget target = semanticTarget(method.analysisTarget().target());
+                    evidence.add(metadataEvidenceMapper.entryPoint(repositoryId, revision, entryPoint, method, target));
+                }
             }
         }
-        return succeeded(candidates, List.of(), observations);
+        return succeeded(candidates, evidence, observations);
     }
 
     public CapabilityExecutionResult apiRoutes(SemanticDtos.ApiRouteCandidatesResponse response) {
@@ -263,9 +270,13 @@ public final class JavaSemanticResultMapper {
         RepositoryId repositoryId = expectedRepositoryId;
         RepositoryRevision revision = expectedRevision;
         List<AnalysisCandidate> candidates = new ArrayList<>();
+        List<EvidenceRef> evidence = new ArrayList<>();
         for (SemanticDtos.MethodImplementationCandidateResponse candidate : required.candidates()) {
-            candidates.add(new SemanticTargetCandidate(repositoryId, revision, semanticTarget(candidate.target()),
+            SemanticTarget target = semanticTarget(candidate.target());
+            candidates.add(new SemanticTargetCandidate(repositoryId, revision, target,
                     "method implementation " + candidate.target().methodName()));
+            evidence.add(metadataEvidenceMapper.implementation(repositoryId, revision, required.requestedTarget(), candidate,
+                    target));
             addFollowUps(repositoryId, revision, candidate.availableFollowUps(), candidates);
         }
         List<CapabilityObservation> observations = new ArrayList<>();
@@ -278,7 +289,7 @@ public final class JavaSemanticResultMapper {
                     "method implementation resolution status=PARTIAL", List.of()));
         }
         addIssueSummaries(observations, required.resolution().issueSummaries(), "method implementation issue");
-        return succeeded(candidates, List.of(), List.copyOf(observations));
+        return succeeded(candidates, evidence, List.copyOf(observations));
     }
 
     /** 投影 provider 的型別成員探索結果 */
@@ -312,10 +323,13 @@ public final class JavaSemanticResultMapper {
         RepositoryId repositoryId = expectedRepositoryId;
         RepositoryRevision revision = expectedRevision;
         List<AnalysisCandidate> candidates = new ArrayList<>();
+        List<EvidenceRef> evidence = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(), "COMPLETE"));
         SemanticDtos.InternalReferenceTargetDeclarationResponse declaration = required.targetDeclaration();
-        addInternalReferenceCandidate(repositoryId, revision, declaration.target(), declaration.declarationRange(),
-                "internal reference declaration", candidates);
+        SemanticTarget declarationTarget = internalReferenceTarget(declaration.target(), declaration.declarationRange());
+        candidates.add(new SemanticTargetCandidate(repositoryId, revision, declarationTarget, "internal reference declaration"));
+        evidence.add(metadataEvidenceMapper.declaration(repositoryId, revision, declaration, required.totalReferenceCount(),
+                declarationTarget));
         addFollowUps(repositoryId, revision, declaration.availableFollowUps(), candidates);
         for (SemanticDtos.ReferenceGroupResponse group : required.referenceGroups()) {
             if (group.limits().truncated()) {
@@ -325,8 +339,11 @@ public final class JavaSemanticResultMapper {
             addUnavailableFollowUps(observations, group.unavailableFollowUps(), "internal reference follow-up");
             addFollowUps(repositoryId, revision, group.availableFollowUps(), candidates);
             for (SemanticDtos.ReferenceOccurrenceResponse occurrence : group.representativeReferences()) {
-                addInternalReferenceCandidate(repositoryId, revision, group.context(), occurrence.range(),
-                        "internal reference occurrence", candidates);
+                SemanticTarget occurrenceTarget = internalReferenceTarget(group.context(), occurrence.range());
+                candidates.add(new SemanticTargetCandidate(repositoryId, revision, occurrenceTarget,
+                        "internal reference occurrence"));
+                evidence.add(metadataEvidenceMapper.occurrence(repositoryId, revision, group, required.totalReferenceCount(),
+                        occurrence, occurrenceTarget));
                 addFollowUps(repositoryId, revision, occurrence.availableFollowUps(), candidates);
             }
         }
@@ -336,7 +353,7 @@ public final class JavaSemanticResultMapper {
                     "internal reference status=PARTIAL", List.of()));
         }
         addIssueSummaries(observations, required.issueSummaries(), "internal reference issue");
-        return succeeded(candidates, List.of(), List.copyOf(observations));
+        return succeeded(candidates, evidence, List.copyOf(observations));
     }
 
     /** 投影 provider 的 evidence source 結果 */
@@ -453,14 +470,23 @@ public final class JavaSemanticResultMapper {
                                                SemanticDtos.InternalReferenceFollowUpTarget target,
                                                SemanticDtos.TextRangePayload range, String description,
                                                List<AnalysisCandidate> candidates) {
-        candidates.add(new SemanticTargetCandidate(repositoryId, revision,
-                sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile(target.identity()), range)), description));
+        candidates.add(new SemanticTargetCandidate(repositoryId, revision, internalReferenceTarget(target, range), description));
     }
 
     private void addInternalReferenceCandidate(RepositoryId repositoryId, RepositoryRevision revision,
                                                SemanticDtos.InternalReferenceContextResponse context,
                                                SemanticDtos.TextRangePayload range, String description,
                                                List<AnalysisCandidate> candidates) {
+        candidates.add(new SemanticTargetCandidate(repositoryId, revision, internalReferenceTarget(context, range), description));
+    }
+
+    private SemanticTarget internalReferenceTarget(SemanticDtos.InternalReferenceFollowUpTarget target,
+                                                   SemanticDtos.TextRangePayload range) {
+        return sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile(target.identity()), range));
+    }
+
+    private SemanticTarget internalReferenceTarget(SemanticDtos.InternalReferenceContextResponse context,
+                                                   SemanticDtos.TextRangePayload range) {
         String sourceFile;
         if (context instanceof SemanticDtos.InternalReferenceTypeContextResponse type) {
             sourceFile = type.sourceType().sourceFile();
@@ -469,8 +495,7 @@ public final class JavaSemanticResultMapper {
         } else {
             throw contract("unsupported internal reference context");
         }
-        candidates.add(new SemanticTargetCandidate(repositoryId, revision,
-                sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile, range)), description));
+        return sourceTarget(new SemanticDtos.SourceRangePayload(sourceFile, range));
     }
 
     private void addSourceSymbolCandidate(RepositoryId repositoryId, RepositoryRevision revision,

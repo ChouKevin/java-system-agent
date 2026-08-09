@@ -67,9 +67,7 @@ final class JavaSemanticProviderSchemaValidator {
         repositoryId(required.repoId(), "entry-points repository ID");
         revision(required.analyzedRevision(), "entry-points analyzed revision");
         for (SemanticDtos.EntryPointClassResponse entryPoint : requiredList(required.entryPoints(), "entry point")) {
-            requiredString(entryPoint.className(), "entry point class name");
-            requiredString(entryPoint.packageName(), "entry point package name");
-            requiredString(entryPoint.packagePath(), "entry point package path");
+            sourceTypePayload(entryPoint.sourceType());
             requiredString(entryPoint.description(), "entry point description");
             requiredStrings(entryPoint.basePaths(), "entry point base path");
             for (SemanticDtos.EntryPointMethodResponse method : requiredList(entryPoint.methods(), "entry point method")) {
@@ -1017,6 +1015,7 @@ final class JavaSemanticProviderSchemaValidator {
             throw contract("unsupported entry point method type");
         }
         resolution(required.analysisTarget());
+        followUps(required.analysisTarget().availableFollowUps());
     }
 
     private void resolution(SemanticDtos.MethodTargetResolutionResponse resolution) {

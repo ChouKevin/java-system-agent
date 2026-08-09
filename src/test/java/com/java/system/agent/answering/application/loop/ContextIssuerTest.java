@@ -10,6 +10,7 @@ import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
@@ -166,6 +167,81 @@ class ContextIssuerTest {
     }
 
     @Test
+    void reusesPriorHandlesAndResolvesObservationsAcrossRepeatedAndNewResultValues() {
+        RepositoryRevision revision = new RepositoryRevision("rev-1");
+        RevisionVector pinned = pin(repositoryId, revision);
+        RunAttempt initial = issuer.issueInitial(
+                runId,
+                attemptId,
+                pinned,
+                List.of(capability("find")),
+                List.of(new RepositoryDescriptor(repositoryId, "Repository one")));
+        FollowUpCandidate repeatedCandidate = followUpCandidate(revision, "first-payload");
+        EvidenceRef repeatedEvidence = evidence(repositoryId, "rev-1", "first-evidence");
+        ContextIssuer.CapabilityIssue firstIssue = issuer.issueCapabilityResult(
+                runId,
+                initial,
+                new CapabilityExecutionResult.Succeeded(
+                        List.of(repeatedCandidate), List.of(repeatedEvidence), List.of()),
+                Set.of(repositoryId));
+        FollowUpCandidate newCandidate = followUpCandidate(revision, "second-payload");
+        EvidenceRef newEvidence = evidence(repositoryId, "rev-1", "second-evidence");
+        CapabilityObservation observation = new CapabilityObservation(
+                ObservationCode.EXECUTION_FAILED,
+                "The result contains both prior and new values",
+                List.of(repeatedCandidate, newCandidate),
+                List.of(repeatedEvidence, newEvidence),
+                "semantic-service");
+
+        ContextIssuer.CapabilityIssue secondIssue = issuer.issueCapabilityResult(
+                runId,
+                firstIssue.context(),
+                new CapabilityExecutionResult.Succeeded(
+                        List.of(repeatedCandidate, newCandidate),
+                        List.of(repeatedEvidence, newEvidence),
+                        List.of(observation)),
+                Set.of(repositoryId));
+
+        CandidateHandle repeatedCandidateHandle = firstIssue.context().issuedCandidates().entrySet().stream()
+                .filter(entry -> entry.getValue().candidate().equals(repeatedCandidate))
+                .map(entry -> entry.getKey())
+                .findFirst()
+                .orElseThrow();
+        EvidenceHandle repeatedEvidenceHandle = firstIssue.context().issuedEvidence().entrySet().stream()
+                .filter(entry -> entry.getValue().evidence().equals(repeatedEvidence))
+                .map(entry -> entry.getKey())
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(secondIssue.context().issuedCandidates()).hasSize(3);
+        assertThat(secondIssue.context().issuedCandidates())
+                .containsKey(repeatedCandidateHandle);
+        assertThat(secondIssue.context().issuedEvidence()).hasSize(2);
+        assertThat(secondIssue.context().issuedEvidence())
+                .containsKey(repeatedEvidenceHandle);
+        assertThat(secondIssue.resultCandidateHandleValues())
+                .containsExactly(repeatedCandidateHandle.value(),
+                        secondIssue.context().issuedCandidates().entrySet().stream()
+                                .filter(entry -> entry.getValue().candidate().equals(newCandidate))
+                                .map(entry -> entry.getKey().value())
+                                .findFirst()
+                                .orElseThrow());
+        assertThat(secondIssue.resultEvidenceHandleValues())
+                .containsExactly(repeatedEvidenceHandle.value(),
+                        secondIssue.context().issuedEvidence().entrySet().stream()
+                                .filter(entry -> entry.getValue().evidence().equals(newEvidence))
+                                .map(entry -> entry.getKey().value())
+                                .findFirst()
+                                .orElseThrow());
+        assertThat(secondIssue.observations()).singleElement().satisfies(issued -> {
+            assertThat(issued.candidateHandles()).contains(repeatedCandidateHandle);
+            assertThat(issued.evidenceHandles()).contains(repeatedEvidenceHandle);
+            assertThat(issued.candidateHandles()).hasSize(2);
+            assertThat(issued.evidenceHandles()).hasSize(2);
+        });
+    }
+
+    @Test
     void issues_follow_up_handles_and_rebinds_without_changing_the_payload() {
         RepositoryRevision revision = new RepositoryRevision("rev-1");
         RevisionVector pinned = pin(repositoryId, revision);
@@ -232,5 +308,15 @@ class ContextIssuerTest {
                 "Evidence",
                 List.of(),
                 new ArtifactRef(digest));
+    }
+
+    private FollowUpCandidate followUpCandidate(RepositoryRevision revision, String payload) {
+        return new FollowUpCandidate(
+                repositoryId,
+                revision,
+                "codebase_get_source_segment",
+                "v1",
+                new CapabilityInputPayload(payload),
+                "Read the next bounded source segment");
     }
 }

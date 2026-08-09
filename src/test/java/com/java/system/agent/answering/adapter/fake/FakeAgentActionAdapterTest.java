@@ -8,6 +8,7 @@ import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -30,7 +31,7 @@ class FakeAgentActionAdapterTest {
     private AgentPromptContext context() {
         return new AgentPromptContext("question", SessionHistory.empty(), new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"), Map.of(), Map.of(), Map.of(),
-                Map.of(), Optional.empty(),
+                Map.of(), List.of(), Optional.empty(),
                 new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 2, 0));
     }
 }

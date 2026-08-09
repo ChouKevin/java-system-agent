@@ -91,8 +91,16 @@ class AgentRunRecoveryCoordinatorTest {
         });
         AgentRunRecoveryOutcome.Active active = (AgentRunRecoveryOutcome.Active) fixture.coordinator().recover(
                 fixture.initialRequest());
+        AnswerAction proposedAnswer = answer();
+        AgentRunState selectedState = fixture.port().commit(new AgentStateReducer().reduce(active.execution().state(),
+                new AgentEvent.ActionSelected(
+                        active.execution().state().runId(),
+                        active.execution().state().currentAttempt().attemptId(),
+                        active.execution().state().stateRevision(),
+                        proposedAnswer)));
         assertThatThrownBy(() -> fixture.answerExecutor().execute(
-                fixture.initialRequest(), fixture.session().read(fixture.initialRequest().sessionId()), active.execution().state(), answer(), 1))
+                fixture.initialRequest(), fixture.session().read(fixture.initialRequest().sessionId()), selectedState,
+                proposedAnswer, 1))
                 .isInstanceOf(AnswerExecutionUnavailableException.class);
 
         AgentRunRecoveryOutcome outcome = fixture.coordinator().recover(fixture.request(AnswerExecutionMode.RETRY, 2));

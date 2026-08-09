@@ -202,7 +202,8 @@ class AgentCapabilityConfigurationTest {
             sequence++;
         }
         return new AgentPromptContext("Find routes", SessionHistory.empty(), binding.runId(), binding.attemptId(),
-                issuedCapabilities, Map.of(), Map.of(), Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                issuedCapabilities, Map.of(), Map.of(), Map.of(), List.of(), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private static PlanningToolRegistry registry() {

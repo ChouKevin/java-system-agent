@@ -9,6 +9,7 @@ import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.RunAttempt;
 import com.java.system.agent.answering.domain.run.RunFailureReason;
@@ -87,6 +88,7 @@ final class QueryActionExecutor {
         }
         if (revisionResolution.drifted()) {
             boolean restartAllowed = state.budget().hasRevisionRestartRemaining();
+            state = recordQueryResult(state, new ActionResult.QueryInvalidated("selected repository revision changed"));
             state = transitions.apply(state, new AgentEvent.AttemptInvalidated(
                     state.runId(),
                     state.currentAttempt().attemptId(),
@@ -129,6 +131,8 @@ final class QueryActionExecutor {
                     state.runId(), state.currentAttempt().attemptId(), state.stateRevision()));
             state = transitions.recordRuntimeObservation(state, ObservationCode.EXECUTION_FAILED,
                     failure.description(), Set.of(), Set.of(), failure.operationSource());
+            state = recordQueryResult(state, new ActionResult.QueryFailed(
+                    List.of(lastObservationId(state)), failure.description()));
             return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.empty());
         }
         state = transitions.apply(state, new AgentEvent.ActionAccepted(
@@ -172,6 +176,8 @@ final class QueryActionExecutor {
         if (result instanceof CapabilityExecutionResult.Failed failed) {
             state = transitions.recordCapabilityFailureObservation(state, ObservationCode.EXECUTION_FAILED,
                     failed.failure().description(), Set.of(), Set.of(), failed.failure().operationSource());
+            state = recordQueryResult(state, new ActionResult.QueryFailed(
+                    List.of(lastObservationId(state)), failed.failure().description()));
             return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.empty());
         }
         CapabilityExecutionResult.Succeeded succeeded = (CapabilityExecutionResult.Succeeded) result;
@@ -190,6 +196,8 @@ final class QueryActionExecutor {
                     Set.of(),
                     Set.of(),
                     "capability-result-validator");
+            state = recordQueryResult(state, new ActionResult.QueryFailed(
+                    List.of(lastObservationId(state)), validation.revisionConflict().orElseThrow()));
             return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.empty());
         }
         RunAttempt resultContext = state.currentAttempt();
@@ -209,6 +217,8 @@ final class QueryActionExecutor {
                         Set.of(),
                         Set.of(),
                         "capability-result-validator");
+                state = recordQueryResult(state, new ActionResult.QueryFailed(
+                        List.of(lastObservationId(state)), resolution.revisionConflict().orElseThrow()));
                 return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.empty());
             }
             if (resolution.failure().isPresent()) {
@@ -220,6 +230,8 @@ final class QueryActionExecutor {
                         Set.of(),
                         Set.of(),
                         failure.operationSource());
+                state = recordQueryResult(state, new ActionResult.QueryFailed(
+                        List.of(lastObservationId(state)), failure.description()));
                 return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.empty());
             }
             if (!resolution.revisions().equals(state.currentAttempt().revisionVector())) {
@@ -245,6 +257,9 @@ final class QueryActionExecutor {
                     state.stateRevision(),
                     observation));
         }
+        List<String> observationIds = issued.observations().stream().map(observation -> observation.id().value()).toList();
+        state = recordQueryResult(state, new ActionResult.QuerySucceeded(
+                issued.resultCandidateHandleValues(), issued.resultEvidenceHandleValues(), observationIds));
         return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.empty());
     }
 
@@ -350,6 +365,18 @@ final class QueryActionExecutor {
             int attemptSequence) {
         AgentLoopResult result = terminalResponseCoordinator.concludeIntegrationFailure(state, exception);
         return new ActionLaneOutcome.Terminal(result);
+    }
+
+    private AgentRunState recordQueryResult(AgentRunState state, ActionResult result) {
+        return transitions.apply(state, new AgentEvent.ActionResultRecorded(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), result));
+    }
+
+    private String lastObservationId(AgentRunState state) {
+        return state.currentAttempt().observations().values().stream()
+                .reduce((first, second) -> second)
+                .map(observation -> observation.id().value())
+                .orElseThrow(() -> new IllegalStateException("query failure requires a recorded observation"));
     }
 
     private RevisionResolution resolveRevisions(

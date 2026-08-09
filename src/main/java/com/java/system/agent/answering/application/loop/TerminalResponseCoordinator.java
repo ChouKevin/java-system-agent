@@ -8,6 +8,7 @@ import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnswerVerificationAbandonReason;
 import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
 import com.java.system.agent.answering.domain.run.RunFailureReason;
@@ -34,6 +35,21 @@ final class TerminalResponseCoordinator {
     static final String PLANNING_BUDGET_EXHAUSTED_RESPONSE = "本次分析已達處理上限，請縮小問題範圍後重試";
     static final String FAILED_RESPONSE = "分析流程發生錯誤，未回傳未驗證內容";
     static final String CANCELLED_RESPONSE = "分析已取消";
+    static final String RECOVERY_INTERRUPTED = "RECOVERY_INTERRUPTED";
+    static final String RECOVERY_INTERRUPTED_DESCRIPTION =
+            "Selected action outcome was not durably known when execution resumed";
+    static final String TERMINAL_CANCELLED_INTERRUPTED = "TERMINAL_CANCELLED_INTERRUPTED";
+    static final String TERMINAL_CANCELLED_INTERRUPTED_DESCRIPTION =
+            "Selected action outcome was not durably known because the run was cancelled";
+    static final String TERMINAL_FAILED_INTERRUPTED = "TERMINAL_FAILED_INTERRUPTED";
+    static final String TERMINAL_FAILED_INTERRUPTED_DESCRIPTION =
+            "Selected action outcome was not durably known because the run failed";
+    static final String TERMINAL_INCONCLUSIVE_INTERRUPTED = "TERMINAL_INCONCLUSIVE_INTERRUPTED";
+    static final String TERMINAL_INCONCLUSIVE_INTERRUPTED_DESCRIPTION =
+            "Selected action outcome was not durably known because the run ended inconclusively";
+    static final String TERMINAL_COMPLETED_INTERRUPTED = "TERMINAL_COMPLETED_INTERRUPTED";
+    static final String TERMINAL_COMPLETED_INTERRUPTED_DESCRIPTION =
+            "Selected action outcome was not durably known because the run completed";
 
     private final AgentRunTransitions transitions;
     private final SessionPort sessionPort;
@@ -90,17 +106,23 @@ final class TerminalResponseCoordinator {
             String responseText,
             Optional<AnswerDocument> document,
             Optional<RunFailureReason> failureReason) {
-        AgentRunState concluded = transitions.apply(state, new AgentEvent.RunConcluded(
-                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), outcome,
+        AgentRunState closed = closeUnresolvedActionForTerminal(state, outcome);
+        AgentRunState concluded = transitions.apply(closed, new AgentEvent.RunConcluded(
+                closed.runId(), closed.currentAttempt().attemptId(), closed.stateRevision(), outcome,
                 Optional.empty(), failureReason));
         return loopResult(concluded, responseText, document);
     }
 
     AgentLoopResult concludeRuntimeNotice(AgentRunState state, RuntimeNoticeReason reason) {
-        AgentRunState concluded = transitions.apply(state, new AgentEvent.RunConcluded(
-                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
+        AgentRunState closed = closeUnresolvedActionForTerminal(state, RunOutcome.INCONCLUSIVE);
+        AgentRunState concluded = transitions.apply(closed, new AgentEvent.RunConcluded(
+                closed.runId(), closed.currentAttempt().attemptId(), closed.stateRevision(),
                 RunOutcome.INCONCLUSIVE, Optional.of(reason), Optional.empty()));
         return loopResult(concluded, runtimeNoticeResponse(Optional.of(reason), RunOutcome.INCONCLUSIVE), Optional.empty());
+    }
+
+    AgentRunState closeRecoveredUnresolvedAction(AgentRunState state) {
+        return closeUnresolvedAction(state, RECOVERY_INTERRUPTED, RECOVERY_INTERRUPTED_DESCRIPTION);
     }
 
     AgentLoopResult fromConcludedState(AgentRunState state) {
@@ -159,6 +181,28 @@ final class TerminalResponseCoordinator {
                 pending.turn().assistantMessage(),
                 pendingAnswerDocument(pending),
                 Optional.empty());
+    }
+
+    private AgentRunState closeUnresolvedActionForTerminal(AgentRunState state, RunOutcome outcome) {
+        return switch (outcome) {
+            case CANCELLED -> closeUnresolvedAction(
+                    state, TERMINAL_CANCELLED_INTERRUPTED, TERMINAL_CANCELLED_INTERRUPTED_DESCRIPTION);
+            case FAILED -> closeUnresolvedAction(
+                    state, TERMINAL_FAILED_INTERRUPTED, TERMINAL_FAILED_INTERRUPTED_DESCRIPTION);
+            case INCONCLUSIVE -> closeUnresolvedAction(
+                    state, TERMINAL_INCONCLUSIVE_INTERRUPTED, TERMINAL_INCONCLUSIVE_INTERRUPTED_DESCRIPTION);
+            case COMPLETED -> closeUnresolvedAction(
+                    state, TERMINAL_COMPLETED_INTERRUPTED, TERMINAL_COMPLETED_INTERRUPTED_DESCRIPTION);
+        };
+    }
+
+    private AgentRunState closeUnresolvedAction(AgentRunState state, String code, String description) {
+        if (state.unresolvedSelectedAction().isEmpty()) {
+            return state;
+        }
+        return transitions.apply(state, new AgentEvent.ActionResultRecorded(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
+                new ActionResult.ActionInterrupted(code, description)));
     }
 
     private Optional<AnswerDocument> pendingAnswerDocument(PendingTerminalResponse pending) {

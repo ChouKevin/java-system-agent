@@ -1,12 +1,17 @@
 package com.java.system.agent.answering.domain.run;
 
+import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 單一 Agent Run 的可變 authoritative 狀態，不保存對話或模型歷史
+ * 單一 Agent Run 的可變 authoritative 狀態，保存 run 級模型動作歷史但不保存對話
  */
 public record AgentRunState(
         AnalysisRunId runId,
@@ -22,7 +27,8 @@ public record AgentRunState(
         Optional<RunFailureReason> failureReason,
         Optional<PendingTerminalResponse> pendingTerminalResponse,
         Optional<PendingAnswerVerification> pendingAnswerVerification,
-        RunRequestIdentity requestIdentity) {
+        RunRequestIdentity requestIdentity,
+        List<ModelInteraction> modelInteractions) {
 
     public AgentRunState {
         Objects.requireNonNull(runId, "analysis run ID must not be null");
@@ -35,6 +41,7 @@ public record AgentRunState(
         Objects.requireNonNull(pendingTerminalResponse, "pending terminal response must not be null");
         Objects.requireNonNull(pendingAnswerVerification, "pending answer verification must not be null");
         Objects.requireNonNull(requestIdentity, "run request identity must not be null");
+        modelInteractions = immutableModelInteractions(modelInteractions);
         if (attemptSequence < 1) {
             throw new IllegalArgumentException("agent attempt sequence must be positive");
         }
@@ -103,7 +110,8 @@ public record AgentRunState(
                     && currentAttempt.issuedCapabilities().isEmpty()
                     && currentAttempt.issuedCandidates().isEmpty()
                     && currentAttempt.issuedEvidence().isEmpty()
-                    && currentAttempt.observations().isEmpty();
+                    && currentAttempt.observations().isEmpty()
+                    && modelInteractions.isEmpty();
             if (!isBootstrapCoherent) {
                 throw new IllegalArgumentException("starting agent run must be bootstrap coherent");
             }
@@ -118,7 +126,8 @@ public record AgentRunState(
             RunRequestIdentity requestIdentity) {
         return new AgentRunState(runId, AgentRunStatus.STARTING, RunAttempt.empty(firstAttemptId),
                 firstAttemptSequence, budget,
-                0, 0, 0, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), requestIdentity);
+                0, 0, 0, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), requestIdentity,
+                List.of());
     }
 
     public static AgentRunState initial(
@@ -127,6 +136,50 @@ public record AgentRunState(
             AttemptBudget budget,
             RunRequestIdentity requestIdentity) {
         return initial(runId, firstAttemptId, 1, budget, requestIdentity);
+    }
+
+    /**
+     * 回傳目前 attempt 尚未以結果關閉的模型動作
+     */
+    public Optional<AgentAction> unresolvedSelectedAction() {
+        Optional<AgentAction> unresolved = Optional.empty();
+        for (ModelInteraction interaction : modelInteractions) {
+            if (interaction instanceof ModelInteraction.ActionSelected selected
+                    && selected.attemptId().equals(currentAttempt.attemptId())) {
+                unresolved = Optional.of(selected.action());
+            } else if (interaction instanceof ModelInteraction.ActionResultRecorded recorded
+                    && recorded.attemptId().equals(currentAttempt.attemptId())) {
+                unresolved = Optional.empty();
+            }
+        }
+        return unresolved;
+    }
+
+    private static List<ModelInteraction> immutableModelInteractions(List<ModelInteraction> interactions) {
+        Objects.requireNonNull(interactions, "model interactions must not be null");
+        List<ModelInteraction> copied = new ArrayList<>();
+        Map<AnalysisAttemptId, AgentAction> unresolvedSelections = new HashMap<>();
+        for (ModelInteraction interaction : interactions) {
+            ModelInteraction checkedInteraction = Objects.requireNonNull(interaction,
+                    "model interactions must not contain null values");
+            if (checkedInteraction instanceof ModelInteraction.ActionSelected selected) {
+                AgentAction existing = unresolvedSelections.putIfAbsent(selected.attemptId(), selected.action());
+                if (Objects.nonNull(existing)) {
+                    throw new IllegalArgumentException("attempt cannot select another action while one is unresolved");
+                }
+            } else if (checkedInteraction instanceof ModelInteraction.ActionResultRecorded recorded) {
+                AgentAction selected = unresolvedSelections.get(recorded.attemptId());
+                if (Objects.isNull(selected)) {
+                    throw new IllegalArgumentException("action result requires an unresolved selected action");
+                }
+                if (!recorded.result().matches(selected)) {
+                    throw new IllegalArgumentException("action result does not match its unresolved selected action");
+                }
+                unresolvedSelections.remove(recorded.attemptId());
+            }
+            copied.add(checkedInteraction);
+        }
+        return List.copyOf(copied);
     }
 
 }

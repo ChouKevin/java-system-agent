@@ -197,14 +197,15 @@ final class AgentRunRecoveryCoordinator {
     }
 
     private ActiveAgentExecution prepareRetryExecution(AgentLoopRequest request, AgentRunState persistedState) {
+        AgentRunState recoveredState = terminalResponseCoordinator.closeRecoveredUnresolvedAction(persistedState);
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
-        List<CapabilityPolicy> capabilityCatalog = telemetry.loadCapabilities(persistedState);
-        List<RepositoryDescriptor> repositoryCatalog = telemetry.loadRepositories(persistedState);
+        List<CapabilityPolicy> capabilityCatalog = telemetry.loadCapabilities(recoveredState);
+        List<RepositoryDescriptor> repositoryCatalog = telemetry.loadRepositories(recoveredState);
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
                 .map(RepositoryDescriptor::repositoryId)
                 .collect(Collectors.toUnmodifiableSet());
-        AgentRunState restarted = restartPersistedAttempt(request, persistedState);
+        AgentRunState restarted = restartPersistedAttempt(request, recoveredState);
         RunAttempt restartedContext;
         try {
             restartedContext = contextIssuer.issueInitial(
@@ -229,9 +230,10 @@ final class AgentRunRecoveryCoordinator {
         if (persistedState.status() != AgentRunStatus.RUNNING) {
             throw new AnswerExecutionContractException("capacity resume requires a persisted running agent run");
         }
+        AgentRunState recoveredState = terminalResponseCoordinator.closeRecoveredUnresolvedAction(persistedState);
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
-        return activeExecution(persistedState, sessionHistory, Optional.empty());
+        return activeExecution(recoveredState, sessionHistory, Optional.empty());
     }
 
     private Optional<AgentRunRecoveryOutcome> resumePendingVerification(

@@ -7,6 +7,7 @@ import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.RunFailureReason;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
@@ -14,6 +15,7 @@ import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.out.AnalysisCancellationPort;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -86,6 +88,12 @@ final class ExecuteActionExecutor {
                     "http-mutation-port");
             state = transitions.apply(state, new AgentEvent.ObservationRecorded(
                     state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), observation));
+            state = transitions.apply(state, new AgentEvent.ActionResultRecorded(
+                    state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
+                    new ActionResult.ExecuteCompleted(
+                            ActionResult.ExecuteOutcome.NOT_IMPLEMENTED,
+                            List.of(observation.id().value()),
+                            NOT_IMPLEMENTED_OBSERVATION)));
             return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.empty());
         }
         throw new IllegalStateException("HTTP mutation port result is unavailable");
