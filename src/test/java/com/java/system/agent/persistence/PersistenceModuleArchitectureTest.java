@@ -102,6 +102,14 @@ class PersistenceModuleArchitectureTest {
             .should().beAnnotatedWith(Bean.class);
 
     @ArchTest
+    static final ArchRule AGENT_MODULES_DO_NOT_DEPEND_ON_ROOT_BOOTSTRAP = noClasses()
+            .that().resideInAnyPackage("..answering..", "..interaction..", "..persistence..", "..capability..", "..model..", "..codeintelligence..", "..slack..", "..worker..")
+            .should().dependOnClassesThat()
+            .resideInAPackage("com.java.system.agent")
+            .as("Agent modules must not depend on root bootstrap types")
+            .allowEmptyShould(false);
+
+    @ArchTest
     static final ArchRule ROOT_PACKAGE_REMAINS_EXPLICIT_BOOTSTRAP = classes()
             .that().resideInAPackage("com.java.system.agent")
             .should(new ArchCondition<>("be an approved root bootstrap type") {
