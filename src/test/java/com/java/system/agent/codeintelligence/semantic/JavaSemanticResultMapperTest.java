@@ -610,6 +610,28 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void mapsUnsupportedImplementationTargetToRecoverableCapabilityFailure() {
+        JavaSemanticErrorMapper mapper = new JavaSemanticErrorMapper(new JavaSemanticResultMapper());
+        SemanticDtos.ApiErrorResponse unsupported = new SemanticDtos.ApiErrorResponse(
+                "IMPLEMENTATION_TARGET_UNSUPPORTED",
+                "requested method does not support implementation discovery",
+                "orders",
+                REVISION,
+                null,
+                methodTarget("DefaultOrderWorkflow", "processOrder"),
+                List.of(),
+                "request-unsupported");
+
+        CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed) mapper.capability(
+                unsupported,
+                "java-semantic-service:POST /v1/discovery/method-implementations");
+
+        assertThat(result.failure().code()).isEqualTo(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE);
+        assertThat(result.failure().description())
+                .isEqualTo("requested method does not support implementation discovery");
+    }
+
+    @Test
     void rejectsImpossibleSuccessfulDtoInsteadOfPublishingTrustedOutput() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.ApiRouteCandidatesResponse response = new SemanticDtos.ApiRouteCandidatesResponse(null, List.of());

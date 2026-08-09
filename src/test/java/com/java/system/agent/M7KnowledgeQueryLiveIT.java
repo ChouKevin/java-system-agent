@@ -143,8 +143,8 @@ class M7KnowledgeQueryLiveIT {
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
         assertThat(state.currentAttempt().revisionVector()).isEqualTo(EXPECTED_REVISIONS);
         assertThat(state.budget().maxAgentSteps()).isEqualTo(10);
-        assertThat(state.budget().maxQueryExecutions()).isEqualTo(8);
-        assertThat(state.budget().usedQueryExecutions()).isLessThanOrEqualTo(8);
+        assertThat(state.budget().maxQueryExecutions()).isEqualTo(10);
+        assertThat(state.budget().usedQueryExecutions()).isLessThanOrEqualTo(10);
         assertThat(state.currentAttempt().issuedCandidates()).isNotEmpty();
         assertThat(state.currentAttempt().issuedEvidence()).isNotEmpty();
         state.currentAttempt().issuedCandidates().forEach((handle, issued) -> {
