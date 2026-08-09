@@ -289,7 +289,7 @@ class PlanningToolRegistryTest {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(), Map.of(),
-                Map.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, usedExecuteExecutions, 3, 0, 1, 0));
+                Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, usedExecuteExecutions, 3, 0, 1, 0));
     }
 
     private static AgentPromptContext contextWithoutFollowUps() {
@@ -322,7 +322,7 @@ class PlanningToolRegistryTest {
         CapabilityHandle oldCapability = new CapabilityHandle("capability-source-segment-old", oldBinding);
         return new AgentPromptContext("Find routes", SessionHistory.empty(), new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"), Map.of(oldCapability, sourceSegmentPolicy()), Map.of(oldHandle,
-                new IssuedCandidate(oldHandle, followUpCandidate())), Map.of(), Map.of(), Optional.empty(),
+                new IssuedCandidate(oldHandle, followUpCandidate())), Map.of(), Map.of(), List.of(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
@@ -330,7 +330,7 @@ class PlanningToolRegistryTest {
             Map<CapabilityHandle, CapabilityPolicy> capabilities,
             Map<CandidateHandle, IssuedCandidate> candidates) {
         return new AgentPromptContext("Find routes", SessionHistory.empty(), new AnalysisRunId("run-1"),
-                new AnalysisAttemptId("attempt-1"), capabilities, candidates, Map.of(), Map.of(), Optional.empty(),
+                new AnalysisAttemptId("attempt-1"), capabilities, candidates, Map.of(), Map.of(), List.of(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 

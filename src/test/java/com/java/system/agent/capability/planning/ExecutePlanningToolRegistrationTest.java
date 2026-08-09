@@ -123,6 +123,7 @@ class ExecutePlanningToolRegistrationTest {
                 Map.of(),
                 Map.of(),
                 Map.of(),
+                List.of(),
                 Optional.empty(),
                 new AttemptBudget(3, usedAgentSteps, 3, usedQueryExecutions, 1, usedExecuteExecutions, 3, 0, 1, 0));
     }

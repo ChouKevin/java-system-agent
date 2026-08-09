@@ -95,6 +95,7 @@ class ValidatedAgentLoopQueryTest {
     @Test
     void executesOneQueryAndIssuesItsEvidenceToTheNextModelPrompt() {
         AtomicInteger capabilityCalls = new AtomicInteger();
+        AtomicInteger modelCalls = new AtomicInteger();
         List<AgentPromptContext> prompts = new ArrayList<>();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         EvidenceRef evidence = evidence("rev-1", "query-result");
@@ -106,12 +107,16 @@ class ValidatedAgentLoopQueryTest {
                     capabilityCalls.incrementAndGet();
                     return new CapabilityExecutionResult.Succeeded(List.of(), List.of(evidence), List.of());
                 },
-                context -> nextAction(prompts, context, "Query evidence is available"));
+                context -> {
+                    modelCalls.incrementAndGet();
+                    return nextAction(prompts, context, "Query evidence is available");
+                });
 
         AgentLoopResult result = loop.execute(request());
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
         assertThat(capabilityCalls).hasValue(1);
+        assertThat(modelCalls).hasValue(2);
         assertThat(prompts).hasSize(2);
         assertThat(prompts.get(0).issuedCandidates()).hasSize(1);
         assertThat(prompts.get(1).issuedEvidence().values())
@@ -124,6 +129,11 @@ class ValidatedAgentLoopQueryTest {
                         AgentEvent.QueryBudgetConsumed.class,
                         AgentEvent.ContextIssued.class);
         String issuedEvidenceHandle = prompts.get(1).issuedEvidence().keySet().iterator().next().value();
+        assertThat(prompts.get(0).modelInteractions()).isEmpty();
+        assertThat(prompts.get(1).modelInteractions()).containsExactly(
+                new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QuerySucceeded(List.of(), List.of(issuedEvidenceHandle), List.of())));
         assertThat(transitions.state(RUN_ID).modelInteractions()).containsSubsequence(
                 new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
                 new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),

@@ -1,18 +1,33 @@
 package com.java.system.agent.model.action;
 
+import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.ExecuteAction;
+import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.answer.AnswerDocument;
+import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.AnswerVerdict;
+import com.java.system.agent.answering.domain.answer.StatementVerdict;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.run.ActionResult;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.StringJoiner;
 
 /**
  * 將 answering 已發行 action context 穩定轉為單次模型提示
@@ -64,6 +79,7 @@ public final class AgentActionPromptRenderer {
         }
         section(prompt, "Latest rejection", context.latestRejection().orElse("none"));
         section(prompt, "Remaining budget", remainingBudget(context));
+        section(prompt, "Previous model choices and results", ModelInteractionRenderer.render(context.modelInteractions()));
         return prompt.toString();
     }
 
@@ -77,5 +93,109 @@ public final class AgentActionPromptRenderer {
                 + ", executeExecutions=" + (context.budget().maxExecuteExecutions()
                 - context.budget().usedExecuteExecutions())
                 + ", actionRejections=" + (context.budget().maxActionRejections() - context.budget().usedActionRejections());
+    }
+
+    private static final class ModelInteractionRenderer {
+
+        private static String render(List<ModelInteraction> interactions) {
+            if (interactions.isEmpty()) {
+                return "none";
+            }
+            StringJoiner lines = new StringJoiner("\n");
+            for (ModelInteraction interaction : interactions) {
+                lines.add(renderInteraction(interaction));
+            }
+            return lines.toString();
+        }
+
+        private static String renderInteraction(ModelInteraction interaction) {
+            return switch (interaction) {
+                case ModelInteraction.ActionSelected selected -> "- attempt=" + selected.attemptId().value()
+                        + " selected " + renderAction(selected.action());
+                case ModelInteraction.ActionResultRecorded recorded -> "- attempt=" + recorded.attemptId().value()
+                        + " result " + renderResult(recorded.result());
+                case ModelInteraction.MalformedResponse malformed -> "- attempt=" + malformed.attemptId().value()
+                        + " malformed response: description=" + malformed.description();
+            };
+        }
+
+        private static String renderAction(AgentAction action) {
+            return switch (action) {
+                case QueryAction query -> "QUERY: capability=" + query.capability().value()
+                        + ", candidates=" + candidateHandles(query.candidates())
+                        + ", questionToResolve=" + query.questionToResolve()
+                        + ", payload=" + query.payload().value()
+                        + ", rationale=" + query.rationale();
+                case ExecuteAction execute -> "EXECUTE: method=" + execute.method()
+                        + ", targetUrl=" + execute.targetUrl()
+                        + ", jsonBody=" + execute.jsonBody().orElse("none")
+                        + ", rationale=" + execute.rationale();
+                case AnswerAction answer -> "ANSWER: document.statements=" + renderDocument(answer.document());
+                case ClarifyAction clarify -> "CLARIFY: question=" + clarify.question()
+                        + ", candidates=" + candidateHandles(clarify.candidates())
+                        + ", reason=" + clarify.reason();
+            };
+        }
+
+        private static String renderResult(ActionResult result) {
+            return switch (result) {
+                case ActionResult.QuerySucceeded succeeded -> "QUERY_SUCCEEDED: candidateHandles="
+                        + succeeded.candidateHandleValues() + ", evidenceHandles=" + succeeded.evidenceHandleValues()
+                        + ", observationIds=" + succeeded.observationIds();
+                case ActionResult.QueryFailed failed -> "QUERY_FAILED: observationIds=" + failed.observationIds()
+                        + ", description=" + failed.description();
+                case ActionResult.QueryInvalidated invalidated -> "QUERY_INVALIDATED: description="
+                        + invalidated.description();
+                case ActionResult.ExecuteCompleted completed -> "EXECUTE_COMPLETED: outcome=" + completed.outcome()
+                        + ", observationIds=" + completed.observationIds() + ", description=" + completed.description();
+                case ActionResult.ValidationRejected rejected -> "VALIDATION_REJECTED: code=" + rejected.code()
+                        + ", description=" + rejected.description();
+                case ActionResult.ActionInterrupted interrupted -> "ACTION_INTERRUPTED: code=" + interrupted.code()
+                        + ", description=" + interrupted.description();
+                case ActionResult.AnswerRejected rejected -> "ANSWER_REJECTED: " + renderVerdict(rejected.verdict());
+                case ActionResult.AnswerAccepted ignored -> "ANSWER_ACCEPTED";
+                case ActionResult.ClarificationAccepted ignored -> "CLARIFICATION_ACCEPTED";
+            };
+        }
+
+        private static String renderDocument(AnswerDocument document) {
+            return document.statements().stream()
+                    .map(ModelInteractionRenderer::renderStatement)
+                    .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
+        }
+
+        private static String renderStatement(AnswerStatement statement) {
+            return "{statementId=" + statement.statementId().value() + ", type=" + statement.type()
+                    + ", text=" + statement.text() + ", claimId="
+                    + statement.claimId().map(claimId -> claimId.value()).orElse("none")
+                    + ", citations=" + evidenceHandles(statement.citations())
+                    + ", observationIds=" + statement.observationIds().stream()
+                    .map(ObservationId::value)
+                    .sorted()
+                    .toList() + "}";
+        }
+
+        private static String renderVerdict(AnswerVerdict verdict) {
+            return "disposition=" + verdict.disposition() + ", statementVerdicts="
+                    + verdict.statementVerdicts().stream()
+                    .map(ModelInteractionRenderer::renderStatementVerdict)
+                    .collect(java.util.stream.Collectors.joining(", ", "[", "]"))
+                    + ", unaddressedParts=" + verdict.unaddressedParts()
+                    + ", blockingUncertainties=" + verdict.blockingUncertainties()
+                    + ", rejectionReasons=" + verdict.rejectionReasons();
+        }
+
+        private static String renderStatementVerdict(StatementVerdict verdict) {
+            return "{statementId=" + verdict.statementId().value() + ", status=" + verdict.status()
+                    + ", description=" + verdict.description() + "}";
+        }
+
+        private static List<String> candidateHandles(List<CandidateHandleRef> candidates) {
+            return candidates.stream().map(CandidateHandleRef::value).toList();
+        }
+
+        private static List<String> evidenceHandles(java.util.Set<EvidenceHandleRef> citations) {
+            return citations.stream().map(EvidenceHandleRef::value).sorted().toList();
+        }
     }
 }

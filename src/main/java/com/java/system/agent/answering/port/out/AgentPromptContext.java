@@ -12,9 +12,11 @@ import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -31,6 +33,7 @@ public record AgentPromptContext(
         Map<CandidateHandle, IssuedCandidate> issuedCandidates,
         Map<EvidenceHandle, IssuedEvidence> issuedEvidence,
         Map<ObservationId, AgentObservation> observations,
+        List<ModelInteraction> modelInteractions,
         Optional<String> latestRejection,
         AttemptBudget budget) {
 
@@ -49,6 +52,7 @@ public record AgentPromptContext(
         issuedCandidates = immutableMap(issuedCandidates, "issued candidate");
         issuedEvidence = immutableMap(issuedEvidence, "issued evidence");
         observations = immutableMap(observations, "observation");
+        modelInteractions = immutableList(modelInteractions, "model interaction");
     }
 
     private static String requiredText(String value) {
@@ -67,5 +71,13 @@ public record AgentPromptContext(
                     Objects.requireNonNull(entry.getValue(), entryDescription + " value must not be null"));
         }
         return Collections.unmodifiableMap(copied);
+    }
+
+    private static <T> List<T> immutableList(List<T> values, String entryDescription) {
+        Objects.requireNonNull(values, entryDescription + " list must not be null");
+        for (T value : values) {
+            Objects.requireNonNull(value, entryDescription + " must not contain null values");
+        }
+        return List.copyOf(values);
     }
 }

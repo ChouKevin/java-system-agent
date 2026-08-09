@@ -336,7 +336,7 @@ class CodeIntelligencePlanningToolProviderTest {
                                                     HandleBinding binding) {
         CapabilityHandle capability = new CapabilityHandle("capability-" + policy.name(), binding);
         return new AgentPromptContext("Find order behavior", SessionHistory.empty(), binding.runId(), binding.attemptId(),
-                Map.of(capability, policy), Map.of(candidate.handle(), candidate), Map.of(), Map.of(), Optional.empty(),
+                Map.of(capability, policy), Map.of(candidate.handle(), candidate), Map.of(), Map.of(), List.of(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
