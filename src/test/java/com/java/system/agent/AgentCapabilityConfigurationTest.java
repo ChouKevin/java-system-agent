@@ -126,8 +126,7 @@ class AgentCapabilityConfigurationTest {
 
         assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=codebase_lookup_api_route; reason=BEAN_VALIDATION; "
-                        + "invalidFields=[candidateHandles[0].<list element>]; "
-                        + "constraints=[candidateHandles[0].<list element>:NotBlank]"));
+                        + "invalidFields=[candidateHandles]; constraints=[candidateHandles:NotBlank]"));
     }
 
     @Test

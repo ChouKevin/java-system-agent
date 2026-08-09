@@ -396,8 +396,8 @@ class SpringAiAgentActionAdapterTest {
                 "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=EXPLICIT_NULL"));
         assertThat(blankCitationProposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=BEAN_VALIDATION; "
-                        + "invalidFields=[statements[0].citationHandles[].<iterable element>]; "
-                        + "constraints=[statements[0].citationHandles[].<iterable element>:NotBlank]"));
+                        + "invalidFields=[statements.citationHandles]; "
+                        + "constraints=[statements.citationHandles:NotBlank]"));
         assertThat(mapperCalls).hasValue(0);
         assertThat(missingType.calls()).isEqualTo(1);
         assertThat(nullType.calls()).isEqualTo(1);

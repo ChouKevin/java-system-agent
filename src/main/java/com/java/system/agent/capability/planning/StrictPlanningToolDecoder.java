@@ -3,6 +3,7 @@ package com.java.system.agent.capability.planning;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Path;
 import jakarta.validation.Validator;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -13,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -52,13 +54,13 @@ public final class StrictPlanningToolDecoder {
             Set<ConstraintViolation<I>> violations = validator.validate(input);
             if (!violations.isEmpty()) {
                 List<String> invalidFields = violations.stream()
-                        .map(violation -> violation.getPropertyPath().toString())
+                        .map(StrictPlanningToolDecoder::safePropertyPath)
                         .distinct()
                         .sorted()
                         .limit(MAX_DIAGNOSTIC_ITEMS)
                         .toList();
                 List<String> constraints = violations.stream()
-                        .map(violation -> violation.getPropertyPath() + ":" + constraintSummary(violation))
+                        .map(violation -> safePropertyPath(violation) + ":" + constraintSummary(violation))
                         .distinct()
                         .sorted()
                         .limit(MAX_DIAGNOSTIC_ITEMS)
@@ -93,6 +95,18 @@ public final class StrictPlanningToolDecoder {
         }
         String constraintName = annotation.annotationType().getSimpleName();
         return SAFE_CONSTRAINT_NAMES.contains(constraintName) ? constraintName : "Constraint";
+    }
+
+    private static String safePropertyPath(ConstraintViolation<?> violation) {
+        StringJoiner path = new StringJoiner(".");
+        for (Path.Node node : violation.getPropertyPath()) {
+            String nodeName = node.getName();
+            if (Objects.nonNull(nodeName) && !nodeName.startsWith("<")) {
+                path.add(nodeName);
+            }
+        }
+        String safePath = path.toString();
+        return safePath.isBlank() ? "input" : safePath;
     }
 
     private static boolean containsExplicitNull(JsonNode input) {
