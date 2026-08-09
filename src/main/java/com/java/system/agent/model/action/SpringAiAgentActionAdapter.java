@@ -71,8 +71,8 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         String actionType = "NONE";
         String actionFingerprint = "NONE";
         String executionPayloadFingerprint = "NONE";
-        long priorIdenticalSelectionCount = 0;
-        long priorEquivalentPayloadSelectionCount = 0;
+        long priorIdenticalCurrentAttemptSelectionCount = 0;
+        long priorEquivalentCurrentAttemptPayloadSelectionCount = 0;
         PromptMetadata promptMetadata = PromptMetadata.notRendered();
         try {
             ChatClientResponse response;
@@ -97,19 +97,20 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             actionType = actionType(proposal);
             resultCategory = proposal instanceof AgentActionProposal.Proposed ? "PROPOSED" : "MALFORMED";
             if (proposal instanceof AgentActionProposal.Proposed proposed) {
-                AgentActionFingerprint fingerprint = AgentActionFingerprint.from(proposed.action(), context);
+                AgentActionFingerprint fingerprint = AgentActionFingerprint.from(proposed.action());
                 actionFingerprint = fingerprint.value();
                 AgentActionFingerprint payloadFingerprint = AgentActionFingerprint.executionPayloadFrom(
-                        proposed.action(), context);
+                        proposed.action());
                 executionPayloadFingerprint = payloadFingerprint.value();
-                priorIdenticalSelectionCount = priorSelectionCount(context, fingerprint, true);
-                priorEquivalentPayloadSelectionCount = priorSelectionCount(context, payloadFingerprint, false);
+                priorIdenticalCurrentAttemptSelectionCount = priorSelectionCount(context, fingerprint, true);
+                priorEquivalentCurrentAttemptPayloadSelectionCount = priorSelectionCount(
+                        context, payloadFingerprint, false);
             }
             return proposal;
         } finally {
             logOperation(context, promptMetadata, resultCategory, actionType, actionFingerprint,
-                    executionPayloadFingerprint, priorIdenticalSelectionCount, priorEquivalentPayloadSelectionCount,
-                    startedNanos);
+                    executionPayloadFingerprint, priorIdenticalCurrentAttemptSelectionCount,
+                    priorEquivalentCurrentAttemptPayloadSelectionCount, startedNanos);
         }
     }
 
@@ -153,18 +154,17 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             boolean includeQueryQuestion) {
         return context.modelInteractions().stream()
                 .filter(interaction -> interaction instanceof ModelInteraction.ActionSelected)
-                .map(interaction -> ((ModelInteraction.ActionSelected) interaction).action())
-                .filter(action -> fingerprint(action, context, includeQueryQuestion).equals(fingerprint))
+                .map(interaction -> (ModelInteraction.ActionSelected) interaction)
+                .filter(selected -> selected.attemptId().equals(context.attemptId()))
+                .map(selected -> selected.action())
+                .filter(action -> fingerprint(action, includeQueryQuestion).equals(fingerprint))
                 .count();
     }
 
-    private static AgentActionFingerprint fingerprint(
-            AgentAction action,
-            AgentPromptContext context,
-            boolean includeQueryQuestion) {
+    private static AgentActionFingerprint fingerprint(AgentAction action, boolean includeQueryQuestion) {
         return includeQueryQuestion
-                ? AgentActionFingerprint.from(action, context)
-                : AgentActionFingerprint.executionPayloadFrom(action, context);
+                ? AgentActionFingerprint.from(action)
+                : AgentActionFingerprint.executionPayloadFrom(action);
     }
 
     private static void logOperation(
@@ -174,8 +174,8 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             String actionType,
             String actionFingerprint,
             String executionPayloadFingerprint,
-            long priorIdenticalSelectionCount,
-            long priorEquivalentPayloadSelectionCount,
+            long priorIdenticalCurrentAttemptSelectionCount,
+            long priorEquivalentCurrentAttemptPayloadSelectionCount,
             long startedNanos) {
         Level level = "PROPOSED".equals(resultCategory) ? Level.INFO : Level.WARNING;
         int remainingAgentSteps = context.budget().maxAgentSteps() - context.budget().usedAgentSteps();
@@ -189,12 +189,13 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
                         + "interactionCount={4} remainingAgentSteps={5} remainingQueryExecutions={6} "
                         + "remainingExecuteExecutions={7} remainingActionRejections={8} resultCategory={9} actionType={10} "
                         + "actionFingerprint={11} executionPayloadFingerprint={12} "
-                        + "priorIdenticalSelectionCount={13} priorEquivalentPayloadSelectionCount={14} elapsedMs={15}",
+                        + "priorIdenticalCurrentAttemptSelectionCount={13} "
+                        + "priorEquivalentCurrentAttemptPayloadSelectionCount={14} elapsedMs={15}",
                 new Object[]{context.runId().value(), context.attemptId().value(), promptMetadata.characterCount(),
                         promptMetadata.sha256(), context.modelInteractions().size(), remainingAgentSteps,
                         remainingQueryExecutions, remainingExecuteExecutions, remainingActionRejections, resultCategory,
-                        actionType, actionFingerprint, executionPayloadFingerprint, priorIdenticalSelectionCount,
-                        priorEquivalentPayloadSelectionCount,
+                        actionType, actionFingerprint, executionPayloadFingerprint,
+                        priorIdenticalCurrentAttemptSelectionCount, priorEquivalentCurrentAttemptPayloadSelectionCount,
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }
 
