@@ -66,14 +66,15 @@ public final class JavaSemanticFollowUpMapper {
         Object execution = query == CodeIntelligenceQuery.OUTGOING_CALL_GRAPH
                 ? new OutgoingCallGraphExecutionInput(requiredOptional(request.depth(), "call graph depth"), Optional.of(target))
                 : new IncomingCallGraphExecutionInput(requiredOptional(request.depth(), "call graph depth"), Optional.of(target));
-        return candidate(repositoryId, revision, query, execution);
+        return candidate(repositoryId, revision, query, execution, methodTargetDescription(target));
     }
 
     private FollowUpCandidate methodSourceCandidate(RepositoryId repositoryId, RepositoryRevision revision,
                                                     SemanticDtos.AvailableFollowUp followUp) {
         SemanticDtos.TargetFollowUpRequest request = require(followUp.request(), SemanticDtos.TargetFollowUpRequest.class);
+        SemanticDtos.MethodTargetPayload target = methodTarget(request.target(), "method source");
         return candidate(repositoryId, revision, CodeIntelligenceQuery.GET_METHOD_SOURCE,
-                new GetMethodSourceExecutionInput(Optional.of(methodTarget(request.target(), "method source"))));
+                new GetMethodSourceExecutionInput(Optional.of(target)), methodTargetDescription(target));
     }
 
     private FollowUpCandidate typeMembersCandidate(RepositoryId repositoryId, RepositoryRevision revision,
@@ -120,6 +121,20 @@ public final class JavaSemanticFollowUpMapper {
     private FollowUpCandidate candidate(RepositoryId repositoryId, RepositoryRevision revision, CodeIntelligenceQuery query, Object input) {
         return new FollowUpCandidate(repositoryId, revision, query.capabilityName(), query.version(), codec.encode(input),
                 "Semantic follow-up " + query.name());
+    }
+
+    private FollowUpCandidate candidate(RepositoryId repositoryId, RepositoryRevision revision,
+                                        CodeIntelligenceQuery query, Object input, String targetDescription) {
+        return new FollowUpCandidate(repositoryId, revision, query.capabilityName(), query.version(), codec.encode(input),
+                "Semantic follow-up " + query.name() + " target=" + targetDescription);
+    }
+
+    private static String methodTargetDescription(SemanticDtos.MethodTargetPayload target) {
+        SemanticDtos.JavaTypeIdentityPayload javaType = target.sourceType().javaType();
+        String qualifiedType = javaType.packageName().isBlank()
+                ? javaType.className()
+                : javaType.packageName() + "." + javaType.className();
+        return qualifiedType + "#" + target.methodName() + "(" + String.join(",", target.parameterTypes()) + ")";
     }
 
     private void verifyScope(RepositoryId repositoryId, RepositoryRevision revision, SemanticDtos.AvailableFollowUp followUp) {

@@ -10,7 +10,12 @@ import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
 import com.java.system.agent.answering.domain.answer.StatementVerdict;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
+import com.java.system.agent.answering.domain.candidate.RouteCandidate;
+import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
@@ -42,6 +47,7 @@ public final class AgentActionPromptRenderer {
             Choose exactly one registered planning tool call.
             Do not emit a preamble, explanation, trailing prose, or any text outside that one function call.
             Use only issued opaque handles.
+            Candidate handles must come from Candidates, never Evidence.
             Preserve the candidate subset and order you intend.
             Express unresolved uncertainty in answer statements, observations, or clarification.
             Do not emit confidence, score, rank, adapter name, or retry instruction.
@@ -69,7 +75,7 @@ public final class AgentActionPromptRenderer {
         prompt.append("Candidates:\n");
         for (Map.Entry<CandidateHandle, IssuedCandidate> entry : context.issuedCandidates().entrySet()) {
             prompt.append("- ").append(entry.getKey().value()).append(": ")
-                    .append(entry.getValue().candidate().description()).append('\n');
+                    .append(renderCandidate(entry.getValue().candidate())).append('\n');
         }
         prompt.append("Evidence:\n");
         for (Map.Entry<EvidenceHandle, IssuedEvidence> entry : context.issuedEvidence().entrySet()) {
@@ -85,6 +91,22 @@ public final class AgentActionPromptRenderer {
         section(prompt, "Remaining budget", remainingBudget(context));
         section(prompt, "Previous model choices and results", ModelInteractionRenderer.render(context.modelInteractions()));
         return prompt.toString();
+    }
+
+    private static String renderCandidate(AnalysisCandidate candidate) {
+        String repository = candidate.repositoryId().value() + candidate.repositoryRevision()
+                .map(revision -> "@" + revision.value())
+                .orElse("");
+        String selectionMetadata = switch (candidate) {
+            case FollowUpCandidate followUp -> ", targetCapability=" + followUp.targetCapabilityName()
+                    + "@" + followUp.targetCapabilityVersion();
+            case RouteCandidate route -> ", route=" + route.route();
+            case SemanticTargetCandidate target -> ", semanticTarget=" + target.semanticTarget().kind()
+                    + ":" + target.semanticTarget().key();
+            case RepositoryCandidate ignored -> "";
+        };
+        return "kind=" + candidate.kind() + ", repository=" + repository
+                + ", description=" + candidate.description() + selectionMetadata;
     }
 
     private static void section(StringBuilder prompt, String label, String content) {

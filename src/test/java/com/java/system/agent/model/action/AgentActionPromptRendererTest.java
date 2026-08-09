@@ -147,7 +147,7 @@ class AgentActionPromptRendererTest {
     }
 
     @Test
-    void rendersFollowUpDescriptionWithoutExposingItsCanonicalPayload() {
+    void rendersFollowUpSelectionMetadataWithoutExposingItsCanonicalPayload() {
         RepositoryId repositoryId = new RepositoryId("repository-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
@@ -163,7 +163,12 @@ class AgentActionPromptRendererTest {
 
         String prompt = new AgentActionPromptRenderer().render(context);
 
-        assertThat(prompt).contains("Read the remaining bounded source segment");
+        assertThat(prompt).contains("""
+                Candidates:
+                - candidate-follow-up: kind=FOLLOW_UP, repository=repository-1@revision-1, description=Read the remaining bounded source segment, targetCapability=codebase_get_source_segment@v1
+                """);
         assertThat(prompt).doesNotContain(payload.value());
+        assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
+                .contains("Candidate handles must come from Candidates, never Evidence.");
     }
 }

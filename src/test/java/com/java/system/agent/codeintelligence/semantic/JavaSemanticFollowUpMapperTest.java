@@ -30,9 +30,13 @@ class JavaSemanticFollowUpMapperTest {
                 new SemanticDtos.TargetFollowUpRequest("orders", "FIXTURE", target,
                         java.util.Optional.empty(), java.util.Optional.empty(), java.util.Optional.empty()));
 
-        assertThat(new JavaSemanticFollowUpMapper().map(new RepositoryId("orders"),
-                new RepositoryRevision("FIXTURE"), followUp).targetCapabilityName())
-                .isEqualTo("codebase_get_method_source");
+        com.java.system.agent.answering.domain.candidate.FollowUpCandidate candidate =
+                new JavaSemanticFollowUpMapper().map(new RepositoryId("orders"),
+                        new RepositoryRevision("FIXTURE"), followUp);
+
+        assertThat(candidate.targetCapabilityName()).isEqualTo("codebase_get_method_source");
+        assertThat(candidate.description())
+                .isEqualTo("Semantic follow-up GET_METHOD_SOURCE target=com.acme.Orders#find()");
     }
 
     @Test
