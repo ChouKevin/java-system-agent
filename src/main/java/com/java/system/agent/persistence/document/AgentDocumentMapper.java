@@ -54,7 +54,8 @@ final class AgentDocumentMapper {
                 document.failureReason(),
                 document.pendingTerminalResponse(),
                 document.pendingAnswerVerification(),
-                document.requestIdentity());
+                document.requestIdentity(),
+                List.of());
     }
 
     RunAttemptDocument attemptDocument(RunAttempt attempt) {
@@ -131,6 +132,8 @@ final class AgentDocumentMapper {
             case AgentEvent.RunStarted ignored -> "RUN_STARTED";
             case AgentEvent.AttemptStarted ignored -> "ATTEMPT_STARTED";
             case AgentEvent.ContextIssued ignored -> "CONTEXT_ISSUED";
+            case AgentEvent.ActionSelected ignored -> "ACTION_SELECTED";
+            case AgentEvent.ActionResultRecorded ignored -> "ACTION_RESULT_RECORDED";
             case AgentEvent.ActionAccepted ignored -> "ACTION_ACCEPTED";
             case AgentEvent.ActionRejected ignored -> "ACTION_REJECTED";
             case AgentEvent.QueryBudgetConsumed ignored -> "QUERY_BUDGET_CONSUMED";

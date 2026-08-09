@@ -920,7 +920,8 @@ class ValidatedAgentLoopAnswerTest {
                 state.failureReason(),
                 state.pendingTerminalResponse(),
                 Optional.empty(),
-                state.requestIdentity());
+                state.requestIdentity(),
+                state.modelInteractions());
     }
 
     private AnswerDocument document(String text) {

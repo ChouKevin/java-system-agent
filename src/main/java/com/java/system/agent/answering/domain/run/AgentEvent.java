@@ -35,6 +35,8 @@ import java.util.Optional;
         @JsonSubTypes.Type(value = AgentEvent.RunStarted.class, name = "RUN_STARTED"),
         @JsonSubTypes.Type(value = AgentEvent.AttemptStarted.class, name = "ATTEMPT_STARTED"),
         @JsonSubTypes.Type(value = AgentEvent.ContextIssued.class, name = "CONTEXT_ISSUED"),
+        @JsonSubTypes.Type(value = AgentEvent.ActionSelected.class, name = "ACTION_SELECTED"),
+        @JsonSubTypes.Type(value = AgentEvent.ActionResultRecorded.class, name = "ACTION_RESULT_RECORDED"),
         @JsonSubTypes.Type(value = AgentEvent.ActionAccepted.class, name = "ACTION_ACCEPTED"),
         @JsonSubTypes.Type(value = AgentEvent.ActionRejected.class, name = "ACTION_REJECTED"),
         @JsonSubTypes.Type(value = AgentEvent.QueryBudgetConsumed.class, name = "QUERY_BUDGET_CONSUMED"),
@@ -51,7 +53,8 @@ import java.util.Optional;
         @JsonSubTypes.Type(value = AgentEvent.RunConcluded.class, name = "RUN_CONCLUDED")
 })
 public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.AttemptStarted,
-        AgentEvent.ContextIssued, AgentEvent.ActionAccepted, AgentEvent.ActionRejected,
+        AgentEvent.ContextIssued, AgentEvent.ActionSelected, AgentEvent.ActionResultRecorded,
+        AgentEvent.ActionAccepted, AgentEvent.ActionRejected,
         AgentEvent.QueryBudgetConsumed, AgentEvent.ExecuteBudgetConsumed, AgentEvent.ObservationRecorded,
         AgentEvent.AttemptInvalidated,
         AgentEvent.AnswerProposed, AgentEvent.AnswerAccepted, AgentEvent.AnswerRejected,
@@ -91,6 +94,22 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
             candidates = immutableMap(candidates, "issued candidates");
             evidence = immutableMap(evidence, "issued evidence");
             observations = immutableMap(observations, "issued observations");
+        }
+    }
+
+    record ActionSelected(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                          AgentAction action) implements AgentEvent {
+        public ActionSelected {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(action, "selected agent action must not be null");
+        }
+    }
+
+    record ActionResultRecorded(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                                ActionResult result) implements AgentEvent {
+        public ActionResultRecorded {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(result, "recorded action result must not be null");
         }
     }
 

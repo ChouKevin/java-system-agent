@@ -333,7 +333,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 state.failureReason(),
                 state.pendingTerminalResponse(),
                 state.pendingAnswerVerification(),
-                identity);
+                identity,
+                state.modelInteractions());
     }
 
     private void insertSession(String sessionId) {

@@ -163,7 +163,7 @@ class AgentPersistenceCodecTest {
         AgentRunState terminal = new AgentRunState(runId(), AgentRunStatus.CONCLUDED,
                 AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
                 Optional.of(RunOutcome.COMPLETED), Optional.empty(), Optional.empty(), Optional.of(pendingAnswer),
-                Optional.empty(), identity());
+                Optional.empty(), identity(), List.of());
         ClarifyAction clarification = new ClarifyAction("clarify", List.of(), "reason");
         ConversationTurn clarificationTurn = new ConversationTurn(
                 runId(), identity().participant(), "question", "clarify", ConversationTurnType.CLARIFICATION);
@@ -172,12 +172,12 @@ class AgentPersistenceCodecTest {
         AgentRunState clarificationTerminal = new AgentRunState(runId(), AgentRunStatus.CONCLUDED,
                 AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
                 Optional.of(RunOutcome.INCONCLUSIVE), Optional.empty(), Optional.empty(),
-                Optional.of(pendingClarification), Optional.empty(), identity());
+                Optional.of(pendingClarification), Optional.empty(), identity(), List.of());
         PendingAnswerVerification pending = new PendingAnswerVerification(attemptId(), RevisionVector.empty(), document,
                 AnswerVerificationMode.LLM);
         AgentRunState verificationPending = new AgentRunState(runId(), AgentRunStatus.RUNNING,
                 AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(pending), identity());
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(pending), identity(), List.of());
 
         assertThat(stateCodec.decode(stateCodec.encode(terminal))).isEqualTo(terminal);
         assertThat(stateCodec.decode(stateCodec.encode(clarificationTerminal))).isEqualTo(clarificationTerminal);
@@ -335,7 +335,7 @@ class AgentPersistenceCodecTest {
         RunAttempt attempt = new RunAttempt(attemptId(), revisions, Map.of(), candidates, Map.of(), Map.of());
         AgentRunState state = new AgentRunState(
                 runId(), AgentRunStatus.RUNNING, attempt, 1, budget(), 0, 0, 1,
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), identity());
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), identity(), List.of());
         AgentEvent.ContextIssued event = new AgentEvent.ContextIssued(
                 runId(), attemptId(), 1, revisions, Map.of(), candidates, Map.of(), Map.of());
 
