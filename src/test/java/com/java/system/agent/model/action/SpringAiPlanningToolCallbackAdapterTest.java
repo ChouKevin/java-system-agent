@@ -44,6 +44,13 @@ class SpringAiPlanningToolCallbackAdapterTest {
         assertThat(adapter.issuedCallbacks(context())).extracting(toolCallback -> toolCallback.getToolDefinition())
                 .extracting(definition -> definition.name())
                 .containsExactly("agent_request_clarification", "agent_submit_answer");
+        assertThat(adapter.issuedCallbacks(context()))
+                .filteredOn(toolCallback -> toolCallback.getToolDefinition().name().equals("agent_submit_answer"))
+                .singleElement()
+                .satisfies(toolCallback -> assertThat(toolCallback.getToolDefinition().description())
+                        .contains("Evidence coverage by capability must contain evidence handles")
+                        .contains("explicitly requested evidence type")
+                        .contains("Do not substitute another evidence type"));
     }
 
     private static PlanningToolRegistry registry() {

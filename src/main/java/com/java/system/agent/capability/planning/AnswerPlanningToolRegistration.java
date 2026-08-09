@@ -32,7 +32,9 @@ public final class AnswerPlanningToolRegistration<I> implements PlanningToolRegi
 
     @Override
     public String description() {
-        return "Agent ANSWER action";
+        return "Before submitting the Agent ANSWER action, Evidence coverage by capability must contain evidence handles "
+                + "for every explicitly requested evidence type; cite those handles. "
+                + "Do not substitute another evidence type for a missing one.";
     }
 
     @Override
