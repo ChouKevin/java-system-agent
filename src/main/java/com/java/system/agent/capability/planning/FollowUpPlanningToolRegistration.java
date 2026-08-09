@@ -115,6 +115,25 @@ public final class FollowUpPlanningToolRegistration implements PlanningToolRegis
                 .findFirst();
     }
 
+    static Optional<CapabilityHandle> targetCapability(
+            AgentPromptContext context,
+            Map.Entry<CandidateHandle, IssuedCandidate> candidate,
+            CapabilityPolicy policy) {
+        Objects.requireNonNull(context, "agent prompt context must not be null");
+        Objects.requireNonNull(candidate, "issued follow-up candidate must not be null");
+        Objects.requireNonNull(policy, "follow-up target policy must not be null");
+        if (!hasCurrentBinding(candidate.getKey().binding(), context)
+                || !(candidate.getValue().candidate() instanceof FollowUpCandidate followUp)) {
+            return Optional.empty();
+        }
+        return context.issuedCapabilities().entrySet().stream()
+                .filter(entry -> entry.getValue().equals(policy))
+                .filter(entry -> hasMatchingScope(context, entry.getKey(), candidate.getKey(), followUp))
+                .filter(entry -> matches(entry.getValue(), followUp))
+                .map(Map.Entry::getKey)
+                .findFirst();
+    }
+
     private static boolean selectedBy(List<CandidateHandleRef> references, CandidateHandle handle) {
         return references.stream().anyMatch(reference -> reference.value().equals(handle.value()));
     }

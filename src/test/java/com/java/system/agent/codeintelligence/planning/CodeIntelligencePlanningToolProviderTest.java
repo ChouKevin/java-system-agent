@@ -199,13 +199,9 @@ class CodeIntelligencePlanningToolProviderTest {
 
         assertThat(registry.issuedRegistrations(context))
                 .extracting(registration -> registration.name())
-                .contains("codebase_follow_up")
-                .doesNotContain(policy.name());
-        assertThat(registry.interpretToolCall(policy.name(), """
-                {"candidateHandles":["candidate-implementations"],"questionToResolve":"Find implementations","rationale":"Need concrete implementations"}
-                """, context)).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+                .contains("codebase_follow_up", policy.name());
 
-        QueryAction action = queryAction(registry.interpretToolCall("codebase_follow_up", """
+        QueryAction action = queryAction(registry.interpretToolCall(policy.name(), """
                 {"followUpCandidateHandle":"candidate-implementations","questionToResolve":"Find implementations","rationale":"Provider authorized this declaration"}
                 """, context));
         assertThat(action.capability()).isEqualTo(context.issuedCapabilities().keySet().iterator().next());

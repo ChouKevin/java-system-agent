@@ -160,13 +160,18 @@ class PlanningToolRegistryTest {
                 .doesNotContain("codebase_follow_up", "codebase_get_source_segment");
         assertThat(registry.issuedRegistrations(contextWithFollowUp()))
                 .extracting(PlanningToolRegistration::name)
-                .contains("codebase_follow_up")
-                .doesNotContain("codebase_get_source_segment");
+                .contains("codebase_follow_up", "codebase_get_source_segment");
         assertThat(registry.registrations())
                 .filteredOn(registration -> registration.name().equals("codebase_follow_up"))
                 .singleElement()
                 .satisfies(registration -> assertThat(registration.description())
                         .contains("provider-bound target capability and payload")
+                        .contains("opaque FOLLOW_UP candidate handle"));
+        assertThat(registry.registrations())
+                .filteredOn(registration -> registration.name().equals("codebase_get_source_segment"))
+                .singleElement()
+                .satisfies(registration -> assertThat(registration.description())
+                        .contains("provider-bound follow-up for codebase_get_source_segment")
                         .contains("opaque FOLLOW_UP candidate handle"));
     }
 
@@ -191,6 +196,24 @@ class PlanningToolRegistryTest {
     }
 
     @Test
+    void exposesFollowUpOnlyCapabilityByItsTargetNameWithTheBoundPayload() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = followUpRegistry(executorCalls);
+
+        AgentActionProposal proposal = registry.interpretToolCall("codebase_get_source_segment", """
+                {"followUpCandidateHandle":"candidate-follow-up",
+                 "questionToResolve":"Read the continuation",
+                 "rationale":"The provider issued this source continuation"}
+                """, contextWithFollowUp());
+
+        QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
+        assertThat(action.capability()).isEqualTo(sourceSegmentCapabilityHandle());
+        assertThat(action.candidates()).containsExactly(new CandidateHandleRef("candidate-follow-up"));
+        assertThat(action.payload()).isEqualTo(boundPayload());
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    @Test
     void rejectsFollowUpSelectorsForUnknownWrongKindAndMissingCapabilityBeforeExecution() {
         AtomicInteger executorCalls = new AtomicInteger();
         PlanningToolRegistry registry = followUpRegistry(executorCalls);
@@ -199,11 +222,15 @@ class PlanningToolRegistryTest {
                 contextWithFollowUp());
         AgentActionProposal repository = registry.interpretToolCall("codebase_follow_up", followUpInput("repository-candidate"),
                 contextWithFollowUpAndRepositoryCandidate());
+        AgentActionProposal targetRepository = registry.interpretToolCall(
+                "codebase_get_source_segment", followUpInput("repository-candidate"),
+                contextWithFollowUpAndRepositoryCandidate());
         AgentActionProposal capabilityAbsent = registry.interpretToolCall("codebase_follow_up",
                 followUpInput("candidate-follow-up"), contextWithFollowUpButNoTargetCapability());
 
         assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(repository).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(targetRepository).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(capabilityAbsent).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
         assertThat(executorCalls).hasValue(0);
     }
@@ -216,7 +243,7 @@ class PlanningToolRegistryTest {
 
         assertThat(registry.issuedRegistrations(staleContext))
                 .extracting(PlanningToolRegistration::name)
-                .doesNotContain("codebase_follow_up");
+                .doesNotContain("codebase_follow_up", "codebase_get_source_segment");
         assertThat(registry.interpretToolCall("codebase_follow_up", followUpInput("candidate-old-attempt"), staleContext))
                 .isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
         assertThat(executorCalls).hasValue(0);

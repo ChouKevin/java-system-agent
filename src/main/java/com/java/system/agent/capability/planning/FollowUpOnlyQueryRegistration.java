@@ -2,10 +2,17 @@ package com.java.system.agent.capability.planning;
 
 import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
-import com.java.system.agent.answering.port.out.AgentActionContractException;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -35,7 +42,8 @@ public final class FollowUpOnlyQueryRegistration<E>
 
     @Override
     public String description() {
-        return "Bound follow-up QUERY capability";
+        return "Execute one provider-bound follow-up for " + policy.name()
+                + " by opaque FOLLOW_UP candidate handle";
     }
 
     @Override
@@ -46,13 +54,26 @@ public final class FollowUpOnlyQueryRegistration<E>
     @Override
     public boolean isIssued(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        return false;
+        return context.issuedCandidates().entrySet().stream()
+                .anyMatch(candidate -> FollowUpPlanningToolRegistration
+                        .targetCapability(context, candidate, policy)
+                        .isPresent());
     }
 
     @Override
     public AgentAction toAction(FollowUpPlanningInput input, AgentPromptContext context) {
-        throw new AgentActionContractException("follow-up-only query capability cannot be directly planned",
-                new IllegalStateException("direct planning is prohibited"));
+        Objects.requireNonNull(input, "follow-up planning input must not be null");
+        Objects.requireNonNull(context, "agent prompt context must not be null");
+        Map.Entry<CandidateHandle, IssuedCandidate> selected = context.issuedCandidates().entrySet().stream()
+                .filter(entry -> entry.getKey().value().equals(input.followUpCandidateHandle()))
+                .findFirst()
+                .orElseThrow(PlanningToolInputException::new);
+        CapabilityHandle capability = FollowUpPlanningToolRegistration.targetCapability(context, selected, policy)
+                .orElseThrow(PlanningToolInputException::new);
+        CandidateHandleRef reference = new CandidateHandleRef(selected.getKey().value());
+        CapabilityInputPayload payload = FollowUpPlanningToolRegistration.boundPayload(
+                context, capability, policy, List.of(reference)).orElseThrow(PlanningToolInputException::new);
+        return new QueryAction(capability, List.of(reference), input.questionToResolve(), payload, input.rationale());
     }
 
     @Override
