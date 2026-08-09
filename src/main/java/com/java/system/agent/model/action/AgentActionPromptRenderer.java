@@ -53,6 +53,7 @@ public final class AgentActionPromptRenderer {
             Do not submit an answer while any required evidence type is absent from Evidence or remains uncited.
             Prefer a query that supplies a missing evidence type over another query for an evidence type already available.
             Do not substitute source text for explicitly requested call-graph, implementation, or internal-reference evidence.
+            Respect every tool schema limit such as maxItems; when one call accepts one candidate handle, make separate sequential calls instead of batching handles.
             Express unresolved uncertainty in answer statements, observations, or clarification.
             Do not emit confidence, score, rank, adapter name, or retry instruction.
             Emit a URL only as execute_http.targetUrl.

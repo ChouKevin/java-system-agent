@@ -130,7 +130,8 @@ class PlanningToolRegistryTest {
                 {"question":"Which repository?","candidateHandles":[],"reason":"Scope is ambiguous","unknown":"value"}
                 """, context());
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_request_clarification; reason=JSON_CONTRACT"));
     }
 
     @Test

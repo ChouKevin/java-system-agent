@@ -78,7 +78,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @EnabledIfEnvironmentVariable(named = "M7_KNOWLEDGE_LIVE", matches = "true")
 class M7KnowledgeQueryLiveIT {
 
-    private static final String QUESTION = "在 m7-knowledge-query repository 中，訂單處理有哪些 HTTP API、排程與訊息消費入口？請列出各入口的 package、class、method，說明它們如何進入共同的訂單處理流程，並提供完整方法來源與可驗證的呼叫、implementation、internal-reference evidence。";
+    private static final String QUESTION = "在 m7-knowledge-query repository 中，訂單處理有哪些 HTTP API、排程與訊息消費入口？請列出各入口的 package、class、method，分別用 outgoing call-graph evidence 說明它們如何進入共同的 OrderWorkflow.processOrder 流程，再用 implementation 與 internal-reference evidence 驗證共同處理實作，並提供該實作方法的完整來源。";
     private static final RepositoryId REPOSITORY_ID = new RepositoryId("m7-knowledge-query");
     private static final RepositoryRevision REPOSITORY_REVISION = new RepositoryRevision("FIXTURE");
     private static final RevisionVector EXPECTED_REVISIONS = RevisionVector.fromEntries(

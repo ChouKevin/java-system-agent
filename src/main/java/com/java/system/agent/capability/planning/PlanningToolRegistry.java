@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -89,7 +90,12 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
                     "planning tool operation=INTERPRET toolName={0} inputType={1} rawUtf8Bytes={2} "
                             + "resultCategory=INVALID_TOOL_INPUT",
                     new Object[]{toolName, inputType, utf8Bytes(rawArguments)});
-            return new AgentActionProposal.Malformed("INVALID_TOOL_INPUT");
+            Optional<String> safeDiagnostic = exception.safeDiagnostic();
+            String malformedReason = Objects.nonNull(rejectedRegistration) && safeDiagnostic.isPresent()
+                    ? "INVALID_TOOL_INPUT: tool=" + rejectedRegistration.name() + "; "
+                    + safeDiagnostic.orElseThrow()
+                    : "INVALID_TOOL_INPUT";
+            return new AgentActionProposal.Malformed(malformedReason);
         } catch (AgentActionContractException exception) {
             throw exception;
         } catch (RuntimeException exception) {

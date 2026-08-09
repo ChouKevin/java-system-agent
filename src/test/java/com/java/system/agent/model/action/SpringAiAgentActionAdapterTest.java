@@ -333,7 +333,8 @@ class SpringAiAgentActionAdapterTest {
 
         AgentActionProposal proposal = adapter(model).nextAction(context());
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=callers; reason=JSON_CONTRACT"));
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -343,7 +344,8 @@ class SpringAiAgentActionAdapterTest {
 
         AgentActionProposal proposal = adapter(model).nextAction(context());
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_request_clarification; reason=ABSENT_INPUT"));
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -359,8 +361,11 @@ class SpringAiAgentActionAdapterTest {
         AgentActionProposal enumProposal = adapter(unknownEnum).nextAction(answerContext());
         AgentActionProposal blankProposal = adapter(blankQuestion).nextAction(context());
 
-        assertThat(enumProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
-        assertThat(blankProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(enumProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT"));
+        assertThat(blankProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_request_clarification; reason=BEAN_VALIDATION; "
+                        + "invalidFields=[question]; constraints=[question:NotBlank]"));
         assertThat(unknownEnum.calls()).isEqualTo(1);
         assertThat(blankQuestion.calls()).isEqualTo(1);
     }
@@ -385,9 +390,14 @@ class SpringAiAgentActionAdapterTest {
         AgentActionProposal blankCitationProposal = adapter(blankCitation,
                 input -> failIfAnswerMapperExecutes(mapperCalls)).nextAction(answerContext());
 
-        assertThat(missingTypeProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
-        assertThat(nullTypeProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
-        assertThat(blankCitationProposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(missingTypeProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT"));
+        assertThat(nullTypeProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=EXPLICIT_NULL"));
+        assertThat(blankCitationProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=BEAN_VALIDATION; "
+                        + "invalidFields=[statements[0].citationHandles[].<iterable element>]; "
+                        + "constraints=[statements[0].citationHandles[].<iterable element>:NotBlank]"));
         assertThat(mapperCalls).hasValue(0);
         assertThat(missingType.calls()).isEqualTo(1);
         assertThat(nullType.calls()).isEqualTo(1);

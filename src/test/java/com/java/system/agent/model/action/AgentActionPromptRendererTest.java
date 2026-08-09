@@ -152,7 +152,8 @@ class AgentActionPromptRendererTest {
                 .contains("Treat every explicitly requested deliverable and evidence type as required")
                 .contains("Do not submit an answer while any required evidence type is absent")
                 .contains("Prefer a query that supplies a missing evidence type")
-                .contains("Do not substitute source text for explicitly requested call-graph");
+                .contains("Do not substitute source text for explicitly requested call-graph")
+                .contains("Respect every tool schema limit such as maxItems");
     }
 
     @Test

@@ -13,6 +13,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -110,6 +111,17 @@ class StrictPlanningToolDecoderTest {
     }
 
     @Test
+    void exposes_bounded_safe_feedback_without_input_values() {
+        assertThatThrownBy(() -> decoder.decode(
+                "{\"candidateHandles\":[\"SENSITIVE_ONE\",\"SENSITIVE_TWO\"]}", BoundedInput.class))
+                .isInstanceOfSatisfying(PlanningToolInputException.class, exception -> assertThat(exception.safeDiagnostic())
+                        .contains("reason=BEAN_VALIDATION; invalidFields=[candidateHandles]; "
+                                + "constraints=[candidateHandles:Size(max=1)]"))
+                .hasMessageNotContaining("SENSITIVE_ONE")
+                .hasMessageNotContaining("SENSITIVE_TWO");
+    }
+
+    @Test
     void planning_protocol_components_do_not_accept_a_host_object_mapper() {
         assertThat(Arrays.stream(StrictPlanningToolDecoder.class.getConstructors())
                 .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes())))
@@ -132,6 +144,10 @@ class StrictPlanningToolDecoderTest {
     private record Nested(
             @JsonProperty(required = true) @NotBlank String required,
             @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String optional) {
+    }
+
+    private record BoundedInput(
+            @JsonProperty(required = true) @NotNull @Size(max = 1) List<@NotBlank String> candidateHandles) {
     }
 
     private static Handler recordingHandler(List<LogRecord> records) {
