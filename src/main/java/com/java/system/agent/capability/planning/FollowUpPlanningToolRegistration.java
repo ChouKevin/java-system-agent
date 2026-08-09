@@ -31,7 +31,7 @@ public final class FollowUpPlanningToolRegistration implements PlanningToolRegis
 
     @Override
     public String description() {
-        return "Plan an issued codebase follow-up using its bound payload";
+        return "Execute one provider-bound target capability and payload by opaque FOLLOW_UP candidate handle";
     }
 
     @Override

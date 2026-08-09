@@ -55,8 +55,10 @@ public final class AgentActionPromptRenderer {
             Prefer a query that supplies a missing evidence type over another query for an evidence type already available.
             Do not substitute source text for explicitly requested call-graph, implementation, or internal-reference evidence.
             For evidence-type matching: outgoing call-graph evidence requires codebase_outgoing_call_graph; implementation evidence requires codebase_discover_method_implementations; internal-reference evidence requires codebase_find_internal_references; complete method source requires codebase_get_method_source.
-            codebase_discover_method_implementations is follow-up-only. Select an issued FOLLOW_UP whose targetCapability matches it; when none exists, use codebase_discover_concepts and type-member follow-ups to locate an eligible declaration first.
-            For follow-up-only capabilities, select only an issued FOLLOW_UP candidate whose targetCapability matches the tool.
+            codebase_discover_method_implementations is follow-up-only. When no eligible FOLLOW_UP exists, use codebase_discover_concepts and type-member follow-ups to locate an eligible declaration first.
+            Execute a selected issued FOLLOW_UP candidate with codebase_follow_up and pass its opaque handle as followUpCandidateHandle.
+            The candidate targetCapability names the operation that codebase_follow_up will execute with its provider-bound payload; it is not a separately selectable tool for follow-up-only operations.
+            Do not repeat a discovery query when its result already issued an eligible FOLLOW_UP for the missing evidence path.
             Respect every tool schema limit such as maxItems; when one call accepts one candidate handle, make separate sequential calls instead of batching handles.
             Express unresolved uncertainty in answer statements, observations, or clarification.
             Do not emit confidence, score, rank, adapter name, or retry instruction.

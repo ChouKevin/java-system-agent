@@ -232,6 +232,8 @@ class AgentActionPromptRendererTest {
                 .contains("internal-reference evidence requires codebase_find_internal_references")
                 .contains("codebase_discover_method_implementations is follow-up-only")
                 .contains("use codebase_discover_concepts and type-member follow-ups to locate an eligible declaration first")
-                .contains("For follow-up-only capabilities, select only an issued FOLLOW_UP candidate whose targetCapability matches the tool");
+                .contains("Execute a selected issued FOLLOW_UP candidate with codebase_follow_up")
+                .contains("targetCapability names the operation that codebase_follow_up will execute")
+                .contains("Do not repeat a discovery query when its result already issued an eligible FOLLOW_UP");
     }
 }

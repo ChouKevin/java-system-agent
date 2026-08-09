@@ -162,6 +162,12 @@ class PlanningToolRegistryTest {
                 .extracting(PlanningToolRegistration::name)
                 .contains("codebase_follow_up")
                 .doesNotContain("codebase_get_source_segment");
+        assertThat(registry.registrations())
+                .filteredOn(registration -> registration.name().equals("codebase_follow_up"))
+                .singleElement()
+                .satisfies(registration -> assertThat(registration.description())
+                        .contains("provider-bound target capability and payload")
+                        .contains("opaque FOLLOW_UP candidate handle"));
     }
 
     @Test
