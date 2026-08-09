@@ -22,6 +22,7 @@ import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.evidence.ArtifactRef;
@@ -30,6 +31,8 @@ import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
+import com.java.system.agent.answering.domain.observation.CapabilityObservation;
+import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -186,6 +189,48 @@ class ValidatedAgentLoopQueryTest {
     }
 
     @Test
+    void continuesAfterRepeatedSuccessfulCapabilityResultWithoutDuplicatingIssuedValues() {
+        CapabilityInputPayload payload = new CapabilityInputPayload("same-payload");
+        FollowUpCandidate followUp = followUpCandidate(payload);
+        EvidenceRef evidence = evidence("rev-1", "same-result");
+        CapabilityObservation observation = new CapabilityObservation(
+                ObservationCode.EXECUTION_FAILED,
+                "The repeated result remains available",
+                List.of(followUp),
+                List.of(evidence),
+                "semantic-service");
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(
+                            List.of(followUp), List.of(evidence), List.of(observation));
+                },
+                context -> nextRepeatedResultAction(prompts, context, payload));
+
+        AgentLoopResult result = loop.execute(followUpRequest());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(capabilityCalls).hasValue(2);
+        assertThat(prompts).hasSize(3);
+        assertThat(prompts.get(2).issuedCandidates().values())
+                .extracting(IssuedCandidate::candidate)
+                .containsExactly(
+                        new RepositoryCandidate(REPOSITORY_ID, "Repository one"),
+                        followUp);
+        assertThat(prompts.get(2).issuedEvidence().values())
+                .extracting(issuedEvidence -> issuedEvidence.evidence())
+                .containsExactly(evidence);
+        assertThat(prompts.get(2).observations()).hasSize(2);
+        assertThat(transitions.events()).filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance).hasSize(2);
+    }
+
+    @Test
     void stopsBeforeExecutingAFollowUpWhenTheSingleQueryBudgetIsConsumed() {
         CapabilityInputPayload followUpPayload = new CapabilityInputPayload("follow-up-payload");
         AtomicInteger capabilityCalls = new AtomicInteger();
@@ -249,6 +294,17 @@ class ValidatedAgentLoopQueryTest {
             return new AgentActionProposal.Proposed(followUpQuery(context, followUpPayload));
         }
         return new AgentActionProposal.Proposed(answer(context, "Follow-up evidence is available"));
+    }
+
+    private AgentActionProposal nextRepeatedResultAction(
+            List<AgentPromptContext> prompts,
+            AgentPromptContext context,
+            CapabilityInputPayload payload) {
+        prompts.add(context);
+        if (prompts.size() < 3) {
+            return new AgentActionProposal.Proposed(query(context, payload));
+        }
+        return new AgentActionProposal.Proposed(answer(context, "Repeated evidence is available"));
     }
 
     private QueryAction query(AgentPromptContext context) {

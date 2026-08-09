@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 將 answering 接受的 catalog 與 capability values 配發成 attempt-local opaque handles
@@ -119,16 +118,20 @@ public final class ContextIssuer {
         Objects.requireNonNull(result, "capability execution result must not be null");
         Objects.requireNonNull(catalogRepositoryIds, "catalog repository IDs must not be null");
         validateCapabilityRepositories(result, catalogRepositoryIds);
-        rejectPreviouslyIssuedCandidates(currentAttempt, result.discoveredCandidates());
-        rejectPreviouslyIssuedEvidence(currentAttempt, result.evidence());
+        validateDistinctCandidates(result.discoveredCandidates());
+        validateDistinctEvidence(result.evidence());
         HandleBinding binding = binding(runId, currentAttempt.attemptId(), currentAttempt.revisionVector());
+        Map<AnalysisCandidate, CandidateHandle> previouslyIssuedCandidates = issuedCandidateHandles(currentAttempt);
+        Map<EvidenceRef, EvidenceHandle> previouslyIssuedEvidence = issuedEvidenceHandles(currentAttempt);
         Map<CandidateHandle, IssuedCandidate> newCandidates = issueCandidates(
                 binding,
-                result.discoveredCandidates(),
+                unissuedCandidates(result.discoveredCandidates(), previouslyIssuedCandidates),
                 repositoryCount(currentAttempt) + 1,
                 targetCount(currentAttempt) + 1);
         Map<EvidenceHandle, IssuedEvidence> newEvidence = issueEvidence(
-                binding, result.evidence(), currentAttempt.issuedEvidence().size() + 1);
+                binding,
+                unissuedEvidence(result.evidence(), previouslyIssuedEvidence),
+                currentAttempt.issuedEvidence().size() + 1);
         Map<CandidateHandle, IssuedCandidate> candidates = appendDistinct(
                 currentAttempt.issuedCandidates(), newCandidates, "candidate handle");
         Map<EvidenceHandle, IssuedEvidence> evidence = appendDistinct(
@@ -136,8 +139,8 @@ public final class ContextIssuer {
         List<AgentObservation> observations = issueObservations(
                 currentAttempt,
                 result.observations(),
-                newCandidates,
-                newEvidence);
+                resultCandidateHandles(result.discoveredCandidates(), previouslyIssuedCandidates, newCandidates),
+                resultEvidenceHandles(result.evidence(), previouslyIssuedEvidence, newEvidence));
         RunAttempt context = new RunAttempt(
                 currentAttempt.attemptId(),
                 currentAttempt.revisionVector(),
@@ -225,13 +228,13 @@ public final class ContextIssuer {
     private List<AgentObservation> issueObservations(
             RunAttempt currentAttempt,
             List<CapabilityObservation> rawObservations,
-            Map<CandidateHandle, IssuedCandidate> newCandidates,
-            Map<EvidenceHandle, IssuedEvidence> newEvidence) {
+            Map<AnalysisCandidate, CandidateHandle> resultCandidates,
+            Map<EvidenceRef, EvidenceHandle> resultEvidence) {
         List<AgentObservation> issued = new ArrayList<>();
         int ordinal = currentAttempt.observations().size() + 1;
         for (CapabilityObservation raw : rawObservations) {
-            Set<CandidateHandle> candidateHandles = resolveCandidates(raw.candidates(), newCandidates);
-            Set<EvidenceHandle> evidenceHandles = resolveEvidence(raw.evidence(), newEvidence);
+            Set<CandidateHandle> candidateHandles = resolveCandidates(raw.candidates(), resultCandidates);
+            Set<EvidenceHandle> evidenceHandles = resolveEvidence(raw.evidence(), resultEvidence);
             ObservationId id = new ObservationId(
                     currentAttempt.attemptId().value() + ":O" + ordinal);
             issued.add(new AgentObservation(
@@ -249,15 +252,13 @@ public final class ContextIssuer {
 
     private Set<CandidateHandle> resolveCandidates(
             List<AnalysisCandidate> references,
-            Map<CandidateHandle, IssuedCandidate> issued) {
+            Map<AnalysisCandidate, CandidateHandle> issued) {
         Set<CandidateHandle> handles = new LinkedHashSet<>();
         for (AnalysisCandidate reference : references) {
-            CandidateHandle handle = issued.values().stream()
-                    .filter(candidate -> candidate.candidate().equals(reference))
-                    .map(issuedCandidate -> issuedCandidate.handle())
-                    .findFirst()
-                    .orElseThrow(() -> protocolFailure(
-                            "capability observation references a candidate outside the same result"));
+            CandidateHandle handle = issued.get(reference);
+            if (Objects.isNull(handle)) {
+                throw protocolFailure("capability observation references a candidate outside the same result");
+            }
             handles.add(handle);
         }
         return Set.copyOf(handles);
@@ -265,15 +266,13 @@ public final class ContextIssuer {
 
     private Set<EvidenceHandle> resolveEvidence(
             List<EvidenceRef> references,
-            Map<EvidenceHandle, IssuedEvidence> issued) {
+            Map<EvidenceRef, EvidenceHandle> issued) {
         Set<EvidenceHandle> handles = new LinkedHashSet<>();
         for (EvidenceRef reference : references) {
-            EvidenceHandle handle = issued.values().stream()
-                    .filter(evidence -> evidence.evidence().equals(reference))
-                    .map(issuedEvidence -> issuedEvidence.handle())
-                    .findFirst()
-                    .orElseThrow(() -> protocolFailure(
-                            "capability observation references evidence outside the same result"));
+            EvidenceHandle handle = issued.get(reference);
+            if (Objects.isNull(handle)) {
+                throw protocolFailure("capability observation references evidence outside the same result");
+            }
             handles.add(handle);
         }
         return Set.copyOf(handles);
@@ -346,30 +345,126 @@ public final class ContextIssuer {
         }
     }
 
-    private void rejectPreviouslyIssuedCandidates(
-            RunAttempt currentAttempt,
-            List<AnalysisCandidate> candidates) {
-        Set<AnalysisCandidate> previouslyIssued = currentAttempt.issuedCandidates().values().stream()
-                .map(issuedCandidate -> issuedCandidate.candidate())
-                .collect(Collectors.toSet());
+    private void validateDistinctCandidates(List<AnalysisCandidate> candidates) {
+        Objects.requireNonNull(candidates, "analysis candidates must not be null");
+        Set<AnalysisCandidate> distinctCandidates = new LinkedHashSet<>();
         for (AnalysisCandidate candidate : candidates) {
-            if (previouslyIssued.contains(candidate)) {
-                throw protocolFailure("capability result repeats a previously issued candidate");
+            AnalysisCandidate checkedCandidate = Objects.requireNonNull(
+                    candidate, "analysis candidates must not contain null");
+            if (!distinctCandidates.add(checkedCandidate)) {
+                throw protocolFailure("capability result contains a duplicate candidate");
             }
         }
     }
 
-    private void rejectPreviouslyIssuedEvidence(
-            RunAttempt currentAttempt,
-            List<EvidenceRef> evidence) {
-        Set<EvidenceRef> previouslyIssued = currentAttempt.issuedEvidence().values().stream()
-                .map(issuedEvidence -> issuedEvidence.evidence())
-                .collect(Collectors.toSet());
+    private void validateDistinctEvidence(List<EvidenceRef> evidence) {
+        Objects.requireNonNull(evidence, "capability evidence must not be null");
+        Set<EvidenceRef> distinctEvidence = new LinkedHashSet<>();
         for (EvidenceRef value : evidence) {
-            if (previouslyIssued.contains(value)) {
-                throw protocolFailure("capability result repeats previously issued evidence");
+            EvidenceRef checkedEvidence = Objects.requireNonNull(
+                    value, "capability evidence must not contain null");
+            if (!distinctEvidence.add(checkedEvidence)) {
+                throw protocolFailure("capability result contains duplicate evidence");
             }
         }
+    }
+
+    private List<AnalysisCandidate> unissuedCandidates(
+            List<AnalysisCandidate> candidates,
+            Map<AnalysisCandidate, CandidateHandle> previouslyIssued) {
+        List<AnalysisCandidate> unissued = new ArrayList<>();
+        for (AnalysisCandidate candidate : candidates) {
+            if (!previouslyIssued.containsKey(candidate)) {
+                unissued.add(candidate);
+            }
+        }
+        return List.copyOf(unissued);
+    }
+
+    private List<EvidenceRef> unissuedEvidence(
+            List<EvidenceRef> evidence,
+            Map<EvidenceRef, EvidenceHandle> previouslyIssued) {
+        List<EvidenceRef> unissued = new ArrayList<>();
+        for (EvidenceRef value : evidence) {
+            if (!previouslyIssued.containsKey(value)) {
+                unissued.add(value);
+            }
+        }
+        return List.copyOf(unissued);
+    }
+
+    private Map<AnalysisCandidate, CandidateHandle> issuedCandidateHandles(RunAttempt attempt) {
+        Map<AnalysisCandidate, CandidateHandle> handles = new LinkedHashMap<>();
+        for (IssuedCandidate issued : attempt.issuedCandidates().values()) {
+            CandidateHandle previous = handles.putIfAbsent(issued.candidate(), issued.handle());
+            if (Objects.nonNull(previous)) {
+                throw protocolFailure("duplicate candidate value was already issued");
+            }
+        }
+        return Collections.unmodifiableMap(handles);
+    }
+
+    private Map<EvidenceRef, EvidenceHandle> issuedEvidenceHandles(RunAttempt attempt) {
+        Map<EvidenceRef, EvidenceHandle> handles = new LinkedHashMap<>();
+        for (IssuedEvidence issued : attempt.issuedEvidence().values()) {
+            EvidenceHandle previous = handles.putIfAbsent(issued.evidence(), issued.handle());
+            if (Objects.nonNull(previous)) {
+                throw protocolFailure("duplicate evidence value was already issued");
+            }
+        }
+        return Collections.unmodifiableMap(handles);
+    }
+
+    private Map<AnalysisCandidate, CandidateHandle> resultCandidateHandles(
+            List<AnalysisCandidate> resultCandidates,
+            Map<AnalysisCandidate, CandidateHandle> previouslyIssued,
+            Map<CandidateHandle, IssuedCandidate> newlyIssued) {
+        Map<AnalysisCandidate, CandidateHandle> newHandles = candidateHandlesByValue(newlyIssued);
+        Map<AnalysisCandidate, CandidateHandle> resultHandles = new LinkedHashMap<>();
+        for (AnalysisCandidate candidate : resultCandidates) {
+            CandidateHandle handle = previouslyIssued.get(candidate);
+            if (Objects.isNull(handle)) {
+                handle = newHandles.get(candidate);
+            }
+            resultHandles.put(candidate, Objects.requireNonNull(
+                    handle, "capability result candidate must have an issued handle"));
+        }
+        return Collections.unmodifiableMap(resultHandles);
+    }
+
+    private Map<EvidenceRef, EvidenceHandle> resultEvidenceHandles(
+            List<EvidenceRef> resultEvidence,
+            Map<EvidenceRef, EvidenceHandle> previouslyIssued,
+            Map<EvidenceHandle, IssuedEvidence> newlyIssued) {
+        Map<EvidenceRef, EvidenceHandle> newHandles = evidenceHandlesByValue(newlyIssued);
+        Map<EvidenceRef, EvidenceHandle> resultHandles = new LinkedHashMap<>();
+        for (EvidenceRef evidence : resultEvidence) {
+            EvidenceHandle handle = previouslyIssued.get(evidence);
+            if (Objects.isNull(handle)) {
+                handle = newHandles.get(evidence);
+            }
+            resultHandles.put(evidence, Objects.requireNonNull(
+                    handle, "capability result evidence must have an issued handle"));
+        }
+        return Collections.unmodifiableMap(resultHandles);
+    }
+
+    private Map<AnalysisCandidate, CandidateHandle> candidateHandlesByValue(
+            Map<CandidateHandle, IssuedCandidate> issued) {
+        Map<AnalysisCandidate, CandidateHandle> handles = new LinkedHashMap<>();
+        for (IssuedCandidate value : issued.values()) {
+            handles.put(value.candidate(), value.handle());
+        }
+        return Collections.unmodifiableMap(handles);
+    }
+
+    private Map<EvidenceRef, EvidenceHandle> evidenceHandlesByValue(
+            Map<EvidenceHandle, IssuedEvidence> issued) {
+        Map<EvidenceRef, EvidenceHandle> handles = new LinkedHashMap<>();
+        for (IssuedEvidence value : issued.values()) {
+            handles.put(value.evidence(), value.handle());
+        }
+        return Collections.unmodifiableMap(handles);
     }
 
     private <K, V> Map<K, V> appendDistinct(
