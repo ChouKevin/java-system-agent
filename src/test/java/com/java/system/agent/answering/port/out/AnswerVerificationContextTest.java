@@ -4,6 +4,8 @@ import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.ArtifactRef;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
@@ -19,6 +21,7 @@ import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -29,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AnswerVerificationContextTest {
 
@@ -78,6 +82,22 @@ class AnswerVerificationContextTest {
                 List.of(reissued), List.of(referenced), List.of(reissued), List.of(referenced));
 
         assertThat(context.citedEvidence()).containsExactly(reissued);
+    }
+
+    @Test
+    void rejects_capability_provenance_for_evidence_outside_the_available_context() {
+        IssuedEvidence cited = evidence("evidence-1", "cited");
+        IssuedEvidence foreign = evidence("evidence-2", "foreign");
+        AgentObservation referenced = observation("observation-1", "referenced");
+        CapabilityPolicy capability = new CapabilityPolicy(
+                "codebase_find_internal_references", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+
+        assertThatThrownBy(() -> new AnswerVerificationContext(
+                "question", SessionHistory.empty(), document(cited, referenced),
+                List.of(cited), List.of(referenced), List.of(cited), List.of(referenced),
+                List.of(new EvidenceCapabilityProvenance(foreign.handle(), capability))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("available evidence");
     }
 
     private AnswerDocument document(IssuedEvidence evidence, AgentObservation observation) {

@@ -208,7 +208,8 @@ class AnswerVerificationAdapterTest {
                 "citationHandles: evidence-a, evidence-b", "observationIds: observation-a, observation-b");
         assertThat(prompt).contains("statement-a [FACT]: First fact", "claimId: claim-a",
                 "citationHandles: evidence-a", "observationIds: observation-a");
-        assertThat(prompt.indexOf("- evidence-a: Evidence A")).isLessThan(prompt.indexOf("- evidence-b: Evidence B"));
+        assertThat(prompt.indexOf("- evidence-a [evidenceType=unrecorded]: Evidence A"))
+                .isLessThan(prompt.indexOf("- evidence-b [evidenceType=unrecorded]: Evidence B"));
         assertThat(prompt.indexOf("- observation-a: Observation A"))
                 .isLessThan(prompt.indexOf("- observation-b: Observation B"));
     }

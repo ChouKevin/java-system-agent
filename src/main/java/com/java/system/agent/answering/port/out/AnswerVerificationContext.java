@@ -5,6 +5,7 @@ import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -18,7 +19,20 @@ public record AnswerVerificationContext(String question, SessionHistory sessionH
                                         List<IssuedEvidence> availableEvidence,
                                         List<AgentObservation> availableObservations,
                                         List<IssuedEvidence> citedEvidence,
-                                        List<AgentObservation> referencedObservations) {
+                                        List<AgentObservation> referencedObservations,
+                                        List<EvidenceCapabilityProvenance> evidenceProvenance) {
+
+    public AnswerVerificationContext(
+            String question,
+            SessionHistory sessionHistory,
+            AnswerDocument document,
+            List<IssuedEvidence> availableEvidence,
+            List<AgentObservation> availableObservations,
+            List<IssuedEvidence> citedEvidence,
+            List<AgentObservation> referencedObservations) {
+        this(question, sessionHistory, document, availableEvidence, availableObservations, citedEvidence,
+                referencedObservations, List.of());
+    }
 
     public AnswerVerificationContext {
         Objects.requireNonNull(question, "verification question must not be null");
@@ -31,7 +45,9 @@ public record AnswerVerificationContext(String question, SessionHistory sessionH
         availableObservations = immutableList(availableObservations, "available observation");
         citedEvidence = immutableList(citedEvidence, "cited evidence");
         referencedObservations = immutableList(referencedObservations, "referenced observation");
-        validate(document, availableEvidence, availableObservations, citedEvidence, referencedObservations);
+        evidenceProvenance = immutableList(evidenceProvenance, "evidence provenance");
+        validate(document, availableEvidence, availableObservations, citedEvidence, referencedObservations,
+                evidenceProvenance);
     }
 
     private static <T> List<T> immutableList(List<T> values, String description) {
@@ -44,7 +60,8 @@ public record AnswerVerificationContext(String question, SessionHistory sessionH
 
     private static void validate(AnswerDocument document, List<IssuedEvidence> availableEvidence,
                                  List<AgentObservation> availableObservations, List<IssuedEvidence> citedEvidence,
-                                 List<AgentObservation> referencedObservations) {
+                                 List<AgentObservation> referencedObservations,
+                                 List<EvidenceCapabilityProvenance> evidenceProvenance) {
         Set<String> availableEvidenceValues = evidenceValues(availableEvidence, "available evidence");
         Set<ObservationId> availableObservationIds = observationIds(availableObservations, "available observation");
         Set<String> citedEvidenceValues = evidenceValues(citedEvidence, "cited evidence");
@@ -60,6 +77,12 @@ public record AnswerVerificationContext(String question, SessionHistory sessionH
                 || !expectedEvidenceValues.equals(citedEvidenceValues)
                 || !expectedObservationIds.equals(referencedObservationIds)) {
             throw new IllegalArgumentException("verification context must contain exact available document references");
+        }
+        for (EvidenceCapabilityProvenance provenance : evidenceProvenance) {
+            if (!availableEvidenceValues.contains(provenance.evidenceHandle().value())) {
+                throw new IllegalArgumentException(
+                        "evidence capability provenance must reference available evidence");
+            }
         }
     }
 

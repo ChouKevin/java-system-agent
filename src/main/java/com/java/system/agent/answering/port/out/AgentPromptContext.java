@@ -12,6 +12,7 @@ import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
 
 import java.util.Collections;
@@ -79,5 +80,9 @@ public record AgentPromptContext(
             Objects.requireNonNull(value, entryDescription + " must not contain null values");
         }
         return List.copyOf(values);
+    }
+
+    public List<EvidenceCapabilityProvenance> evidenceProvenance() {
+        return EvidenceCapabilityProvenance.resolve(issuedCapabilities, issuedEvidence, modelInteractions);
     }
 }

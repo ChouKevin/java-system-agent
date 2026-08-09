@@ -3,7 +3,9 @@ package com.java.system.agent.model.verification;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
+import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 
 import java.util.Comparator;
@@ -20,6 +22,7 @@ public final class AnswerVerificationPromptRenderer {
             Evaluate the proposed answer only against the supplied context.
             Judge factual support and whether every explicit part of the current question is addressed.
             An explicitly requested evidence type is itself a required part, not an optional way to support another part.
+            Evidence type metadata is authoritative; do not infer a different type from evidence content.
             Source text is not call-graph, implementation, or internal-reference evidence; those distinct types must be both available and cited when explicitly requested.
             Use ACCEPTED_COMPLETE only when every requested part is answered and every FACT is supported by its cited or referenced supplied context.
             Use ACCEPTED_INCONCLUSIVE only when the document explicitly states unavoidable missing information or blocking uncertainty without claiming completeness.
@@ -45,9 +48,9 @@ public final class AnswerVerificationPromptRenderer {
         for (AnswerStatement statement : context.document().statements()) {
             statement(prompt, statement);
         }
-        evidenceSection(prompt, "Available evidence", context.availableEvidence());
+        evidenceSection(prompt, "Available evidence", context.availableEvidence(), context.evidenceProvenance());
         observationSection(prompt, "Available observations", context.availableObservations());
-        evidenceSection(prompt, "Cited evidence", context.citedEvidence());
+        evidenceSection(prompt, "Cited evidence", context.citedEvidence(), context.evidenceProvenance());
         observationSection(prompt, "Referenced observations", context.referencedObservations());
         section(prompt, "Response contract", responseContract);
         return prompt.toString();
@@ -61,11 +64,29 @@ public final class AnswerVerificationPromptRenderer {
         prompt.append("  observationIds: ").append(sortedObservationIds(statement)).append('\n');
     }
 
-    private static void evidenceSection(StringBuilder prompt, String label, List<IssuedEvidence> evidence) {
+    private static void evidenceSection(
+            StringBuilder prompt,
+            String label,
+            List<IssuedEvidence> evidence,
+            List<EvidenceCapabilityProvenance> provenance) {
         prompt.append(label).append(":\n");
         for (IssuedEvidence item : sortedEvidence(evidence)) {
-            prompt.append("- ").append(item.handle().value()).append(": ").append(item.evidence().content()).append('\n');
+            prompt.append("- ").append(item.handle().value())
+                    .append(" [evidenceType=").append(evidenceType(item.handle(), provenance)).append("]: ")
+                    .append(item.evidence().content()).append('\n');
         }
+    }
+
+    private static String evidenceType(
+            EvidenceHandle handle,
+            List<EvidenceCapabilityProvenance> provenance) {
+        List<String> capabilities = provenance.stream()
+                .filter(item -> item.evidenceHandle().equals(handle))
+                .map(item -> item.capability().name() + "@" + item.capability().version())
+                .distinct()
+                .sorted()
+                .toList();
+        return capabilities.isEmpty() ? "unrecorded" : String.join(",", capabilities);
     }
 
     private static void observationSection(StringBuilder prompt, String label, List<AgentObservation> observations) {

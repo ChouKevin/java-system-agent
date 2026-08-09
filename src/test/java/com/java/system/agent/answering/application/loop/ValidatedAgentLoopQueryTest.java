@@ -41,6 +41,7 @@ import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.run.RunRequestIdentity;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunAttempt;
@@ -57,6 +58,8 @@ import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
+import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailure;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
@@ -97,6 +100,7 @@ class ValidatedAgentLoopQueryTest {
         AtomicInteger capabilityCalls = new AtomicInteger();
         AtomicInteger modelCalls = new AtomicInteger();
         List<AgentPromptContext> prompts = new ArrayList<>();
+        List<AnswerVerificationContext> verificationContexts = new ArrayList<>();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         EvidenceRef evidence = evidence("rev-1", "query-result");
         ValidatedAgentLoop loop = loop(
@@ -110,6 +114,10 @@ class ValidatedAgentLoopQueryTest {
                 context -> {
                     modelCalls.incrementAndGet();
                     return nextAction(prompts, context, "Query evidence is available");
+                },
+                (mode, context) -> {
+                    verificationContexts.add(context);
+                    return new AnswerVerificationResult.ContractAccepted();
                 });
 
         AgentLoopResult result = loop.execute(request());
@@ -122,6 +130,10 @@ class ValidatedAgentLoopQueryTest {
         assertThat(prompts.get(1).issuedEvidence().values())
                 .extracting(issuedEvidence -> issuedEvidence.evidence())
                 .containsExactly(evidence);
+        EvidenceCapabilityProvenance expectedProvenance = new EvidenceCapabilityProvenance(
+                prompts.get(1).issuedEvidence().keySet().iterator().next(), CAPABILITY);
+        assertThat(verificationContexts).singleElement().satisfies(context ->
+                assertThat(context.evidenceProvenance()).containsExactly(expectedProvenance));
         List<Class<?>> eventTypes = eventTypes(transitions.events());
         assertThat(eventTypes)
                 .containsSubsequence(
@@ -478,11 +490,27 @@ class ValidatedAgentLoopQueryTest {
             FakeAttemptIdGenerator attemptIds,
             CapabilityExecutionPort capabilityExecution,
             AgentActionPort actionPort) {
+        return loop(
+                transitions,
+                revisions,
+                attemptIds,
+                capabilityExecution,
+                actionPort,
+                (mode, context) -> new AnswerVerificationResult.ContractAccepted());
+    }
+
+    private ValidatedAgentLoop loop(
+            RecordingTransitionPort transitions,
+            RepositoryRevisionPort revisions,
+            FakeAttemptIdGenerator attemptIds,
+            CapabilityExecutionPort capabilityExecution,
+            AgentActionPort actionPort,
+            AnswerVerificationPort answerVerificationPort) {
         return ValidatedAgentLoop.compose(
                 actionPort,
                 capabilityExecution,
                 action -> new HttpMutationResult.NotImplemented(),
-                (mode, context) -> new AnswerVerificationResult.ContractAccepted(),
+                answerVerificationPort,
                 AnswerVerificationMode.CONTRACT_ONLY,
                 new FakeSessionAdapter(),
                 new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(REPOSITORY_ID, "Repository one")),

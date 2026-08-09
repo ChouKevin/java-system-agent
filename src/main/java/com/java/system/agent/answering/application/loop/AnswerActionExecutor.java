@@ -19,6 +19,7 @@ import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.run.AnswerVerificationAbandonReason;
 import com.java.system.agent.answering.domain.run.PendingAnswerVerification;
 import com.java.system.agent.answering.domain.run.RunOutcome;
@@ -133,7 +134,11 @@ final class AnswerActionExecutor {
                 List.copyOf(state.currentAttempt().issuedEvidence().values()),
                 List.copyOf(state.currentAttempt().observations().values()),
                 List.copyOf(documentValidation.citedEvidence().values()),
-                List.copyOf(documentValidation.referencedObservations().values()));
+                List.copyOf(documentValidation.referencedObservations().values()),
+                EvidenceCapabilityProvenance.resolve(
+                        state.currentAttempt().issuedCapabilities(),
+                        state.currentAttempt().issuedEvidence(),
+                        state.modelInteractions()));
         AnswerVerificationResult verificationResult;
         try {
             verificationResult = telemetry.verifyAnswer(state, pending.verificationMode(), verificationContext);

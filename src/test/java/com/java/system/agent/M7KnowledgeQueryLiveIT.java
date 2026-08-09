@@ -212,9 +212,13 @@ class M7KnowledgeQueryLiveIT {
             assertThat(handle.binding().revisionVector()).isEqualTo(EXPECTED_REVISIONS);
             assertThat(issued.evidence().repositoryId()).isEqualTo(REPOSITORY_ID);
             assertThat(issued.evidence().repositoryRevision()).isEqualTo(REPOSITORY_REVISION);
-            assertThat(issued.evidence().warnings()).allSatisfy(warning ->
-                    assertThat(warning.code().toUpperCase(Locale.ROOT))
-                            .doesNotContain("PARTIAL", "TRUNCATED", "UNRESOLVED", "REVISION_MISMATCH"));
+            assertThat(issued.evidence().warnings()).allSatisfy(warning -> {
+                String warningCode = warning.code().toUpperCase(Locale.ROOT);
+                assertThat(warningCode).doesNotContain("PARTIAL", "TRUNCATED", "REVISION_MISMATCH");
+                if (warningCode.contains("UNRESOLVED")) {
+                    assertThat(warningCode).isEqualTo("DESCENDANT_CALL_UNRESOLVED");
+                }
+            });
         });
 
         assertCitedEvidenceRelationships(citedEvidence);

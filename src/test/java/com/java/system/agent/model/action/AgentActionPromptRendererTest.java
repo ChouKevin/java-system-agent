@@ -14,6 +14,7 @@ import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.answer.StatementVerdict;
 import com.java.system.agent.answering.domain.answer.StatementVerdictStatus;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
@@ -21,9 +22,15 @@ import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.evidence.ArtifactRef;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
+import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
+import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
@@ -180,5 +187,38 @@ class AgentActionPromptRendererTest {
         assertThat(prompt).doesNotContain(payload.value());
         assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
                 .contains("Candidate handles must come from Candidates, never Evidence.");
+    }
+
+    @Test
+    void labels_evidence_with_the_capability_recorded_in_query_history() {
+        RepositoryId repositoryId = new RepositoryId("repository-1");
+        RepositoryRevision revision = new RepositoryRevision("revision-1");
+        AnalysisRunId runId = new AnalysisRunId("run-3");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty().pin(repositoryId, revision));
+        CapabilityHandle capabilityHandle = new CapabilityHandle("capability-1", binding);
+        CapabilityPolicy capability = new CapabilityPolicy(
+                "codebase_outgoing_call_graph", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+        EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-1", binding);
+        IssuedEvidence evidence = new IssuedEvidence(evidenceHandle, new EvidenceRef(
+                "semantic", repositoryId, revision,
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Orders#create", Optional.empty()),
+                "root=Orders#create", List.of(), new ArtifactRef("digest-1")));
+        QueryAction query = new QueryAction(
+                capabilityHandle, List.of(new CandidateHandleRef("candidate-1")), "Trace the call graph",
+                new CapabilityInputPayload("{}"), "Need graph evidence");
+        AgentPromptContext context = new AgentPromptContext(
+                "Trace orders", SessionHistory.empty(), runId, attemptId,
+                Map.of(capabilityHandle, capability), Map.of(), Map.of(evidenceHandle, evidence), Map.of(),
+                List.of(
+                        new ModelInteraction.ActionSelected(attemptId, query),
+                        new ModelInteraction.ActionResultRecorded(attemptId,
+                                new ActionResult.QuerySucceeded(List.of(), List.of(evidenceHandle.value()), List.of()))),
+                Optional.empty(), new AttemptBudget(2, 1, 2, 1, 1, 0, 1, 0, 1, 0));
+
+        String prompt = new AgentActionPromptRenderer().render(context);
+
+        assertThat(prompt).contains(
+                "- evidence-1 [producedBy=codebase_outgoing_call_graph@v1]: root=Orders#create");
     }
 }
