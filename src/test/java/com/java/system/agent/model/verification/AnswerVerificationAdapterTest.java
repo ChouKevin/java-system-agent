@@ -9,6 +9,8 @@ import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.answer.StatementVerdictStatus;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
@@ -29,6 +31,7 @@ import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.ExecutionDeferral;
 import com.java.system.agent.answering.domain.run.ExecutionDeferralReason;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -45,8 +48,10 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.converter.BeanOutputConverter;
 
-import java.util.List;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -75,6 +80,54 @@ class AnswerVerificationAdapterTest {
         AnswerVerificationResult.LlmVerdict verdict = (AnswerVerificationResult.LlmVerdict) result;
         assertThat(verdict.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE);
         assertThat(verdict.verdict().statementVerdicts()).isEmpty();
+        assertThat(model.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void acceptsVerifierCompletionOnlyWhenEveryExplicitEvidenceTypeIsCited() {
+        String response = """
+                {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
+                """;
+        CountingChatModel missingModel = new CountingChatModel(response);
+        SpringAiAnswerVerificationAdapter missingAdapter = new SpringAiAnswerVerificationAdapter(
+                ChatClient.builder(missingModel).build());
+        CountingChatModel coveredModel = new CountingChatModel(response);
+        SpringAiAnswerVerificationAdapter coveredAdapter = new SpringAiAnswerVerificationAdapter(
+                ChatClient.builder(coveredModel).build());
+
+        AnswerVerificationResult.LlmVerdict missingResult = (AnswerVerificationResult.LlmVerdict) missingAdapter.verify(
+                AnswerVerificationMode.LLM, evidenceCoverageContext(false));
+        AnswerVerificationResult.LlmVerdict coveredResult = (AnswerVerificationResult.LlmVerdict) coveredAdapter.verify(
+                AnswerVerificationMode.LLM, evidenceCoverageContext(true));
+
+        assertThat(missingResult.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
+        assertThat(missingResult.verdict().unaddressedParts())
+                .containsExactly("internal-reference evidence requires cited evidence from codebase_find_internal_references");
+        assertThat(missingResult.verdict().rejectionReasons())
+                .containsExactly("explicitly requested evidence type is not cited: internal-reference evidence");
+        assertThat(coveredResult.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE);
+        assertThat(missingModel.calls()).isEqualTo(1);
+        assertThat(coveredModel.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void preservesVerifierRejectionDetailsWhileAddingEveryMissingExplicitEvidenceType() {
+        CountingChatModel model = new CountingChatModel("""
+                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":["schedule path"],"blockingUncertainties":[],"rejectionReasons":["schedule evidence is missing"]}
+                """);
+        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(
+                ChatClient.builder(model).build());
+
+        AnswerVerificationResult.LlmVerdict result = (AnswerVerificationResult.LlmVerdict) adapter.verify(
+                AnswerVerificationMode.LLM, evidenceCoverageContext(false));
+
+        assertThat(result.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
+        assertThat(result.verdict().unaddressedParts()).containsExactly(
+                "schedule path",
+                "internal-reference evidence requires cited evidence from codebase_find_internal_references");
+        assertThat(result.verdict().rejectionReasons()).containsExactly(
+                "schedule evidence is missing",
+                "explicitly requested evidence type is not cited: internal-reference evidence");
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -323,6 +376,41 @@ class AnswerVerificationAdapterTest {
         return new AnswerVerificationContext("What is known?", history, document,
                 List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA),
                 List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA));
+    }
+
+    private AnswerVerificationContext evidenceCoverageContext(boolean includeInternalReference) {
+        AnalysisRunId runId = new AnalysisRunId("run-coverage");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-coverage");
+        RepositoryId repositoryId = new RepositoryId("repo-coverage");
+        RepositoryRevision revision = new RepositoryRevision("rev-coverage");
+        HandleBinding binding = new HandleBinding(runId, attemptId,
+                RevisionVector.empty().pin(repositoryId, revision));
+        EvidenceHandle implementationHandle = new EvidenceHandle("evidence-implementation", binding);
+        IssuedEvidence implementationEvidence = new IssuedEvidence(implementationHandle,
+                evidence(repositoryId, revision, "Implementation evidence", "digest-implementation"));
+        CapabilityPolicy implementationCapability = new CapabilityPolicy(
+                "codebase_discover_method_implementations", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        List<IssuedEvidence> evidence = new ArrayList<>(List.of(implementationEvidence));
+        List<EvidenceCapabilityProvenance> provenance = new ArrayList<>(List.of(
+                new EvidenceCapabilityProvenance(implementationHandle, implementationCapability)));
+        Set<EvidenceHandleRef> citations = new LinkedHashSet<>(Set.of(
+                new EvidenceHandleRef(implementationHandle.value())));
+        if (includeInternalReference) {
+            EvidenceHandle internalReferenceHandle = new EvidenceHandle("evidence-internal-reference", binding);
+            evidence.add(new IssuedEvidence(internalReferenceHandle,
+                    evidence(repositoryId, revision, "Internal-reference evidence", "digest-internal-reference")));
+            CapabilityPolicy internalReferenceCapability = new CapabilityPolicy(
+                    "codebase_find_internal_references", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+            provenance.add(new EvidenceCapabilityProvenance(internalReferenceHandle, internalReferenceCapability));
+            citations.add(new EvidenceHandleRef(internalReferenceHandle.value()));
+        }
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.FACT, "The implementation is referenced",
+                Optional.of(new com.java.system.agent.answering.domain.answer.ClaimId("claim-coverage")),
+                citations, Set.of())));
+        return new AnswerVerificationContext(
+                "Use implementation evidence and internal-reference evidence to verify the implementation.",
+                SessionHistory.empty(), document, evidence, List.of(), evidence, List.of(), provenance);
     }
 
     private EvidenceRef evidence(RepositoryId repositoryId, RepositoryRevision revision, String content, String digest) {

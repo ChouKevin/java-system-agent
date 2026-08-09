@@ -22,6 +22,7 @@ import java.util.logging.Logger;
 public final class AnswerVerdictResponseInterpreter {
 
     private static final Logger LOGGER = Logger.getLogger(AnswerVerdictResponseInterpreter.class.getName());
+    private final ExplicitEvidenceCoveragePolicy evidenceCoveragePolicy = new ExplicitEvidenceCoveragePolicy();
 
     /**
      * 任何遺漏、重複或外來 statement ID 都拒絕為不可用的結構輸出
@@ -53,10 +54,11 @@ public final class AnswerVerdictResponseInterpreter {
                     new Object[]{factStatementIds.size(), responseIds.size(), missingCount, unexpectedCount});
             throw new IllegalArgumentException("statement verdict IDs must exactly match fact statements");
         }
-        return new AnswerVerdict(response.disposition(), statementVerdicts,
+        AnswerVerdict verdict = new AnswerVerdict(response.disposition(), statementVerdicts,
                 requiredList(response.unaddressedParts(), "unaddressed parts"),
                 requiredList(response.blockingUncertainties(), "blocking uncertainties"),
                 requiredList(response.rejectionReasons(), "rejection reasons"));
+        return evidenceCoveragePolicy.enforce(context, verdict);
     }
 
     private static <T> List<T> requiredList(List<T> values, String name) {
