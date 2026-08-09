@@ -10,6 +10,7 @@ import com.java.system.agent.interaction.port.in.AcceptSourceEventUseCase;
 import com.java.system.agent.answering.port.in.AnswerQuestionUseCase;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationPort;
+import com.java.system.agent.answering.domain.run.AttemptBudget;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
@@ -106,6 +107,26 @@ class AgentRuntimeConfigurationTest {
             context.getBean(JavaSemanticServiceHttpAdapter.class).availableRepositories();
 
             server.verify();
+        });
+    }
+
+    @Test
+    @DisplayName("runtime profile composes the ordinary initial attempt budget")
+    void shouldComposeOrdinaryInitialAttemptBudget() {
+        contextRunner.withPropertyValues("spring.profiles.active=agent-runtime,test-infrastructure").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBeansOfType(AttemptBudget.class)).hasSize(1);
+            AttemptBudget budget = context.getBean(AttemptBudget.class);
+            assertThat(budget.maxAgentSteps()).isEqualTo(10);
+            assertThat(budget.maxQueryExecutions()).isEqualTo(8);
+            assertThat(budget.maxExecuteExecutions()).isEqualTo(1);
+            assertThat(budget.maxActionRejections()).isEqualTo(3);
+            assertThat(budget.maxRevisionRestarts()).isEqualTo(1);
+            assertThat(budget.usedAgentSteps()).isZero();
+            assertThat(budget.usedQueryExecutions()).isZero();
+            assertThat(budget.usedExecuteExecutions()).isZero();
+            assertThat(budget.usedActionRejections()).isZero();
+            assertThat(budget.usedRevisionRestarts()).isZero();
         });
     }
 
