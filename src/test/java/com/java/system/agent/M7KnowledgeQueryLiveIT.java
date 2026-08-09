@@ -61,6 +61,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,6 +80,9 @@ class M7KnowledgeQueryLiveIT {
     private static final RepositoryRevision REPOSITORY_REVISION = new RepositoryRevision("FIXTURE");
     private static final RevisionVector EXPECTED_REVISIONS = RevisionVector.fromEntries(
             List.of(new RevisionVector.Entry(REPOSITORY_ID, REPOSITORY_REVISION)));
+    private static final Pattern GRAPH_NODE_PATTERN = Pattern.compile(
+            "(?:^|;\\s*)node=([^:;]+):[^;]*?:target=([^:;]+#[^:;]+\\.[^:;]+):external=");
+    private static final Pattern GRAPH_EDGE_PATTERN = Pattern.compile("(?:^|;\\s*)edge=([^>;]+)>([^:;]+):");
 
     @Autowired
     private AcceptSourceEventUseCase sourceAcceptance;
@@ -190,27 +195,97 @@ class M7KnowledgeQueryLiveIT {
                             .doesNotContain("PARTIAL", "TRUNCATED", "UNRESOLVED", "REVISION_MISMATCH"));
         });
 
-        String citedEvidenceContent = citedEvidence.stream()
-                .map(issued -> issued.evidence().content())
-                .reduce("", (left, right) -> left + "\n" + right);
-        assertThat(citedEvidenceContent).contains(
-                "OrderController", "submitOrder",
-                "OrderRecoveryJob", "retryPendingOrders",
-                "OrderMessageListener", "onOrderRequested",
-                "OrderWorkflow", "processOrder",
-                "DefaultOrderWorkflow", "implementation",
-                "edge=", "internalReference",
-                "repository.save");
-        long callerRelationshipCount = citedEvidence.stream()
-                .map(issued -> issued.evidence().content())
-                .mapToLong(content -> content.split("edge=", -1).length - 1L)
-                .sum();
-        assertThat(callerRelationshipCount).isGreaterThanOrEqualTo(3);
-        assertThat(citedEvidence.stream()
-                .map(issued -> issued.evidence().content())
-                .filter(content -> content.contains("public void processOrder"))
-                .toList()).isNotEmpty();
+        assertCitedEvidenceRelationships(citedEvidence);
         return Set.copyOf(citedHandleValues);
+    }
+
+    private void assertCitedEvidenceRelationships(List<IssuedEvidence> citedEvidence) {
+        IssuedEvidence apiEntryPoint = requireCitedEvidence(citedEvidence,
+                "entryPoint;", "kind=API", "class=com.example.orders.OrderController", "method=submitOrder",
+                "url=/orders", "httpMethods=POST");
+        IssuedEvidence scheduleEntryPoint = requireCitedEvidence(citedEvidence,
+                "entryPoint;", "kind=SCHEDULE", "class=com.example.orders.OrderRecoveryJob",
+                "method=retryPendingOrders");
+        IssuedEvidence rabbitEntryPoint = requireCitedEvidence(citedEvidence,
+                "entryPoint;", "kind=MQ", "class=com.example.orders.OrderMessageListener",
+                "method=onOrderRequested", "broker=RABBIT");
+        assertThat(Set.of(apiEntryPoint.handle().value(), scheduleEntryPoint.handle().value(),
+                rabbitEntryPoint.handle().value())).hasSize(3);
+
+        assertCitedGraphRelationship(citedEvidence, "OrderController", "submitOrder");
+        assertCitedGraphRelationship(citedEvidence, "OrderRecoveryJob", "retryPendingOrders");
+        assertCitedGraphRelationship(citedEvidence, "OrderMessageListener", "onOrderRequested");
+        requireCitedEvidence(citedEvidence,
+                "methodImplementation;", "requested=", "OrderWorkflow.processOrder(", "implementation=",
+                "DefaultOrderWorkflow.processOrder(");
+        boolean hasWorkflowInternalReference = citedEvidence.stream()
+                .map(issued -> issued.evidence().content())
+                .anyMatch(content -> content.contains("internalReference;")
+                        && content.contains("context=METHOD:")
+                        && (content.contains("OrderWorkflow.processOrder(")
+                        || content.contains("DefaultOrderWorkflow.processOrder(")));
+        assertThat(hasWorkflowInternalReference)
+                .as("cited internal-reference evidence relevant to the shared workflow or implementation")
+                .isTrue();
+        boolean hasCompleteWorkflowMethodSource = citedEvidence.stream()
+                .anyMatch(issued -> issued.evidence().semanticTarget().key().endsWith("DefaultOrderWorkflow.java")
+                        && issued.evidence().content().contains("public void processOrder(OrderRequest request)")
+                        && issued.evidence().content().contains("repository.save(request)"));
+        assertThat(hasCompleteWorkflowMethodSource)
+                .as("cited complete DefaultOrderWorkflow.processOrder source including repository.save")
+                .isTrue();
+    }
+
+    private IssuedEvidence requireCitedEvidence(List<IssuedEvidence> citedEvidence, String... requiredParts) {
+        return citedEvidence.stream()
+                .filter(issued -> containsAll(issued.evidence().content(), requiredParts))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("missing cited evidence containing " + List.of(requiredParts)));
+    }
+
+    private boolean containsAll(String content, String... requiredParts) {
+        for (String requiredPart : requiredParts) {
+            if (!content.contains(requiredPart)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void assertCitedGraphRelationship(List<IssuedEvidence> citedEvidence, String callerClass, String callerMethod) {
+        boolean relationshipFound = citedEvidence.stream()
+                .anyMatch(issued -> containsGraphRelationship(issued.evidence().content(), callerClass, callerMethod,
+                        "OrderWorkflow", "processOrder"));
+        assertThat(relationshipFound)
+                .as("cited graph evidence connects %s.%s to OrderWorkflow.processOrder", callerClass, callerMethod)
+                .isTrue();
+    }
+
+    private boolean containsGraphRelationship(String content, String callerClass, String callerMethod,
+                                              String calleeClass, String calleeMethod) {
+        Map<String, String> targetsByNodeId = new LinkedHashMap<>();
+        Matcher nodeMatcher = GRAPH_NODE_PATTERN.matcher(content);
+        while (nodeMatcher.find()) {
+            targetsByNodeId.put(nodeMatcher.group(1), nodeMatcher.group(2));
+        }
+        Matcher edgeMatcher = GRAPH_EDGE_PATTERN.matcher(content);
+        while (edgeMatcher.find()) {
+            String callerTarget = targetsByNodeId.get(edgeMatcher.group(1));
+            String calleeTarget = targetsByNodeId.get(edgeMatcher.group(2));
+            if (matchesGraphTarget(callerTarget, callerClass, callerMethod)
+                    && matchesGraphTarget(calleeTarget, calleeClass, calleeMethod)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean matchesGraphTarget(String target, String className, String methodName) {
+        return Optional.ofNullable(target)
+                .map(value -> value.endsWith("." + methodName)
+                        && (value.contains("#" + className + ".")
+                        || value.contains("." + className + ".")))
+                .orElse(false);
     }
 
     private void assertDeliveryRendering(PendingTerminalResponse.Answer acceptedAnswer) {
