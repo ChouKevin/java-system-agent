@@ -7,6 +7,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionTransportException;
@@ -68,15 +69,20 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         long startedNanos = System.nanoTime();
         String resultCategory = "CONTRACT_EXCEPTION";
         String actionType = "NONE";
+        String actionFingerprint = "NONE";
+        long priorIdenticalSelectionCount = 0;
+        PromptMetadata promptMetadata = PromptMetadata.notRendered();
         try {
             ChatClientResponse response;
             try {
                 List<org.springframework.ai.tool.ToolCallback> callbacks = callbackAdapter.issuedCallbacks(context);
+                String renderedPrompt = promptRenderer.render(context);
+                promptMetadata = PromptMetadata.rendered(renderedPrompt);
                 response = chatClient.prompt()
                         .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false))
                         .toolCallbacks(callbacks)
                         .system(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
-                        .user(promptRenderer.render(context))
+                        .user(renderedPrompt)
                         .call()
                         .chatClientResponse();
             } catch (ExternalExecutionDeferredException exception) {
@@ -88,9 +94,15 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             AgentActionProposal proposal = proposal(response, context);
             actionType = actionType(proposal);
             resultCategory = proposal instanceof AgentActionProposal.Proposed ? "PROPOSED" : "MALFORMED";
+            if (proposal instanceof AgentActionProposal.Proposed proposed) {
+                AgentActionFingerprint fingerprint = AgentActionFingerprint.from(proposed.action(), context);
+                actionFingerprint = fingerprint.value();
+                priorIdenticalSelectionCount = priorIdenticalSelectionCount(context, fingerprint);
+            }
             return proposal;
         } finally {
-            logOperation(context, resultCategory, actionType, startedNanos);
+            logOperation(context, promptMetadata, resultCategory, actionType, actionFingerprint,
+                    priorIdenticalSelectionCount, startedNanos);
         }
     }
 
@@ -128,15 +140,53 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         };
     }
 
-    private static void logOperation(AgentPromptContext context, String resultCategory, String actionType, long startedNanos) {
+    private static long priorIdenticalSelectionCount(AgentPromptContext context, AgentActionFingerprint fingerprint) {
+        return context.modelInteractions().stream()
+                .filter(interaction -> interaction instanceof ModelInteraction.ActionSelected)
+                .map(interaction -> ((ModelInteraction.ActionSelected) interaction).action())
+                .filter(action -> AgentActionFingerprint.from(action, context).equals(fingerprint))
+                .count();
+    }
+
+    private static void logOperation(
+            AgentPromptContext context,
+            PromptMetadata promptMetadata,
+            String resultCategory,
+            String actionType,
+            String actionFingerprint,
+            long priorIdenticalSelectionCount,
+            long startedNanos) {
         Level level = "PROPOSED".equals(resultCategory) ? Level.INFO : Level.WARNING;
+        int remainingAgentSteps = context.budget().maxAgentSteps() - context.budget().usedAgentSteps();
+        int remainingQueryExecutions = context.budget().maxQueryExecutions() - context.budget().usedQueryExecutions();
+        int remainingExecuteExecutions = context.budget().maxExecuteExecutions()
+                - context.budget().usedExecuteExecutions();
+        int remainingActionRejections = context.budget().maxActionRejections()
+                - context.budget().usedActionRejections();
         LOGGER.log(level,
-                "agent action operation=NEXT_ACTION runId={0} attemptId={1} resultCategory={2} actionType={3} elapsedMs={4}",
-                new Object[]{context.runId().value(), context.attemptId().value(), resultCategory, actionType,
+                "agent action operation=NEXT_ACTION runId={0} attemptId={1} promptCharacterCount={2} promptSha256={3} "
+                        + "interactionCount={4} remainingAgentSteps={5} remainingQueryExecutions={6} "
+                        + "remainingExecuteExecutions={7} remainingActionRejections={8} resultCategory={9} actionType={10} "
+                        + "actionFingerprint={11} priorIdenticalSelectionCount={12} elapsedMs={13}",
+                new Object[]{context.runId().value(), context.attemptId().value(), promptMetadata.characterCount(),
+                        promptMetadata.sha256(), context.modelInteractions().size(), remainingAgentSteps,
+                        remainingQueryExecutions, remainingExecuteExecutions, remainingActionRejections, resultCategory,
+                        actionType, actionFingerprint, priorIdenticalSelectionCount,
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
     }
 
     private static String category(RuntimeException exception) {
         return ModelTransportFailureClassifier.category(exception, RATE_LIMITED, UNAVAILABLE);
+    }
+
+    private record PromptMetadata(String characterCount, String sha256) {
+
+        private static PromptMetadata notRendered() {
+            return new PromptMetadata("NONE", "NONE");
+        }
+
+        private static PromptMetadata rendered(String prompt) {
+            return new PromptMetadata(Integer.toString(prompt.length()), AgentActionFingerprint.sha256(prompt));
+        }
     }
 }
