@@ -124,7 +124,9 @@ class AgentCapabilityConfigurationTest {
                         {"candidateHandles":[" "],"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
                         """, context);
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=codebase_lookup_api_route; reason=BEAN_VALIDATION; "
+                        + "invalidFields=[candidateHandles]; constraints=[candidateHandles:NotBlank]"));
     }
 
     @Test

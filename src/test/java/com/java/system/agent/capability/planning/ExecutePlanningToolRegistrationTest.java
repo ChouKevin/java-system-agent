@@ -73,7 +73,8 @@ class ExecutePlanningToolRegistrationTest {
                 {"method":"POST","targetUrl":"https://service.example/orders","jsonBody":"  ","rationale":"Preview order update"}
                 """, context(0));
 
-        assertThat(unsupportedMethod).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(unsupportedMethod).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=execute_http; reason=JSON_CONTRACT"));
         assertThat(malformedBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(emptyBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(whitespaceBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
@@ -93,9 +94,12 @@ class ExecutePlanningToolRegistrationTest {
                 {"method":"POST","targetUrl":"https://service.example/orders","rationale":"Preview order update"} {}
                 """, context(0));
 
-        assertThat(explicitNull).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
-        assertThat(unknownField).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
-        assertThat(trailingTokens).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        assertThat(explicitNull).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=execute_http; reason=EXPLICIT_NULL"));
+        assertThat(unknownField).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=execute_http; reason=JSON_CONTRACT"));
+        assertThat(trailingTokens).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=execute_http; reason=JSON_CONTRACT"));
     }
 
     private static PlanningToolRegistry registry() {

@@ -13,11 +13,13 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
@@ -110,6 +112,30 @@ class StrictPlanningToolDecoderTest {
     }
 
     @Test
+    void exposes_bounded_safe_feedback_without_input_values() {
+        assertThatThrownBy(() -> decoder.decode(
+                "{\"candidateHandles\":[\"SENSITIVE_ONE\",\"SENSITIVE_TWO\"]}", BoundedInput.class))
+                .isInstanceOfSatisfying(PlanningToolInputException.class, exception -> assertThat(exception.safeDiagnostic())
+                        .contains("reason=BEAN_VALIDATION; invalidFields=[candidateHandles]; "
+                                + "constraints=[candidateHandles:Size(max=1)]"))
+                .hasMessageNotContaining("SENSITIVE_ONE")
+                .hasMessageNotContaining("SENSITIVE_TWO");
+    }
+
+    @Test
+    void excludes_submitted_map_keys_from_safe_feedback() {
+        assertThatThrownBy(() -> decoder.decode(
+                "{\"values\":{\"SENSITIVE_KEY\":\"\"}}", MapInput.class))
+                .isInstanceOfSatisfying(PlanningToolInputException.class, exception -> {
+                    String diagnostic = exception.safeDiagnostic().orElseThrow();
+                    assertThat(diagnostic)
+                            .isEqualTo("reason=BEAN_VALIDATION; invalidFields=[values]; "
+                                    + "constraints=[values:NotBlank]")
+                            .doesNotContain("SENSITIVE_KEY");
+                });
+    }
+
+    @Test
     void planning_protocol_components_do_not_accept_a_host_object_mapper() {
         assertThat(Arrays.stream(StrictPlanningToolDecoder.class.getConstructors())
                 .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes())))
@@ -132,6 +158,14 @@ class StrictPlanningToolDecoderTest {
     private record Nested(
             @JsonProperty(required = true) @NotBlank String required,
             @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String optional) {
+    }
+
+    private record BoundedInput(
+            @JsonProperty(required = true) @NotNull @Size(max = 1) List<@NotBlank String> candidateHandles) {
+    }
+
+    private record MapInput(
+            @JsonProperty(required = true) @NotNull Map<@NotBlank String, @NotBlank String> values) {
     }
 
     private static Handler recordingHandler(List<LogRecord> records) {
