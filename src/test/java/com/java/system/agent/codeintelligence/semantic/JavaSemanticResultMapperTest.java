@@ -47,6 +47,24 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void keepsResolvedApiMetadataWhenEntryPointDescriptionExceedsEvidenceBound() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTarget target = new SemanticDtos.MethodTarget("src/Orders.java", "com.example", "Orders",
+                "create", List.of("CreateOrder"));
+        String description = "x".repeat(1_100);
+        SemanticDtos.EntryPointsResponse response = new SemanticDtos.EntryPointsResponse("orders", REVISION, List.of(
+                new SemanticDtos.EntryPointClassResponse("Orders", "com.example", "com/example", "Order entry points",
+                List.of("/orders"), List.of(new SemanticDtos.ApiEntryPointMethodResponse("create", description, "API",
+                "/orders", List.of("POST"), List.of("Creates an order"), resolved(target))))));
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
+                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+
+        assertThat(result.evidence()).singleElement().extracting(EvidenceRef::content)
+                .asString().contains("url=/orders", "httpMethods=POST", "swagger=Creates an order");
+    }
+
+    @Test
     void mapsProviderMetadataToRevisionPinnedEvidence() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         RepositoryRevision revision = REPOSITORY_REVISION;
@@ -63,7 +81,7 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.MethodTargetPayload implementationTarget = new SemanticDtos.MethodTargetPayload(
                 new SemanticDtos.SourceTypeIdentityPayload(new SemanticDtos.JavaTypeIdentityPayload("com.example",
                         "OrderLookupService"), "src/OrderLookupService.java"), "find", List.of("java.lang.String"));
-        SemanticDtos.TextRangePayload declarationRange = textRange(2, 4, 2, 10);
+        SemanticDtos.TextRangePayload declarationRange = textRange(0, 0, 0, 1);
         SemanticDtos.TextRangePayload firstOccurrence = textRange(8, 2, 8, 8);
         SemanticDtos.TextRangePayload secondOccurrence = textRange(12, 6, 12, 12);
 
@@ -115,7 +133,8 @@ class JavaSemanticResultMapperTest {
         assertThat(references.evidence()).extracting(EvidenceRef::semanticTarget).containsExactly(
                 sourceRangeTarget("src/Orders.java", declarationRange), sourceRangeTarget("src/Orders.java", firstOccurrence),
                 sourceRangeTarget("src/Orders.java", secondOccurrence));
-        assertThat(references.evidence().get(0).content()).contains("reference=declaration", "target=TYPE", "total=7");
+        assertThat(references.evidence().get(0).content()).contains("reference=declaration", "target=TYPE",
+                "range=1:1-1:2", "total=7");
         assertThat(references.evidence().subList(1, 3)).extracting(EvidenceRef::content)
                 .allSatisfy(content -> assertThat(content).contains("reference=occurrence", "context=TYPE", "total=7"));
         assertThat(entryPoints.observations()).isEmpty();

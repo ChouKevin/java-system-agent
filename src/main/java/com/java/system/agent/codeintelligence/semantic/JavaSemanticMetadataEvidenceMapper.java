@@ -19,8 +19,8 @@ final class JavaSemanticMetadataEvidenceMapper {
                            SemanticDtos.EntryPointClassResponse entryPoint,
                            SemanticDtos.EntryPointMethodResponse method, SemanticTarget target) {
         String content = "entryPoint; kind=" + method.type() + "; class=" + entryPoint.packageName() + "."
-                + entryPoint.className() + "; method=" + method.name() + "; description=" + method.description()
-                + entryPointMetadata(method);
+                + entryPoint.className() + "; method=" + method.name() + entryPointMetadata(method) + "; description="
+                + method.description();
         return evidence(repositoryId, revision, target, content);
     }
 
@@ -91,8 +91,8 @@ final class JavaSemanticMetadataEvidenceMapper {
     }
 
     private String range(SemanticDtos.TextRangePayload range) {
-        return range.start().line() + ":" + range.start().character() + "-" + range.end().line() + ":"
-                + range.end().character();
+        return (range.start().line() + 1) + ":" + (range.start().character() + 1) + "-"
+                + (range.end().line() + 1) + ":" + (range.end().character() + 1);
     }
 
     private String values(List<String> values) {
