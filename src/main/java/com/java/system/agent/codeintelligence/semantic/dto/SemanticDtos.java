@@ -255,7 +255,7 @@ public final class SemanticDtos {
         }
     }
 
-    /** Java Semantic Service 回傳的 follow-up HTTP contract data，Agent runtime capability exposure 延至下一個 milestone */
+    /** Java Semantic Service 回傳的具型別 follow-up HTTP contract data，供 Agent runtime 建立後續查詢 capability */
     public record AvailableFollowUp(String operation, FollowUpApi api, AvailableFollowUpRequest request) {
 
         public AvailableFollowUp {
