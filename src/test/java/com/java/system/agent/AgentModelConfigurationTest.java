@@ -19,6 +19,7 @@ import jakarta.validation.Validation;
 import com.java.system.agent.model.quota.ModelQuotaGate;
 import com.java.system.agent.model.verification.AnswerVerificationDispatcher;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -27,6 +28,7 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -66,9 +68,12 @@ class AgentModelConfigurationTest {
     }
 
     @Test
-    void failsClosedWhenTheConfiguredActionSystemResourceIsMissingBeforePortsAreUsable() {
+    void failsClosedWhenTheConfiguredActionSystemResourceIsMissingBeforePortsAreUsable(
+            @TempDir Path temporaryDirectory) {
+        String missingActionSystem = temporaryDirectory.resolve("uncreated/action-system.md").toUri().toString();
+
         contextRunner.withPropertyValues(
-                        "agent.model.prompts.action-system=file:/tmp/java-system-agent-missing-prompts/action-system.md")
+                        "agent.model.prompts.action-system=" + missingActionSystem)
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure()).hasStackTraceContaining("action/system");
