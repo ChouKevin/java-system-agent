@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.RouteCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
@@ -17,6 +18,10 @@ import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.codeintelligence.planning.DiscoverTypeMembersExecutionInput;
+import com.java.system.agent.codeintelligence.planning.FindInternalReferencesExecutionInput;
+import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -216,6 +221,14 @@ class JavaSemanticResultMapperTest {
                 {"operation":"GET_METHOD_SOURCE","api":{"method":"POST","path":"/v1/discovery/method-source","operationId":"getMethodSource"},"request":{"repoId":"orders","expectedRevision":"%s","target":%s}}
                 """.formatted(REVISION, target);
         String followUps = "[" + followUp + "]";
+        String methodMemberFollowUp = """
+                {"operation":"GET_TYPE_MEMBERS","api":{"method":"POST","path":"/v1/discovery/type-members","operationId":"discoverTypeMembers"},"request":{"repoId":"orders","expectedRevision":"%s","sourceType":%s,"memberKinds":["FIELD"],"offset":0,"limit":50}}
+                """.formatted(REVISION, sourceType);
+        String fieldMemberFollowUp = """
+                {"operation":"FIND_INTERNAL_REFERENCES","api":{"method":"POST","path":"/v1/discovery/internal-references","operationId":"findInternalReferences"},"request":{"repoId":"orders","expectedRevision":"%s","target":{"kind":"MEMBER","identity":{"scope":"TYPE","ownerType":%s,"name":"id"}},"offset":0,"limit":20}}
+                """.formatted(REVISION, sourceType);
+        String methodMemberFollowUps = "[" + methodMemberFollowUp + "]";
+        String fieldMemberFollowUps = "[" + fieldMemberFollowUp + "]";
         String concept = """
                 {"identity":{"kind":"METHOD","target":%s},"displayValue":"Orders.find","matchedTerms":["order"],"authority":"SYNTAX_RESOLVED","evidence":[{"identity":{"kind":"METHOD","target":%s}}],"availableFollowUps":%s}
                 """.formatted(target, target, followUps);
@@ -234,7 +247,7 @@ class JavaSemanticResultMapperTest {
                 """.formatted(REVISION, target, target, followUps), SemanticDtos.DiscoverMethodImplementationsResponse.class);
         SemanticDtos.DiscoverTypeMembersResponse members = objectMapper.readValue("""
                 {"repoId":"orders","analyzedRevision":"%s","sourceType":%s,"typeKind":"CLASS","annotations":[],"implementedTypes":[],"extendedTypes":[],"members":[{"kind":"METHOD","target":%s,"availableFollowUps":%s},{"kind":"FIELD","identity":{"scope":"TYPE","ownerType":%s,"name":"id"},"writtenType":"long","resolvedType":"long","annotations":[],"limitations":[],"availableFollowUps":%s}],"page":%s,"coverage":{"status":"COMPLETE","scannedFileCount":1,"extractedFileCount":1,"syntaxFailedFileCount":0},"availableFollowUps":[]}
-                """.formatted(REVISION, sourceType, target, followUps, sourceType, followUps, memberPage),
+                """.formatted(REVISION, sourceType, target, methodMemberFollowUps, sourceType, fieldMemberFollowUps, memberPage),
                 SemanticDtos.DiscoverTypeMembersResponse.class);
         SemanticDtos.FindInternalReferencesResponse references = objectMapper.readValue("""
                 {"repoId":"orders","analyzedRevision":"%s","status":"COMPLETE","targetDeclaration":{"target":{"kind":"TYPE","identity":%s},"declarationRange":%s,"availableFollowUps":%s},"totalReferenceCount":1,"referenceGroups":[{"context":{"kind":"TYPE","sourceType":%s},"representativeReferences":[{"range":%s,"availableFollowUps":%s}],"limits":{"limit":10,"returnedCount":1,"totalCount":1,"truncated":false},"availableFollowUps":%s,"unavailableFollowUps":[{"reason":"SEARCH_INCOMPLETE","recommendedAction":"FIX_SOURCE_OR_RETRY"}]},{"context":{"kind":"METHOD","method":%s},"representativeReferences":[],"limits":{"limit":10,"returnedCount":0,"totalCount":0,"truncated":false},"availableFollowUps":[],"unavailableFollowUps":[]}],"page":{"offset":0,"limit":10,"returnedCount":1,"totalCount":1,"hasMore":false},"issueSummaries":[],"availableFollowUps":[]}
@@ -263,8 +276,43 @@ class JavaSemanticResultMapperTest {
                 REPOSITORY_REVISION, listeners)).discoveredCandidates()).hasSize(2);
         assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverMethodImplementations(REPOSITORY_ID,
                 REPOSITORY_REVISION, implementations)).discoveredCandidates()).hasSize(2);
-        assertThat(((CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION,
-                members)).discoveredCandidates()).hasSize(3);
+        CapabilityExecutionResult.Succeeded memberResult = (CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(
+                REPOSITORY_ID, REPOSITORY_REVISION, members);
+        List<FollowUpCandidate> memberFollowUps = memberResult.discoveredCandidates().stream()
+                .filter(FollowUpCandidate.class::isInstance)
+                .map(FollowUpCandidate.class::cast)
+                .toList();
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        DiscoverTypeMembersExecutionInput typeMembersInput = payloadCodec.decode(memberFollowUps.get(0).payload(),
+                DiscoverTypeMembersExecutionInput.class);
+        FindInternalReferencesExecutionInput internalReferencesInput = payloadCodec.decode(memberFollowUps.get(1).payload(),
+                FindInternalReferencesExecutionInput.class);
+
+        assertThat(memberResult.discoveredCandidates()).hasSize(3);
+        assertThat(memberFollowUps).extracting(FollowUpCandidate::targetCapabilityName).containsExactly(
+                "codebase_discover_type_members", "codebase_find_internal_references");
+        assertThat(memberFollowUps).extracting(FollowUpCandidate::repositoryId).containsOnly(REPOSITORY_ID);
+        assertThat(memberFollowUps).extracting(FollowUpCandidate::analyzedRevision).containsOnly(REPOSITORY_REVISION);
+        assertThat(memberFollowUps).extracting(FollowUpCandidate::targetCapabilityVersion).containsOnly("v1");
+        assertThat(memberFollowUps).extracting(candidate -> candidate.payload().value()).allSatisfy(
+                payload -> assertThat(payload).isNotBlank());
+        assertThat(typeMembersInput.sourceType()).isEqualTo(objectMapper.readValue(sourceType,
+                SemanticDtos.SourceTypeIdentityPayload.class));
+        assertThat(typeMembersInput.memberKinds()).containsExactly("FIELD");
+        assertThat(typeMembersInput.namePrefix()).isEmpty();
+        assertThat(typeMembersInput.offset()).isZero();
+        assertThat(typeMembersInput.limit()).isEqualTo(50);
+        assertThat(internalReferencesInput.target().kind()).isEqualTo("MEMBER");
+        assertThat(internalReferencesInput.target().identity()).isInstanceOf(
+                SemanticDtos.SourceMemberIdentityPayload.TypeMember.class);
+        SemanticDtos.SourceMemberIdentityPayload.TypeMember fieldIdentity =
+                (SemanticDtos.SourceMemberIdentityPayload.TypeMember) internalReferencesInput.target().identity();
+        assertThat(fieldIdentity.ownerType()).isEqualTo(objectMapper.readValue(sourceType,
+                SemanticDtos.SourceTypeIdentityPayload.class));
+        assertThat(fieldIdentity.name()).isEqualTo("id");
+        assertThat(internalReferencesInput.offset()).isZero();
+        assertThat(internalReferencesInput.limit()).isEqualTo(20);
         assertThat(((CapabilityExecutionResult.Succeeded) mapper.findInternalReferences(REPOSITORY_ID,
                 REPOSITORY_REVISION, references)).discoveredCandidates()).hasSize(5);
         assertThat(((CapabilityExecutionResult.Succeeded) mapper.getEvidenceSource(REPOSITORY_ID, REPOSITORY_REVISION,
