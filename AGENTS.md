@@ -28,7 +28,7 @@ persistence/
   jdbc/         PostgreSQL inbox, transition, cancellation, and session adapters
 capability/     framework-neutral PlanningToolProvider platform, registry, executor SPI, and generic QUERY dispatcher
 codeintelligence/
-                Java Semantic Service HTTP adapter, five read-only QUERY tools, and executors
+                Java Semantic Service HTTP adapter, registry-contributed read-only capabilities, and executors
 model/          Spring AI schema, callback, message, action, and answer-verification adapters
 Agent*Configuration.java
                 `agent-runtime` composition, properties, and replaceable infrastructure
@@ -45,9 +45,18 @@ Session history is read once and append-only, while the append-only Agent event 
 current-state snapshot are persisted separately. `interaction` serializes work by opaque session;
 `persistence` implements infrastructure ports without becoming a named interface. `capability`
 depends on `answering :: domain` and `answering :: port-out`; it owns the core ANSWER/CLARIFY
-planning tools. `codeintelligence` contributes the five read-only QUERY tools and additionally
+planning tools. `codeintelligence` contributes a registry-contributed read-only QUERY capability set and additionally
 consumes the capability executor SPI and planning contract. `model` owns the Spring AI schema,
 callback, and message adapters while consuming answering contracts and `capability :: planning`.
+
+`issuedCapabilities` is answering's capability/handle catalog, not the current Spring AI callback
+list. Before each action-model turn, the registry filters contributed registrations through
+`PlanningToolRegistration.isIssued(context)` into one snapshot: the model may call only those
+names, and the prompt names and callbacks are projected from that same snapshot. Provider follow-up
+candidates carry canonical payload and analyzed-revision scope; historical evidence provenance is
+context, not permission to repeat a tool. Semantic method navigation can reach fields on its owning
+type through a provider-issued type-member follow-up, and a typed field result can authorize a
+provider-issued internal-reference search.
 
 The external `java-code-intelligence` service owns repository lifecycle, JDT LS integration,
 call-graph construction, its HTTP/MCP adapters, build, deployment, and service documentation. This
@@ -81,9 +90,8 @@ one Agent worker, and one Slack-delivery worker.
 - PostgreSQL durably owns source admission, inbox rows, Agent state/events, append-only session
   history, and receipt/final delivery outbox rows. Slack transport is at-least-once from this
   application's perspective; the deployment contract remains one machine and one process.
-- Capability execution is read-only. `codeintelligence` contributes the five built-in QUERY tools:
-  list entry points, lookup/suggest API routes, and outgoing/incoming call graphs. Do not infer an
-  external-state mutation contract.
+- Capability execution is read-only. `codeintelligence` contributes its registry-defined QUERY
+  capability set. Do not infer an external-state mutation contract.
 
 The validated action-loop cutover is current:
 

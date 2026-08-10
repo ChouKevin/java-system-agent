@@ -38,7 +38,7 @@ The composed M3 flow provides:
 - PostgreSQL adapters for source admission, inbox, Agent transitions, cancellation, session history,
   and delivery outbox durability
 - Spring AI action planning and answer-verification adapters, including a contract-only verifier
-- HTTP repository catalog/revision and five Java Semantic Service capability adapters
+- HTTP repository catalog/revision and a registry-contributed Java Semantic Service read-only capability set
 
 The model chooses the semantic action, including candidate subset and order. Runtime validators
 accept or reject that proposal against issued contracts. The reducer does not make semantic
@@ -49,6 +49,19 @@ There is no confidence field, route score, or semantic ranking in this flow. Unc
 language and structured context: observations, evidence, warnings, candidate descriptions, and the
 model's explicit explanation. The runtime does not truncate, summarize, delete, reorder, or rewrite
 conversation or model-selected candidates.
+
+## Planning Capability Issuance
+
+The registry contributes a read-only capability set. `issuedCapabilities` is answering's
+capability/handle catalog, not the Spring AI callback list for the current turn. Before each action
+model call, registrations are filtered by `PlanningToolRegistration.isIssued(context)` into the
+current snapshot: the model may call only names in that snapshot, and prompt names and callbacks
+come from that same snapshot.
+
+Provider follow-up candidates carry a canonical payload and the analyzed revision scope. Historical
+evidence provenance remains context, not permission to repeat a tool. Semantic method navigation
+can reach fields on its owning type through a provider-issued type-member follow-up; a typed field
+result can authorize a provider-issued internal-reference search.
 
 ## Durable Slack Flow
 
@@ -114,7 +127,7 @@ src/main/java/com/java/system/agent/
   persistence/   versioned JSON codecs and PostgreSQL JDBC adapters
   capability/    planning-tool registry, executor SPI, and generic QUERY dispatcher
   codeintelligence/
-                 external Java code intelligence HTTP adapter and five read-only executors
+                 external Java code intelligence HTTP adapter and registry-contributed read-only capabilities
   model/         Spring AI action and answer-verification adapters
   Agent*Configuration.java
                  profile-gated root composition and replaceable infrastructure
@@ -177,13 +190,8 @@ it on, the project-owned default is an unpooled `DriverManagerDataSource` plus F
 integrator may instead provide `DataSource`, `Flyway`, `JdbcClient`, or `TransactionTemplate` beans.
 The default model is [`gemini-3.1-flash-lite`](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite).
 
-The five built-in, read-only codebase capabilities are:
-
-- `codebase_list_entry_points`
-- `codebase_lookup_api_route`
-- `codebase_suggest_api_route`
-- `codebase_outgoing_call_graph`
-- `codebase_incoming_call_graph`
+Java Semantic capabilities are contributed through the planning registry as a read-only capability
+set. The action model receives only the registrations issued for its current context.
 
 A representative one-query answer performs three LLM calls and three HTTP calls: catalog HTTP →
 `QUERY` action LLM → revision HTTP → capability HTTP → `ANSWER` action LLM → verifier LLM. The
