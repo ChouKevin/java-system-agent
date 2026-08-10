@@ -71,6 +71,9 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(statement.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
         assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
                 .isEqualTo(1);
+        assertThat(statement.path("properties").path("observationIds").path("type").asText()).isEqualTo("array");
+        assertThat(statement.path("properties").path("observationIds").path("items").path("type").asText())
+                .isEqualTo("string");
         assertThat(statement.path("properties").path("observationIds").path("items").path("minLength").asInt())
                 .isEqualTo(1);
         assertThat(statement.path("properties").fieldNames()).toIterable()

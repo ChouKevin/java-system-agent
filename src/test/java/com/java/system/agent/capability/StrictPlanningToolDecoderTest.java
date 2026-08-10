@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
@@ -143,6 +144,20 @@ class StrictPlanningToolDecoderTest {
     }
 
     @Test
+    void exposes_declared_field_and_json_array_type_without_submitted_value() {
+        assertThatThrownBy(() -> decoder.decode("""
+                {"nested":{"values":"SENSITIVE_VALUE"}}
+                """, NestedCollectionInput.class))
+                .isInstanceOfSatisfying(PlanningToolInputException.class, exception -> {
+                    String diagnostic = exception.safeDiagnostic().orElseThrow();
+                    assertThat(diagnostic)
+                            .isEqualTo("reason=JSON_CONTRACT; invalidField=nested.values; expectedJsonType=array")
+                            .doesNotContain("SENSITIVE_VALUE")
+                            .doesNotContain("Set");
+                });
+    }
+
+    @Test
     void exposes_bounded_safe_feedback_without_input_values() {
         assertThatThrownBy(() -> decoder.decode(
                 "{\"candidateHandles\":[\"SENSITIVE_ONE\",\"SENSITIVE_TWO\"]}", BoundedInput.class))
@@ -189,6 +204,14 @@ class StrictPlanningToolDecoderTest {
     private record Nested(
             @JsonProperty(required = true) @NotBlank String required,
             @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) String optional) {
+    }
+
+    private record NestedCollectionInput(
+            @JsonProperty(required = true) @NotNull @Valid NestedCollection nested) {
+    }
+
+    private record NestedCollection(
+            @JsonProperty(required = true) @NotNull Set<@NotBlank String> values) {
     }
 
     private record BoundedInput(

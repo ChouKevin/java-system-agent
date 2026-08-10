@@ -372,6 +372,25 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
+    void returns_actionable_safe_array_feedback_without_calling_answer_mapper() {
+        AtomicInteger mapperCalls = new AtomicInteger();
+        CountingChatModel model = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"statements":[{"statementId":"statement-1","type":"LIMITATION","text":"The source remains unresolved",\
+                "citationHandles":[],"observationIds":"SENSITIVE_VALUE"}]}
+                """));
+
+        AgentActionProposal proposal = adapter(model, input -> failIfAnswerMapperExecutes(mapperCalls))
+                .nextAction(answerContext());
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT; "
+                        + "invalidField=statements.observationIds; expectedJsonType=array"));
+        assertThat(proposal.toString()).doesNotContain("SENSITIVE_VALUE").doesNotContain("Set");
+        assertThat(model.calls()).isEqualTo(1);
+        assertThat(mapperCalls).hasValue(0);
+    }
+
+    @Test
     void rejectsInvalidNestedAnswerStatementsBeforeExecutingAnswerMapper() {
         AtomicInteger mapperCalls = new AtomicInteger();
         CountingChatModel missingType = new CountingChatModel(toolCall("agent_submit_answer", """

@@ -14,6 +14,7 @@ import jakarta.validation.constraints.Size;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.RecordComponent;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -149,6 +150,10 @@ public final class StrictPlanningToolDecoder {
         if (!invalidFields.isEmpty()) {
             safeDiagnostic += "; invalidFields=" + invalidFields + "; constraints=" + constraints;
         }
+        String expectedJsonType = safeExpectedJsonType(cause);
+        if (!"NONE".equals(expectedJsonType) && !"NONE".equals(mappingPath)) {
+            safeDiagnostic += "; invalidField=" + mappingPath + "; expectedJsonType=" + expectedJsonType;
+        }
         return new PlanningToolInputException(safeDiagnostic, cause);
     }
 
@@ -189,5 +194,14 @@ public final class StrictPlanningToolDecoder {
             return "NONE";
         }
         return mismatchedInput.getTargetType().getSimpleName();
+    }
+
+    private static String safeExpectedJsonType(Exception cause) {
+        if (!(cause instanceof MismatchedInputException mismatchedInput)
+                || Objects.isNull(mismatchedInput.getTargetType())) {
+            return "NONE";
+        }
+        Class<?> targetType = mismatchedInput.getTargetType();
+        return targetType.isArray() || Collection.class.isAssignableFrom(targetType) ? "array" : "NONE";
     }
 }
