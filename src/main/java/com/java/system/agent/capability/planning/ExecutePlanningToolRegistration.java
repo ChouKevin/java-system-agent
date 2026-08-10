@@ -12,6 +12,9 @@ import java.util.Optional;
 public final class ExecutePlanningToolRegistration
         implements PlanningToolRegistration<ExecuteHttpPlanningInput> {
 
+    private static final PlanningToolDescriptor DESCRIPTOR = PlanningToolDescriptor.core(
+            PlanningToolCategory.EXECUTE, "execute_http");
+
     private final ExecuteJsonBodyValidator bodyValidator = new ExecuteJsonBodyValidator();
 
     @Override
@@ -22,6 +25,11 @@ public final class ExecutePlanningToolRegistration
     @Override
     public String description() {
         return "Agent EXECUTE preview HTTP mutation intent";
+    }
+
+    @Override
+    public PlanningToolDescriptor descriptor() {
+        return DESCRIPTOR;
     }
 
     @Override

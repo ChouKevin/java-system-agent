@@ -69,7 +69,8 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                         policy(CodeIntelligenceQuery.DISCOVER_CONCEPTS,
                                 Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
                         DiscoverConceptsPlanningInput.class, DiscoverConceptsExecutionInput.class,
-                        new DiscoverConceptsPlanningMapper(), new DiscoverConceptsExecutor(requiredAdapter), requiredPayloadCodec),
+                        new DiscoverConceptsPlanningMapper(), new DiscoverConceptsExecutor(requiredAdapter), requiredPayloadCodec,
+                        CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName()),
                 PlanningToolRegistry.followUpOnlyRegistration(
                         policy(CodeIntelligenceQuery.RESOLVE_CONCEPT, Set.of(CandidateKind.FOLLOW_UP)),
                         ResolveConceptExecutionInput.class, new ResolveConceptExecutor(requiredAdapter)),
@@ -84,7 +85,8 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                         new DiscoverMethodImplementationsExecutor(requiredAdapter)),
                 PlanningToolRegistry.followUpOnlyRegistration(
                         policy(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, Set.of(CandidateKind.FOLLOW_UP)),
-                        DiscoverTypeMembersExecutionInput.class, new DiscoverTypeMembersExecutor(requiredAdapter)),
+                        DiscoverTypeMembersExecutionInput.class, new DiscoverTypeMembersExecutor(requiredAdapter),
+                        CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName()),
                 PlanningToolRegistry.followUpOnlyRegistration(
                         policy(CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES, Set.of(CandidateKind.FOLLOW_UP)),
                         FindInternalReferencesExecutionInput.class, new FindInternalReferencesExecutor(requiredAdapter)),

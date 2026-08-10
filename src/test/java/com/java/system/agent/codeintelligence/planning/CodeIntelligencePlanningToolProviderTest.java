@@ -175,6 +175,31 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
+    void exposesExactQueryDescriptorsAndOnlyTheCanonicalGuidanceIds() {
+        CodeIntelligencePlanningToolProvider provider = new CodeIntelligencePlanningToolProvider(
+                mock(JavaSemanticServiceHttpAdapter.class), new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator()));
+
+        assertThat(provider.registrations())
+                .allSatisfy(registration -> assertThat(registration.descriptor().toolName())
+                        .isEqualTo(registration.name()));
+        assertThat(provider.registrations())
+                .allSatisfy(registration -> {
+                    QueryCapabilityRegistration<?> queryRegistration = (QueryCapabilityRegistration<?>) registration;
+                    assertThat(registration.descriptor().capability()).contains(queryRegistration.policy());
+                });
+        List<Map.Entry<String, String>> guidanceIds = provider.registrations().stream()
+                .map(registration -> registration.descriptor().guidanceId()
+                        .map(guidanceId -> Map.entry(registration.name(), guidanceId)))
+                .flatMap(Optional::stream)
+                .toList();
+
+        assertThat(guidanceIds).containsExactlyInAnyOrder(
+                Map.entry("codebase_discover_concepts", "codebase_discover_concepts"),
+                Map.entry("codebase_discover_type_members", "codebase_discover_type_members"));
+    }
+
+    @Test
     void describesTheCandidateKindsAcceptedByDirectQueryTools() {
         CodeIntelligencePlanningToolProvider provider = new CodeIntelligencePlanningToolProvider(
                 mock(JavaSemanticServiceHttpAdapter.class), new CanonicalCapabilityPayloadCodec(

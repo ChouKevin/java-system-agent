@@ -123,11 +123,31 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
                 policy, planningInputType, executionInputType, mapper, executor, payloadCodec);
     }
 
+    public static <P, E> QueryPlanningToolRegistration<P, E> registration(
+            CapabilityPolicy policy,
+            Class<P> planningInputType,
+            Class<E> executionInputType,
+            QueryPlanningMapper<P, E> mapper,
+            CapabilityExecutor<E> executor,
+            CanonicalCapabilityPayloadCodec payloadCodec,
+            String guidanceId) {
+        return new QueryPlanningToolRegistration<>(
+                policy, planningInputType, executionInputType, mapper, executor, payloadCodec, Optional.of(guidanceId));
+    }
+
     public static <E> FollowUpOnlyQueryRegistration<E> followUpOnlyRegistration(
             CapabilityPolicy policy,
             Class<E> executionInputType,
             CapabilityExecutor<E> executor) {
         return new FollowUpOnlyQueryRegistration<>(policy, executionInputType, executor);
+    }
+
+    public static <E> FollowUpOnlyQueryRegistration<E> followUpOnlyRegistration(
+            CapabilityPolicy policy,
+            Class<E> executionInputType,
+            CapabilityExecutor<E> executor,
+            String guidanceId) {
+        return new FollowUpOnlyQueryRegistration<>(policy, executionInputType, executor, Optional.of(guidanceId));
     }
 
     private <I> AgentAction interpret(

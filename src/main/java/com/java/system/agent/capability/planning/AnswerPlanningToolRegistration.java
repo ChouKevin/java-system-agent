@@ -15,6 +15,7 @@ public final class AnswerPlanningToolRegistration<I> implements PlanningToolRegi
     private final String name;
     private final Class<I> planningInputType;
     private final Function<I, AnswerAction> mapper;
+    private final PlanningToolDescriptor descriptor;
 
     public AnswerPlanningToolRegistration(
             String name,
@@ -23,6 +24,7 @@ public final class AnswerPlanningToolRegistration<I> implements PlanningToolRegi
         this.name = Objects.requireNonNull(name, "answer planning tool name must not be null");
         this.planningInputType = Objects.requireNonNull(planningInputType, "answer planning input type must not be null");
         this.mapper = Objects.requireNonNull(mapper, "answer planning mapper must not be null");
+        this.descriptor = PlanningToolDescriptor.core(PlanningToolCategory.ANSWER, this.name);
     }
 
     @Override
@@ -35,6 +37,11 @@ public final class AnswerPlanningToolRegistration<I> implements PlanningToolRegi
         return "Before submitting the Agent ANSWER action, Evidence coverage by capability must contain evidence handles "
                 + "for every explicitly requested evidence type; cite those handles. "
                 + "Do not substitute another evidence type for a missing one.";
+    }
+
+    @Override
+    public PlanningToolDescriptor descriptor() {
+        return descriptor;
     }
 
     @Override

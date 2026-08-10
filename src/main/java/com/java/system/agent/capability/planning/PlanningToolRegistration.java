@@ -14,6 +14,8 @@ public sealed interface PlanningToolRegistration<I>
 
     String description();
 
+    PlanningToolDescriptor descriptor();
+
     Class<I> planningInputType();
 
     default boolean isIssued(AgentPromptContext context) {

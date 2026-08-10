@@ -14,6 +14,7 @@ import com.java.system.agent.answering.port.out.AgentPromptContext;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 僅接受已綁定 follow-up payload 執行的 QUERY registration，不可直接由模型規劃
@@ -24,15 +25,27 @@ public final class FollowUpOnlyQueryRegistration<E>
     private final CapabilityPolicy policy;
     private final Class<E> executionInputType;
     private final CapabilityExecutor<E> executor;
+    private final Optional<String> guidanceId;
+    private final PlanningToolDescriptor descriptor;
 
     public FollowUpOnlyQueryRegistration(
             CapabilityPolicy policy,
             Class<E> executionInputType,
             CapabilityExecutor<E> executor) {
+        this(policy, executionInputType, executor, Optional.empty());
+    }
+
+    public FollowUpOnlyQueryRegistration(
+            CapabilityPolicy policy,
+            Class<E> executionInputType,
+            CapabilityExecutor<E> executor,
+            Optional<String> guidanceId) {
         this.policy = Objects.requireNonNull(policy, "follow-up-only registration policy must not be null");
         this.executionInputType = Objects.requireNonNull(executionInputType,
                 "follow-up-only execution input type must not be null");
         this.executor = Objects.requireNonNull(executor, "follow-up-only capability executor must not be null");
+        this.guidanceId = Objects.requireNonNull(guidanceId, "planning tool guidance id must not be null");
+        this.descriptor = PlanningToolDescriptor.query(PlanningToolCategory.FOLLOW_UP_QUERY, this.policy, this.guidanceId);
     }
 
     @Override
@@ -44,6 +57,11 @@ public final class FollowUpOnlyQueryRegistration<E>
     public String description() {
         return "Execute one provider-bound follow-up for " + policy.name()
                 + " by opaque FOLLOW_UP candidate handle";
+    }
+
+    @Override
+    public PlanningToolDescriptor descriptor() {
+        return descriptor;
     }
 
     @Override

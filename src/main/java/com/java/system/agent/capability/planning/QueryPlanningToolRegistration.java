@@ -10,6 +10,7 @@ import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 將一個 QUERY policy、planning mapper、payload type 與 typed executor 綁為唯一擴充單位
@@ -23,6 +24,8 @@ public final class QueryPlanningToolRegistration<P, E>
     private final QueryPlanningMapper<P, E> mapper;
     private final CapabilityExecutor<E> executor;
     private final CanonicalCapabilityPayloadCodec payloadCodec;
+    private final Optional<String> guidanceId;
+    private final PlanningToolDescriptor descriptor;
 
     public QueryPlanningToolRegistration(
             CapabilityPolicy policy,
@@ -31,12 +34,25 @@ public final class QueryPlanningToolRegistration<P, E>
             QueryPlanningMapper<P, E> mapper,
             CapabilityExecutor<E> executor,
             CanonicalCapabilityPayloadCodec payloadCodec) {
+        this(policy, planningInputType, executionInputType, mapper, executor, payloadCodec, Optional.empty());
+    }
+
+    public QueryPlanningToolRegistration(
+            CapabilityPolicy policy,
+            Class<P> planningInputType,
+            Class<E> executionInputType,
+            QueryPlanningMapper<P, E> mapper,
+            CapabilityExecutor<E> executor,
+            CanonicalCapabilityPayloadCodec payloadCodec,
+            Optional<String> guidanceId) {
         this.policy = Objects.requireNonNull(policy, "planning registration policy must not be null");
         this.planningInputType = Objects.requireNonNull(planningInputType, "planning input type must not be null");
         this.executionInputType = Objects.requireNonNull(executionInputType, "execution input type must not be null");
         this.mapper = Objects.requireNonNull(mapper, "planning mapper must not be null");
         this.executor = Objects.requireNonNull(executor, "capability executor must not be null");
         this.payloadCodec = Objects.requireNonNull(payloadCodec, "capability payload codec must not be null");
+        this.guidanceId = Objects.requireNonNull(guidanceId, "planning tool guidance id must not be null");
+        this.descriptor = PlanningToolDescriptor.query(PlanningToolCategory.QUERY, this.policy, this.guidanceId);
     }
 
     @Override
@@ -58,6 +74,11 @@ public final class QueryPlanningToolRegistration<P, E>
                 : "";
         return "Agent QUERY capability. candidateHandles must contain " + candidateCardinality
                 + " candidate of kinds [" + acceptedKinds + "]." + followUpConstraint;
+    }
+
+    @Override
+    public PlanningToolDescriptor descriptor() {
+        return descriptor;
     }
 
     @Override

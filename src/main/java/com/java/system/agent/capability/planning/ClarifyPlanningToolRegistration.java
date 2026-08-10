@@ -15,6 +15,7 @@ public final class ClarifyPlanningToolRegistration<I> implements PlanningToolReg
     private final String name;
     private final Class<I> planningInputType;
     private final Function<I, ClarifyAction> mapper;
+    private final PlanningToolDescriptor descriptor;
 
     public ClarifyPlanningToolRegistration(
             String name,
@@ -23,6 +24,7 @@ public final class ClarifyPlanningToolRegistration<I> implements PlanningToolReg
         this.name = Objects.requireNonNull(name, "clarify planning tool name must not be null");
         this.planningInputType = Objects.requireNonNull(planningInputType, "clarify planning input type must not be null");
         this.mapper = Objects.requireNonNull(mapper, "clarify planning mapper must not be null");
+        this.descriptor = PlanningToolDescriptor.core(PlanningToolCategory.CLARIFY, this.name);
     }
 
     @Override
@@ -33,6 +35,11 @@ public final class ClarifyPlanningToolRegistration<I> implements PlanningToolReg
     @Override
     public String description() {
         return "Agent CLARIFY action";
+    }
+
+    @Override
+    public PlanningToolDescriptor descriptor() {
+        return descriptor;
     }
 
     @Override

@@ -6,6 +6,8 @@ import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec
 import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
 import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
 import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
+import com.java.system.agent.capability.planning.PlanningToolCategory;
+import com.java.system.agent.capability.planning.PlanningToolDescriptor;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
@@ -81,6 +83,40 @@ class PlanningToolRegistryTest {
                 "codebase_lookup_api_route",
                 "codebase_outgoing_call_graph",
                 "codebase_suggest_api_route");
+    }
+
+    @Test
+    void exposesDescriptorsForEachPlanningToolRegistrationCategory() {
+        CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
+        QueryPlanningToolRegistration<TestInput, TestInput> query = queryRegistration("query_tool", "v1", payloadCodec);
+        FollowUpOnlyQueryRegistration<TestInput> followUp = PlanningToolRegistry.followUpOnlyRegistration(
+                sourceSegmentPolicy(), TestInput.class,
+                (executionContext, input) -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()));
+        List<PlanningToolRegistration<?>> registrations = List.of(
+                query,
+                followUp,
+                new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
+                        new SubmitAnswerPlanningMapper()),
+                new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
+                        new RequestClarificationPlanningMapper()),
+                new ExecutePlanningToolRegistration());
+
+        assertThat(registrations)
+                .allSatisfy(registration -> assertThat(registration.descriptor().toolName())
+                        .isEqualTo(registration.name()));
+        assertThat(query.descriptor()).isEqualTo(new PlanningToolDescriptor(
+                PlanningToolCategory.QUERY, query.name(), Optional.of(query.policy()), Optional.empty()));
+        assertThat(followUp.descriptor()).isEqualTo(new PlanningToolDescriptor(
+                PlanningToolCategory.FOLLOW_UP_QUERY, followUp.name(), Optional.of(followUp.policy()), Optional.empty()));
+        assertThat(registrations)
+                .filteredOn(registration -> registration.descriptor().category() == PlanningToolCategory.ANSWER
+                        || registration.descriptor().category() == PlanningToolCategory.CLARIFY
+                        || registration.descriptor().category() == PlanningToolCategory.EXECUTE)
+                .allSatisfy(registration -> {
+                    PlanningToolDescriptor descriptor = registration.descriptor();
+                    assertThat(descriptor.capability()).isEmpty();
+                    assertThat(descriptor.guidanceId()).isEmpty();
+                });
     }
 
     @Test
