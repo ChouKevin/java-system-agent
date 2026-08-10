@@ -371,8 +371,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult discoverTypeMembers(CapabilityExecutionContext context, DiscoverTypeMembersExecutionInput input) {
         return observeCapabilityOperation(MEMBERS_OPERATION, () -> discoveryRequest(MEMBERS_OPERATION, () -> {
-            DiscoveryScope scope = followUpScope(context, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, input,
-                    DiscoverTypeMembersExecutionInput.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, input,
+                    DiscoverTypeMembersExecutionInput.class, SemanticTargetCandidate.class);
+            typeMembersInputFor(scope, input);
             SemanticDtos.TypeMembersFollowUpRequest request = new SemanticDtos.TypeMembersFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.sourceType(), input.memberKinds(), input.namePrefix(), input.offset(), input.limit());
             SemanticDtos.DiscoverTypeMembersResponse response = discoveryPost("/v1/discovery/type-members", request,
@@ -424,8 +425,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult getSourceSegment(CapabilityExecutionContext context, GetSourceSegmentExecutionInput input) {
         return observeCapabilityOperation(SEGMENT_OPERATION, () -> discoveryRequest(SEGMENT_OPERATION, () -> {
-            DiscoveryScope scope = followUpScope(context, CodeIntelligenceQuery.GET_SOURCE_SEGMENT, input,
-                    GetSourceSegmentExecutionInput.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.GET_SOURCE_SEGMENT, input,
+                    GetSourceSegmentExecutionInput.class, SemanticTargetCandidate.class);
+            sourceSegmentInputFor(scope, input);
             SemanticDtos.SourceSegmentFollowUpRequest request = new SemanticDtos.SourceSegmentFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.location(), input.contextLines());
             SemanticDtos.SourceSegmentResponse response = discoveryPost("/v1/discovery/source-segment", request,
@@ -498,7 +500,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                 throw contract("discovery follow-up candidate does not match the requested capability scope");
             }
             T decoded = payloadCodec.decode(followUp.payload(), inputType);
-            if (!decoded.equals(input)) {
+            if (!isCompatibleFollowUpInput(query, decoded, input)) {
                 throw contract("discovery input does not match the selected follow-up payload");
             }
             return new DiscoveryScope(repositoryId, expectedRevision, selected, true);
@@ -510,6 +512,49 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             throw contract("discovery semantic target revision does not match the expected revision");
         }
         return new DiscoveryScope(repositoryId, expectedRevision, selected, false);
+    }
+
+    private <T> boolean isCompatibleFollowUpInput(CodeIntelligenceQuery query, T providerInput, T input) {
+        if (query == CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS
+                && providerInput instanceof DiscoverTypeMembersExecutionInput provider
+                && input instanceof DiscoverTypeMembersExecutionInput requested) {
+            return provider.sourceType().equals(requested.sourceType())
+                    && provider.offset() == requested.offset()
+                    && (provider.offset() == 0 || (provider.memberKinds().equals(requested.memberKinds())
+                    && provider.namePrefix().equals(requested.namePrefix())));
+        }
+        if (query == CodeIntelligenceQuery.GET_SOURCE_SEGMENT
+                && providerInput instanceof GetSourceSegmentExecutionInput provider
+                && input instanceof GetSourceSegmentExecutionInput requested) {
+            return provider.location().equals(requested.location());
+        }
+        return providerInput.equals(input);
+    }
+
+    private void typeMembersInputFor(DiscoveryScope scope, DiscoverTypeMembersExecutionInput input) {
+        if (scope.followUp()) {
+            return;
+        }
+        if (!(scope.selected() instanceof SemanticTargetCandidate candidate)) {
+            throw contract("type member direct candidate must provide exactly one semantic target");
+        }
+        SemanticDtos.SourceTypeIdentityPayload expected = targetMapper.sourceType(candidate.semanticTarget());
+        if (!expected.equals(input.sourceType()) || input.offset() != 0) {
+            throw contract("type member direct input does not match the selected semantic target");
+        }
+    }
+
+    private void sourceSegmentInputFor(DiscoveryScope scope, GetSourceSegmentExecutionInput input) {
+        if (scope.followUp()) {
+            return;
+        }
+        if (!(scope.selected() instanceof SemanticTargetCandidate candidate)) {
+            throw contract("source segment direct candidate must provide exactly one semantic target");
+        }
+        SemanticDtos.SourceRangePayload expected = targetMapper.sourceRange(candidate.semanticTarget());
+        if (!expected.equals(input.location())) {
+            throw contract("source segment direct input does not match the selected semantic target");
+        }
     }
 
     private SemanticDtos.MethodTargetPayload targetFor(DiscoveryScope scope,

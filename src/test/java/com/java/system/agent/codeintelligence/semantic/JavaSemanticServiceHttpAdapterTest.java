@@ -276,6 +276,42 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
+    void rejectsProtectedTypeMemberAndSourceSegmentMutationsBeforeHttp() {
+        TestClient client = testClient();
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/discovery/type-members"));
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/discovery/source-segment"));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        DiscoverTypeMembersExecutionInput directTypeMismatch = new DiscoverTypeMembersExecutionInput(
+                targetPayload().sourceType(), List.of("METHOD"), Optional.empty(), 0, 1);
+        DiscoverTypeMembersExecutionInput providerContinuation = new DiscoverTypeMembersExecutionInput(
+                graphTargetPayload().sourceType(), List.of("METHOD"), Optional.of("find"), 5, 1);
+        DiscoverTypeMembersExecutionInput mutatedContinuation = new DiscoverTypeMembersExecutionInput(
+                graphTargetPayload().sourceType(), List.of("FIELD"), Optional.of("find"), 5, 2);
+        SemanticDtos.SourceRangePayload providerLocation = sourceRange();
+        SemanticDtos.SourceRangePayload differentLocation = new SemanticDtos.SourceRangePayload("src/Other.java",
+                providerLocation.range());
+
+        assertThatThrownBy(() -> adapter.discoverTypeMembers(
+                targetContext("codebase_discover_type_members"), directTypeMismatch))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.discoverTypeMembers(
+                followUpContext("codebase_discover_type_members", providerContinuation), mutatedContinuation))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.getSourceSegment(
+                sourceRangeContext("codebase_get_source_segment", providerLocation),
+                new GetSourceSegmentExecutionInput(differentLocation, 0)))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.getSourceSegment(
+                followUpContext("codebase_get_source_segment", new GetSourceSegmentExecutionInput(providerLocation, 2)),
+                new GetSourceSegmentExecutionInput(differentLocation, 3)))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+
+        client.server().verify();
+    }
+
+    @Test
     void rejectsCallGraphResponsesThatDoNotMatchThePinnedRevision() {
         TestClient client = testClient();
         client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
@@ -950,6 +986,19 @@ class JavaSemanticServiceHttpAdapterTest {
                 new SemanticTargetCandidate(repositoryId, revision, target, "Order lookup"));
         return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), List.of(candidate),
                 "Trace orders", revisions);
+    }
+
+    private static CapabilityExecutionContext sourceRangeContext(String name, SemanticDtos.SourceRangePayload location) {
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        SemanticTarget target = new JavaSemanticCandidateTargetMapper().semanticTarget(location);
+        IssuedCandidate candidate = new IssuedCandidate(
+                new CandidateHandle("candidate-range", new HandleBinding(new AnalysisRunId("run-1"),
+                        new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.SEMANTIC_TARGET),
+                new SemanticTargetCandidate(repositoryId, revision, target, "Source range"));
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), List.of(candidate),
+                "Read source", revisions);
     }
 
     private static CapabilityPolicy descriptor(String name, CandidateKind candidateKind) {

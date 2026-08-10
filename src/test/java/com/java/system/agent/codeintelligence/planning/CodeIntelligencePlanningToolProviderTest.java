@@ -32,6 +32,7 @@ import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import com.java.system.agent.capability.spi.CapabilityExecutionContext;
 import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticCandidateTargetMapper;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticResultMapper;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import jakarta.validation.Validation;
@@ -137,17 +138,17 @@ class CodeIntelligencePlanningToolProviderTest {
                         CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
+                        CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
                         CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
+                        CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(),
                         CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
         assertThat(provider.registrations())
                 .filteredOn(registration -> registration instanceof FollowUpOnlyQueryRegistration<?>)
                 .extracting(registration -> registration.name())
                 .containsExactly(
                         CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
-                        CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
                         CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
-                        CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
-                        CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
+                        CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName());
 
         Map<String, Set<CandidateKind>> candidateKinds = provider.registrations().stream()
                 .map(registration -> (QueryCapabilityRegistration<?>) registration)
@@ -161,11 +162,13 @@ class CodeIntelligencePlanningToolProviderTest {
                 Map.entry(CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(), Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                         Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
-                Map.entry(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
+                Map.entry(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
+                        Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(), Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
-                Map.entry(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
+                Map.entry(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(),
+                        Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName(), Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP))));
         assertThat(provider.registrations())
                 .map(registration -> (QueryCapabilityRegistration<?>) registration)
@@ -261,6 +264,100 @@ class CodeIntelligencePlanningToolProviderTest {
         assertThat(execute(registry, policy, direct, directAction, revisions)).isSameAs(expected);
         assertThat(execute(registry, policy, followUp, followUpAction, revisions)).isSameAs(expected);
         verify(adapter, times(2)).discoverMethodImplementations(any(CapabilityExecutionContext.class), eq(input));
+    }
+
+    @Test
+    void plansTypeMemberDiscoveryFromMethodTargetsAndPreservesContinuationAuthority() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS);
+        IssuedCandidate direct = semanticTargetCandidate("candidate-method", binding, repositoryId, revision);
+        DiscoverTypeMembersExecutionInput directInput = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
+                List.of("FIELD"), Optional.of("order"), 0, 7);
+        DiscoverTypeMembersExecutionInput firstPage = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
+                List.of("METHOD"), Optional.of("find"), 0, 1);
+        DiscoverTypeMembersExecutionInput continuation = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
+                List.of("METHOD"), Optional.of("find"), 10, 7);
+        IssuedCandidate firstPageFollowUp = followUpCandidate("candidate-members-first", binding, repositoryId, revision,
+                policy, payloadCodec.encode(firstPage));
+        IssuedCandidate continuationFollowUp = followUpCandidate("candidate-members-next", binding, repositoryId, revision,
+                policy, payloadCodec.encode(continuation));
+
+        assertThat(registry.issuedRegistrations(promptContext(policy, direct, binding)))
+                .extracting(registration -> registration.name())
+                .contains(policy.name());
+
+        QueryAction directAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-method"],"questionToResolve":"Inspect fields","rationale":"Read the owning type","initialFilter":{"memberKinds":["FIELD"],"namePrefix":"order"},"limit":7}
+                """, promptContext(policy, direct, binding)));
+        QueryAction firstPageAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-members-first"],"questionToResolve":"Inspect fields","rationale":"Refine the first page","initialFilter":{"memberKinds":["FIELD"],"namePrefix":"order"},"limit":7}
+                """, promptContext(policy, firstPageFollowUp, binding)));
+        QueryAction continuationAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-members-next"],"questionToResolve":"Inspect more methods","rationale":"Continue the provider page","limit":9}
+                """, promptContext(policy, continuationFollowUp, binding)));
+
+        assertThat(payloadCodec.decode(directAction.payload(), DiscoverTypeMembersExecutionInput.class))
+                .isEqualTo(directInput);
+        assertThat(payloadCodec.decode(firstPageAction.payload(), DiscoverTypeMembersExecutionInput.class))
+                .isEqualTo(directInput);
+        assertThat(payloadCodec.decode(continuationAction.payload(), DiscoverTypeMembersExecutionInput.class))
+                .isEqualTo(new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(), List.of("METHOD"),
+                        Optional.of("find"), 10, 9));
+        assertThat(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-members-next"],"questionToResolve":"Inspect fields","rationale":"Mutate the continuation","initialFilter":{"memberKinds":["FIELD"],"namePrefix":"order"},"limit":9}
+                """, promptContext(policy, continuationFollowUp, binding)))
+                .isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT: tool=codebase_discover_type_members; "
+                        + "reason=CANDIDATE_INPUT; invalidFields=[initialFilter]; "
+                        + "constraints=[initialFilter:ContinuationFilter]"));
+        verify(adapter, times(0)).discoverTypeMembers(any(CapabilityExecutionContext.class), any());
+    }
+
+    @Test
+    void plansSourceSegmentsOnlyFromExactRangesAndRetainsFollowUpLocation() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.GET_SOURCE_SEGMENT);
+        SemanticDtos.SourceRangePayload location = new SemanticDtos.SourceRangePayload("src/Orders.java",
+                new SemanticDtos.TextRangePayload(new SemanticDtos.Position(0, 1), new SemanticDtos.Position(2, 3)));
+        IssuedCandidate sourceRange = sourceRangeCandidate("candidate-range", binding, repositoryId, revision, location);
+        IssuedCandidate method = semanticTargetCandidate("candidate-method", binding, repositoryId, revision);
+        GetSourceSegmentExecutionInput providerInput = new GetSourceSegmentExecutionInput(location, 2);
+        IssuedCandidate followUp = followUpCandidate("candidate-segment", binding, repositoryId, revision, policy,
+                payloadCodec.encode(providerInput));
+
+        assertThat(registry.issuedRegistrations(promptContext(policy, sourceRange, binding)))
+                .extracting(registration -> registration.name()).contains(policy.name());
+        assertThat(registry.issuedRegistrations(promptContext(policy, method, binding)))
+                .extracting(registration -> registration.name()).doesNotContain(policy.name());
+
+        QueryAction directAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-range"],"questionToResolve":"Read this range","rationale":"Inspect the selected source","contextLines":3}
+                """, promptContext(policy, sourceRange, binding)));
+        QueryAction followUpAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-segment"],"questionToResolve":"Read surrounding source","rationale":"Expand the provider segment","contextLines":4}
+                """, promptContext(policy, followUp, binding)));
+
+        assertThat(payloadCodec.decode(directAction.payload(), GetSourceSegmentExecutionInput.class))
+                .isEqualTo(new GetSourceSegmentExecutionInput(location, 3));
+        assertThat(payloadCodec.decode(followUpAction.payload(), GetSourceSegmentExecutionInput.class))
+                .isEqualTo(new GetSourceSegmentExecutionInput(location, 4));
     }
 
     @Test
@@ -429,6 +526,14 @@ class CodeIntelligencePlanningToolProviderTest {
                 new JavaSemanticResultMapper().semanticTarget(new SemanticDtos.MethodTarget(target.sourceType().sourceFile(),
                         target.sourceType().javaType().packageName(), target.sourceType().javaType().className(),
                         target.methodName(), target.parameterTypes())), "Order service method");
+        return new IssuedCandidate(new CandidateHandle(handleValue, binding, CandidateKind.SEMANTIC_TARGET), candidate);
+    }
+
+    private static IssuedCandidate sourceRangeCandidate(String handleValue, HandleBinding binding,
+                                                        RepositoryId repositoryId, RepositoryRevision revision,
+                                                        SemanticDtos.SourceRangePayload location) {
+        SemanticTargetCandidate candidate = new SemanticTargetCandidate(repositoryId, revision,
+                new JavaSemanticCandidateTargetMapper().semanticTarget(location), "Selected source range");
         return new IssuedCandidate(new CandidateHandle(handleValue, binding, CandidateKind.SEMANTIC_TARGET), candidate);
     }
 
