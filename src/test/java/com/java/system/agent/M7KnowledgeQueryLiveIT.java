@@ -99,7 +99,7 @@ class M7KnowledgeQueryLiveIT {
     private static final Duration TERMINAL_TIMEOUT = Duration.ofMinutes(8);
     private static final KnowledgeScenario COMPREHENSIVE_SCENARIO = new KnowledgeScenario(
             "comprehensive",
-            "在 m7-knowledge-query repository 中，訂單處理有哪些 HTTP API、排程與訊息消費入口？請列出各入口的 package、class、method，分別用 outgoing call-graph evidence 說明它們如何進入共同的 OrderWorkflow.processOrder 流程，再用 implementation 與 internal-reference evidence 驗證共同處理實作，並提供該實作方法的完整來源。",
+            "在 m7-knowledge-query repository 中，訂單處理有哪些 HTTP API、排程與訊息消費入口？請列出各入口的 package、class、method，分別用 outgoing call-graph evidence 說明它們如何進入共同的 OrderWorkflow.processOrder 流程，再用 implementation evidence 確認共同處理實作、用 internal-reference evidence 查證該實作的內部欄位如何被方法使用，並提供該實作方法的完整來源。",
             EvidenceExpectation.COMPREHENSIVE);
     private static final List<KnowledgeScenario> SEEDED_SCENARIOS = List.of(
             new KnowledgeScenario("http-workflow",
@@ -112,7 +112,7 @@ class M7KnowledgeQueryLiveIT {
                     "Trace the RabbitMQ order-request listener to the shared workflow and cite revision-pinned evidence.",
                     EvidenceExpectation.MESSAGE_TO_WORKFLOW),
             new KnowledgeScenario("workflow-implementation-source",
-                    "Find the shared order workflow declaration, its implementation, and complete method source with revision-pinned citations.",
+                    "Find the shared order workflow declaration and its implementation, use internal-reference evidence to show how an internal field is used by the workflow method, and provide the complete method source with revision-pinned citations.",
                     EvidenceExpectation.IMPLEMENTATION_AND_SOURCE));
     private static final KnowledgeScenario MISSING_SYMBOL_SCENARIO = new KnowledgeScenario(
             "missing-symbol",
