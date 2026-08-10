@@ -5,12 +5,14 @@ import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentRunStatus;
+import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
 import com.java.system.agent.answering.domain.run.RunOutcome;
@@ -52,12 +54,18 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -85,6 +93,7 @@ class M7KnowledgeQueryLiveIT {
 
     private static final String SOURCE_TYPE = "m7-knowledge-live";
     private static final String LEGACY_SOURCE_TYPE = "live-test";
+    private static final long M7_LIVE_ADVISORY_LOCK_KEY = 7_431_172_007L;
     private static final Duration POLL_DELAY = Duration.ofSeconds(2);
     private static final Duration TERMINAL_TIMEOUT = Duration.ofMinutes(8);
     private static final KnowledgeScenario COMPREHENSIVE_SCENARIO = new KnowledgeScenario(
@@ -143,32 +152,47 @@ class M7KnowledgeQueryLiveIT {
     @Autowired
     private JdbcClient jdbcClient;
 
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
     @Test
     void should_accept_complete_and_inconclusive_m7_knowledge_queries_through_the_normal_runtime()
-            throws IOException, InterruptedException {
+            throws IOException, InterruptedException, SQLException {
         long seed = Long.parseLong(requiredEnvironment("M7_KNOWLEDGE_SEED"));
         KnowledgeScenario seededScenario = SEEDED_SCENARIOS.get(new Random(seed).nextInt(SEEDED_SCENARIOS.size()));
         String testRunIdentity = "m7-" + Instant.now().toEpochMilli() + "-"
                 + System.getProperty("surefire.forkNumber", "default");
-        clearTestOwnedRows();
+        try (Connection advisoryLockConnection = dataSource.getConnection()) {
+            acquireM7LiveTestLock(advisoryLockConnection);
+            try {
+                clearTestOwnedRows();
+                assertNoEligibleInboxBeforeSubmission();
 
-        ScenarioRun comprehensiveRun = acceptAndProcess(COMPREHENSIVE_SCENARIO, testRunIdentity);
-        PendingTerminalResponse.Answer comprehensiveAnswer = assertCompletedAcceptedState(
-                comprehensiveRun.state(), comprehensiveRun.admission());
-        CitedEvidence comprehensiveEvidence = assertCitationsAndEvidence(
-                comprehensiveRun.state(), comprehensiveAnswer);
-        assertCitedEvidenceRelationships(comprehensiveEvidence.evidence());
+                ScenarioRun comprehensiveRun = acceptAndProcess(COMPREHENSIVE_SCENARIO, testRunIdentity);
+                PendingTerminalResponse.Answer comprehensiveAnswer = assertCompletedAcceptedState(
+                        comprehensiveRun.state(), comprehensiveRun.admission());
+                CitedEvidence comprehensiveEvidence = assertCitationsAndEvidence(
+                        comprehensiveRun.state(), comprehensiveAnswer);
+                assertCitedEvidenceRelationships(comprehensiveEvidence.evidence());
 
-        ScenarioRun seededRun = acceptAndProcess(seededScenario, testRunIdentity);
-        PendingTerminalResponse.Answer seededAnswer = assertCompletedAcceptedState(seededRun.state(), seededRun.admission());
-        CitedEvidence seededEvidence = assertCitationsAndEvidence(seededRun.state(), seededAnswer);
-        assertEvidenceExpectation(seededScenario.evidenceExpectation(), seededRun.state(), seededEvidence.evidence());
+                ScenarioRun seededRun = acceptAndProcess(seededScenario, testRunIdentity);
+                PendingTerminalResponse.Answer seededAnswer = assertCompletedAcceptedState(
+                        seededRun.state(), seededRun.admission());
+                CitedEvidence seededEvidence = assertCitationsAndEvidence(seededRun.state(), seededAnswer);
+                assertEvidenceExpectation(seededScenario.evidenceExpectation(), seededRun.state(), seededEvidence);
 
-        ScenarioRun missingSymbolRun = acceptAndProcess(MISSING_SYMBOL_SCENARIO, testRunIdentity);
-        assertAcceptedInconclusive(missingSymbolRun.state(), missingSymbolRun.admission());
+                ScenarioRun missingSymbolRun = acceptAndProcess(MISSING_SYMBOL_SCENARIO, testRunIdentity);
+                assertAcceptedInconclusive(missingSymbolRun.state(), missingSymbolRun.admission());
 
-        writeManifestIfRequested(seed, seededScenario, List.of(comprehensiveRun, seededRun, missingSymbolRun),
-                comprehensiveEvidence, seededEvidence);
+                writeManifestIfRequested(seed, seededScenario, List.of(comprehensiveRun, seededRun, missingSymbolRun),
+                        comprehensiveEvidence, seededEvidence);
+            } finally {
+                releaseM7LiveTestLock(advisoryLockConnection);
+            }
+        }
     }
 
     private PendingTerminalResponse.Answer assertCompletedAcceptedState(AgentRunState state, SourceAdmission admission) {
@@ -273,12 +297,20 @@ class M7KnowledgeQueryLiveIT {
             throws InterruptedException {
         int capacityDeferrals = 0;
         while (Instant.now().isBefore(deadline)) {
-            Optional<InboxProcessingOutcome> nextOutcome = inboxProcessor.processNext(Instant.now());
-            if (nextOutcome.isEmpty()) {
+            Instant processingTime = Instant.now();
+            Optional<String> nextEligibleRunId = nextEligibleInboxRunId(processingTime);
+            if (nextEligibleRunId.isEmpty()) {
                 pauseForDurablePoll();
                 continue;
             }
-            InboxProcessingOutcome outcome = nextOutcome.orElseThrow();
+            String eligibleRunId = nextEligibleRunId.orElseThrow();
+            if (!eligibleRunId.equals(admission.runId().value())) {
+                throw new AssertionError("live database is not isolated: next eligible inbox run " + eligibleRunId
+                        + " is not admitted run " + admission.runId().value());
+            }
+            InboxProcessingOutcome outcome = inboxProcessor.processNext(processingTime)
+                    .orElseThrow(() -> new AssertionError(
+                            "eligible inbox message disappeared before processing admitted run " + admission.runId().value()));
             switch (outcome) {
                 case COMPLETED -> {
                     AgentRunState state = transitionPort.findByRunId(admission.runId())
@@ -321,10 +353,7 @@ class M7KnowledgeQueryLiveIT {
     private void assertEvidenceExpectation(
             EvidenceExpectation expectation,
             AgentRunState state,
-            List<IssuedEvidence> citedEvidence) {
-        assertThat(state.currentAttempt().issuedCapabilities().values())
-                .isNotEmpty()
-                .anySatisfy(capability -> assertThat(capability.name()).startsWith("codebase_"));
+            CitedEvidence citedEvidence) {
         state.currentAttempt().issuedCapabilities().forEach((handle, capability) -> {
             assertThat(handle.binding().runId()).isEqualTo(state.runId());
             assertThat(handle.binding().attemptId()).isEqualTo(state.currentAttempt().attemptId());
@@ -332,7 +361,23 @@ class M7KnowledgeQueryLiveIT {
             assertThat(capability.version()).isNotBlank();
         });
         assertThat(state.currentAttempt().issuedCandidates()).isNotEmpty();
-        expectation.assertSatisfiedBy(citedEvidence);
+        List<EvidenceCapabilityProvenance> citedProvenance = EvidenceCapabilityProvenance.resolve(
+                        state.currentAttempt().issuedCapabilities(),
+                        state.currentAttempt().issuedEvidence(),
+                        state.modelInteractions())
+                .stream()
+                .filter(provenance -> citedEvidence.handles().contains(provenance.evidenceHandle().value()))
+                .toList();
+        assertThat(citedProvenance).extracting(provenance -> provenance.evidenceHandle().value())
+                .containsAll(citedEvidence.handles());
+        expectation.requiredCitedCapabilities().forEach(requiredCapability ->
+                assertThat(citedProvenance.stream()
+                        .map(EvidenceCapabilityProvenance::capability)
+                        .anyMatch(requiredCapability::matches))
+                        .as("cited evidence must directly originate from capability %s@%s",
+                                requiredCapability.name(), requiredCapability.version())
+                        .isTrue());
+        expectation.assertSatisfiedBy(citedEvidence.evidence());
     }
 
     private static void assertCitedEvidenceRelationships(List<IssuedEvidence> citedEvidence) {
@@ -489,11 +534,26 @@ class M7KnowledgeQueryLiveIT {
         metadata.put("citedEvidence", citedEvidence.evidence().stream()
                 .map(issued -> Map.of(
                         "handle", issued.handle().value(),
+                        "capability", citedEvidenceCapability(state, issued.handle()),
                         "source", issued.evidence().sourceService(),
                         "repository", issued.evidence().repositoryId().value(),
                         "revision", issued.evidence().repositoryRevision().value()))
                 .toList());
         return Map.copyOf(metadata);
+    }
+
+    private String citedEvidenceCapability(AgentRunState state, EvidenceHandle evidenceHandle) {
+        return EvidenceCapabilityProvenance.resolve(
+                        state.currentAttempt().issuedCapabilities(),
+                        state.currentAttempt().issuedEvidence(),
+                        state.modelInteractions())
+                .stream()
+                .filter(provenance -> provenance.evidenceHandle().equals(evidenceHandle))
+                .map(EvidenceCapabilityProvenance::capability)
+                .map(capability -> capability.name() + "@" + capability.version())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "cited evidence does not resolve to issued capability provenance: " + evidenceHandle.value()));
     }
 
     private String acceptedDisposition(AgentRunState state) {
@@ -506,37 +566,138 @@ class M7KnowledgeQueryLiveIT {
     }
 
     private void clearTestOwnedRows() {
-        for (String sourceType : List.of(SOURCE_TYPE, LEGACY_SOURCE_TYPE)) {
-            jdbcClient.sql("DELETE FROM delivery_outbox WHERE source_type = :sourceType")
-                    .param("sourceType", sourceType)
+        transactionTemplate.executeWithoutResult(transactionStatus -> {
+            List<String> sourceTypes = List.of(SOURCE_TYPE, LEGACY_SOURCE_TYPE);
+            List<String> sessionIds = resolveTestOwnedIds("""
+                    SELECT session_id
+                    FROM agent_session
+                    WHERE source_type IN (:sourceTypes)
+                    """, sourceTypes);
+            List<String> inboxMessageIds = resolveTestOwnedIds("""
+                    SELECT inbox_message_id
+                    FROM session_inbox
+                    WHERE source_type IN (:sourceTypes)
+                    """, sourceTypes);
+            List<String> runIds = sessionIds.isEmpty()
+                    ? List.of()
+                    : resolveIds("SELECT run_id FROM agent_run WHERE session_id IN (:ids)", sessionIds);
+            List<String> deliveryIds = resolveTestOwnedIds("""
+                    SELECT delivery_id
+                    FROM delivery_outbox
+                    WHERE source_type IN (:sourceTypes)
+                    """, sourceTypes);
+            List<String> conflictIds = resolveTestOwnedIds("""
+                    SELECT conflict_id
+                    FROM source_event_conflict
+                    WHERE source_type IN (:sourceTypes)
+                    """, sourceTypes);
+            List<String> canonicalMessageIds = resolveTestOwnedIds("""
+                    SELECT source_message_id
+                    FROM canonical_source_message
+                    WHERE source_type IN (:sourceTypes)
+                    """, sourceTypes);
+            List<String> transportEventIds = resolveTestOwnedIds("""
+                    SELECT transport_event_id
+                    FROM source_transport_event
+                    WHERE source_type IN (:sourceTypes)
+                    """, sourceTypes);
+
+            deleteResolvedIds("DELETE FROM delivery_outbox WHERE delivery_id IN (:ids)", deliveryIds);
+            deleteResolvedIds("DELETE FROM agent_run_event WHERE run_id IN (:ids)", runIds);
+            deleteResolvedIds("DELETE FROM session_turn WHERE session_id IN (:ids)", sessionIds);
+            deleteResolvedIds("DELETE FROM agent_run WHERE run_id IN (:ids)", runIds);
+            deleteResolvedIds("DELETE FROM session_inbox WHERE inbox_message_id IN (:ids)", inboxMessageIds);
+            deleteResolvedIds("DELETE FROM agent_session WHERE session_id IN (:ids)", sessionIds);
+            deleteResolvedIds("DELETE FROM source_event_conflict WHERE conflict_id IN (:ids)", conflictIds);
+            deleteResolvedSourceRows("""
+                    DELETE FROM canonical_source_message
+                    WHERE source_type IN (:sourceTypes)
+                      AND source_message_id IN (:ids)
+                    """, sourceTypes, canonicalMessageIds);
+            deleteResolvedSourceRows("""
+                    DELETE FROM source_transport_event
+                    WHERE source_type IN (:sourceTypes)
+                      AND transport_event_id IN (:ids)
+                    """, sourceTypes, transportEventIds);
+        });
+    }
+
+    private List<String> resolveTestOwnedIds(String sql, List<String> sourceTypes) {
+        return jdbcClient.sql(sql)
+                .param("sourceTypes", sourceTypes)
+                .query(String.class)
+                .list();
+    }
+
+    private List<String> resolveIds(String sql, List<String> ids) {
+        return jdbcClient.sql(sql)
+                .param("ids", ids)
+                .query(String.class)
+                .list();
+    }
+
+    private void deleteResolvedIds(String sql, List<String> ids) {
+        if (!ids.isEmpty()) {
+            jdbcClient.sql(sql)
+                    .param("ids", ids)
                     .update();
-            jdbcClient.sql("DELETE FROM agent_run_event WHERE run_id IN "
-                            + "(SELECT analysis_run_id FROM session_inbox WHERE source_type = :sourceType)")
-                    .param("sourceType", sourceType)
+        }
+    }
+
+    private void deleteResolvedSourceRows(String sql, List<String> sourceTypes, List<String> ids) {
+        if (!ids.isEmpty()) {
+            jdbcClient.sql(sql)
+                    .param("sourceTypes", sourceTypes)
+                    .param("ids", ids)
                     .update();
-            jdbcClient.sql("DELETE FROM session_turn WHERE session_id IN "
-                            + "(SELECT session_id FROM agent_session WHERE source_type = :sourceType)")
-                    .param("sourceType", sourceType)
-                    .update();
-            jdbcClient.sql("DELETE FROM agent_run WHERE session_id IN "
-                            + "(SELECT session_id FROM agent_session WHERE source_type = :sourceType)")
-                    .param("sourceType", sourceType)
-                    .update();
-            jdbcClient.sql("DELETE FROM session_inbox WHERE source_type = :sourceType")
-                    .param("sourceType", sourceType)
-                    .update();
-            jdbcClient.sql("DELETE FROM agent_session WHERE source_type = :sourceType")
-                    .param("sourceType", sourceType)
-                    .update();
-            jdbcClient.sql("DELETE FROM source_event_conflict WHERE source_type = :sourceType")
-                    .param("sourceType", sourceType)
-                    .update();
-            jdbcClient.sql("DELETE FROM canonical_source_message WHERE source_type = :sourceType")
-                    .param("sourceType", sourceType)
-                    .update();
-            jdbcClient.sql("DELETE FROM source_transport_event WHERE source_type = :sourceType")
-                    .param("sourceType", sourceType)
-                    .update();
+        }
+    }
+
+    private void assertNoEligibleInboxBeforeSubmission() {
+        assertThat(nextEligibleInboxRunId(Instant.now()))
+                .as("live database must have no eligible inbox row before M7 submissions")
+                .isEmpty();
+    }
+
+    private Optional<String> nextEligibleInboxRunId(Instant now) {
+        return jdbcClient.sql("""
+                SELECT inbox.analysis_run_id
+                FROM session_inbox inbox
+                JOIN agent_session session ON session.session_id = inbox.session_id
+                WHERE inbox.status = 'PENDING'
+                  AND inbox.available_at <= :now
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM session_inbox processing
+                      WHERE processing.status = 'PROCESSING'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM session_inbox earlier
+                      WHERE earlier.session_id = inbox.session_id
+                        AND earlier.session_sequence < inbox.session_sequence
+                        AND earlier.status IN ('PENDING', 'PROCESSING')
+                  )
+                ORDER BY inbox.available_at, inbox.created_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+                """)
+                .param("now", Timestamp.from(now))
+                .query(String.class)
+                .optional();
+    }
+
+    private void acquireM7LiveTestLock(Connection advisoryLockConnection) throws SQLException {
+        try (PreparedStatement statement = advisoryLockConnection.prepareStatement("SELECT pg_advisory_lock(?)")) {
+            statement.setLong(1, M7_LIVE_ADVISORY_LOCK_KEY);
+            statement.execute();
+        }
+    }
+
+    private void releaseM7LiveTestLock(Connection advisoryLockConnection) throws SQLException {
+        try (PreparedStatement statement = advisoryLockConnection.prepareStatement("SELECT pg_advisory_unlock(?)")) {
+            statement.setLong(1, M7_LIVE_ADVISORY_LOCK_KEY);
+            statement.execute();
         }
     }
 
@@ -575,7 +736,9 @@ class M7KnowledgeQueryLiveIT {
     }
 
     private enum EvidenceExpectation {
-        HTTP_TO_WORKFLOW {
+        HTTP_TO_WORKFLOW(Set.of(
+                new CapabilityIdentity("codebase_list_entry_points", "v1"),
+                new CapabilityIdentity("codebase_outgoing_call_graph", "v1"))) {
             @Override
             void assertSatisfiedBy(List<IssuedEvidence> citedEvidence) {
                 requireCitedEvidence(citedEvidence, "entryPoint;", "kind=API",
@@ -583,7 +746,9 @@ class M7KnowledgeQueryLiveIT {
                 assertCitedGraphRelationship(citedEvidence, "OrderController", "submitOrder", "DefaultOrderWorkflow");
             }
         },
-        SCHEDULE_TO_WORKFLOW {
+        SCHEDULE_TO_WORKFLOW(Set.of(
+                new CapabilityIdentity("codebase_list_entry_points", "v1"),
+                new CapabilityIdentity("codebase_outgoing_call_graph", "v1"))) {
             @Override
             void assertSatisfiedBy(List<IssuedEvidence> citedEvidence) {
                 requireCitedEvidence(citedEvidence, "entryPoint;", "kind=SCHEDULE",
@@ -592,7 +757,9 @@ class M7KnowledgeQueryLiveIT {
                         "DefaultOrderWorkflow");
             }
         },
-        MESSAGE_TO_WORKFLOW {
+        MESSAGE_TO_WORKFLOW(Set.of(
+                new CapabilityIdentity("codebase_list_entry_points", "v1"),
+                new CapabilityIdentity("codebase_outgoing_call_graph", "v1"))) {
             @Override
             void assertSatisfiedBy(List<IssuedEvidence> citedEvidence) {
                 requireCitedEvidence(citedEvidence, "entryPoint;", "kind=MQ",
@@ -601,7 +768,10 @@ class M7KnowledgeQueryLiveIT {
                         "DefaultOrderWorkflow");
             }
         },
-        IMPLEMENTATION_AND_SOURCE {
+        IMPLEMENTATION_AND_SOURCE(Set.of(
+                new CapabilityIdentity("codebase_discover_method_implementations", "v1"),
+                new CapabilityIdentity("codebase_find_internal_references", "v1"),
+                new CapabilityIdentity("codebase_get_method_source", "v1"))) {
             @Override
             void assertSatisfiedBy(List<IssuedEvidence> citedEvidence) {
                 requireCitedEvidence(citedEvidence, "methodImplementation;", "requested=", "OrderWorkflow.processOrder(",
@@ -622,14 +792,31 @@ class M7KnowledgeQueryLiveIT {
                 assertThat(hasCompleteMethodSource).as("cited complete workflow method source").isTrue();
             }
         },
-        MISSING_SYMBOL {
+        MISSING_SYMBOL(Set.of()) {
             @Override
             void assertSatisfiedBy(List<IssuedEvidence> citedEvidence) {
                 throw new UnsupportedOperationException("missing symbol assertions are run-outcome based");
             }
         };
 
+        private final Set<CapabilityIdentity> requiredCitedCapabilities;
+
+        EvidenceExpectation(Set<CapabilityIdentity> requiredCitedCapabilities) {
+            this.requiredCitedCapabilities = Set.copyOf(requiredCitedCapabilities);
+        }
+
+        Set<CapabilityIdentity> requiredCitedCapabilities() {
+            return requiredCitedCapabilities;
+        }
+
         abstract void assertSatisfiedBy(List<IssuedEvidence> citedEvidence);
+    }
+
+    private record CapabilityIdentity(String name, String version) {
+
+        boolean matches(CapabilityPolicy capability) {
+            return name.equals(capability.name()) && version.equals(capability.version());
+        }
     }
 
     /**
