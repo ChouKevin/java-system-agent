@@ -7,12 +7,11 @@ import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 import com.java.system.agent.model.prompt.CapabilityReference;
 import com.java.system.agent.model.prompt.ConfiguredEvidenceRequirement;
+import com.java.system.agent.model.prompt.EvidenceTriggerNormalizer;
 
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.logging.Level;
@@ -60,7 +59,7 @@ public final class ExplicitEvidenceCoveragePolicy {
     }
 
     private List<ConfiguredEvidenceRequirement> missingRequirements(AnswerVerificationContext context) {
-        String normalizedQuestion = normalize(context.question());
+        String normalizedQuestion = EvidenceTriggerNormalizer.normalize(context.question());
         Set<EvidenceHandle> citedHandles = context.citedEvidence().stream()
                 .map(evidence -> evidence.handle())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
@@ -93,9 +92,9 @@ public final class ExplicitEvidenceCoveragePolicy {
 
     private static Set<String> triggers(ConfiguredEvidenceRequirement requirement) {
         Set<String> triggers = new LinkedHashSet<>();
-        triggers.add(normalize(requirement.capability().name()));
+        triggers.add(EvidenceTriggerNormalizer.normalize(requirement.capability().name()));
         for (String alias : requirement.aliases()) {
-            triggers.add(normalize(alias));
+            triggers.add(EvidenceTriggerNormalizer.normalize(alias));
         }
         return triggers;
     }
@@ -135,15 +134,6 @@ public final class ExplicitEvidenceCoveragePolicy {
 
     private static boolean isWordCharacter(char character) {
         return Character.isLetterOrDigit(character) || character == '_';
-    }
-
-    private static String normalize(String value) {
-        return Normalizer.normalize(value, Normalizer.Form.NFKC)
-                .toLowerCase(Locale.ROOT)
-                .replace('–', '-')
-                .replace('—', '-')
-                .replaceAll("\\s+", " ")
-                .trim();
     }
 
     private static void appendDistinct(List<String> values, String value) {

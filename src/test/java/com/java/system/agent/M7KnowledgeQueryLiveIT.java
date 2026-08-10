@@ -36,6 +36,7 @@ import com.java.system.agent.interaction.domain.TransportEventId;
 import com.java.system.agent.interaction.domain.delivery.DeliveryKind;
 import com.java.system.agent.interaction.domain.delivery.DeliveryMessage;
 import com.java.system.agent.interaction.domain.delivery.DeliveryProcessingOutcome;
+import com.java.system.agent.interaction.domain.delivery.DeliveryStatus;
 import com.java.system.agent.interaction.domain.delivery.DeliveryTransportResult;
 import com.java.system.agent.interaction.port.in.AcceptSourceEventUseCase;
 import com.java.system.agent.interaction.port.in.ProcessNextDeliveryUseCase;
@@ -124,6 +125,7 @@ class M7KnowledgeQueryLiveIT {
     private static final Pattern GRAPH_NODE_PATTERN = Pattern.compile(
             "(?:^|;\\s*)node=([^:;]+):[^;]*?:target=([^:;]+#[^:;]+\\.[^:;]+):external=");
     private static final Pattern GRAPH_EDGE_PATTERN = Pattern.compile("(?:^|;\\s*)edge=([^>;]+)>([^:;]+):");
+    private static final Pattern SOURCE_SHA = Pattern.compile("[0-9a-f]{40}");
 
     @Autowired
     private AcceptSourceEventUseCase sourceAcceptance;
@@ -162,6 +164,8 @@ class M7KnowledgeQueryLiveIT {
     void should_accept_complete_and_inconclusive_m7_knowledge_queries_through_the_normal_runtime()
             throws IOException, InterruptedException, SQLException {
         long seed = Long.parseLong(requiredEnvironment("M7_KNOWLEDGE_SEED"));
+        String agentSourceSha = requiredSourceSha("M7_AGENT_SOURCE_SHA");
+        String semanticSourceSha = requiredSourceSha("M7_SEMANTIC_SOURCE_SHA");
         KnowledgeScenario seededScenario = SEEDED_SCENARIOS.get(new Random(seed).nextInt(SEEDED_SCENARIOS.size()));
         String testRunIdentity = "m7-" + Instant.now().toEpochMilli() + "-"
                 + System.getProperty("surefire.forkNumber", "default");
@@ -171,6 +175,7 @@ class M7KnowledgeQueryLiveIT {
                 clearTestOwnedRows();
                 assertNoEligibleInboxBeforeSubmission();
 
+                recordingDeliveryTransport.clear();
                 ScenarioRun comprehensiveRun = acceptAndProcess(COMPREHENSIVE_SCENARIO, testRunIdentity);
                 PendingTerminalResponse.Answer comprehensiveAnswer = assertCompletedAcceptedState(
                         comprehensiveRun.state(), comprehensiveRun.admission());
@@ -178,18 +183,26 @@ class M7KnowledgeQueryLiveIT {
                         comprehensiveRun.state(), comprehensiveAnswer);
                 assertEvidenceExpectation(
                         comprehensiveRun.scenario().evidenceExpectation(), comprehensiveRun.state(), comprehensiveEvidence);
+                assertDeliveryRendering(comprehensiveRun.admission(), comprehensiveAnswer);
 
+                recordingDeliveryTransport.clear();
                 ScenarioRun seededRun = acceptAndProcess(seededScenario, testRunIdentity);
                 PendingTerminalResponse.Answer seededAnswer = assertCompletedAcceptedState(
                         seededRun.state(), seededRun.admission());
                 CitedEvidence seededEvidence = assertCitationsAndEvidence(seededRun.state(), seededAnswer);
                 assertEvidenceExpectation(seededScenario.evidenceExpectation(), seededRun.state(), seededEvidence);
+                assertDeliveryRendering(seededRun.admission(), seededAnswer);
 
+                recordingDeliveryTransport.clear();
                 ScenarioRun missingSymbolRun = acceptAndProcess(MISSING_SYMBOL_SCENARIO, testRunIdentity);
-                assertAcceptedInconclusive(missingSymbolRun.state(), missingSymbolRun.admission());
+                PendingTerminalResponse.Answer missingSymbolAnswer = assertAcceptedInconclusive(
+                        missingSymbolRun.state(), missingSymbolRun.admission());
+                CitedEvidence missingSymbolEvidence = assertOptionalCitationsAndEvidence(
+                        missingSymbolRun.state(), missingSymbolAnswer);
+                assertDeliveryRendering(missingSymbolRun.admission(), missingSymbolAnswer);
 
                 writeManifestIfRequested(seed, seededScenario, List.of(comprehensiveRun, seededRun, missingSymbolRun),
-                        comprehensiveEvidence, seededEvidence);
+                        comprehensiveEvidence, seededEvidence, missingSymbolEvidence, agentSourceSha, semanticSourceSha);
             } finally {
                 releaseM7LiveTestLock(advisoryLockConnection);
             }
@@ -252,14 +265,24 @@ class M7KnowledgeQueryLiveIT {
     private CitedEvidence assertCitationsAndEvidence(
             AgentRunState state,
             PendingTerminalResponse.Answer acceptedAnswer) {
+        CitedEvidence citedEvidence = citedEvidence(state, acceptedAnswer);
+        assertThat(citedEvidence.handles()).isNotEmpty();
+        return citedEvidence;
+    }
+
+    private CitedEvidence assertOptionalCitationsAndEvidence(
+            AgentRunState state,
+            PendingTerminalResponse.Answer acceptedAnswer) {
+        return citedEvidence(state, acceptedAnswer);
+    }
+
+    private CitedEvidence citedEvidence(AgentRunState state, PendingTerminalResponse.Answer acceptedAnswer) {
         Map<String, IssuedEvidence> issuedEvidenceByHandle = new LinkedHashMap<>();
         state.currentAttempt().issuedEvidence().forEach((handle, issued) ->
                 issuedEvidenceByHandle.put(handle.value(), issued));
         Set<String> citedHandleValues = new LinkedHashSet<>();
         acceptedAnswer.document().statements().forEach(statement ->
                 statement.citations().forEach(citation -> citedHandleValues.add(citation.value())));
-        assertThat(citedHandleValues).isNotEmpty();
-
         List<IssuedEvidence> citedEvidence = citedHandleValues.stream()
                 .map(handle -> Optional.ofNullable(issuedEvidenceByHandle.get(handle))
                         .orElseThrow(() -> new AssertionError("citation did not resolve to issued evidence: " + handle)))
@@ -279,8 +302,9 @@ class M7KnowledgeQueryLiveIT {
                 }
             });
         });
-
-        return new CitedEvidence(Set.copyOf(citedHandleValues), citedEvidence);
+        CitedEvidence result = new CitedEvidence(Set.copyOf(citedHandleValues), citedEvidence);
+        assertCitedEvidenceProvenance(state, result);
+        return result;
     }
 
     private ScenarioRun acceptAndProcess(KnowledgeScenario scenario, String testRunIdentity)
@@ -336,7 +360,7 @@ class M7KnowledgeQueryLiveIT {
         Thread.sleep(POLL_DELAY);
     }
 
-    private void assertAcceptedInconclusive(AgentRunState state, SourceAdmission admission) {
+    private PendingTerminalResponse.Answer assertAcceptedInconclusive(AgentRunState state, SourceAdmission admission) {
         assertThat(state.runId()).isEqualTo(admission.runId());
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
@@ -349,6 +373,7 @@ class M7KnowledgeQueryLiveIT {
         assertThat(answer.document().statements()).extracting(AnswerStatement::type)
                 .containsAnyOf(StatementType.UNCERTAINTY, StatementType.LIMITATION)
                 .doesNotContain(StatementType.FACT);
+        return answer;
     }
 
     private void assertEvidenceExpectation(
@@ -362,13 +387,7 @@ class M7KnowledgeQueryLiveIT {
             assertThat(capability.version()).isNotBlank();
         });
         assertThat(state.currentAttempt().issuedCandidates()).isNotEmpty();
-        List<EvidenceCapabilityProvenance> citedProvenance = EvidenceCapabilityProvenance.resolve(
-                        state.currentAttempt().issuedCapabilities(),
-                        state.currentAttempt().issuedEvidence(),
-                        state.modelInteractions())
-                .stream()
-                .filter(provenance -> citedEvidence.handles().contains(provenance.evidenceHandle().value()))
-                .toList();
+        List<EvidenceCapabilityProvenance> citedProvenance = citedEvidenceProvenance(state, citedEvidence);
         assertThat(citedProvenance).extracting(provenance -> provenance.evidenceHandle().value())
                 .containsAll(citedEvidence.handles());
         expectation.requiredCitedCapabilities().forEach(requiredCapability ->
@@ -379,6 +398,28 @@ class M7KnowledgeQueryLiveIT {
                                 requiredCapability.name(), requiredCapability.version())
                         .isTrue());
         expectation.assertSatisfiedBy(citedEvidence.evidence());
+    }
+
+    private void assertCitedEvidenceProvenance(AgentRunState state, CitedEvidence citedEvidence) {
+        List<EvidenceCapabilityProvenance> citedProvenance = citedEvidenceProvenance(state, citedEvidence);
+        assertThat(citedProvenance).extracting(provenance -> provenance.evidenceHandle().value())
+                .containsExactlyInAnyOrderElementsOf(citedEvidence.handles());
+        citedProvenance.forEach(provenance -> {
+            assertThat(provenance.evidenceHandle().binding().runId()).isEqualTo(state.runId());
+            assertThat(provenance.evidenceHandle().binding().attemptId()).isEqualTo(state.currentAttempt().attemptId());
+            assertThat(provenance.evidenceHandle().binding().revisionVector()).isEqualTo(EXPECTED_REVISIONS);
+            assertThat(provenance.capability().version()).isNotBlank();
+        });
+    }
+
+    private List<EvidenceCapabilityProvenance> citedEvidenceProvenance(AgentRunState state, CitedEvidence citedEvidence) {
+        return EvidenceCapabilityProvenance.resolve(
+                        state.currentAttempt().issuedCapabilities(),
+                        state.currentAttempt().issuedEvidence(),
+                        state.modelInteractions())
+                .stream()
+                .filter(provenance -> citedEvidence.handles().contains(provenance.evidenceHandle().value()))
+                .toList();
     }
 
     private static void assertCitedEvidenceRelationships(List<IssuedEvidence> citedEvidence) {
@@ -474,7 +515,8 @@ class M7KnowledgeQueryLiveIT {
                 .orElse(false);
     }
 
-    private void assertDeliveryRendering(PendingTerminalResponse.Answer acceptedAnswer) {
+    private void assertDeliveryRendering(SourceAdmission admission, PendingTerminalResponse.Answer acceptedAnswer) {
+        drainDeliveryOutbox(admission);
         List<DeliveryMessage> deliveries = recordingDeliveryTransport.deliveries();
         assertThat(deliveries).extracting(DeliveryMessage::kind)
                 .containsExactly(DeliveryKind.RECEIPT, DeliveryKind.FINAL_RESPONSE);
@@ -483,6 +525,41 @@ class M7KnowledgeQueryLiveIT {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("recording transport did not receive the final response"));
         assertThat(finalDelivery.responseText()).isEqualTo(acceptedAnswer.document().renderParagraphs());
+        List<DeliveryOutboxState> outboxStates = jdbcClient.sql("""
+                SELECT delivery_kind, status
+                FROM delivery_outbox
+                WHERE analysis_run_id = :runId
+                ORDER BY created_at, delivery_id
+                """)
+                .param("runId", admission.runId().value())
+                .query((resultSet, rowNumber) -> new DeliveryOutboxState(
+                        DeliveryKind.valueOf(resultSet.getString("delivery_kind")),
+                        DeliveryStatus.valueOf(resultSet.getString("status"))))
+                .list();
+        assertThat(outboxStates).containsExactly(
+                new DeliveryOutboxState(DeliveryKind.RECEIPT, DeliveryStatus.DELIVERED),
+                new DeliveryOutboxState(DeliveryKind.FINAL_RESPONSE, DeliveryStatus.DELIVERED));
+    }
+
+    private void drainDeliveryOutbox(SourceAdmission admission) {
+        while (true) {
+            Instant processingTime = Instant.now();
+            Optional<String> nextEligibleRunId = nextEligibleDeliveryRunId(processingTime);
+            if (nextEligibleRunId.isEmpty()) {
+                return;
+            }
+            String eligibleRunId = nextEligibleRunId.orElseThrow();
+            if (!eligibleRunId.equals(admission.runId().value())) {
+                throw new AssertionError("live database is not isolated: next eligible delivery run " + eligibleRunId
+                        + " is not admitted run " + admission.runId().value());
+            }
+            Optional<DeliveryProcessingOutcome> outcome = deliveryProcessor.processNext(processingTime);
+            if (outcome.isEmpty()) {
+                throw new AssertionError("eligible delivery disappeared before processing admitted run "
+                        + admission.runId().value());
+            }
+            assertThat(outcome).contains(DeliveryProcessingOutcome.DELIVERED);
+        }
     }
 
     private void writeManifestIfRequested(
@@ -490,7 +567,10 @@ class M7KnowledgeQueryLiveIT {
             KnowledgeScenario seededScenario,
             List<ScenarioRun> scenarioRuns,
             CitedEvidence comprehensiveEvidence,
-            CitedEvidence seededEvidence) throws IOException {
+            CitedEvidence seededEvidence,
+            CitedEvidence missingSymbolEvidence,
+            String agentSourceSha,
+            String semanticSourceSha) throws IOException {
         Optional<Path> reportDirectory = Optional.ofNullable(System.getenv("M7_REPORT_DIRECTORY"))
                 .filter(value -> !value.isBlank())
                 .map(Path::of)
@@ -501,8 +581,9 @@ class M7KnowledgeQueryLiveIT {
         Map<String, Object> manifest = new LinkedHashMap<>();
         manifest.put("seed", seed);
         manifest.put("selectedScenario", seededScenario.id());
-        manifest.put("agentRevision", environment.getProperty("git.commit.id", "unknown"));
-        manifest.put("semanticRevision", REPOSITORY_REVISION.value());
+        manifest.put("agentSourceSha", agentSourceSha);
+        manifest.put("semanticSourceSha", semanticSourceSha);
+        manifest.put("fixtureRevision", REPOSITORY_REVISION.value());
         manifest.put("modelName", Optional.ofNullable(environment.getProperty("spring.ai.google.genai.chat.model"))
                 .orElse("unknown"));
         manifest.put("catalogDigest", promptResourceCatalog.catalogDigest());
@@ -512,7 +593,7 @@ class M7KnowledgeQueryLiveIT {
         manifest.put("runs", List.of(
                 reportRun(scenarioRuns.get(0), comprehensiveEvidence),
                 reportRun(scenarioRuns.get(1), seededEvidence),
-                reportRun(scenarioRuns.get(2), new CitedEvidence(Set.of(), List.of()))));
+                reportRun(scenarioRuns.get(2), missingSymbolEvidence)));
         Path manifestPath = reportDirectory.orElseThrow()
                 .resolve("m7-knowledge-query-manifest-" + seed + "-"
                         + scenarioRuns.getFirst().admission().runId().value() + ".json");
@@ -690,6 +771,20 @@ class M7KnowledgeQueryLiveIT {
                 .optional();
     }
 
+    private Optional<String> nextEligibleDeliveryRunId(Instant now) {
+        return jdbcClient.sql("""
+                SELECT analysis_run_id
+                FROM delivery_outbox
+                WHERE status = 'PENDING'
+                   OR (status = 'RETRY_SCHEDULED' AND next_attempt_at <= :now)
+                ORDER BY next_attempt_at, created_at
+                LIMIT 1
+                """)
+                .param("now", Timestamp.from(now))
+                .query(String.class)
+                .optional();
+    }
+
     private void acquireM7LiveTestLock(Connection advisoryLockConnection) throws SQLException {
         try (PreparedStatement statement = advisoryLockConnection.prepareStatement("SELECT pg_advisory_lock(?)")) {
             statement.setLong(1, M7_LIVE_ADVISORY_LOCK_KEY);
@@ -725,6 +820,14 @@ class M7KnowledgeQueryLiveIT {
                 .orElseThrow(() -> new IllegalStateException("required environment variable is not set: " + name));
     }
 
+    private static String requiredSourceSha(String name) {
+        String sourceSha = requiredEnvironment(name);
+        if (!SOURCE_SHA.matcher(sourceSha).matches()) {
+            throw new IllegalStateException("required environment variable must be a lowercase 40-character source SHA: " + name);
+        }
+        return sourceSha;
+    }
+
     private record KnowledgeScenario(String id, String question, EvidenceExpectation evidenceExpectation) {
     }
 
@@ -736,6 +839,9 @@ class M7KnowledgeQueryLiveIT {
     }
 
     private record CitedEvidence(Set<String> handles, List<IssuedEvidence> evidence) {
+    }
+
+    private record DeliveryOutboxState(DeliveryKind kind, DeliveryStatus status) {
     }
 
     private enum EvidenceExpectation {
@@ -883,6 +989,10 @@ class M7KnowledgeQueryLiveIT {
 
         List<DeliveryMessage> deliveries() {
             return List.copyOf(delivered);
+        }
+
+        void clear() {
+            delivered.clear();
         }
     }
 }

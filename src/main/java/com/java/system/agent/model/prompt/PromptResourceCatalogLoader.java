@@ -16,13 +16,11 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -45,8 +43,12 @@ public final class PromptResourceCatalogLoader {
             "responseContract");
     private static final Set<String> CORE_TOOL_VARIABLES = Set.of("toolName");
     private static final Set<String> QUERY_TOOL_VARIABLES = Set.of(
-            "toolName", "capabilityName", "capabilityVersion", "candidateCardinality", "acceptedCandidateKinds",
-            "followUpConstraint", "guidance");
+            "toolName", "capabilityName", "capabilityVersion", "guidance");
+    private static final Set<String> EXACT_CARDINALITY_VARIABLES = Set.of(
+            "candidateMinimum", "acceptedCandidateKinds");
+    private static final Set<String> RANGE_CARDINALITY_VARIABLES = Set.of(
+            "candidateMinimum", "candidateMaximum", "acceptedCandidateKinds");
+    private static final Set<String> FOLLOW_UP_VARIABLES = Set.of("capabilityName", "capabilityVersion");
 
     private final ResourceLoader resourceLoader;
 
@@ -68,7 +70,7 @@ public final class PromptResourceCatalogLoader {
                 ACTION_CONTEXT_VARIABLES);
         StrictPromptTemplate verificationContextTemplate = new StrictPromptTemplate(verificationContext.content(),
                 VERIFICATION_CONTEXT_VARIABLES);
-        Map<PlanningToolCategory, StrictPromptTemplate> toolTemplates = loadToolTemplates(resources,
+        ToolPromptTemplates toolTemplates = loadToolTemplates(resources,
                 requiredProperties.toolRoot());
         List<ConfiguredEvidenceRequirement> evidenceRequirements = loadEvidenceRequirements(resources,
                 requiredProperties.evidenceRequirements(), requiredRegistry);
@@ -89,7 +91,7 @@ public final class PromptResourceCatalogLoader {
                 catalogDigest);
     }
 
-    private Map<PlanningToolCategory, StrictPromptTemplate> loadToolTemplates(
+    private ToolPromptTemplates loadToolTemplates(
             Map<String, LoadedResource> resources,
             String toolRoot) {
         Map<PlanningToolCategory, StrictPromptTemplate> templates = new EnumMap<>(PlanningToolCategory.class);
@@ -108,7 +110,26 @@ public final class PromptResourceCatalogLoader {
             };
             templates.put(category, new StrictPromptTemplate(template.content(), variables));
         }
-        return Map.copyOf(templates);
+        StrictPromptTemplate exactCardinality = loadTemplate(resources, "tools/cardinality/exact.st", toolRoot,
+                "cardinality/exact.st", EXACT_CARDINALITY_VARIABLES);
+        StrictPromptTemplate rangeCardinality = loadTemplate(resources, "tools/cardinality/range.st", toolRoot,
+                "cardinality/range.st", RANGE_CARDINALITY_VARIABLES);
+        StrictPromptTemplate followUpAllowed = loadTemplate(resources, "tools/follow-up/allowed.st", toolRoot,
+                "follow-up/allowed.st", FOLLOW_UP_VARIABLES);
+        StrictPromptTemplate followUpDisallowed = loadTemplate(resources, "tools/follow-up/disallowed.st", toolRoot,
+                "follow-up/disallowed.st", Set.of());
+        return new ToolPromptTemplates(Map.copyOf(templates), exactCardinality, rangeCardinality,
+                followUpAllowed, followUpDisallowed);
+    }
+
+    private StrictPromptTemplate loadTemplate(
+            Map<String, LoadedResource> resources,
+            String logicalId,
+            String toolRoot,
+            String filename,
+            Set<String> variables) {
+        LoadedResource template = read(resources, logicalId, childLocation(toolRoot, filename));
+        return new StrictPromptTemplate(template.content(), variables);
     }
 
     private List<ConfiguredEvidenceRequirement> loadEvidenceRequirements(
@@ -136,7 +157,7 @@ public final class PromptResourceCatalogLoader {
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
         List<ConfiguredEvidenceRequirement> requirements = new ArrayList<>();
         Set<String> ids = new java.util.HashSet<>();
-        Map<String, String> aliases = new HashMap<>();
+        Map<String, String> triggers = new HashMap<>();
         for (YamlEvidenceRequirement yamlRequirement : configuredRequirements) {
             ConfiguredEvidenceRequirement requirement = configuredRequirement(yamlRequirement);
             if (!ids.add(requirement.id())) {
@@ -146,16 +167,24 @@ public final class PromptResourceCatalogLoader {
                 throw new IllegalArgumentException("prompt evidence requirement capability is not registered: "
                         + requirement.capability().name() + "@" + requirement.capability().version());
             }
-            for (String alias : requirement.aliases()) {
-                String normalizedAlias = normalizeAlias(alias);
-                String existingId = aliases.putIfAbsent(normalizedAlias, requirement.id());
+            for (String trigger : runtimeTriggers(requirement)) {
+                String existingId = triggers.putIfAbsent(trigger, requirement.id());
                 if (Objects.nonNull(existingId) && !existingId.equals(requirement.id())) {
-                    throw new IllegalArgumentException("duplicate prompt evidence requirement alias: " + alias);
+                    throw new IllegalArgumentException("duplicate prompt evidence requirement trigger: " + trigger);
                 }
             }
             requirements.add(requirement);
         }
         return List.copyOf(requirements);
+    }
+
+    private static Set<String> runtimeTriggers(ConfiguredEvidenceRequirement requirement) {
+        Set<String> triggers = new java.util.LinkedHashSet<>();
+        triggers.add(EvidenceTriggerNormalizer.normalize(requirement.capability().name()));
+        for (String alias : requirement.aliases()) {
+            triggers.add(EvidenceTriggerNormalizer.normalize(alias));
+        }
+        return Set.copyOf(triggers);
     }
 
     private static ConfiguredEvidenceRequirement configuredRequirement(YamlEvidenceRequirement requirement) {
@@ -171,15 +200,15 @@ public final class PromptResourceCatalogLoader {
             Map<String, LoadedResource> resources,
             String toolRoot,
             PlanningToolRegistry registry,
-            Map<PlanningToolCategory, StrictPromptTemplate> toolTemplates) {
+            ToolPromptTemplates toolTemplates) {
         Map<String, LoadedResource> guidance = new HashMap<>();
         Map<PlanningToolDescriptor, String> descriptions = new LinkedHashMap<>();
         for (com.java.system.agent.capability.planning.PlanningToolRegistration<?> registration : registry.registrations()) {
             PlanningToolDescriptor descriptor = registration.descriptor();
             String guidanceText = guidance(descriptor, guidance, resources, toolRoot);
-            StrictPromptTemplate template = Objects.requireNonNull(toolTemplates.get(descriptor.category()),
+            StrictPromptTemplate template = Objects.requireNonNull(toolTemplates.templates().get(descriptor.category()),
                     "planning tool category template must be present");
-            String description = template.render(templateValues(descriptor, guidanceText));
+            String description = renderDescription(template, toolTemplates, descriptor, guidanceText);
             if (description.isBlank()) {
                 throw new IllegalArgumentException("planning tool prompt description must not be blank: "
                         + descriptor.toolName());
@@ -187,6 +216,38 @@ public final class PromptResourceCatalogLoader {
             descriptions.put(descriptor, description);
         }
         return Map.copyOf(descriptions);
+    }
+
+    private static String renderDescription(
+            StrictPromptTemplate template,
+            ToolPromptTemplates toolTemplates,
+            PlanningToolDescriptor descriptor,
+            String guidance) {
+        String baseDescription = template.render(templateValues(descriptor, guidance));
+        if (descriptor.category() != PlanningToolCategory.QUERY
+                && descriptor.category() != PlanningToolCategory.FOLLOW_UP_QUERY) {
+            return baseDescription;
+        }
+        CapabilityPolicy policy = descriptor.capability().orElseThrow(
+                () -> new IllegalArgumentException("QUERY planning tool descriptor must declare capability"));
+        String acceptedCandidateKinds = policy.acceptedCandidateKinds().stream()
+                .map(CandidateKind::name)
+                .sorted()
+                .collect(java.util.stream.Collectors.joining(", "));
+        StrictPromptTemplate cardinalityTemplate = toolTemplates.cardinality(policy);
+        Map<String, Object> cardinalityValues = policy.minimumCandidates() == policy.maximumCandidates()
+                ? Map.of("candidateMinimum", policy.minimumCandidates(), "acceptedCandidateKinds", acceptedCandidateKinds)
+                : Map.of(
+                        "candidateMinimum", policy.minimumCandidates(),
+                        "candidateMaximum", policy.maximumCandidates(),
+                        "acceptedCandidateKinds", acceptedCandidateKinds);
+        String cardinalityInstruction = cardinalityTemplate.render(cardinalityValues);
+        StrictPromptTemplate followUpTemplate = toolTemplates.followUp(policy);
+        Map<String, Object> followUpValues = policy.acceptedCandidateKinds().contains(CandidateKind.FOLLOW_UP)
+                ? Map.of("capabilityName", policy.name(), "capabilityVersion", policy.version())
+                : Map.of();
+        String followUpInstruction = followUpTemplate.render(followUpValues);
+        return baseDescription + " " + cardinalityInstruction + " " + followUpInstruction;
     }
 
     private String guidance(
@@ -210,29 +271,9 @@ public final class PromptResourceCatalogLoader {
                     () -> new IllegalArgumentException("QUERY planning tool descriptor must declare capability"));
             values.put("capabilityName", policy.name());
             values.put("capabilityVersion", policy.version());
-            values.put("candidateCardinality", cardinality(policy));
-            values.put("acceptedCandidateKinds", policy.acceptedCandidateKinds().stream()
-                    .map(CandidateKind::name)
-                    .sorted()
-                    .collect(java.util.stream.Collectors.joining(", ")));
-            values.put("followUpConstraint", followUpConstraint(policy));
             values.put("guidance", guidance);
         }
         return Map.copyOf(values);
-    }
-
-    private static String cardinality(CapabilityPolicy policy) {
-        if (policy.minimumCandidates() == policy.maximumCandidates()) {
-            return "exactly " + policy.minimumCandidates();
-        }
-        return "between " + policy.minimumCandidates() + " and " + policy.maximumCandidates();
-    }
-
-    private static String followUpConstraint(CapabilityPolicy policy) {
-        if (policy.acceptedCandidateKinds().contains(CandidateKind.FOLLOW_UP)) {
-            return "A FOLLOW_UP candidate must target " + policy.name() + "@" + policy.version() + ".";
-        }
-        return "";
     }
 
     private LoadedResource read(Map<String, LoadedResource> resources, String logicalId, String location) {
@@ -302,16 +343,6 @@ public final class PromptResourceCatalogLoader {
         }
     }
 
-    private static String normalizeAlias(String alias) {
-        String normalized = Normalizer.normalize(alias, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT)
-                .replaceAll("\\s+", " ")
-                .trim();
-        if (normalized.isBlank()) {
-            throw new IllegalArgumentException("prompt evidence requirement alias must not be blank");
-        }
-        return normalized;
-    }
-
     private static void log(Map<String, LoadedResource> resources, String catalogDigest) {
         resources.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
@@ -322,6 +353,26 @@ public final class PromptResourceCatalogLoader {
     }
 
     private record LoadedResource(String location, String content, String digest) {
+    }
+
+    private record ToolPromptTemplates(
+            Map<PlanningToolCategory, StrictPromptTemplate> templates,
+            StrictPromptTemplate exactCardinality,
+            StrictPromptTemplate rangeCardinality,
+            StrictPromptTemplate followUpAllowed,
+            StrictPromptTemplate followUpDisallowed) {
+
+        private StrictPromptTemplate cardinality(CapabilityPolicy policy) {
+            return policy.minimumCandidates() == policy.maximumCandidates()
+                    ? exactCardinality
+                    : rangeCardinality;
+        }
+
+        private StrictPromptTemplate followUp(CapabilityPolicy policy) {
+            return policy.acceptedCandidateKinds().contains(CandidateKind.FOLLOW_UP)
+                    ? followUpAllowed
+                    : followUpDisallowed;
+        }
     }
 
     private record EvidenceRequirementsDocument(List<YamlEvidenceRequirement> requirements) {

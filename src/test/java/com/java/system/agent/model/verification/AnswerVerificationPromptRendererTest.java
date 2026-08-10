@@ -130,6 +130,18 @@ class AnswerVerificationPromptRendererTest {
         verify(catalog).renderVerificationContext(renderer.project(context, "response contract"));
     }
 
+    @Test
+    void projectsNoFactStatementsAsNeutralCatalogData() {
+        AnswerVerificationContext context = new AnswerVerificationContext("question", SessionHistory.empty(),
+                new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-question"),
+                        StatementType.QUESTION, "question", Optional.empty(), Set.of(), Set.of()))),
+                List.of(), List.of(), List.of(), List.of());
+
+        Map<String, Object> projection = renderer().project(context, "response contract");
+
+        assertThat(projection.get("requiredFactStatementVerdicts")).isEqualTo("none\n");
+    }
+
     private static AnswerVerificationPromptRenderer renderer() {
         return new AnswerVerificationPromptRenderer(mock(PromptResourceCatalog.class));
     }

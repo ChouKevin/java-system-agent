@@ -98,7 +98,7 @@ public final class AnswerVerificationPromptRenderer {
                 .map(statement -> statement.statementId().value())
                 .toList();
         if (factStatementIds.isEmpty()) {
-            return "- none; statementVerdicts must be []\n";
+            return "none\n";
         }
         return factStatementIds.stream().map(statementId -> "- " + statementId + "\n")
                 .collect(Collectors.joining());

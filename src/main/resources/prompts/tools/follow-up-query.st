@@ -1,1 +1,1 @@
-Use <toolName> to execute one provider-bound follow-up for <capabilityName>@<capabilityVersion> through its issued opaque FOLLOW_UP handle. Select <candidateCardinality> candidate handles from kinds [<acceptedCandidateKinds>]. <followUpConstraint> <guidance>
+Use <toolName> to execute one provider-bound follow-up for <capabilityName>@<capabilityVersion> through its issued opaque FOLLOW_UP handle. <guidance>

@@ -130,6 +130,36 @@ class PromptResourceCatalogTest {
     }
 
     @Test
+    void rejectsAliasesThatCollideAfterDashNormalization(
+            @TempDir Path temporaryDirectory) throws IOException {
+        Path requirements = temporaryDirectory.resolve("dash-trigger-collision.yml");
+        Files.writeString(requirements, """
+                requirements:
+                  - id: outgoing
+                    capability: {name: codebase_outgoing_call_graph, version: v1}
+                    aliases: [call–graph proof]
+                  - id: incoming
+                    capability: {name: codebase_incoming_call_graph, version: v1}
+                    aliases: [call-graph proof]
+                """);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> loader().load(evidenceProperties(requirements), registry()))
+                .withMessageContaining("duplicate");
+    }
+
+    @Test
+    void includesAllCardinalityAndFollowUpInstructionResourcesInTheCatalogDigest() {
+        PromptResourceCatalog catalog = loader().load(productionProperties(), registry());
+
+        assertThat(catalog.resourceDigests()).containsKeys(
+                "tools/cardinality/exact.st",
+                "tools/cardinality/range.st",
+                "tools/follow-up/allowed.st",
+                "tools/follow-up/disallowed.st");
+    }
+
+    @Test
     void rejectsEvidenceRequirementsForUnregisteredCapabilities(@TempDir Path temporaryDirectory) throws IOException {
         Path requirements = temporaryDirectory.resolve("absent-capability.yml");
         Files.writeString(requirements, """
