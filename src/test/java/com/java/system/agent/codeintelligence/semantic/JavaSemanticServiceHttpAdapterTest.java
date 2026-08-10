@@ -173,7 +173,8 @@ class JavaSemanticServiceHttpAdapterTest {
 
         assertSucceeded(() -> adapter.resolveConcept(followUpContext("codebase_resolve_concept", new ResolveConceptExecutionInput(concept)), new ResolveConceptExecutionInput(concept)));
         assertSucceeded(() -> adapter.discoverEventListeners(repositoryContext("codebase_discover_event_listeners"), new DiscoverEventListenersExecutionInput("com.example.Event", 0, 1)));
-        assertSucceeded(() -> adapter.discoverMethodImplementations(targetContext("codebase_discover_method_implementations"), new DiscoverMethodImplementationsExecutionInput(Optional.empty())));
+        assertSucceeded(() -> adapter.discoverMethodImplementations(targetContext("codebase_discover_method_implementations"),
+                new DiscoverMethodImplementationsExecutionInput(Optional.of(graphTargetPayload()))));
         DiscoverTypeMembersExecutionInput members = new DiscoverTypeMembersExecutionInput(target.sourceType(), List.of("METHOD"), Optional.empty(), 0, 1);
         assertSucceeded(() -> adapter.discoverTypeMembers(followUpContext("codebase_discover_type_members", members), members));
         FindInternalReferencesExecutionInput references = new FindInternalReferencesExecutionInput(new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", target), 0, 1);
@@ -209,6 +210,48 @@ class JavaSemanticServiceHttpAdapterTest {
         assertSucceeded(() -> adapter.incomingCallGraph(
                 followUpContext("codebase_incoming_call_graph", incoming), incoming));
 
+        client.server().verify();
+    }
+
+    @Test
+    void postsTheExactMethodImplementationTargetFromEitherCandidateBoundAuthority() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+        DiscoverMethodImplementationsExecutionInput input = new DiscoverMethodImplementationsExecutionInput(Optional.of(target));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/method-implementations"))
+                .andExpect(method(POST))
+                .andExpect(content().json(methodImplementationsRequest(target)))
+                .andRespond(withSuccess(implementationsSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/method-implementations"))
+                .andExpect(method(POST))
+                .andExpect(content().json(methodImplementationsRequest(target)))
+                .andRespond(withSuccess(implementationsSuccess(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertSucceeded(() -> adapter.discoverMethodImplementations(
+                targetContext("codebase_discover_method_implementations"), input));
+        assertSucceeded(() -> adapter.discoverMethodImplementations(
+                followUpContext("codebase_discover_method_implementations", input), input));
+
+        client.server().verify();
+    }
+
+    @Test
+    void preservesTheConcreteDirectTargetWhenTheProviderReportsItUnsupported() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/method-implementations"))
+                .andExpect(method(POST))
+                .andExpect(content().json(methodImplementationsRequest(target)))
+                .andRespond(withStatus(HttpStatus.UNPROCESSABLE_CONTENT).contentType(MediaType.APPLICATION_JSON)
+                        .body(unsupportedImplementationTargetResponse()));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed)
+                adapter.discoverMethodImplementations(targetContext("codebase_discover_method_implementations"),
+                        new DiscoverMethodImplementationsExecutionInput(Optional.of(target)));
+
+        assertThat(result.failure().code()).isEqualTo(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE);
         client.server().verify();
     }
 
@@ -343,7 +386,7 @@ class JavaSemanticServiceHttpAdapterTest {
 
         assertThatThrownBy(() -> adapter.discoverMethodImplementations(
                 targetContext("codebase_discover_method_implementations"),
-                new DiscoverMethodImplementationsExecutionInput(Optional.empty())))
+                new DiscoverMethodImplementationsExecutionInput(Optional.of(graphTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
@@ -602,6 +645,13 @@ class JavaSemanticServiceHttpAdapterTest {
                 target.sourceType().sourceFile(), target.methodName());
     }
 
+    private static String methodImplementationsRequest(SemanticDtos.MethodTargetPayload target) {
+        return """
+                {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","declarationTarget":{"sourceType":{"javaType":{"packageName":"%s","className":"%s"},"sourceFile":"%s"},"methodName":"%s","parameterTypes":["java.lang.String"]}}
+                """.formatted(target.sourceType().javaType().packageName(), target.sourceType().javaType().className(),
+                target.sourceType().sourceFile(), target.methodName());
+    }
+
     private static CapabilityExecutionContext repositoryContext(String name) {
         RepositoryId repositoryId = new RepositoryId("orders");
         RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -631,7 +681,7 @@ class JavaSemanticServiceHttpAdapterTest {
         DiscoverEventListenersExecutionInput listeners = new DiscoverEventListenersExecutionInput("com.example.Event", 0,
                 1);
         DiscoverMethodImplementationsExecutionInput implementations = new DiscoverMethodImplementationsExecutionInput(
-                Optional.empty());
+                Optional.of(graphTargetPayload()));
         DiscoverTypeMembersExecutionInput members = new DiscoverTypeMembersExecutionInput(target.sourceType(),
                 List.of("METHOD"), Optional.empty(), 0, 1);
         FindInternalReferencesExecutionInput references = new FindInternalReferencesExecutionInput(
@@ -782,6 +832,12 @@ class JavaSemanticServiceHttpAdapterTest {
 
     private static String implementationsTargetMismatchSuccess() {
         return implementationsSuccess().replace("\"methodName\":\"find\"", "\"methodName\":\"other\"");
+    }
+
+    private static String unsupportedImplementationTargetResponse() {
+        return """
+                {"errorCode":"IMPLEMENTATION_TARGET_UNSUPPORTED","message":"requested method does not support implementation discovery","repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currentRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":null,"candidates":[],"requestId":"request-unsupported"}
+                """;
     }
 
     private static String evidenceIdentityMismatchSuccess() {

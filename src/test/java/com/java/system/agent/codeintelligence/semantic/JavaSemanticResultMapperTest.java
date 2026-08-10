@@ -2,6 +2,7 @@ package com.java.system.agent.codeintelligence.semantic;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
+import com.java.system.agent.codeintelligence.planning.DiscoverMethodImplementationsExecutionInput;
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
@@ -190,6 +191,41 @@ class JavaSemanticResultMapperTest {
 
         assertThat(result.discoveredCandidates()).extracting(AnalysisCandidate::kind)
                 .containsExactly(CandidateKind.ROUTE, CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP);
+    }
+
+    @Test
+    void projectsGraphEdgeImplementationFollowUpsWithoutInferringThem() throws Exception {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTargetPayload abstractTarget = methodTargetPayload();
+        String target = """
+                {"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"methodName":"find","parameterTypes":[]}
+                """;
+        String sourceRange = """
+                {"sourceFile":"src/Orders.java","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}
+                """;
+        String implementationFollowUp = """
+                {"operation":"DISCOVER_METHOD_IMPLEMENTATIONS","api":{"method":"POST","path":"/v1/discovery/method-implementations","operationId":"discoverMethodImplementations"},"request":{"repoId":"orders","expectedRevision":"%s","declarationTarget":%s}}
+                """.formatted(REVISION, target);
+        SemanticDtos.OutgoingCallGraphResponse response = new ObjectMapper().findAndRegisterModules().readValue("""
+                {"status":"SUCCESS","analyzedRevision":"%s","rootNodeId":"root","traversal":{"requestedDepth":1,"expandedNodeCount":1,"nodeBudget":10,"rootDirectCallsComplete":true,"limitReason":"NONE"},"nodes":[{"nodeId":"root","target":%s,"externalSymbol":null,"contentState":"FULL_SOURCE","traversalState":"EXPANDED","dispatchKind":"SYNCHRONOUS","declarationRange":null,"availableFollowUps":[]}],"edges":[{"callerNodeId":"root","calleeNodeId":"implementation","callSite":%s,"callExpression":"delegate()","resolutionStrategy":"JDT_CALL_HIERARCHY","category":"RESOLVED_ANALYZABLE","evidence":[],"availableFollowUps":[%s]},{"callerNodeId":"root","calleeNodeId":"ordinary","callSite":%s,"callExpression":"find()","resolutionStrategy":"JDT_CALL_HIERARCHY","category":"RESOLVED_ANALYZABLE","evidence":[],"availableFollowUps":[]}],"warnings":[],"errors":[]}
+                """.formatted(REVISION, target, sourceRange, implementationFollowUp, sourceRange),
+                SemanticDtos.OutgoingCallGraphResponse.class);
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
+                REPOSITORY_ID, REPOSITORY_REVISION, abstractTarget, response);
+
+        List<FollowUpCandidate> followUps = result.discoveredCandidates().stream()
+                .filter(FollowUpCandidate.class::isInstance)
+                .map(FollowUpCandidate.class::cast)
+                .toList();
+        assertThat(followUps).extracting(FollowUpCandidate::targetCapabilityName)
+                .containsExactly("codebase_discover_method_implementations");
+        assertThat(followUps).extracting(FollowUpCandidate::repositoryId).containsExactly(REPOSITORY_ID);
+        assertThat(followUps).extracting(FollowUpCandidate::analyzedRevision).containsExactly(REPOSITORY_REVISION);
+        assertThat(codec.decode(followUps.getFirst().payload(), DiscoverMethodImplementationsExecutionInput.class))
+                .isEqualTo(new DiscoverMethodImplementationsExecutionInput(Optional.of(abstractTarget)));
     }
 
     @Test

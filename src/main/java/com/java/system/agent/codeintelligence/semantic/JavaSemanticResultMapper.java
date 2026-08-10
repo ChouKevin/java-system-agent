@@ -11,8 +11,6 @@ import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.evidence.EvidenceWarning;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
-import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
-import com.java.system.agent.answering.domain.evidence.SourceRange;
 import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
@@ -35,12 +33,11 @@ import java.util.Set;
 public final class JavaSemanticResultMapper {
 
     private static final String SOURCE_SERVICE = "java-semantic-service";
-    private static final String METHOD_TARGET_KEY_VERSION = "mt1";
     private static final int MAX_TEXT_LENGTH = 1_000;
-    private static final String METHOD_TARGET_TERMINATOR = ":!";
 
     private final JavaSemanticProviderSchemaValidator schemaValidator = new JavaSemanticProviderSchemaValidator();
     private final JavaSemanticMetadataEvidenceMapper metadataEvidenceMapper = new JavaSemanticMetadataEvidenceMapper();
+    private final JavaSemanticCandidateTargetMapper targetMapper = new JavaSemanticCandidateTargetMapper();
     private final JavaSemanticFollowUpMapper followUpMapper;
 
     public JavaSemanticResultMapper() {
@@ -159,42 +156,18 @@ public final class JavaSemanticResultMapper {
     }
 
     public SemanticDtos.MethodTarget methodTarget(SemanticTarget target) {
-        requireProviderObject(target, "semantic target");
-        List<String> parts = decodeMethodTargetKey(target.key());
-        if (parts.size() < 4) {
-            throw contract("semantic target does not contain an exact method target");
-        }
-        List<String> parameterTypes = new ArrayList<>();
-        for (int index = 4; index < parts.size(); index++) {
-            parameterTypes.add(parts.get(index));
-        }
-        SemanticDtos.MethodTarget methodTarget = new SemanticDtos.MethodTarget(parts.get(0), parts.get(1), parts.get(2),
-                parts.get(3), List.copyOf(parameterTypes));
-        return schemaValidator.methodTarget(methodTarget);
+        SemanticDtos.MethodTargetPayload methodTarget = targetMapper.methodTarget(target);
+        return new SemanticDtos.MethodTarget(methodTarget.sourceType().sourceFile(),
+                methodTarget.sourceType().javaType().packageName(), methodTarget.sourceType().javaType().className(),
+                methodTarget.methodName(), methodTarget.parameterTypes());
     }
 
     public SemanticDtos.MethodTargetPayload methodTargetPayload(SemanticTarget target) {
-        SemanticDtos.MethodTarget methodTarget = methodTarget(target);
-        SemanticDtos.JavaTypeIdentityPayload javaType = new SemanticDtos.JavaTypeIdentityPayload(
-                methodTarget.packageName(), methodTarget.className());
-        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(
-                javaType, methodTarget.sourceFile());
-        return new SemanticDtos.MethodTargetPayload(sourceType, methodTarget.methodName(),
-                methodTarget.parameterTypes());
+        return targetMapper.methodTarget(target);
     }
 
     public SemanticTarget semanticTarget(SemanticDtos.MethodTarget target) {
-        SemanticDtos.MethodTarget requiredTarget = schemaValidator.methodTarget(target);
-        List<String> parameters = requiredList(requiredTarget.parameterTypes(), "method target parameter type");
-        List<String> keyParts = new ArrayList<>();
-        keyParts.add(requiredTarget.sourceFile());
-        keyParts.add(requiredTarget.packageName());
-        keyParts.add(requiredTarget.className());
-        keyParts.add(requiredTarget.methodName());
-        for (String parameter : parameters) {
-            keyParts.add(parameter);
-        }
-        return new SemanticTarget(SemanticTargetKind.SYMBOL, encodeMethodTargetKey(keyParts), Optional.empty());
+        return targetMapper.semanticTarget(target);
     }
 
     /** 投影 provider 的結構化概念探索結果 */
@@ -590,11 +563,7 @@ public final class JavaSemanticResultMapper {
     }
 
     private SemanticTarget sourceTarget(SemanticDtos.SourceRangePayload location) {
-        SemanticDtos.SourceRangePayload required = requireProviderObject(location, "source location");
-        SemanticDtos.TextRangePayload range = requireProviderObject(required.range(), "source location range");
-        SourceRange sourceRange = new SourceRange(required.sourceFile(), range.start().line() + 1,
-                range.start().character() + 1, range.end().line() + 1, range.end().character() + 1);
-        return new SemanticTarget(SemanticTargetKind.SOURCE_RANGE, required.sourceFile(), Optional.of(sourceRange));
+        return targetMapper.semanticTarget(location);
     }
 
     private List<CapabilityObservation> pageObservations(SemanticDtos.PageResponse page, String coverageStatus) {
@@ -647,6 +616,7 @@ public final class JavaSemanticResultMapper {
             if ("RESOLVED_OPAQUE".equals(edge.category())) {
                 observations.add(observation(ObservationCode.OPAQUE_EXTERNAL_CALL, edge.callExpression(), List.of()));
             }
+            addFollowUps(repositoryId, revision, edge.availableFollowUps(), candidates);
         }
         for (SemanticDtos.GraphWarning warning : requiredWarnings) {
             ObservationCode code = switch (warning.code()) {
@@ -852,75 +822,6 @@ public final class JavaSemanticResultMapper {
     private static String description(String value, String fallback) {
         String sanitized = singleLine(value);
         return StringUtils.hasText(sanitized) ? sanitized : fallback;
-    }
-
-    private String encodeMethodTargetKey(List<String> components) {
-        StringBuilder encoded = new StringBuilder(METHOD_TARGET_KEY_VERSION).append(':').append(components.size());
-        for (String component : components) {
-            encoded.append(':').append(component.length()).append(':').append(component);
-        }
-        return encoded.append(METHOD_TARGET_TERMINATOR).toString();
-    }
-
-    private List<String> decodeMethodTargetKey(String key) {
-        String requiredKey = requireProviderObject(key, "semantic target key");
-        String prefix = METHOD_TARGET_KEY_VERSION + ":";
-        if (!requiredKey.startsWith(prefix)) {
-            throw contract("semantic target key has an unsupported method target version");
-        }
-        int countEnd = requiredKey.indexOf(':', prefix.length());
-        if (countEnd < 0) {
-            throw contract("semantic target key is missing a component count delimiter");
-        }
-        int count = parseCanonicalNumber(requiredKey.substring(prefix.length(), countEnd), "component count");
-        if (count < 4) {
-            throw contract("semantic target key has too few components");
-        }
-        int position = countEnd;
-        List<String> components = new ArrayList<>();
-        for (int componentIndex = 0; componentIndex < count; componentIndex++) {
-            if (position >= requiredKey.length() || requiredKey.charAt(position) != ':') {
-                throw contract("semantic target key has an invalid component prefix");
-            }
-            int lengthEnd = requiredKey.indexOf(':', position + 1);
-            if (lengthEnd < 0) {
-                throw contract("semantic target key is missing a component length delimiter");
-            }
-            String lengthValue = requiredKey.substring(position + 1, lengthEnd);
-            int length = parseCanonicalNumber(lengthValue, "component length");
-            int valueStart = lengthEnd + 1;
-            if (length > requiredKey.length() - valueStart) {
-                throw contract("semantic target key component length exceeds remaining content");
-            }
-            int valueEnd = valueStart + length;
-            components.add(requiredKey.substring(valueStart, valueEnd));
-            position = valueEnd;
-        }
-        if (!requiredKey.startsWith(METHOD_TARGET_TERMINATOR, position)
-                || position + METHOD_TARGET_TERMINATOR.length() != requiredKey.length()) {
-            throw contract("semantic target key has trailing or missing terminal content");
-        }
-        return List.copyOf(components);
-    }
-
-    private int parseCanonicalNumber(String value, String description) {
-        if (value.isEmpty()) {
-            throw contract("semantic target key " + description + " is empty");
-        }
-        if (value.length() > 1 && value.charAt(0) == '0') {
-            throw contract("semantic target key " + description + " is noncanonical");
-        }
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            if (character < '0' || character > '9') {
-                throw contract("semantic target key " + description + " is not numeric");
-            }
-        }
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException exception) {
-            throw contract("semantic target key " + description + " is invalid");
-        }
     }
 
     static String singleLine(String value) {

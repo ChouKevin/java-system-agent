@@ -6,6 +6,7 @@ import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
+import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
@@ -31,6 +32,7 @@ import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import com.java.system.agent.capability.spi.CapabilityExecutionContext;
 import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticResultMapper;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
@@ -134,6 +136,7 @@ class CodeIntelligencePlanningToolProviderTest {
                         CodeIntelligenceQuery.INCOMING_CALL_GRAPH.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
+                        CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                         CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
                         CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
         assertThat(provider.registrations())
@@ -141,7 +144,6 @@ class CodeIntelligencePlanningToolProviderTest {
                 .extracting(registration -> registration.name())
                 .containsExactly(
                         CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
-                        CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
                         CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
                         CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
@@ -157,7 +159,8 @@ class CodeIntelligencePlanningToolProviderTest {
                 Map.entry(CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(), Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(), Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
-                Map.entry(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
+                Map.entry(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
+                        Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
                 Map.entry(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(), Set.of(CandidateKind.FOLLOW_UP)),
@@ -215,7 +218,7 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
-    void exposesMethodImplementationDiscoveryOnlyThroughProviderIssuedFollowUp() {
+    void plansMethodImplementationDiscoveryFromEitherAnExactSemanticCandidateOrProviderFollowUp() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
@@ -232,25 +235,32 @@ class CodeIntelligencePlanningToolProviderTest {
                 Optional.of(graphTarget()));
         IssuedCandidate followUp = followUpCandidate("candidate-implementations", binding, repositoryId, revision,
                 policy, payloadCodec.encode(input));
-        AgentPromptContext context = promptContext(policy, followUp, binding);
+        IssuedCandidate direct = semanticTargetCandidate("candidate-implementation-target", binding, repositoryId, revision);
+        AgentPromptContext directContext = promptContext(policy, direct, binding);
+        AgentPromptContext followUpContext = promptContext(policy, followUp, binding);
         CapabilityExecutionResult expected = new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
         when(adapter.discoverMethodImplementations(any(CapabilityExecutionContext.class), eq(input)))
                 .thenReturn(expected);
 
-        assertThat(registry.issuedRegistrations(context))
+        assertThat(policy.acceptedCandidateKinds())
+                .containsExactlyInAnyOrder(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP);
+        assertThat(registry.issuedRegistrations(directContext))
                 .extracting(registration -> registration.name())
-                .contains(policy.name())
-                .doesNotContain("codebase_follow_up");
+                .contains(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName());
 
-        QueryAction action = queryAction(registry.interpretToolCall(policy.name(), """
-                {"followUpCandidateHandle":"candidate-implementations","questionToResolve":"Find implementations","rationale":"Provider authorized this declaration"}
-                """, context));
-        assertThat(action.capability()).isEqualTo(context.issuedCapabilities().keySet().iterator().next());
-        assertThat(action.candidates()).extracting(candidate -> candidate.value())
-                .containsExactly("candidate-implementations");
-        assertThat(action.payload()).isEqualTo(payloadCodec.encode(input));
-        assertThat(execute(registry, policy, followUp, action, revisions)).isSameAs(expected);
-        verify(adapter, times(1)).discoverMethodImplementations(any(CapabilityExecutionContext.class), eq(input));
+        QueryAction directAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-implementation-target"],"questionToResolve":"Find implementations","rationale":"Inspect the selected method declaration"}
+                """, directContext));
+        QueryAction followUpAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-implementations"],"questionToResolve":"Find implementations","rationale":"Provider authorized this declaration"}
+                """, followUpContext));
+
+        assertThat(payloadCodec.decode(directAction.payload(), DiscoverMethodImplementationsExecutionInput.class))
+                .isEqualTo(input);
+        assertThat(followUpAction.payload()).isEqualTo(payloadCodec.encode(input));
+        assertThat(execute(registry, policy, direct, directAction, revisions)).isSameAs(expected);
+        assertThat(execute(registry, policy, followUp, followUpAction, revisions)).isSameAs(expected);
+        verify(adapter, times(2)).discoverMethodImplementations(any(CapabilityExecutionContext.class), eq(input));
     }
 
     @Test
@@ -410,6 +420,16 @@ class CodeIntelligencePlanningToolProviderTest {
                                                        RepositoryId repositoryId) {
         CandidateHandle handle = new CandidateHandle(handleValue, binding, CandidateKind.REPOSITORY);
         return new IssuedCandidate(handle, new RepositoryCandidate(repositoryId, "Orders"));
+    }
+
+    private static IssuedCandidate semanticTargetCandidate(String handleValue, HandleBinding binding,
+                                                           RepositoryId repositoryId, RepositoryRevision revision) {
+        SemanticDtos.MethodTargetPayload target = graphTarget();
+        SemanticTargetCandidate candidate = new SemanticTargetCandidate(repositoryId, revision,
+                new JavaSemanticResultMapper().semanticTarget(new SemanticDtos.MethodTarget(target.sourceType().sourceFile(),
+                        target.sourceType().javaType().packageName(), target.sourceType().javaType().className(),
+                        target.methodName(), target.parameterTypes())), "Order service method");
+        return new IssuedCandidate(new CandidateHandle(handleValue, binding, CandidateKind.SEMANTIC_TARGET), candidate);
     }
 
     private static AgentPromptContext promptContext(CapabilityPolicy policy, IssuedCandidate candidate,

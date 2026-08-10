@@ -3,6 +3,7 @@ package com.java.system.agent.codeintelligence.planning;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolCategory;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.codeintelligence.executor.DiscoverConceptsExecutor;
@@ -79,10 +80,14 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                                 Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
                         DiscoverEventListenersPlanningInput.class, DiscoverEventListenersExecutionInput.class,
                         new DiscoverEventListenersPlanningMapper(), new DiscoverEventListenersExecutor(requiredAdapter), requiredPayloadCodec),
-                PlanningToolRegistry.followUpOnlyRegistration(
-                        policy(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS, Set.of(CandidateKind.FOLLOW_UP)),
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
+                        policy(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS,
+                                Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
+                        DiscoverMethodImplementationsPlanningInput.class,
                         DiscoverMethodImplementationsExecutionInput.class,
-                        new DiscoverMethodImplementationsExecutor(requiredAdapter)),
+                        CodeIntelligenceCandidateExecutionPlanners.discoverMethodImplementations(),
+                        new DiscoverMethodImplementationsExecutor(requiredAdapter), requiredPayloadCodec),
                 PlanningToolRegistry.followUpOnlyRegistration(
                         policy(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, Set.of(CandidateKind.FOLLOW_UP)),
                         DiscoverTypeMembersExecutionInput.class, new DiscoverTypeMembersExecutor(requiredAdapter),

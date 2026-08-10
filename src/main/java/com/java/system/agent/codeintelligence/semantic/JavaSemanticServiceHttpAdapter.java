@@ -85,6 +85,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final JavaSemanticResultMapper resultMapper;
+    private final JavaSemanticCandidateTargetMapper targetMapper = new JavaSemanticCandidateTargetMapper();
     private final CanonicalCapabilityPayloadCodec payloadCodec;
     private final JavaSemanticErrorMapper errorMapper;
 
@@ -355,7 +356,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         return observeCapabilityOperation(IMPLEMENTATIONS_OPERATION, () -> discoveryRequest(IMPLEMENTATIONS_OPERATION, () -> {
             DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS, input,
                     DiscoverMethodImplementationsExecutionInput.class, SemanticTargetCandidate.class);
-            SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "method implementation");
+            SemanticDtos.MethodTargetPayload target = methodImplementationTargetFor(scope, input.boundTarget());
             SemanticDtos.DiscoverMethodImplementationsFollowUpRequest request =
                     new SemanticDtos.DiscoverMethodImplementationsFollowUpRequest(scope.repositoryId().value(),
                             scope.expectedRevision().value(), target);
@@ -521,6 +522,24 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             throw contract(description + " direct candidate must provide exactly one unbound semantic target");
         }
         return resultMapper.methodTargetPayload(target.semanticTarget());
+    }
+
+    private SemanticDtos.MethodTargetPayload methodImplementationTargetFor(
+            DiscoveryScope scope,
+            Optional<SemanticDtos.MethodTargetPayload> boundTarget) {
+        if (scope.followUp()) {
+            return boundTarget.orElseThrow(() -> contract("method implementation follow-up target is required"));
+        }
+        if (!(scope.selected() instanceof SemanticTargetCandidate selectedTarget)) {
+            throw contract("method implementation direct candidate must provide exactly one semantic target");
+        }
+        SemanticDtos.MethodTargetPayload expectedTarget = targetMapper.methodTarget(selectedTarget.semanticTarget());
+        SemanticDtos.MethodTargetPayload requestedTarget = boundTarget.orElseThrow(
+                () -> contract("method implementation direct target is required"));
+        if (!expectedTarget.equals(requestedTarget)) {
+            throw contract("method implementation direct target does not match the selected semantic target");
+        }
+        return expectedTarget;
     }
 
     private SemanticDtos.SourceSymbolContextPayload sourceContextFor(DiscoveryScope scope,
