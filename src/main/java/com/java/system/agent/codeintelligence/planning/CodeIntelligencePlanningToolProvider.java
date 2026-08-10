@@ -3,6 +3,7 @@ package com.java.system.agent.codeintelligence.planning;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolCategory;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.codeintelligence.executor.DiscoverConceptsExecutor;
@@ -55,41 +56,60 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                         policy(CodeIntelligenceQuery.SUGGEST_API_ROUTE, Set.of(CandidateKind.REPOSITORY)),
                         SuggestApiRoutePlanningInput.class, SuggestApiRouteExecutionInput.class,
                         new SuggestApiRoutePlanningMapper(), new SuggestApiRouteExecutor(requiredAdapter), requiredPayloadCodec),
-                PlanningToolRegistry.registration(
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
                         policy(CodeIntelligenceQuery.OUTGOING_CALL_GRAPH,
                                 Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
                         OutgoingCallGraphPlanningInput.class, OutgoingCallGraphExecutionInput.class,
-                        new OutgoingCallGraphPlanningMapper(), new OutgoingCallGraphExecutor(requiredAdapter), requiredPayloadCodec),
-                PlanningToolRegistry.registration(
+                        CodeIntelligenceCandidateExecutionPlanners.outgoingCallGraph(),
+                        new OutgoingCallGraphExecutor(requiredAdapter), requiredPayloadCodec),
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
                         policy(CodeIntelligenceQuery.INCOMING_CALL_GRAPH,
                                 Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
                         IncomingCallGraphPlanningInput.class, IncomingCallGraphExecutionInput.class,
-                        new IncomingCallGraphPlanningMapper(), new IncomingCallGraphExecutor(requiredAdapter), requiredPayloadCodec),
-                PlanningToolRegistry.registration(
+                        CodeIntelligenceCandidateExecutionPlanners.incomingCallGraph(),
+                        new IncomingCallGraphExecutor(requiredAdapter), requiredPayloadCodec),
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
                         policy(CodeIntelligenceQuery.DISCOVER_CONCEPTS,
                                 Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
                         DiscoverConceptsPlanningInput.class, DiscoverConceptsExecutionInput.class,
-                        new DiscoverConceptsPlanningMapper(), new DiscoverConceptsExecutor(requiredAdapter), requiredPayloadCodec,
+                        CodeIntelligenceCandidateExecutionPlanners.discoverConcepts(),
+                        new DiscoverConceptsExecutor(requiredAdapter), requiredPayloadCodec,
                         CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName()),
                 PlanningToolRegistry.followUpOnlyRegistration(
                         policy(CodeIntelligenceQuery.RESOLVE_CONCEPT, Set.of(CandidateKind.FOLLOW_UP)),
                         ResolveConceptExecutionInput.class, new ResolveConceptExecutor(requiredAdapter)),
-                PlanningToolRegistry.registration(
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
                         policy(CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS,
                                 Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP)),
                         DiscoverEventListenersPlanningInput.class, DiscoverEventListenersExecutionInput.class,
-                        new DiscoverEventListenersPlanningMapper(), new DiscoverEventListenersExecutor(requiredAdapter), requiredPayloadCodec),
-                PlanningToolRegistry.followUpOnlyRegistration(
-                        policy(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS, Set.of(CandidateKind.FOLLOW_UP)),
+                        CodeIntelligenceCandidateExecutionPlanners.discoverEventListeners(),
+                        new DiscoverEventListenersExecutor(requiredAdapter), requiredPayloadCodec),
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
+                        policy(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS,
+                                Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
+                        DiscoverMethodImplementationsPlanningInput.class,
                         DiscoverMethodImplementationsExecutionInput.class,
-                        new DiscoverMethodImplementationsExecutor(requiredAdapter)),
-                PlanningToolRegistry.followUpOnlyRegistration(
-                        policy(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, Set.of(CandidateKind.FOLLOW_UP)),
-                        DiscoverTypeMembersExecutionInput.class, new DiscoverTypeMembersExecutor(requiredAdapter),
+                        CodeIntelligenceCandidateExecutionPlanners.discoverMethodImplementations(),
+                        new DiscoverMethodImplementationsExecutor(requiredAdapter), requiredPayloadCodec),
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
+                        policy(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS,
+                                Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
+                        DiscoverTypeMembersPlanningInput.class, DiscoverTypeMembersExecutionInput.class,
+                        CodeIntelligenceCandidateExecutionPlanners.discoverTypeMembers(),
+                        new DiscoverTypeMembersExecutor(requiredAdapter), requiredPayloadCodec,
                         CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName()),
-                PlanningToolRegistry.followUpOnlyRegistration(
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.FOLLOW_UP_QUERY,
                         policy(CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES, Set.of(CandidateKind.FOLLOW_UP)),
-                        FindInternalReferencesExecutionInput.class, new FindInternalReferencesExecutor(requiredAdapter)),
+                        FindInternalReferencesPlanningInput.class, FindInternalReferencesExecutionInput.class,
+                        CodeIntelligenceCandidateExecutionPlanners.findInternalReferences(),
+                        new FindInternalReferencesExecutor(requiredAdapter), requiredPayloadCodec),
                 PlanningToolRegistry.followUpOnlyRegistration(
                         policy(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE, Set.of(CandidateKind.FOLLOW_UP)),
                         GetEvidenceSourceExecutionInput.class, new GetEvidenceSourceExecutor(requiredAdapter)),
@@ -98,9 +118,13 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                                 Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
                         GetMethodSourcePlanningInput.class, GetMethodSourceExecutionInput.class,
                         new GetMethodSourcePlanningMapper(), new GetMethodSourceExecutor(requiredAdapter), requiredPayloadCodec),
-                PlanningToolRegistry.followUpOnlyRegistration(
-                        policy(CodeIntelligenceQuery.GET_SOURCE_SEGMENT, Set.of(CandidateKind.FOLLOW_UP)),
-                        GetSourceSegmentExecutionInput.class, new GetSourceSegmentExecutor(requiredAdapter)),
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
+                        policy(CodeIntelligenceQuery.GET_SOURCE_SEGMENT,
+                                Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
+                        GetSourceSegmentPlanningInput.class, GetSourceSegmentExecutionInput.class,
+                        CodeIntelligenceCandidateExecutionPlanners.getSourceSegment(),
+                        new GetSourceSegmentExecutor(requiredAdapter), requiredPayloadCodec),
                 PlanningToolRegistry.registration(
                         policy(CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL,
                                 Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),

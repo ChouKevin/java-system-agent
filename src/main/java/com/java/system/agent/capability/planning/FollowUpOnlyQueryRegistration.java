@@ -3,16 +3,11 @@ package com.java.system.agent.capability.planning;
 import com.java.system.agent.capability.spi.CapabilityExecutor;
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
-import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
-import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
-import com.java.system.agent.answering.domain.handle.CapabilityHandle;
-import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -71,30 +66,23 @@ public final class FollowUpOnlyQueryRegistration<E>
     public boolean isIssued(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
         return context.issuedCandidates().entrySet().stream()
-                .anyMatch(candidate -> ProviderBoundFollowUp
-                        .targetCapability(context, candidate, policy)
-                        .isPresent());
+                .map(candidate -> new CandidateHandleRef(candidate.getKey().value()))
+                .anyMatch(reference -> ProviderBoundFollowUp.selection(context, policy, reference).isPresent());
     }
 
     @Override
     public AgentAction toAction(FollowUpPlanningInput input, AgentPromptContext context) {
         Objects.requireNonNull(input, "follow-up planning input must not be null");
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        Map.Entry<CandidateHandle, IssuedCandidate> selected = context.issuedCandidates().entrySet().stream()
-                .filter(entry -> entry.getKey().value().equals(input.followUpCandidateHandle()))
-                .findFirst()
+        CandidateHandleRef reference = new CandidateHandleRef(input.followUpCandidateHandle());
+        ProviderBoundFollowUp.Selection selection = ProviderBoundFollowUp.selection(context, policy, reference)
                 .orElseThrow(FollowUpOnlyQueryRegistration::invalidFollowUpSelection);
-        CapabilityHandle capability = ProviderBoundFollowUp.targetCapability(context, selected, policy)
-                .orElseThrow(FollowUpOnlyQueryRegistration::invalidFollowUpSelection);
-        CandidateHandleRef reference = new CandidateHandleRef(selected.getKey().value());
-        CapabilityInputPayload payload = ProviderBoundFollowUp.boundPayload(
-                context, capability, policy, List.of(reference))
-                .orElseThrow(FollowUpOnlyQueryRegistration::invalidFollowUpSelection);
-        return new QueryAction(capability, List.of(reference), input.questionToResolve(), payload, input.rationale());
+        return new QueryAction(selection.capability(), List.of(selection.candidateReference()), input.questionToResolve(),
+                selection.providerPayload(), input.rationale());
     }
 
     private static PlanningToolInputException invalidFollowUpSelection() {
-        return new PlanningToolInputException(INVALID_FOLLOW_UP_SELECTION, null);
+        return PlanningToolInputException.safeDiagnostic(INVALID_FOLLOW_UP_SELECTION);
     }
 
     @Override

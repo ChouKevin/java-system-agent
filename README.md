@@ -63,6 +63,12 @@ evidence provenance remains context, not permission to repeat a tool. Semantic m
 can reach fields on its owning type through a provider-issued type-member follow-up; a typed field
 result can authorize a provider-issued internal-reference search.
 
+Follow-ups are trusted target or recommendation candidates, not universal prerequisites for every
+semantic query. The model selects exactly one current candidate handle and only the safe typed
+options exposed by that tool; direct method/type/source target projection remains runtime-owned and
+revision-pinned. Tools whose identity must be provider-issued remain follow-up-required. Direct and
+follow-up query modes consume the same existing query budget and rate limit.
+
 ## Durable Slack Flow
 
 ```text

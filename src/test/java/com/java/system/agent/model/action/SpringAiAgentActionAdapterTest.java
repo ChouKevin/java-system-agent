@@ -196,10 +196,12 @@ class SpringAiAgentActionAdapterTest {
         AgentActionProposal proposal = adapter.nextAction(promptContext);
 
         assertThat(proposal).isEqualTo(expected);
+        verify(chatClient, times(1)).prompt();
         verify(callbackAdapter, times(1)).issuedTools(promptContext);
         verify(renderer, times(1)).render(promptContext, issued.names());
         verify(requestSpec).toolCallbacks(issued.callbacks());
         verify(requestSpec, times(1)).call();
+        verify(responseSpec, times(1)).chatClientResponse();
         verify(registry).interpretToolCall("issued_callers", "{}", promptContext);
     }
 

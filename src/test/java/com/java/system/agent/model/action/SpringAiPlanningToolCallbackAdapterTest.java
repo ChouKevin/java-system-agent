@@ -9,23 +9,38 @@ import com.java.system.agent.capability.planning.QueryPlanningToolRegistration;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.model.prompt.AgentPromptResourceProperties;
 import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import com.java.system.agent.model.prompt.PromptResourceCatalogLoader;
+import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
+import com.java.system.agent.codeintelligence.planning.CodeIntelligencePlanningToolProvider;
+import com.java.system.agent.codeintelligence.planning.FindInternalReferencesExecutionInput;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticCandidateTargetMapper;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticResultMapper;
+import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
+import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,6 +83,77 @@ class SpringAiPlanningToolCallbackAdapterTest {
                 .noneMatch(logicalId -> logicalId.contains("test_lookup_symbol"));
     }
 
+    @Test
+    void issuesSourceSegmentNamesAndCallbacksOnlyForCompatibleCandidateAuthority() {
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(
+                org.mockito.Mockito.mock(JavaSemanticServiceHttpAdapter.class), payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        CapabilityPolicy sourceSegment = registry.availableCapabilities().stream()
+                .filter(policy -> policy.name().equals(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName()))
+                .findFirst().orElseThrow();
+        CapabilityPolicy typeMembers = registry.availableCapabilities().stream()
+                .filter(policy -> policy.name().equals(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName()))
+                .findFirst().orElseThrow();
+        SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry,
+                new SpringAiPlanningToolSchemaFactory(), catalog(registry));
+        SemanticDtos.SourceRangePayload range = new SemanticDtos.SourceRangePayload("src/Orders.java",
+                new SemanticDtos.TextRangePayload(new SemanticDtos.Position(0, 0), new SemanticDtos.Position(1, 2)));
+        AgentPromptContext sourceRangeContext = semanticContext(sourceSegment, new JavaSemanticCandidateTargetMapper()
+                .semanticTarget(range));
+        AgentPromptContext methodContext = semanticContext(sourceSegment, new JavaSemanticResultMapper().semanticTarget(
+                new SemanticDtos.MethodTarget("src/Orders.java", "com.example", "Orders", "find", List.of())));
+        AgentPromptContext typeMemberContext = semanticContext(typeMembers, new JavaSemanticResultMapper().semanticTarget(
+                new SemanticDtos.MethodTarget("src/Orders.java", "com.example", "Orders", "find", List.of())));
+
+        IssuedPlanningTools sourceRangeTools = adapter.issuedTools(sourceRangeContext);
+        IssuedPlanningTools methodTools = adapter.issuedTools(methodContext);
+        IssuedPlanningTools typeMemberTools = adapter.issuedTools(typeMemberContext);
+
+        assertThat(sourceRangeTools.names()).contains(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
+        assertThat(sourceRangeTools.callbacks()).extracting(callback -> callback.getToolDefinition().name())
+                .contains(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
+        assertThat(methodTools.names()).doesNotContain(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
+        assertThat(methodTools.callbacks()).extracting(callback -> callback.getToolDefinition().name())
+                .doesNotContain(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
+        assertThat(sourceRangeTools.callbacks()).extracting(callback -> callback.getToolDefinition().inputSchema())
+                .allSatisfy(schema -> assertThat(schema).doesNotContain("sourceType", "repoId", "expectedRevision",
+                        "offset", "location"));
+        assertThat(typeMemberTools.callbacks()).extracting(callback -> callback.getToolDefinition().inputSchema())
+                .allSatisfy(schema -> assertThat(schema).doesNotContain("sourceType", "repoId", "expectedRevision",
+                        "offset"));
+    }
+
+    @Test
+    void issuesOneMixedAuthoritySnapshotWithOnlyCurrentCompatibleFollowUps() {
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(
+                org.mockito.Mockito.mock(JavaSemanticServiceHttpAdapter.class), payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry,
+                new SpringAiPlanningToolSchemaFactory(), catalog(registry));
+
+        IssuedPlanningTools issued = adapter.issuedTools(mixedAuthorityContext(registry, payloadCodec));
+
+        assertThat(issued.names()).containsExactly(
+                CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
+                CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
+                CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
+                CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
+                CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(),
+                CodeIntelligenceQuery.INCOMING_CALL_GRAPH.capabilityName(),
+                CodeIntelligenceQuery.LIST_ENTRY_POINTS.capabilityName(),
+                CodeIntelligenceQuery.LOOKUP_API_ROUTE.capabilityName(),
+                CodeIntelligenceQuery.OUTGOING_CALL_GRAPH.capabilityName(),
+                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName(),
+                CodeIntelligenceQuery.SUGGEST_API_ROUTE.capabilityName());
+        assertThat(issued.names()).doesNotContain(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName());
+        assertThat(issued.callbacks()).extracting(callback -> callback.getToolDefinition().name())
+                .containsExactlyElementsOf(issued.names());
+    }
+
     private static PlanningToolRegistry registry(CapabilityPolicy policy, CapabilityPolicy unissuedPolicy) {
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
@@ -102,6 +188,78 @@ class SpringAiPlanningToolCallbackAdapterTest {
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId,
                 Map.of(new CapabilityHandle("capability-1", binding), policy), Map.of(),
                 Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext semanticContext(CapabilityPolicy policy,
+                                                      com.java.system.agent.answering.domain.evidence.SemanticTarget target) {
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        HandleBinding binding = new HandleBinding(runId, attemptId, revisions);
+        CapabilityHandle capabilityHandle = new CapabilityHandle("capability-source-segment", binding);
+        com.java.system.agent.answering.domain.handle.CandidateHandle candidateHandle =
+                new com.java.system.agent.answering.domain.handle.CandidateHandle("candidate-semantic", binding,
+                        CandidateKind.SEMANTIC_TARGET);
+        IssuedCandidate candidate = new IssuedCandidate(candidateHandle,
+                new SemanticTargetCandidate(repositoryId, revision, target, "Semantic candidate"));
+        return new AgentPromptContext("Read source", SessionHistory.empty(), runId, attemptId,
+                Map.of(capabilityHandle, policy), Map.of(candidateHandle, candidate), Map.of(), Map.of(), List.of(),
+                Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext mixedAuthorityContext(
+            PlanningToolRegistry registry,
+            CanonicalCapabilityPayloadCodec payloadCodec) {
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        HandleBinding binding = new HandleBinding(runId, attemptId, revisions);
+        Map<CapabilityHandle, CapabilityPolicy> capabilities = new LinkedHashMap<>();
+        for (CapabilityPolicy policy : registry.availableCapabilities()) {
+            capabilities.put(new CapabilityHandle("capability-" + policy.name(), binding), policy);
+        }
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.example", "Orders"), "src/Orders.java");
+        SemanticDtos.MethodTargetPayload methodTarget = new SemanticDtos.MethodTargetPayload(
+                sourceType, "find", List.of());
+        SemanticDtos.SourceRangePayload sourceRange = new SemanticDtos.SourceRangePayload("src/Orders.java",
+                new SemanticDtos.TextRangePayload(new SemanticDtos.Position(0, 0), new SemanticDtos.Position(1, 2)));
+        CandidateHandle methodHandle = new CandidateHandle("candidate-method", binding, CandidateKind.SEMANTIC_TARGET);
+        CandidateHandle sourceRangeHandle = new CandidateHandle("candidate-source-range", binding,
+                CandidateKind.SEMANTIC_TARGET);
+        CandidateHandle internalReferencesHandle = new CandidateHandle("candidate-internal-references", binding,
+                CandidateKind.FOLLOW_UP);
+        HandleBinding staleBinding = new HandleBinding(runId, new AnalysisAttemptId("attempt-0"), revisions);
+        CandidateHandle staleFollowUpHandle = new CandidateHandle("candidate-stale", staleBinding,
+                CandidateKind.FOLLOW_UP);
+        CapabilityPolicy internalReferencesPolicy = policy(registry, CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES);
+        Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
+        candidates.put(methodHandle, new IssuedCandidate(methodHandle, new SemanticTargetCandidate(repositoryId, revision,
+                new JavaSemanticResultMapper().semanticTarget(new SemanticDtos.MethodTarget("src/Orders.java",
+                        "com.example", "Orders", "find", List.of())), "Method target")));
+        candidates.put(sourceRangeHandle, new IssuedCandidate(sourceRangeHandle, new SemanticTargetCandidate(repositoryId,
+                revision, new JavaSemanticCandidateTargetMapper().semanticTarget(sourceRange), "Source range target")));
+        candidates.put(internalReferencesHandle, new IssuedCandidate(internalReferencesHandle, new FollowUpCandidate(
+                repositoryId, revision, internalReferencesPolicy.name(), internalReferencesPolicy.version(),
+                payloadCodec.encode(new FindInternalReferencesExecutionInput(
+                        new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", methodTarget), 0, 10)),
+                "Find internal references")));
+        candidates.put(staleFollowUpHandle, new IssuedCandidate(staleFollowUpHandle, new FollowUpCandidate(repositoryId, revision,
+                CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(), CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.version(),
+                new CapabilityInputPayload("{\"unrelated\":true}"), "Stale follow-up")));
+        return new AgentPromptContext("Read source", SessionHistory.empty(), runId, attemptId, capabilities, candidates,
+                Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(4, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static CapabilityPolicy policy(PlanningToolRegistry registry, CodeIntelligenceQuery query) {
+        return registry.availableCapabilities().stream()
+                .filter(policy -> policy.name().equals(query.capabilityName()))
+                .findFirst()
+                .orElseThrow();
     }
 
     private record TestLookupPlanningInput(String questionToResolve) {

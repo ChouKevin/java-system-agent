@@ -1065,6 +1065,7 @@ final class JavaSemanticProviderSchemaValidator {
         enumValue(required.resolutionStrategy(), EDGE_STRATEGIES, "graph edge strategy");
         enumValue(required.category(), EDGE_CATEGORIES, "graph edge category");
         requiredStrings(required.evidence(), "graph edge evidence");
+        followUps(required.availableFollowUps());
     }
 
     private void graphWarning(SemanticDtos.GraphWarning warning) {

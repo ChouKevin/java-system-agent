@@ -2,6 +2,9 @@ package com.java.system.agent.codeintelligence.semantic;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
+import com.java.system.agent.codeintelligence.planning.DiscoverMethodImplementationsExecutionInput;
+import com.java.system.agent.answering.application.loop.ContextIssuer;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
@@ -13,11 +16,15 @@ import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.answering.domain.evidence.SourceRange;
 import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.codeintelligence.planning.DiscoverTypeMembersExecutionInput;
 import com.java.system.agent.codeintelligence.planning.FindInternalReferencesExecutionInput;
@@ -26,6 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -190,6 +198,99 @@ class JavaSemanticResultMapperTest {
 
         assertThat(result.discoveredCandidates()).extracting(AnalysisCandidate::kind)
                 .containsExactly(CandidateKind.ROUTE, CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP);
+    }
+
+    @Test
+    void projectsGraphEdgeImplementationFollowUpsWithoutInferringThem() throws Exception {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTargetPayload abstractTarget = methodTargetPayload();
+        String target = """
+                {"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"methodName":"find","parameterTypes":[]}
+                """;
+        String sourceRange = """
+                {"sourceFile":"src/Orders.java","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}
+                """;
+        String implementationFollowUp = """
+                {"operation":"DISCOVER_METHOD_IMPLEMENTATIONS","api":{"method":"POST","path":"/v1/discovery/method-implementations","operationId":"discoverMethodImplementations"},"request":{"repoId":"orders","expectedRevision":"%s","declarationTarget":%s}}
+                """.formatted(REVISION, target);
+        SemanticDtos.OutgoingCallGraphResponse response = new ObjectMapper().findAndRegisterModules().readValue("""
+                {"status":"SUCCESS","analyzedRevision":"%s","rootNodeId":"root","traversal":{"requestedDepth":1,"expandedNodeCount":1,"nodeBudget":10,"rootDirectCallsComplete":true,"limitReason":"NONE"},"nodes":[{"nodeId":"root","target":%s,"externalSymbol":null,"contentState":"FULL_SOURCE","traversalState":"EXPANDED","dispatchKind":"SYNCHRONOUS","declarationRange":null,"availableFollowUps":[]}],"edges":[{"callerNodeId":"root","calleeNodeId":"implementation","callSite":%s,"callExpression":"delegate()","resolutionStrategy":"JDT_CALL_HIERARCHY","category":"RESOLVED_ANALYZABLE","evidence":[],"availableFollowUps":[%s]},{"callerNodeId":"root","calleeNodeId":"ordinary","callSite":%s,"callExpression":"find()","resolutionStrategy":"JDT_CALL_HIERARCHY","category":"RESOLVED_ANALYZABLE","evidence":[],"availableFollowUps":[]}],"warnings":[],"errors":[]}
+                """.formatted(REVISION, target, sourceRange, implementationFollowUp, sourceRange),
+                SemanticDtos.OutgoingCallGraphResponse.class);
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
+                REPOSITORY_ID, REPOSITORY_REVISION, abstractTarget, response);
+
+        List<FollowUpCandidate> followUps = result.discoveredCandidates().stream()
+                .filter(FollowUpCandidate.class::isInstance)
+                .map(FollowUpCandidate.class::cast)
+                .toList();
+        assertThat(followUps).extracting(FollowUpCandidate::targetCapabilityName)
+                .containsExactly("codebase_discover_method_implementations");
+        assertThat(followUps).extracting(FollowUpCandidate::repositoryId).containsExactly(REPOSITORY_ID);
+        assertThat(followUps).extracting(FollowUpCandidate::analyzedRevision).containsExactly(REPOSITORY_REVISION);
+        assertThat(codec.decode(followUps.getFirst().payload(), DiscoverMethodImplementationsExecutionInput.class))
+                .isEqualTo(new DiscoverMethodImplementationsExecutionInput(Optional.of(abstractTarget)));
+    }
+
+    @Test
+    void deduplicatesRepeatedGraphEdgeFollowUpsBeforeStrictCapabilityIssuance() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTargetPayload requestedTarget = methodTargetPayload();
+        SemanticDtos.MethodTarget rootTarget = new SemanticDtos.MethodTarget(
+                requestedTarget.sourceType().sourceFile(),
+                requestedTarget.sourceType().javaType().packageName(),
+                requestedTarget.sourceType().javaType().className(),
+                requestedTarget.methodName(),
+                requestedTarget.parameterTypes());
+        SemanticDtos.AvailableFollowUp repeatedImplementationFollowUp = new SemanticDtos.AvailableFollowUp(
+                "DISCOVER_METHOD_IMPLEMENTATIONS",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/method-implementations",
+                        "discoverMethodImplementations"),
+                new SemanticDtos.DiscoverMethodImplementationsFollowUpRequest("orders", REVISION, requestedTarget));
+        SemanticDtos.AvailableFollowUp methodSourceFollowUp = new SemanticDtos.AvailableFollowUp(
+                "GET_METHOD_SOURCE",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/method-source", "getMethodSource"),
+                new SemanticDtos.TargetFollowUpRequest("orders", REVISION, requestedTarget,
+                        Optional.empty(), Optional.empty(), Optional.empty()));
+        SemanticDtos.OutgoingCallGraphResponse response = new SemanticDtos.OutgoingCallGraphResponse(
+                "SUCCESS", REVISION, "root", new SemanticDtos.GraphTraversal(1, 1, 10, true, "NONE"),
+                List.of(new SemanticDtos.GraphNode("root", rootTarget, null, "FULL_SOURCE", "EXPANDED",
+                        "SYNCHRONOUS", null, List.of())),
+                List.of(
+                        graphEdge("implementation-first", 1, repeatedImplementationFollowUp),
+                        graphEdge("method-source", 2, methodSourceFollowUp),
+                        graphEdge("implementation-second", 3, repeatedImplementationFollowUp)),
+                List.of(), List.of());
+
+        CapabilityExecutionResult.Succeeded mapped = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
+                REPOSITORY_ID, REPOSITORY_REVISION, requestedTarget, response);
+        ContextIssuer issuer = new ContextIssuer();
+        ContextIssuer.CapabilityIssue issued = issuer.issueCapabilityResult(
+                new AnalysisRunId("run-duplicate-follow-ups"),
+                issuer.issueInitial(
+                        new AnalysisRunId("run-duplicate-follow-ups"),
+                        new AnalysisAttemptId("attempt-duplicate-follow-ups"),
+                        RevisionVector.empty().pin(REPOSITORY_ID, REPOSITORY_REVISION),
+                        List.of(new CapabilityPolicy("find", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 10)),
+                        List.of(new RepositoryDescriptor(REPOSITORY_ID, "Orders repository"))),
+                mapped,
+                Set.of(REPOSITORY_ID));
+
+        assertThat(mapped.discoveredCandidates().stream()
+                .filter(FollowUpCandidate.class::isInstance)
+                .map(FollowUpCandidate.class::cast)
+                .map(FollowUpCandidate::targetCapabilityName))
+                .containsExactly("codebase_discover_method_implementations", "codebase_get_method_source");
+        assertThat(issued.context().issuedCandidates().values().stream()
+                .map(issuedCandidate -> issuedCandidate.candidate())
+                .filter(FollowUpCandidate.class::isInstance)
+                .map(FollowUpCandidate.class::cast)
+                .map(FollowUpCandidate::targetCapabilityName))
+                .containsExactly("codebase_discover_method_implementations", "codebase_get_method_source");
+        assertThat(issued.resultCandidateHandleValues()).hasSize(3);
     }
 
     @Test
@@ -779,6 +880,13 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.TextRangePayload range = new SemanticDtos.TextRangePayload(
                 new SemanticDtos.Position(0, 0), new SemanticDtos.Position(0, 1));
         return new SemanticDtos.SourceRangePayload("src/ResponseService.java", range);
+    }
+
+    private static SemanticDtos.GraphEdge graphEdge(String calleeNodeId, int line,
+                                                     SemanticDtos.AvailableFollowUp followUp) {
+        return new SemanticDtos.GraphEdge("root", calleeNodeId,
+                new SemanticDtos.SourceRangePayload("src/Orders.java", textRange(line, 0, line, 1)),
+                "delegate()", "JDT_CALL_HIERARCHY", "RESOLVED_ANALYZABLE", List.of(), List.of(followUp));
     }
 
     private static SemanticDtos.MethodTargetPayload methodTargetPayload() {

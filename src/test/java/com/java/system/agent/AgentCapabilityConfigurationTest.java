@@ -53,14 +53,17 @@ class AgentCapabilityConfigurationTest {
         assertThat(required(schemas, "codebase_lookup_api_route")).contains("apiPath").doesNotContain("httpMethod");
         assertThat(required(schemas, "codebase_suggest_api_route")).contains("apiPath", "limit").doesNotContain("httpMethod");
         assertThat(required(schemas, "codebase_list_entry_points")).doesNotContain("type");
-        assertThat(required(schemas, "codebase_outgoing_call_graph")).doesNotContain("depth");
-        assertThat(required(schemas, "codebase_incoming_call_graph")).doesNotContain("depth");
-        assertThat(schemas).hasSize(11).containsKeys("agent_submit_answer", "agent_request_clarification",
-                CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
-                CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
+        assertThat(schemas).hasSize(7).containsKeys("agent_submit_answer", "agent_request_clarification",
+                CodeIntelligenceQuery.LIST_ENTRY_POINTS.capabilityName(),
+                CodeIntelligenceQuery.LOOKUP_API_ROUTE.capabilityName(),
+                CodeIntelligenceQuery.SUGGEST_API_ROUTE.capabilityName(),
                 CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
                 CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName())
                 .doesNotContainKeys(
+                        CodeIntelligenceQuery.OUTGOING_CALL_GRAPH.capabilityName(),
+                        CodeIntelligenceQuery.INCOMING_CALL_GRAPH.capabilityName(),
+                        CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
+                        CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
                         CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),

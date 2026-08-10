@@ -124,4 +124,16 @@ class SemanticDtosContractTest {
         assertThat(identity).isInstanceOf(SemanticDtos.SourceMemberIdentityPayload.TypeMember.class);
         assertThat(mapper.valueToTree(identity).path("scope").asText()).isEqualTo("TYPE");
     }
+
+    @Test
+    void rejects_malformed_implementation_target_identity_and_extra_follow_up_members() {
+        ObjectMapper mapper = new ObjectMapper();
+
+        assertThatThrownBy(() -> mapper.readValue("""
+                {"operation":"DISCOVER_METHOD_IMPLEMENTATIONS","api":{"method":"POST","path":"/v1/discovery/method-implementations","operationId":"discoverMethodImplementations"},"request":{"repoId":"orders","expectedRevision":"FIXTURE","declarationTarget":{"sourceType":{"javaType":{"packageName":"com.acme","className":"OrderLookup"}},"methodName":"findById","parameterTypes":[]}}}
+                """, SemanticDtos.AvailableFollowUp.class)).isInstanceOf(Exception.class);
+        assertThatThrownBy(() -> mapper.readValue("""
+                {"operation":"DISCOVER_METHOD_IMPLEMENTATIONS","api":{"method":"POST","path":"/v1/discovery/method-implementations","operationId":"discoverMethodImplementations"},"request":{"repoId":"orders","expectedRevision":"FIXTURE","declarationTarget":{"sourceType":{"javaType":{"packageName":"com.acme","className":"OrderLookup"},"sourceFile":"OrderLookup.java"},"methodName":"findById","parameterTypes":[]}},"unexpected":true}
+                """, SemanticDtos.AvailableFollowUp.class)).isInstanceOf(Exception.class);
+    }
 }

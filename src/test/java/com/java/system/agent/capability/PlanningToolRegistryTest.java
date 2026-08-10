@@ -2,6 +2,8 @@ package com.java.system.agent.capability;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
+import com.java.system.agent.capability.planning.CandidateBoundExecutionPlanner;
+import com.java.system.agent.capability.planning.CandidateBoundPlanningInput;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
 import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
@@ -24,7 +26,10 @@ import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
+import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
@@ -43,12 +48,16 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -267,6 +276,38 @@ class PlanningToolRegistryTest {
     }
 
     @Test
+    void failsClosedBeforeDecodingOrExecutingForAbsentMismatchedAndModelWritableCandidateBoundCalls() {
+        AtomicInteger followUpExecutorCalls = new AtomicInteger();
+        PlanningToolRegistry followUpRegistry = followUpRegistry(followUpExecutorCalls);
+        AtomicInteger candidateBoundExecutorCalls = new AtomicInteger();
+        PlanningToolRegistry candidateBoundRegistry = candidateBoundRegistry(candidateBoundExecutorCalls);
+
+        AgentActionProposal absentFollowUp = followUpRegistry.interpretToolCall(
+                "codebase_get_source_segment", "{", contextWithoutFollowUps());
+        AgentActionProposal mismatchedFollowUp = candidateBoundRegistry.interpretToolCall("candidate_bound_test",
+                candidateBoundInput("candidate-bound-follow-up", 2), contextWithMismatchedFollowUpAndDirectCandidate());
+        AgentActionProposal modelWritableProtectedField = candidateBoundRegistry.interpretToolCall("candidate_bound_test", """
+                {"candidateHandles":["candidate-method"],
+                 "questionToResolve":"Find callers",
+                 "rationale":"The selected candidate defines the scope",
+                 "option":2,
+                 "target":"model-writable-target"}
+                """, contextWithDirectSemanticCandidate());
+
+        assertThat(absentFollowUp).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: requestedTool=codebase_get_source_segment; "
+                        + "toolStatus=NOT_CURRENTLY_ISSUED; expected=currentlyIssuedTool"));
+        assertThat(mismatchedFollowUp).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=candidate_bound_test; reason=CANDIDATE_SELECTION; "
+                        + "invalidFields=[candidateHandles]; "
+                        + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
+        assertThat(modelWritableProtectedField).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=candidate_bound_test; reason=JSON_CONTRACT"));
+        assertThat(followUpExecutorCalls).hasValue(0);
+        assertThat(candidateBoundExecutorCalls).hasValue(0);
+    }
+
+    @Test
     void executesFollowUpOnlyRegistrationThroughTheCommonQueryExecutionIndex() {
         AtomicInteger executorCalls = new AtomicInteger();
         PlanningToolRegistry registry = followUpRegistry(executorCalls);
@@ -277,6 +318,123 @@ class PlanningToolRegistryTest {
 
         assertThat(result).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(executorCalls).hasValue(1);
+    }
+
+    @Test
+    void projectsProtectedExecutionFieldsFromTheCurrentSelectedCandidate() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = candidateBoundRegistry(executorCalls);
+        String rawInput = """
+                {"candidateHandles":["candidate-method"],
+                 "questionToResolve":"Find callers",
+                 "rationale":"The selected method is the requested scope",
+                 "option":2}
+                """;
+
+        AgentActionProposal proposal = registry.interpretToolCall("candidate_bound_test", rawInput,
+                contextWithDirectSemanticCandidate());
+
+        assertThat(registry.issuedRegistrations(contextWithDirectSemanticCandidate()))
+                .extracting(PlanningToolRegistration::name)
+                .containsExactly("candidate_bound_test");
+        QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
+        assertThat(action.candidates()).containsExactly(new CandidateHandleRef("candidate-method"));
+        assertThat(action.questionToResolve()).isEqualTo("Find callers");
+        assertThat(action.rationale()).isEqualTo("The selected method is the requested scope");
+        assertThat(action.payload()).isEqualTo(payloadCodec().encode(new TestExecutionInput("runtime-owned-target", 2)));
+        assertThat(rawInput).doesNotContain("runtime-owned-target");
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("candidateBoundAuthorityBoundaries")
+    void enforcesCandidateBoundAuthorityBeforeAnyExecutorInvocation(
+            String scenario,
+            AgentPromptContext context,
+            String selectedCandidateHandle,
+            boolean issued,
+            String expectedMalformedReason) {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = candidateBoundRegistry(executorCalls);
+
+        AgentActionProposal proposal = registry.interpretToolCall("candidate_bound_test",
+                candidateBoundInput(selectedCandidateHandle, 2), context);
+
+        assertThat(registry.issuedRegistrations(context).stream().map(PlanningToolRegistration::name)
+                .anyMatch("candidate_bound_test"::equals)).isEqualTo(issued);
+        if (Optional.ofNullable(expectedMalformedReason).isPresent()) {
+            assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(expectedMalformedReason));
+        } else {
+            QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
+            assertThat(action.payload()).isEqualTo(payloadCodec().encode(
+                    new TestExecutionInput("provider-owned-target", 2)));
+        }
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    private static Stream<Arguments> candidateBoundAuthorityBoundaries() {
+        String selectionFailure = "INVALID_TOOL_INPUT: tool=candidate_bound_test; "
+                + "reason=CANDIDATE_SELECTION; invalidFields=[candidateHandles]; "
+                + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]";
+        String notIssued = "MALFORMED_ACTION_RESPONSE: requestedTool=candidate_bound_test; "
+                + "toolStatus=NOT_CURRENTLY_ISSUED; expected=currentlyIssuedTool";
+        return Stream.of(
+                Arguments.of("does not issue without a compatible candidate", contextWithoutCandidateBoundCandidates(),
+                        "unknown-candidate", false, notIssued),
+                Arguments.of("uses the matching current follow-up payload", contextWithCandidateBoundFollowUp(),
+                        "candidate-bound-follow-up", true, null),
+                Arguments.of("rejects a mismatched follow-up without direct fallback",
+                        contextWithMismatchedFollowUpAndDirectCandidate(), "candidate-bound-follow-up", true,
+                        selectionFailure),
+                Arguments.of("does not issue stale candidate bindings", contextWithStaleDirectSemanticCandidate(),
+                        "candidate-semantic-target-old", false, notIssued));
+    }
+
+    @ParameterizedTest(name = "rejects blank {0} without leaking model input")
+    @MethodSource("candidateBoundBlankTextInputs")
+    void rejectsBlankCandidateBoundQuestionAndRationaleAsSafeInvalidToolInput(
+            String invalidField,
+            String questionToResolve,
+            String rationale) {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = candidateBoundRegistry(executorCalls);
+
+        AgentActionProposal proposal = registry.interpretToolCall("candidate_bound_test",
+                candidateBoundInput("candidate-sensitive-handle", questionToResolve, rationale, 2),
+                contextWithDirectSemanticCandidate());
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=candidate_bound_test; reason=CANDIDATE_INPUT; "
+                        + "invalidFields=[%s]; constraints=[%s:NotBlank]".formatted(invalidField, invalidField)));
+        assertThat(proposal.toString()).doesNotContain("candidate-sensitive-handle", "question-secret", "rationale-secret");
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    private static Stream<Arguments> candidateBoundBlankTextInputs() {
+        return Stream.of(
+                Arguments.of("questionToResolve", "   ", "rationale-secret"),
+                Arguments.of("rationale", "question-secret", "  "));
+    }
+
+    @ParameterizedTest(name = "rejects candidate cardinality {0}")
+    @MethodSource("candidateBoundIncompatibleCardinalities")
+    void rejectsCandidateBoundRegistrationWhenPolicyCannotRepresentOneSelectedCandidate(
+            String scenario,
+            int minimumCandidates,
+            int maximumCandidates) {
+        assertThatThrownBy(() -> PlanningToolRegistry.candidateBoundRegistration(
+                PlanningToolCategory.QUERY, candidateBoundPolicy(minimumCandidates, maximumCandidates),
+                TestCandidateBoundInput.class, TestExecutionInput.class, candidateBoundPlanner(),
+                (executionContext, input) -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
+                payloadCodec()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("candidate-bound capability must permit exactly one candidate");
+    }
+
+    private static Stream<Arguments> candidateBoundIncompatibleCardinalities() {
+        return Stream.of(
+                Arguments.of("below one", 0, 0),
+                Arguments.of("above one", 2, 2));
     }
 
     private static PlanningToolRegistry registry() {
@@ -308,6 +466,40 @@ class PlanningToolRegistryTest {
                     return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
                 });
         return registry(List.of(provider(List.of(sourceSegment))));
+    }
+
+    private static PlanningToolRegistry candidateBoundRegistry(AtomicInteger executorCalls) {
+        return registry(List.of(provider(List.of(PlanningToolRegistry.candidateBoundRegistration(
+                PlanningToolCategory.QUERY, candidateBoundPolicy(), TestCandidateBoundInput.class, TestExecutionInput.class,
+                candidateBoundPlanner(),
+                (executionContext, input) -> {
+                    executorCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+                }, payloadCodec())))));
+    }
+
+    private static CandidateBoundExecutionPlanner<TestCandidateBoundInput, TestExecutionInput> candidateBoundPlanner() {
+        return
+                new CandidateBoundExecutionPlanner<>() {
+                    @Override
+                    public boolean supportsDirectCandidate(com.java.system.agent.answering.domain.candidate.AnalysisCandidate candidate) {
+                        return candidate instanceof SemanticTargetCandidate;
+                    }
+
+                    @Override
+                    public TestExecutionInput planDirect(
+                            TestCandidateBoundInput input,
+                            com.java.system.agent.answering.domain.candidate.AnalysisCandidate candidate) {
+                        return new TestExecutionInput("runtime-owned-target", input.option());
+                    }
+
+                    @Override
+                    public TestExecutionInput planFollowUp(
+                            TestCandidateBoundInput input,
+                            TestExecutionInput providerInput) {
+                        return new TestExecutionInput(providerInput.target(), input.option());
+                    }
+                };
     }
 
     private static PlanningToolRegistry registry(
@@ -345,6 +537,39 @@ class PlanningToolRegistryTest {
 
     private static AgentPromptContext contextWithoutFollowUps() {
         return followUpContext(Map.of(sourceSegmentCapabilityHandle(), sourceSegmentPolicy()), Map.of());
+    }
+
+    private static AgentPromptContext contextWithoutCandidateBoundCandidates() {
+        return followUpContext(Map.of(candidateBoundCapabilityHandle(), candidateBoundPolicy()), Map.of());
+    }
+
+    private static AgentPromptContext contextWithDirectSemanticCandidate() {
+        CandidateHandle candidateHandle = directSemanticCandidateHandle();
+        return followUpContext(Map.of(candidateBoundCapabilityHandle(), candidateBoundPolicy()), Map.of(candidateHandle,
+                new IssuedCandidate(candidateHandle, directSemanticCandidate())));
+    }
+
+    private static AgentPromptContext contextWithCandidateBoundFollowUp() {
+        CandidateHandle candidateHandle = candidateBoundFollowUpHandle();
+        return followUpContext(Map.of(candidateBoundCapabilityHandle(), candidateBoundPolicy()), Map.of(candidateHandle,
+                new IssuedCandidate(candidateHandle, candidateBoundFollowUp())));
+    }
+
+    private static AgentPromptContext contextWithMismatchedFollowUpAndDirectCandidate() {
+        CandidateHandle followUpHandle = candidateBoundFollowUpHandle();
+        CandidateHandle directHandle = directSemanticCandidateHandle();
+        return followUpContext(Map.of(candidateBoundCapabilityHandle(), candidateBoundPolicy()), Map.of(
+                followUpHandle, new IssuedCandidate(followUpHandle, mismatchedCandidateBoundFollowUp()),
+                directHandle, new IssuedCandidate(directHandle, directSemanticCandidate())));
+    }
+
+    private static AgentPromptContext contextWithStaleDirectSemanticCandidate() {
+        HandleBinding oldBinding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-0"),
+                RevisionVector.empty().pin(repositoryId(), new RepositoryRevision("revision-1")));
+        CandidateHandle oldHandle = new CandidateHandle("candidate-semantic-target-old", oldBinding,
+                CandidateKind.SEMANTIC_TARGET);
+        return followUpContext(Map.of(candidateBoundCapabilityHandle(), candidateBoundPolicy()), Map.of(oldHandle,
+                new IssuedCandidate(oldHandle, directSemanticCandidate())));
     }
 
     private static AgentPromptContext contextWithFollowUp() {
@@ -389,6 +614,43 @@ class PlanningToolRegistryTest {
         return new CapabilityPolicy("codebase_get_source_segment", "v1", Set.of(CandidateKind.FOLLOW_UP), 1, 1);
     }
 
+    private static CapabilityPolicy candidateBoundPolicy() {
+        return candidateBoundPolicy(0, 1);
+    }
+
+    private static CapabilityPolicy candidateBoundPolicy(int minimumCandidates, int maximumCandidates) {
+        return new CapabilityPolicy("candidate_bound_test", "v1",
+                Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP), minimumCandidates, maximumCandidates);
+    }
+
+    private static CapabilityHandle candidateBoundCapabilityHandle() {
+        return new CapabilityHandle("capability-candidate-bound", binding());
+    }
+
+    private static CandidateHandle directSemanticCandidateHandle() {
+        return new CandidateHandle("candidate-method", binding(), CandidateKind.SEMANTIC_TARGET);
+    }
+
+    private static CandidateHandle candidateBoundFollowUpHandle() {
+        return new CandidateHandle("candidate-bound-follow-up", binding(), CandidateKind.FOLLOW_UP);
+    }
+
+    private static SemanticTargetCandidate directSemanticCandidate() {
+        return new SemanticTargetCandidate(repositoryId(), new RepositoryRevision("revision-1"),
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "runtime-owned-target", Optional.empty()),
+                "Selected method");
+    }
+
+    private static FollowUpCandidate candidateBoundFollowUp() {
+        return new FollowUpCandidate(repositoryId(), new RepositoryRevision("revision-1"), "candidate_bound_test", "v1",
+                payloadCodec().encode(new TestExecutionInput("provider-owned-target", 1)), "Provider continuation");
+    }
+
+    private static FollowUpCandidate mismatchedCandidateBoundFollowUp() {
+        return new FollowUpCandidate(repositoryId(), new RepositoryRevision("revision-1"), "other_capability", "v2",
+                payloadCodec().encode(new TestExecutionInput("provider-owned-target", 1)), "Mismatched continuation");
+    }
+
     private static CapabilityHandle sourceSegmentCapabilityHandle() {
         return new CapabilityHandle("capability-source-segment", binding());
     }
@@ -424,6 +686,19 @@ class PlanningToolRegistryTest {
                 """.formatted(handle);
     }
 
+    private static String candidateBoundInput(String handle, int option) {
+        return candidateBoundInput(handle, "Find callers", "The selected candidate defines the scope", option);
+    }
+
+    private static String candidateBoundInput(String handle, String questionToResolve, String rationale, int option) {
+        return """
+                {"candidateHandles":["%s"],
+                 "questionToResolve":"%s",
+                 "rationale":"%s",
+                 "option":%d}
+                """.formatted(handle, questionToResolve, rationale, option);
+    }
+
     private static CanonicalCapabilityPayloadCodec payloadCodec() {
         return new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator());
     }
@@ -431,5 +706,17 @@ class PlanningToolRegistryTest {
     private record TestInput(
             @JsonProperty(required = true) String questionToResolve,
             @JsonProperty(required = true) String rationale) {
+    }
+
+    private record TestCandidateBoundInput(
+            @JsonProperty(required = true) List<String> candidateHandles,
+            @JsonProperty(required = true) String questionToResolve,
+            @JsonProperty(required = true) String rationale,
+            @JsonProperty(required = true) int option) implements CandidateBoundPlanningInput {
+    }
+
+    private record TestExecutionInput(
+            @JsonProperty(required = true) String target,
+            @JsonProperty(required = true) int option) {
     }
 }

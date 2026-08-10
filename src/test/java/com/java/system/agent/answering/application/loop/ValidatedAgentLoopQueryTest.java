@@ -408,6 +408,58 @@ class ValidatedAgentLoopQueryTest {
                         .contains(RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED));
     }
 
+    @Test
+    void consumesTheUnifiedQueryBudgetForDirectAndProviderBoundQueriesBeforeAThirdExecutorOrModelCall() {
+        CapabilityInputPayload directPayload = new CapabilityInputPayload("direct-payload");
+        CapabilityInputPayload providerBoundPayload = new CapabilityInputPayload("provider-bound-payload");
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        AtomicInteger modelCalls = new AtomicInteger();
+        AtomicInteger verifierCalls = new AtomicInteger();
+        List<CapabilityInvocation> invocations = new ArrayList<>();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    invocations.add(invocation);
+                    if (capabilityCalls.get() == 1) {
+                        return new CapabilityExecutionResult.Succeeded(List.of(followUpCandidate(providerBoundPayload)),
+                                List.of(), List.of());
+                    }
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+                },
+                context -> {
+                    modelCalls.incrementAndGet();
+                    prompts.add(context);
+                    if (prompts.size() == 1) {
+                        return new AgentActionProposal.Proposed(query(context, directPayload));
+                    }
+                    return new AgentActionProposal.Proposed(followUpQuery(context, providerBoundPayload));
+                },
+                (mode, context) -> {
+                    verifierCalls.incrementAndGet();
+                    return new AnswerVerificationResult.ContractAccepted();
+                });
+
+        AgentLoopResult result = loop.execute(twoQueryBudgetRequest());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(result.responseKind()).isEqualTo(RunResponseKind.RUNTIME_NOTICE);
+        assertThat(capabilityCalls).hasValue(2);
+        assertThat(modelCalls).hasValue(2);
+        assertThat(verifierCalls).hasValue(0);
+        assertThat(prompts).hasSize(2);
+        assertThat(invocations).extracting(CapabilityInvocation::payload)
+                .containsExactly(directPayload, providerBoundPayload);
+        assertThat(transitions.events()).filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance).hasSize(2);
+        assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance).singleElement()
+                .satisfies(event -> assertThat(((AgentEvent.RunConcluded) event).runtimeNoticeReason())
+                        .contains(RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED));
+    }
+
     private AgentActionProposal nextAction(
             List<AgentPromptContext> prompts,
             AgentPromptContext context,
@@ -552,6 +604,15 @@ class ValidatedAgentLoopQueryTest {
                 PARTICIPANT,
                 "What does this repository flow do?",
                 new AttemptBudget(4, 0, 1, 0, 1, 0, 2, 0, 1, 0));
+    }
+
+    private AgentLoopRequest twoQueryBudgetRequest() {
+        return new AgentLoopRequest(
+                RUN_ID,
+                new SessionId("session-1"),
+                PARTICIPANT,
+                "What does this repository flow do?",
+                new AttemptBudget(4, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 
     private AgentLoopRequest followUpRequest() {

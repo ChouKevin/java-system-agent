@@ -85,6 +85,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final JavaSemanticResultMapper resultMapper;
+    private final JavaSemanticCandidateTargetMapper targetMapper = new JavaSemanticCandidateTargetMapper();
     private final CanonicalCapabilityPayloadCodec payloadCodec;
     private final JavaSemanticErrorMapper errorMapper;
 
@@ -217,7 +218,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             OutgoingCallGraphExecutionInput input) {
         DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH, input,
                 OutgoingCallGraphExecutionInput.class, SemanticTargetCandidate.class);
-        SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "outgoing call graph");
+        SemanticDtos.MethodTargetPayload target = callGraphTargetFor(scope, input.boundTarget(), "outgoing call graph");
         try {
             SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
                     scope.repositoryId().value(), scope.expectedRevision().value(), input.depth(), target);
@@ -246,7 +247,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             IncomingCallGraphExecutionInput input) {
         DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.INCOMING_CALL_GRAPH, input,
                 IncomingCallGraphExecutionInput.class, SemanticTargetCandidate.class);
-        SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "incoming call graph");
+        SemanticDtos.MethodTargetPayload target = callGraphTargetFor(scope, input.boundTarget(), "incoming call graph");
         try {
             SemanticDtos.AnalyzeIncomingCallGraphRequest request = new SemanticDtos.AnalyzeIncomingCallGraphRequest(
                     scope.repositoryId().value(), scope.expectedRevision().value(), input.depth(), target);
@@ -355,7 +356,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         return observeCapabilityOperation(IMPLEMENTATIONS_OPERATION, () -> discoveryRequest(IMPLEMENTATIONS_OPERATION, () -> {
             DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS, input,
                     DiscoverMethodImplementationsExecutionInput.class, SemanticTargetCandidate.class);
-            SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "method implementation");
+            SemanticDtos.MethodTargetPayload target = methodImplementationTargetFor(scope, input.boundTarget());
             SemanticDtos.DiscoverMethodImplementationsFollowUpRequest request =
                     new SemanticDtos.DiscoverMethodImplementationsFollowUpRequest(scope.repositoryId().value(),
                             scope.expectedRevision().value(), target);
@@ -370,8 +371,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult discoverTypeMembers(CapabilityExecutionContext context, DiscoverTypeMembersExecutionInput input) {
         return observeCapabilityOperation(MEMBERS_OPERATION, () -> discoveryRequest(MEMBERS_OPERATION, () -> {
-            DiscoveryScope scope = followUpScope(context, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, input,
-                    DiscoverTypeMembersExecutionInput.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, input,
+                    DiscoverTypeMembersExecutionInput.class, SemanticTargetCandidate.class);
+            typeMembersInputFor(scope, input);
             SemanticDtos.TypeMembersFollowUpRequest request = new SemanticDtos.TypeMembersFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.sourceType(), input.memberKinds(), input.namePrefix(), input.offset(), input.limit());
             SemanticDtos.DiscoverTypeMembersResponse response = discoveryPost("/v1/discovery/type-members", request,
@@ -423,8 +425,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult getSourceSegment(CapabilityExecutionContext context, GetSourceSegmentExecutionInput input) {
         return observeCapabilityOperation(SEGMENT_OPERATION, () -> discoveryRequest(SEGMENT_OPERATION, () -> {
-            DiscoveryScope scope = followUpScope(context, CodeIntelligenceQuery.GET_SOURCE_SEGMENT, input,
-                    GetSourceSegmentExecutionInput.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.GET_SOURCE_SEGMENT, input,
+                    GetSourceSegmentExecutionInput.class, SemanticTargetCandidate.class);
+            sourceSegmentInputFor(scope, input);
             SemanticDtos.SourceSegmentFollowUpRequest request = new SemanticDtos.SourceSegmentFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.location(), input.contextLines());
             SemanticDtos.SourceSegmentResponse response = discoveryPost("/v1/discovery/source-segment", request,
@@ -497,7 +500,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                 throw contract("discovery follow-up candidate does not match the requested capability scope");
             }
             T decoded = payloadCodec.decode(followUp.payload(), inputType);
-            if (!decoded.equals(input)) {
+            if (!isCompatibleFollowUpInput(query, decoded, input)) {
                 throw contract("discovery input does not match the selected follow-up payload");
             }
             return new DiscoveryScope(repositoryId, expectedRevision, selected, true);
@@ -511,6 +514,77 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         return new DiscoveryScope(repositoryId, expectedRevision, selected, false);
     }
 
+    private <T> boolean isCompatibleFollowUpInput(CodeIntelligenceQuery query, T providerInput, T input) {
+        if (query == CodeIntelligenceQuery.OUTGOING_CALL_GRAPH
+                && providerInput instanceof OutgoingCallGraphExecutionInput provider
+                && input instanceof OutgoingCallGraphExecutionInput requested) {
+            return provider.boundTarget().equals(requested.boundTarget());
+        }
+        if (query == CodeIntelligenceQuery.INCOMING_CALL_GRAPH
+                && providerInput instanceof IncomingCallGraphExecutionInput provider
+                && input instanceof IncomingCallGraphExecutionInput requested) {
+            return provider.boundTarget().equals(requested.boundTarget());
+        }
+        if (query == CodeIntelligenceQuery.DISCOVER_CONCEPTS
+                && providerInput instanceof DiscoverConceptsExecutionInput provider
+                && input instanceof DiscoverConceptsExecutionInput requested) {
+            return provider.terms().equals(requested.terms())
+                    && provider.kinds().equals(requested.kinds())
+                    && provider.packagePrefix().equals(requested.packagePrefix())
+                    && provider.offset() == requested.offset();
+        }
+        if (query == CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS
+                && providerInput instanceof DiscoverEventListenersExecutionInput provider
+                && input instanceof DiscoverEventListenersExecutionInput requested) {
+            return provider.eventType().equals(requested.eventType()) && provider.offset() == requested.offset();
+        }
+        if (query == CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES
+                && providerInput instanceof FindInternalReferencesExecutionInput provider
+                && input instanceof FindInternalReferencesExecutionInput requested) {
+            return provider.target().equals(requested.target()) && provider.offset() == requested.offset();
+        }
+        if (query == CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS
+                && providerInput instanceof DiscoverTypeMembersExecutionInput provider
+                && input instanceof DiscoverTypeMembersExecutionInput requested) {
+            return provider.sourceType().equals(requested.sourceType())
+                    && provider.offset() == requested.offset()
+                    && (provider.offset() == 0 || (provider.memberKinds().equals(requested.memberKinds())
+                    && provider.namePrefix().equals(requested.namePrefix())));
+        }
+        if (query == CodeIntelligenceQuery.GET_SOURCE_SEGMENT
+                && providerInput instanceof GetSourceSegmentExecutionInput provider
+                && input instanceof GetSourceSegmentExecutionInput requested) {
+            return provider.location().equals(requested.location());
+        }
+        return providerInput.equals(input);
+    }
+
+    private void typeMembersInputFor(DiscoveryScope scope, DiscoverTypeMembersExecutionInput input) {
+        if (scope.followUp()) {
+            return;
+        }
+        if (!(scope.selected() instanceof SemanticTargetCandidate candidate)) {
+            throw contract("type member direct candidate must provide exactly one semantic target");
+        }
+        SemanticDtos.SourceTypeIdentityPayload expected = targetMapper.sourceType(candidate.semanticTarget());
+        if (!expected.equals(input.sourceType()) || input.offset() != 0) {
+            throw contract("type member direct input does not match the selected semantic target");
+        }
+    }
+
+    private void sourceSegmentInputFor(DiscoveryScope scope, GetSourceSegmentExecutionInput input) {
+        if (scope.followUp()) {
+            return;
+        }
+        if (!(scope.selected() instanceof SemanticTargetCandidate candidate)) {
+            throw contract("source segment direct candidate must provide exactly one semantic target");
+        }
+        SemanticDtos.SourceRangePayload expected = targetMapper.sourceRange(candidate.semanticTarget());
+        if (!expected.equals(input.location())) {
+            throw contract("source segment direct input does not match the selected semantic target");
+        }
+    }
+
     private SemanticDtos.MethodTargetPayload targetFor(DiscoveryScope scope,
                                                        Optional<SemanticDtos.MethodTargetPayload> boundTarget,
                                                        String description) {
@@ -521,6 +595,43 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             throw contract(description + " direct candidate must provide exactly one unbound semantic target");
         }
         return resultMapper.methodTargetPayload(target.semanticTarget());
+    }
+
+    private SemanticDtos.MethodTargetPayload callGraphTargetFor(
+            DiscoveryScope scope,
+            Optional<SemanticDtos.MethodTargetPayload> boundTarget,
+            String description) {
+        if (scope.followUp()) {
+            return boundTarget.orElseThrow(() -> contract(description + " follow-up target is required"));
+        }
+        if (!(scope.selected() instanceof SemanticTargetCandidate selectedTarget)) {
+            throw contract(description + " direct candidate must provide exactly one semantic target");
+        }
+        SemanticDtos.MethodTargetPayload expectedTarget = targetMapper.methodTarget(selectedTarget.semanticTarget());
+        SemanticDtos.MethodTargetPayload requestedTarget = boundTarget.orElseThrow(
+                () -> contract(description + " direct target is required"));
+        if (!expectedTarget.equals(requestedTarget)) {
+            throw contract(description + " direct target does not match the selected semantic target");
+        }
+        return expectedTarget;
+    }
+
+    private SemanticDtos.MethodTargetPayload methodImplementationTargetFor(
+            DiscoveryScope scope,
+            Optional<SemanticDtos.MethodTargetPayload> boundTarget) {
+        if (scope.followUp()) {
+            return boundTarget.orElseThrow(() -> contract("method implementation follow-up target is required"));
+        }
+        if (!(scope.selected() instanceof SemanticTargetCandidate selectedTarget)) {
+            throw contract("method implementation direct candidate must provide exactly one semantic target");
+        }
+        SemanticDtos.MethodTargetPayload expectedTarget = targetMapper.methodTarget(selectedTarget.semanticTarget());
+        SemanticDtos.MethodTargetPayload requestedTarget = boundTarget.orElseThrow(
+                () -> contract("method implementation direct target is required"));
+        if (!expectedTarget.equals(requestedTarget)) {
+            throw contract("method implementation direct target does not match the selected semantic target");
+        }
+        return expectedTarget;
     }
 
     private SemanticDtos.SourceSymbolContextPayload sourceContextFor(DiscoveryScope scope,
