@@ -22,12 +22,6 @@ import java.util.logging.Logger;
 public final class AnswerVerdictResponseInterpreter {
 
     private static final Logger LOGGER = Logger.getLogger(AnswerVerdictResponseInterpreter.class.getName());
-    private final ExplicitEvidenceCoveragePolicy evidenceCoveragePolicy;
-
-    public AnswerVerdictResponseInterpreter(ExplicitEvidenceCoveragePolicy evidenceCoveragePolicy) {
-        this.evidenceCoveragePolicy = Objects.requireNonNull(evidenceCoveragePolicy,
-                "explicit evidence coverage policy must not be null");
-    }
 
     /**
      * 任何遺漏、重複或外來 statement ID 都拒絕為不可用的結構輸出
@@ -63,7 +57,7 @@ public final class AnswerVerdictResponseInterpreter {
                 requiredList(response.unaddressedParts(), "unaddressed parts"),
                 requiredList(response.blockingUncertainties(), "blocking uncertainties"),
                 requiredList(response.rejectionReasons(), "rejection reasons"));
-        return evidenceCoveragePolicy.enforce(context, verdict);
+        return verdict;
     }
 
     private static <T> List<T> requiredList(List<T> values, String name) {
