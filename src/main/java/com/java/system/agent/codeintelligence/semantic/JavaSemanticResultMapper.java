@@ -22,6 +22,7 @@ import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -597,6 +598,7 @@ public final class JavaSemanticResultMapper {
         List<SemanticDtos.GraphWarning> requiredWarnings = requiredList(warnings, "graph warning");
         List<SemanticDtos.GraphError> requiredErrors = requiredList(errors, "graph error");
         List<AnalysisCandidate> candidates = new ArrayList<>();
+        List<AnalysisCandidate> edgeCandidates = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>();
         SemanticDtos.GraphNode root = responseRoot(rootNodeId, requiredNodes);
         if (!matches(requestedTarget, root.target())) {
@@ -616,8 +618,9 @@ public final class JavaSemanticResultMapper {
             if ("RESOLVED_OPAQUE".equals(edge.category())) {
                 observations.add(observation(ObservationCode.OPAQUE_EXTERNAL_CALL, edge.callExpression(), List.of()));
             }
-            addFollowUps(repositoryId, revision, edge.availableFollowUps(), candidates);
+            addFollowUps(repositoryId, revision, edge.availableFollowUps(), edgeCandidates);
         }
+        candidates.addAll(new LinkedHashSet<>(edgeCandidates));
         for (SemanticDtos.GraphWarning warning : requiredWarnings) {
             ObservationCode code = switch (warning.code()) {
                 case "DESCENDANT_CALL_AMBIGUOUS" -> ObservationCode.AMBIGUOUS_SEMANTIC_TARGET;
