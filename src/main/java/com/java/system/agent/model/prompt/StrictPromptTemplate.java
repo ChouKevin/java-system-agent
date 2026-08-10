@@ -3,6 +3,7 @@ package com.java.system.agent.model.prompt;
 import org.springframework.ai.template.ValidationMode;
 import org.springframework.ai.template.st.StTemplateRenderer;
 
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -16,6 +17,7 @@ import java.util.regex.Pattern;
 public final class StrictPromptTemplate {
 
     private static final Pattern PLACEHOLDER = Pattern.compile("<([a-z][A-Za-z0-9]*)>");
+    private static final String SYNTAX_VALIDATION_VALUE = "prompt-template-syntax-validation";
 
     private final String template;
     private final Set<String> variables;
@@ -31,11 +33,13 @@ public final class StrictPromptTemplate {
         if (!placeholders.equals(this.variables)) {
             throw new IllegalArgumentException("prompt template placeholder set must exactly match configured variables");
         }
-        this.renderer = StTemplateRenderer.builder()
+        StTemplateRenderer configuredRenderer = StTemplateRenderer.builder()
                 .startDelimiterToken('<')
                 .endDelimiterToken('>')
                 .validationMode(ValidationMode.THROW)
                 .build();
+        validateSyntax(this.template, this.variables, configuredRenderer);
+        this.renderer = configuredRenderer;
     }
 
     public String render(Map<String, ?> values) {
@@ -58,5 +62,17 @@ public final class StrictPromptTemplate {
             placeholders.add(matcher.group(1));
         }
         return Set.copyOf(placeholders);
+    }
+
+    private static void validateSyntax(String template, Set<String> variables, StTemplateRenderer renderer) {
+        Map<String, Object> syntaxValidationValues = new HashMap<>();
+        for (String variable : variables) {
+            syntaxValidationValues.put(variable, SYNTAX_VALIDATION_VALUE);
+        }
+        try {
+            renderer.apply(template, Map.copyOf(syntaxValidationValues));
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("malformed prompt template", exception);
+        }
     }
 }

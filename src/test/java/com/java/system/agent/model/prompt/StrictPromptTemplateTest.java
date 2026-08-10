@@ -18,6 +18,14 @@ class StrictPromptTemplateTest {
     }
 
     @Test
+    void rejectsMalformedStringTemplateExpressionsAtConstruction() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new StrictPromptTemplate("Question: <question> <if(question)>",
+                        Set.of("question")))
+                .withMessageContaining("malformed prompt template");
+    }
+
+    @Test
     void rejectsRenderVariablesThatDoNotExactlyMatchPlaceholders() {
         StrictPromptTemplate template = new StrictPromptTemplate("Question: <question>", Set.of("question"));
 

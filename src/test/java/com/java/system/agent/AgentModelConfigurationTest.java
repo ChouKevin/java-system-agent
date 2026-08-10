@@ -48,6 +48,8 @@ class AgentModelConfigurationTest {
             assertThat(context).hasNotFailed();
             assertThat(context.getBeansOfType(ModelQuotaGate.class)).hasSize(1);
             assertThat(context.getBean(PromptResourceCatalog.class).catalogDigest()).matches("[0-9a-f]{64}");
+            CountingChatModel chatModel = context.getBean(CountingChatModel.class);
+            assertThat(chatModel.calls()).isZero();
             ChatClient actionClient = context.getBean("agentActionChatClient", ChatClient.class);
             ChatClient verifierClient = context.getBean("agentVerifierChatClient", ChatClient.class);
 
