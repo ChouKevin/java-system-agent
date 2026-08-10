@@ -128,7 +128,7 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
-    void correctsCompleteEvidenceVerdictsOnlyWhenTheConfiguredCapabilityReferenceIsNotCited() {
+    void correctsMissingConfiguredEvidenceUnlessAnInconclusiveAnswerReferencesAnObservation() {
         String response = """
                 {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """;
@@ -138,10 +138,16 @@ class AnswerVerificationAdapterTest {
         SpringAiAnswerVerificationAdapter coveredAdapter = configuredAdapter(coveredModel);
         CountingChatModel wrongVersionModel = new CountingChatModel(response);
         SpringAiAnswerVerificationAdapter wrongVersionAdapter = configuredAdapter(wrongVersionModel);
-        CountingChatModel inconclusiveModel = new CountingChatModel("""
-                {"disposition":"ACCEPTED_INCONCLUSIVE","statementVerdicts":[{"statementId":"statement-1","status":"UNSUPPORTED","description":"Unavailable"}],"unaddressedParts":["Unavailable"],"blockingUncertainties":["Missing source proof"],"rejectionReasons":[]}
-                """);
+        String inconclusiveResponse = """
+                {"disposition":"ACCEPTED_INCONCLUSIVE","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":["Unavailable"],"blockingUncertainties":["Missing source proof"],"rejectionReasons":[]}
+                """;
+        CountingChatModel inconclusiveModel = new CountingChatModel(inconclusiveResponse);
         SpringAiAnswerVerificationAdapter inconclusiveAdapter = configuredAdapter(inconclusiveModel);
+        CountingChatModel observedInconclusiveModel = new CountingChatModel(inconclusiveResponse);
+        SpringAiAnswerVerificationAdapter observedInconclusiveAdapter = configuredAdapter(observedInconclusiveModel);
+        CountingChatModel runtimeObservedInconclusiveModel = new CountingChatModel(inconclusiveResponse);
+        SpringAiAnswerVerificationAdapter runtimeObservedInconclusiveAdapter =
+                configuredAdapter(runtimeObservedInconclusiveModel);
 
         AnswerVerificationResult.LlmVerdict missingResult = (AnswerVerificationResult.LlmVerdict) missingAdapter.verify(
                 AnswerVerificationMode.LLM, configuredEvidenceCoverageContext("test_method_source", "v7", false));
@@ -151,6 +157,16 @@ class AnswerVerificationAdapterTest {
                 AnswerVerificationMode.LLM, configuredEvidenceCoverageContext("test_method_source", "v6", true));
         AnswerVerificationResult.LlmVerdict inconclusiveResult = (AnswerVerificationResult.LlmVerdict) inconclusiveAdapter.verify(
                 AnswerVerificationMode.LLM, configuredEvidenceCoverageContext("test_method_source", "v7", false));
+        AnswerVerificationResult.LlmVerdict observedInconclusiveResult =
+                (AnswerVerificationResult.LlmVerdict) observedInconclusiveAdapter.verify(
+                        AnswerVerificationMode.LLM,
+                        configuredEvidenceCoverageContext(
+                                "test_method_source", "v7", false, ObservationSource.CAPABILITY_EXECUTOR));
+        AnswerVerificationResult.LlmVerdict runtimeObservedInconclusiveResult =
+                (AnswerVerificationResult.LlmVerdict) runtimeObservedInconclusiveAdapter.verify(
+                        AnswerVerificationMode.LLM,
+                        configuredEvidenceCoverageContext(
+                                "test_method_source", "v7", false, ObservationSource.RUNTIME));
 
         assertThat(missingResult.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
         assertThat(missingResult.verdict().unaddressedParts())
@@ -159,11 +175,16 @@ class AnswerVerificationAdapterTest {
                 .containsExactly("explicitly requested evidence requirement is not cited: source-proof");
         assertThat(coveredResult.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE);
         assertThat(wrongVersionResult.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
-        assertThat(inconclusiveResult.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_INCONCLUSIVE);
+        assertThat(inconclusiveResult.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
+        assertThat(observedInconclusiveResult.verdict().disposition())
+                .isEqualTo(AnswerDisposition.ACCEPTED_INCONCLUSIVE);
+        assertThat(runtimeObservedInconclusiveResult.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
         assertThat(missingModel.calls()).isEqualTo(1);
         assertThat(coveredModel.calls()).isEqualTo(1);
         assertThat(wrongVersionModel.calls()).isEqualTo(1);
         assertThat(inconclusiveModel.calls()).isEqualTo(1);
+        assertThat(observedInconclusiveModel.calls()).isEqualTo(1);
+        assertThat(runtimeObservedInconclusiveModel.calls()).isEqualTo(1);
     }
 
     @Test
@@ -398,6 +419,24 @@ class AnswerVerificationAdapterTest {
             String capabilityName,
             String capabilityVersion,
             boolean hasCitedProvenance) {
+        return configuredEvidenceCoverageContext(
+                capabilityName, capabilityVersion, hasCitedProvenance, Optional.empty());
+    }
+
+    private AnswerVerificationContext configuredEvidenceCoverageContext(
+            String capabilityName,
+            String capabilityVersion,
+            boolean hasCitedProvenance,
+            ObservationSource observationSource) {
+        return configuredEvidenceCoverageContext(
+                capabilityName, capabilityVersion, hasCitedProvenance, Optional.of(observationSource));
+    }
+
+    private AnswerVerificationContext configuredEvidenceCoverageContext(
+            String capabilityName,
+            String capabilityVersion,
+            boolean hasCitedProvenance,
+            Optional<ObservationSource> observationSource) {
         AnalysisRunId runId = new AnalysisRunId("run-source-proof");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-source-proof");
         RepositoryId repositoryId = new RepositoryId("repo-source-proof");
@@ -409,14 +448,20 @@ class AnswerVerificationAdapterTest {
                 evidence(repositoryId, revision, "source proof", "digest-source-proof"));
         CapabilityPolicy capability = new CapabilityPolicy(capabilityName, capabilityVersion,
                 Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        ObservationId observationId = new ObservationId("observation-source-proof");
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.FACT, "Source proof result",
                 Optional.of(new ClaimId("claim-source-proof")), Set.of(new EvidenceHandleRef(evidenceHandle.value())),
-                Set.of())));
+                observationSource.isPresent() ? Set.of(observationId) : Set.of())));
         List<EvidenceCapabilityProvenance> provenance = hasCitedProvenance
                 ? List.of(new EvidenceCapabilityProvenance(evidenceHandle, capability)) : List.of();
+        List<AgentObservation> observations = observationSource
+                .map(source -> List.of(new AgentObservation(
+                        observationId, source, ObservationCode.PARTIAL_GRAPH, "Source proof is incomplete",
+                        Set.of(), Set.of(evidenceHandle), "test-capability")))
+                .orElseGet(List::of);
         return new AnswerVerificationContext("Request source proof", SessionHistory.empty(), document,
-                List.of(issuedEvidence), List.of(), List.of(issuedEvidence), List.of(), provenance);
+                List.of(issuedEvidence), observations, List.of(issuedEvidence), observations, provenance);
     }
 
     private EvidenceRef evidence(RepositoryId repositoryId, RepositoryRevision revision, String content, String digest) {
