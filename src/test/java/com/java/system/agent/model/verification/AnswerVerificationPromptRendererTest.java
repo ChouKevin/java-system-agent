@@ -52,10 +52,25 @@ class AnswerVerificationPromptRendererTest {
                         "請查詢付款流程", "付款流程如下", ConversationTurnType.ANSWER),
                 new ConversationTurn(new AnalysisRunId("run-2"), new ParticipantRef("slack", "U789012"),
                         "也包含退款流程", "退款流程如下", ConversationTurnType.ANSWER)));
-        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
-                new StatementId("statement-1"), StatementType.QUESTION, "付款流程", Optional.empty(), Set.of(), Set.of())));
+        RepositoryId repositoryId = new RepositoryId("repository-facts");
+        RepositoryRevision revision = new RepositoryRevision("revision-facts");
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-facts"), new AnalysisAttemptId("attempt-facts"),
+                RevisionVector.empty().pin(repositoryId, revision));
+        EvidenceHandle factEvidenceB = new EvidenceHandle("evidence-b", binding);
+        EvidenceHandle factEvidenceA = new EvidenceHandle("evidence-a", binding);
+        AnswerDocument document = new AnswerDocument(List.of(
+                new AnswerStatement(new StatementId("FACT-B"), StatementType.FACT, "第二個事實",
+                        Optional.of(new ClaimId("claim-b")), Set.of(new EvidenceHandleRef(factEvidenceB.value())), Set.of()),
+                new AnswerStatement(new StatementId("QUESTION"), StatementType.QUESTION, "付款流程", Optional.empty(),
+                        Set.of(), Set.of()),
+                new AnswerStatement(new StatementId("FACT-A"), StatementType.FACT, "第一個事實",
+                        Optional.of(new ClaimId("claim-a")), Set.of(new EvidenceHandleRef(factEvidenceA.value())), Set.of())));
         AnswerVerificationContext context = new AnswerVerificationContext(
-                "請查詢付款流程", history, document, List.of(), List.of(), List.of(), List.of());
+                "請查詢付款流程", history, document,
+                List.of(evidence(factEvidenceB, repositoryId, revision), evidence(factEvidenceA, repositoryId, revision)),
+                List.of(),
+                List.of(evidence(factEvidenceB, repositoryId, revision), evidence(factEvidenceA, repositoryId, revision)),
+                List.of());
 
         Map<String, Object> projection = renderer().project(context, "response contract");
 
@@ -65,7 +80,7 @@ class AnswerVerificationPromptRendererTest {
         assertThat((String) projection.get("sessionHistory")).containsSubsequence("participant[slack:U123456]",
                 "assistant: 付款流程如下", "participant[slack:U789012]", "assistant: 退款流程如下");
         assertThat((String) projection.get("requiredFactStatementVerdicts"))
-                .isEqualTo("- none; statementVerdicts must be []\n");
+                .isEqualTo("- FACT-B\n- FACT-A\n");
     }
 
     @Test
@@ -117,5 +132,11 @@ class AnswerVerificationPromptRendererTest {
 
     private static AnswerVerificationPromptRenderer renderer() {
         return new AnswerVerificationPromptRenderer(mock(PromptResourceCatalog.class));
+    }
+
+    private static IssuedEvidence evidence(EvidenceHandle handle, RepositoryId repositoryId, RepositoryRevision revision) {
+        return new IssuedEvidence(handle, new EvidenceRef("semantic", repositoryId, revision,
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Order#fact", Optional.empty()), "fact evidence", List.of(),
+                new ArtifactRef("digest-" + handle.value())));
     }
 }

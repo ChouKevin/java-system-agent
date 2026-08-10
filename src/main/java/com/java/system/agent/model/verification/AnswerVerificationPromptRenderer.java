@@ -96,7 +96,6 @@ public final class AnswerVerificationPromptRenderer {
         List<String> factStatementIds = statements.stream()
                 .filter(statement -> statement.type() == StatementType.FACT)
                 .map(statement -> statement.statementId().value())
-                .sorted()
                 .toList();
         if (factStatementIds.isEmpty()) {
             return "- none; statementVerdicts must be []\n";

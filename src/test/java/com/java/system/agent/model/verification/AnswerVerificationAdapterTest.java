@@ -157,12 +157,33 @@ class AnswerVerificationAdapterTest {
                 .containsExactly("configured evidence requirement source-proof requires cited evidence");
         assertThat(missingResult.verdict().rejectionReasons())
                 .containsExactly("explicitly requested evidence requirement is not cited: source-proof");
+        assertThat(coveredResult.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE);
         assertThat(wrongVersionResult.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
         assertThat(inconclusiveResult.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_INCONCLUSIVE);
         assertThat(missingModel.calls()).isEqualTo(1);
         assertThat(coveredModel.calls()).isEqualTo(1);
         assertThat(wrongVersionModel.calls()).isEqualTo(1);
         assertThat(inconclusiveModel.calls()).isEqualTo(1);
+    }
+
+    @Test
+    void doesNotTreatAnOverlappingShorterAliasAsAnAdditionalEvidenceRequest() {
+        String response = """
+                {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
+                """;
+        CountingChatModel model = new CountingChatModel(response);
+        List<ConfiguredEvidenceRequirement> requirements = List.of(
+                new ConfiguredEvidenceRequirement("source-proof",
+                        new CapabilityReference("test_method_source", "v7"), List.of("source proof")),
+                new ConfiguredEvidenceRequirement("generic-proof",
+                        new CapabilityReference("test_generic_proof", "v1"), List.of("proof")));
+        SpringAiAnswerVerificationAdapter adapter = adapter(model, requirements);
+
+        AnswerVerificationResult.LlmVerdict result = (AnswerVerificationResult.LlmVerdict) adapter.verify(
+                AnswerVerificationMode.LLM, configuredEvidenceCoverageContext("test_method_source", "v7", true));
+
+        assertThat(result.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE);
+        assertThat(model.calls()).isEqualTo(1);
     }
 
     @Test

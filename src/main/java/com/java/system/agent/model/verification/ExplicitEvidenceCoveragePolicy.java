@@ -70,18 +70,71 @@ public final class ExplicitEvidenceCoveragePolicy {
                 .map(capability -> new CapabilityReference(capability.name(), capability.version()))
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         return requirements.stream()
-                .filter(requirement -> explicitlyRequested(requirement, normalizedQuestion))
+                .filter(requestedRequirements(normalizedQuestion)::contains)
                 .filter(requirement -> !citedCapabilities.contains(requirement.capability()))
                 .toList();
     }
 
-    private static boolean explicitlyRequested(ConfiguredEvidenceRequirement requirement, String normalizedQuestion) {
-        if (normalizedQuestion.contains(normalize(requirement.capability().name()))) {
-            return true;
+    private Set<ConfiguredEvidenceRequirement> requestedRequirements(String normalizedQuestion) {
+        List<RequirementMatch> matches = new ArrayList<>();
+        for (ConfiguredEvidenceRequirement requirement : requirements) {
+            for (String trigger : triggers(requirement)) {
+                addOccurrences(matches, requirement, trigger, normalizedQuestion);
+            }
         }
-        return requirement.aliases().stream()
-                .map(ExplicitEvidenceCoveragePolicy::normalize)
-                .anyMatch(normalizedQuestion::contains);
+        Set<ConfiguredEvidenceRequirement> requested = new LinkedHashSet<>();
+        for (RequirementMatch match : matches) {
+            if (!coveredByLongerMatchForAnotherRequirement(match, matches)) {
+                requested.add(match.requirement());
+            }
+        }
+        return requested;
+    }
+
+    private static Set<String> triggers(ConfiguredEvidenceRequirement requirement) {
+        Set<String> triggers = new LinkedHashSet<>();
+        triggers.add(normalize(requirement.capability().name()));
+        for (String alias : requirement.aliases()) {
+            triggers.add(normalize(alias));
+        }
+        return triggers;
+    }
+
+    private static void addOccurrences(
+            List<RequirementMatch> matches,
+            ConfiguredEvidenceRequirement requirement,
+            String trigger,
+            String normalizedQuestion) {
+        int start = normalizedQuestion.indexOf(trigger);
+        while (start >= 0) {
+            int end = start + trigger.length();
+            if (isPhraseBoundary(normalizedQuestion, start - 1) && isPhraseBoundary(normalizedQuestion, end)) {
+                matches.add(new RequirementMatch(requirement, start, end));
+            }
+            start = normalizedQuestion.indexOf(trigger, start + 1);
+        }
+    }
+
+    private static boolean coveredByLongerMatchForAnotherRequirement(
+            RequirementMatch candidate,
+            List<RequirementMatch> matches) {
+        for (RequirementMatch other : matches) {
+            if (!other.requirement().id().equals(candidate.requirement().id())
+                    && other.start() <= candidate.start()
+                    && other.end() >= candidate.end()
+                    && other.length() > candidate.length()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isPhraseBoundary(String question, int index) {
+        return index < 0 || index >= question.length() || !isWordCharacter(question.charAt(index));
+    }
+
+    private static boolean isWordCharacter(char character) {
+        return Character.isLetterOrDigit(character) || character == '_';
     }
 
     private static String normalize(String value) {
@@ -96,6 +149,13 @@ public final class ExplicitEvidenceCoveragePolicy {
     private static void appendDistinct(List<String> values, String value) {
         if (!values.contains(value)) {
             values.add(value);
+        }
+    }
+
+    private record RequirementMatch(ConfiguredEvidenceRequirement requirement, int start, int end) {
+
+        private int length() {
+            return end - start;
         }
     }
 }
