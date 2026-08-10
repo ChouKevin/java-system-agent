@@ -30,7 +30,7 @@ public record DiscoverTypeMembersPlanningInput(
     public record InitialFilter(
             @NotEmpty List<@NotNull MemberKind> memberKinds,
             @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP)
-            Optional<String> namePrefix) {
+            Optional<@NotBlank String> namePrefix) {
     }
 
     /** provider 支援的型別成員種類 */

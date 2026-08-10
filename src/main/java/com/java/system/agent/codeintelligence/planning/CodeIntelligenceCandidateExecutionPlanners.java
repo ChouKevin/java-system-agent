@@ -6,6 +6,7 @@ import com.java.system.agent.capability.planning.CandidateBoundExecutionPlanner;
 import com.java.system.agent.capability.planning.PlanningToolInputException;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticCandidateTargetMapper;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -24,6 +25,9 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
     private static final String MISSING_TYPE_MEMBER_FILTER = "reason=CANDIDATE_INPUT; "
             + "invalidFields=[initialFilter]; "
             + "constraints=[initialFilter:RequiredForDirectCandidate]";
+    private static final String DUPLICATE_TYPE_MEMBER_KINDS = "reason=CANDIDATE_INPUT; "
+            + "invalidFields=[initialFilter]; "
+            + "constraints=[initialFilter:UniqueMemberKinds]";
     private static final String INVALID_SOURCE_RANGE = "reason=CANDIDATE_SELECTION; "
             + "invalidFields=[candidateHandles]; "
             + "constraints=[candidateHandles:ExactSourceRange]";
@@ -108,6 +112,7 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
             }
             DiscoverTypeMembersPlanningInput.InitialFilter filter = input.initialFilter()
                     .orElseThrow(CodeIntelligenceCandidateExecutionPlanners::missingTypeMemberFilter);
+            validateUniqueMemberKinds(filter);
             return new DiscoverTypeMembersExecutionInput(targetMapper.sourceType(semanticTarget.semanticTarget()),
                     memberKinds(filter), filter.namePrefix(), 0, Optional.ofNullable(input.limit()).orElse(50));
         }
@@ -115,6 +120,7 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
         @Override
         public DiscoverTypeMembersExecutionInput planFollowUp(DiscoverTypeMembersPlanningInput input,
                                                                DiscoverTypeMembersExecutionInput providerInput) {
+            input.initialFilter().ifPresent(DiscoverTypeMembersPlanner::validateUniqueMemberKinds);
             if (providerInput.offset() > 0 && input.initialFilter().isPresent()
                     && !matches(providerInput, input.initialFilter().orElseThrow())) {
                 throw invalidTypeMemberFilter();
@@ -139,6 +145,12 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
 
         private static List<String> memberKinds(DiscoverTypeMembersPlanningInput.InitialFilter filter) {
             return filter.memberKinds().stream().map(Enum::name).toList();
+        }
+
+        private static void validateUniqueMemberKinds(DiscoverTypeMembersPlanningInput.InitialFilter filter) {
+            if (filter.memberKinds().size() != new HashSet<>(filter.memberKinds()).size()) {
+                throw duplicateTypeMemberKinds();
+            }
         }
     }
 
@@ -185,6 +197,10 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
 
     private static PlanningToolInputException invalidTypeMemberFilter() {
         return PlanningToolInputException.safeDiagnostic(INVALID_TYPE_MEMBER_FILTER);
+    }
+
+    private static PlanningToolInputException duplicateTypeMemberKinds() {
+        return PlanningToolInputException.safeDiagnostic(DUPLICATE_TYPE_MEMBER_KINDS);
     }
 
     private static PlanningToolInputException invalidSourceRange() {

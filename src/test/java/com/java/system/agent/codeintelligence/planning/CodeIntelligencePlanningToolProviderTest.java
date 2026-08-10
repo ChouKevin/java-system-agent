@@ -46,6 +46,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.groups.Tuple.tuple;
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -322,6 +323,36 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
+    void rejectsUnsafeTypeMemberFiltersBeforeTheAdapter() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS);
+        IssuedCandidate direct = semanticTargetCandidate("candidate-method", binding, repositoryId, revision);
+        DiscoverTypeMembersExecutionInput firstPage = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
+                List.of("METHOD"), Optional.of("find"), 0, 1);
+        IssuedCandidate followUp = followUpCandidate("candidate-members-first", binding, repositoryId, revision,
+                policy, payloadCodec.encode(firstPage));
+
+        assertAll(
+                () -> assertInvalidTypeMemberFilter(registry.interpretToolCall(policy.name(), """
+                        {"candidateHandles":["candidate-method"],"questionToResolve":"Inspect fields","rationale":"Read the owning type","initialFilter":{"memberKinds":["FIELD","FIELD"]}}
+                        """, promptContext(policy, direct, binding))),
+                () -> assertInvalidTypeMemberFilter(registry.interpretToolCall(policy.name(), """
+                        {"candidateHandles":["candidate-members-first"],"questionToResolve":"Inspect fields","rationale":"Refine the first page","initialFilter":{"memberKinds":["FIELD"],"namePrefix":" "}}
+                        """, promptContext(policy, followUp, binding))));
+
+        verify(adapter, times(0)).discoverTypeMembers(any(CapabilityExecutionContext.class), any());
+    }
+
+    @Test
     void plansSourceSegmentsOnlyFromExactRangesAndRetainsFollowUpLocation() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
@@ -496,6 +527,12 @@ class CodeIntelligencePlanningToolProviderTest {
 
     private static QueryAction queryAction(AgentActionProposal proposal) {
         return (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
+    }
+
+    private static void assertInvalidTypeMemberFilter(AgentActionProposal proposal) {
+        assertThat(proposal).isInstanceOfSatisfying(AgentActionProposal.Malformed.class, malformed ->
+                assertThat(malformed.description()).startsWith("INVALID_TOOL_INPUT")
+                        .doesNotContain("FIELD", "find", "candidate"));
     }
 
     private static CapabilityPolicy policy(PlanningToolRegistry registry, CodeIntelligenceQuery query) {
