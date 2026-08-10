@@ -99,7 +99,7 @@ class M7KnowledgeQueryLiveIT {
     private static final KnowledgeScenario COMPREHENSIVE_SCENARIO = new KnowledgeScenario(
             "comprehensive",
             "在 m7-knowledge-query repository 中，訂單處理有哪些 HTTP API、排程與訊息消費入口？請列出各入口的 package、class、method，分別用 outgoing call-graph evidence 說明它們如何進入共同的 OrderWorkflow.processOrder 流程，再用 implementation 與 internal-reference evidence 驗證共同處理實作，並提供該實作方法的完整來源。",
-            EvidenceExpectation.IMPLEMENTATION_AND_SOURCE);
+            EvidenceExpectation.COMPREHENSIVE);
     private static final List<KnowledgeScenario> SEEDED_SCENARIOS = List.of(
             new KnowledgeScenario("http-workflow",
                     "Trace the HTTP order submission entry point to the shared workflow and cite revision-pinned evidence.",
@@ -176,7 +176,8 @@ class M7KnowledgeQueryLiveIT {
                         comprehensiveRun.state(), comprehensiveRun.admission());
                 CitedEvidence comprehensiveEvidence = assertCitationsAndEvidence(
                         comprehensiveRun.state(), comprehensiveAnswer);
-                assertCitedEvidenceRelationships(comprehensiveEvidence.evidence());
+                assertEvidenceExpectation(
+                        comprehensiveRun.scenario().evidenceExpectation(), comprehensiveRun.state(), comprehensiveEvidence);
 
                 ScenarioRun seededRun = acceptAndProcess(seededScenario, testRunIdentity);
                 PendingTerminalResponse.Answer seededAnswer = assertCompletedAcceptedState(
@@ -527,18 +528,20 @@ class M7KnowledgeQueryLiveIT {
         metadata.put("runId", scenarioRun.admission().runId().value());
         metadata.put("outcome", state.finalOutcome().orElseThrow().name());
         metadata.put("acceptedDisposition", acceptedDisposition(state));
-        metadata.put("capabilities", state.currentAttempt().issuedCapabilities().values().stream()
-                .map(capability -> capability.name() + "@" + capability.version())
-                .sorted()
-                .toList());
-        metadata.put("citedEvidence", citedEvidence.evidence().stream()
+        List<Map<String, String>> citedEvidenceProvenance = citedEvidence.evidence().stream()
                 .map(issued -> Map.of(
                         "handle", issued.handle().value(),
                         "capability", citedEvidenceCapability(state, issued.handle()),
                         "source", issued.evidence().sourceService(),
                         "repository", issued.evidence().repositoryId().value(),
                         "revision", issued.evidence().repositoryRevision().value()))
+                .toList();
+        metadata.put("citedCapabilities", citedEvidenceProvenance.stream()
+                .map(provenance -> provenance.get("capability"))
+                .distinct()
+                .sorted()
                 .toList());
+        metadata.put("citedEvidenceProvenance", citedEvidenceProvenance);
         return Map.copyOf(metadata);
     }
 
@@ -736,6 +739,17 @@ class M7KnowledgeQueryLiveIT {
     }
 
     private enum EvidenceExpectation {
+        COMPREHENSIVE(Set.of(
+                new CapabilityIdentity("codebase_list_entry_points", "v1"),
+                new CapabilityIdentity("codebase_outgoing_call_graph", "v1"),
+                new CapabilityIdentity("codebase_discover_method_implementations", "v1"),
+                new CapabilityIdentity("codebase_find_internal_references", "v1"),
+                new CapabilityIdentity("codebase_get_method_source", "v1"))) {
+            @Override
+            void assertSatisfiedBy(List<IssuedEvidence> citedEvidence) {
+                assertCitedEvidenceRelationships(citedEvidence);
+            }
+        },
         HTTP_TO_WORKFLOW(Set.of(
                 new CapabilityIdentity("codebase_list_entry_points", "v1"),
                 new CapabilityIdentity("codebase_outgoing_call_graph", "v1"))) {
