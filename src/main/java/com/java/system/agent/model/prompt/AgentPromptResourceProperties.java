@@ -10,6 +10,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record AgentPromptResourceProperties(
         @DefaultValue("classpath:/prompts/action/system.md") String actionSystem,
         @DefaultValue("classpath:/prompts/action/context.st") String actionContext,
+        @DefaultValue("classpath:/prompts/action/latest-answer-feedback.st") String actionLatestAnswerFeedback,
         @DefaultValue("classpath:/prompts/verification/system.md") String verificationSystem,
         @DefaultValue("classpath:/prompts/verification/context.st") String verificationContext,
         @DefaultValue("classpath:/prompts/tools/") String toolRoot) {

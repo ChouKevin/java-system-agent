@@ -51,7 +51,9 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -96,11 +98,16 @@ class AgentActionPromptRendererTest {
                                 new ActionResult.ActionInterrupted("RECOVERY_INTERRUPTED", "outcome unknown"))),
                 Optional.empty(), new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
-        Map<String, Object> projection = renderer().project(context);
+        PromptResourceCatalog catalog = mock(PromptResourceCatalog.class);
+        AgentActionPromptRenderer renderer = new AgentActionPromptRenderer(catalog);
+        when(catalog.renderLatestAnswerFeedback(anyMap())).thenReturn("typed-feedback-fragment");
+
+        Map<String, Object> projection = renderer.project(context);
 
         assertThat(projection).containsOnlyKeys("originalQuestion", "sessionTurns", "capabilities", "candidates",
-                "evidence", "evidenceCoverage", "observations", "latestRejection", "remainingBudget",
-                "modelInteractions");
+                "evidence", "evidenceCoverage", "observations", "latestAnswerFeedback", "latestRejection",
+                "remainingBudget", "modelInteractions");
+        assertThat(projection.get("latestAnswerFeedback")).isEqualTo("typed-feedback-fragment");
         assertThat(projection.get("originalQuestion")).isEqualTo("question");
         String interactions = (String) projection.get("modelInteractions");
         assertThat(interactions).containsSubsequence(
@@ -110,6 +117,17 @@ class AgentActionPromptRendererTest {
                 AgentActionFingerprint.from(clarify).value(), "ACTION_INTERRUPTED");
         assertThat(interactions).doesNotContain("canonical-follow-up", "secret.example.invalid", "execute-secret",
                 "execute-secret-body");
+        verify(catalog).renderLatestAnswerFeedback(argThat(values -> {
+            assertThat(values).containsOnlyKeys("disposition", "statementVerdicts", "unaddressedParts",
+                    "blockingUncertainties", "rejectionReasons", "subsequentResults");
+            assertThat(values.get("disposition")).isEqualTo(AnswerDisposition.REJECTED);
+            assertThat((String) values.get("statementVerdicts")).contains("statement-1", "UNSUPPORTED");
+            assertThat((String) values.get("subsequentResults")).contains("ACTION_INTERRUPTED")
+                    .doesNotContain("ANSWER_REJECTED");
+            assertThat(values.values().toString()).doesNotContain("answer text", "resolve query",
+                    "canonical-follow-up", "secret.example.invalid", "execute-secret", "execute-secret-body");
+            return true;
+        }));
     }
 
     @Test
@@ -151,6 +169,17 @@ class AgentActionPromptRendererTest {
 
         assertThat(rendered).isEqualTo("resource-rendered-context");
         verify(catalog).renderActionContext(renderer.project(context));
+    }
+
+    @Test
+    void omits_latest_answer_feedback_when_no_answer_was_rejected() {
+        PromptResourceCatalog catalog = mock(PromptResourceCatalog.class);
+        AgentActionPromptRenderer renderer = new AgentActionPromptRenderer(catalog);
+
+        Map<String, Object> projection = renderer.project(minimalContext());
+
+        assertThat(projection.get("latestAnswerFeedback")).isEqualTo("");
+        verify(catalog, never()).renderLatestAnswerFeedback(anyMap());
     }
 
     private static AgentActionPromptRenderer renderer() {

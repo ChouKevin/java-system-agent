@@ -32,7 +32,10 @@ public final class PromptResourceCatalogLoader {
     private static final Logger LOGGER = Logger.getLogger(PromptResourceCatalogLoader.class.getName());
     private static final Set<String> ACTION_CONTEXT_VARIABLES = Set.of(
             "originalQuestion", "sessionTurns", "capabilities", "candidates", "evidence", "evidenceCoverage",
-            "observations", "latestRejection", "remainingBudget", "modelInteractions");
+            "observations", "latestAnswerFeedback", "latestRejection", "remainingBudget", "modelInteractions");
+    private static final Set<String> LATEST_ANSWER_FEEDBACK_VARIABLES = Set.of(
+            "disposition", "statementVerdicts", "unaddressedParts", "blockingUncertainties", "rejectionReasons",
+            "subsequentResults");
     private static final Set<String> VERIFICATION_CONTEXT_VARIABLES = Set.of(
             "currentQuestion", "sessionHistory", "proposedDocument", "availableEvidence", "availableObservations",
             "citedEvidence", "evidenceTypeCoverage", "referencedObservations", "requiredFactStatementVerdicts",
@@ -60,10 +63,14 @@ public final class PromptResourceCatalogLoader {
         Map<String, LoadedResource> resources = new LinkedHashMap<>();
         LoadedResource actionSystem = read(resources, "action/system", requiredProperties.actionSystem());
         LoadedResource actionContext = read(resources, "action/context", requiredProperties.actionContext());
+        LoadedResource latestAnswerFeedback = read(resources, "action/latest-answer-feedback",
+                requiredProperties.actionLatestAnswerFeedback());
         LoadedResource verificationSystem = read(resources, "verification/system", requiredProperties.verificationSystem());
         LoadedResource verificationContext = read(resources, "verification/context", requiredProperties.verificationContext());
         StrictPromptTemplate actionContextTemplate = new StrictPromptTemplate(actionContext.content(),
                 ACTION_CONTEXT_VARIABLES);
+        StrictPromptTemplate latestAnswerFeedbackTemplate = new StrictPromptTemplate(latestAnswerFeedback.content(),
+                LATEST_ANSWER_FEEDBACK_VARIABLES);
         StrictPromptTemplate verificationContextTemplate = new StrictPromptTemplate(verificationContext.content(),
                 VERIFICATION_CONTEXT_VARIABLES);
         ToolPromptTemplates toolTemplates = loadToolTemplates(resources,
@@ -76,6 +83,7 @@ public final class PromptResourceCatalogLoader {
         return new PromptResourceCatalog(
                 actionSystem.content(),
                 actionContextTemplate,
+                latestAnswerFeedbackTemplate,
                 verificationSystem.content(),
                 verificationContextTemplate,
                 descriptions,
