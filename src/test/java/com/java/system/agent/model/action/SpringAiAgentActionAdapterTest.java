@@ -462,7 +462,8 @@ class SpringAiAgentActionAdapterTest {
 
         AgentActionProposal proposal = adapter(model).nextAction(context());
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: actualToolCallCount=1; assistantTextPresent=true"));
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -522,7 +523,8 @@ class SpringAiAgentActionAdapterTest {
 
         AgentActionProposal proposal = adapter.nextAction(promptContext);
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: actualToolCallCount=1; assistantTextPresent=true"));
         verifyNoInteractions(registry);
     }
 
@@ -539,8 +541,10 @@ class SpringAiAgentActionAdapterTest {
         AgentActionProposal zeroProposal = adapter(zeroToolCalls).nextAction(context());
         AgentActionProposal multipleProposal = adapter(multipleToolCalls).nextAction(context());
 
-        assertThat(zeroProposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
-        assertThat(multipleProposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(zeroProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: actualToolCallCount=0; assistantTextPresent=false"));
+        assertThat(multipleProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: actualToolCallCount=2; assistantTextPresent=false"));
         assertThat(zeroToolCalls.calls()).isEqualTo(1);
         assertThat(multipleToolCalls.calls()).isEqualTo(1);
     }
@@ -578,7 +582,8 @@ class SpringAiAgentActionAdapterTest {
 
         AgentActionProposal proposal = adapter.nextAction(context());
 
-        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: actualToolCallCount=0; assistantTextPresent=true"));
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -593,7 +598,8 @@ class SpringAiAgentActionAdapterTest {
         try {
             AgentActionProposal malformed = malformedAdapter.nextAction(context());
 
-            assertThat(malformed).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+            assertThat(malformed).isEqualTo(new AgentActionProposal.Malformed(
+                    "MALFORMED_ACTION_RESPONSE: actualToolCallCount=0; assistantTextPresent=true"));
             assertThatThrownBy(() -> unavailableAdapter.nextAction(context()))
                     .isInstanceOf(AgentActionTransportException.class)
                     .hasMessage("ACTION_MODEL_UNAVAILABLE");
