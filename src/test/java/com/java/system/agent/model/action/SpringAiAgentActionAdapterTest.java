@@ -391,6 +391,33 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
+    void returnsActionableFeedbackWhenAnswerStatementFieldsViolateTheirCrossFieldContract() {
+        CountingChatModel nonFactClaim = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"statements":[{"statementId":"statement-1","type":"LIMITATION","text":"The source remains unresolved",\
+                "claimId":"SENSITIVE_CLAIM","citationHandles":[],"observationIds":["observation-1"]}]}
+                """));
+        CountingChatModel incompleteFact = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route",\
+                "citationHandles":[],"observationIds":["observation-1"]}]}
+                """));
+
+        AgentActionProposal nonFactProposal = adapter(nonFactClaim).nextAction(answerContext());
+        AgentActionProposal factProposal = adapter(incompleteFact).nextAction(answerContext());
+
+        assertThat(nonFactProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=ANSWER_CONTRACT; "
+                        + "invalidFields=[statements.claimId]; constraints=[statements.claimId:AbsentForNonFact]"));
+        assertThat(factProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=ANSWER_CONTRACT; "
+                        + "invalidFields=[statements.claimId, statements.citationHandles]; "
+                        + "constraints=[statements.claimId:RequiredForFact, "
+                        + "statements.citationHandles:NotEmptyForFact]"));
+        assertThat(nonFactProposal.toString()).doesNotContain("SENSITIVE_CLAIM");
+        assertThat(nonFactClaim.calls()).isEqualTo(1);
+        assertThat(incompleteFact.calls()).isEqualTo(1);
+    }
+
+    @Test
     void rejectsInvalidNestedAnswerStatementsBeforeExecutingAnswerMapper() {
         AtomicInteger mapperCalls = new AtomicInteger();
         CountingChatModel missingType = new CountingChatModel(toolCall("agent_submit_answer", """

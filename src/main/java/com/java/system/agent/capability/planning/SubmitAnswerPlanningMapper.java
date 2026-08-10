@@ -5,10 +5,12 @@ import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.ClaimId;
 import com.java.system.agent.answering.domain.answer.StatementId;
+import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -26,6 +28,7 @@ public final class SubmitAnswerPlanningMapper implements Function<SubmitAnswerPl
     }
 
     private AnswerStatement statement(AnswerStatementPlanningInput input) {
+        validateStatementContract(input);
         Optional<ClaimId> claimId = Optional.ofNullable(input.claimId()).map(ClaimId::new);
         Set<EvidenceHandleRef> citations = input.citationHandles().stream().map(EvidenceHandleRef::new)
                 .collect(Collectors.toUnmodifiableSet());
@@ -33,5 +36,33 @@ public final class SubmitAnswerPlanningMapper implements Function<SubmitAnswerPl
                 .collect(Collectors.toUnmodifiableSet());
         return new AnswerStatement(new StatementId(input.statementId()), input.type(), input.text(), claimId, citations,
                 observationIds);
+    }
+
+    private static void validateStatementContract(AnswerStatementPlanningInput input) {
+        boolean usableClaimId = Objects.nonNull(input.claimId()) && !input.claimId().isBlank();
+        if (input.type() == StatementType.FACT) {
+            if (!usableClaimId && input.citationHandles().isEmpty()) {
+                throw rejected("invalidFields=[statements.claimId, statements.citationHandles]; "
+                        + "constraints=[statements.claimId:RequiredForFact, "
+                        + "statements.citationHandles:NotEmptyForFact]");
+            }
+            if (!usableClaimId) {
+                throw rejected("invalidFields=[statements.claimId]; "
+                        + "constraints=[statements.claimId:RequiredForFact]");
+            }
+            if (input.citationHandles().isEmpty()) {
+                throw rejected("invalidFields=[statements.citationHandles]; "
+                        + "constraints=[statements.citationHandles:NotEmptyForFact]");
+            }
+            return;
+        }
+        if (Objects.nonNull(input.claimId())) {
+            throw rejected("invalidFields=[statements.claimId]; "
+                    + "constraints=[statements.claimId:AbsentForNonFact]");
+        }
+    }
+
+    private static PlanningToolInputException rejected(String diagnostic) {
+        return new PlanningToolInputException("reason=ANSWER_CONTRACT; " + diagnostic, null);
     }
 }
