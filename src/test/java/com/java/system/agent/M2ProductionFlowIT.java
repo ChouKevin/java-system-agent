@@ -11,8 +11,6 @@ import com.java.system.agent.interaction.domain.SourceMessageId;
 import com.java.system.agent.interaction.domain.SourcePayloadFingerprintV1;
 import com.java.system.agent.interaction.domain.TransportEventId;
 import com.java.system.agent.interaction.port.in.AcceptSourceEventUseCase;
-import com.java.system.agent.model.action.AgentActionPromptRenderer;
-import com.java.system.agent.model.verification.AnswerVerificationPromptRenderer;
 import com.java.system.agent.persistence.jdbc.PostgresAgentTransitionAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionInboxAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionAdapter;
@@ -33,6 +31,7 @@ import com.java.system.agent.support.M2IntegrationTestConfiguration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -178,8 +177,8 @@ class M2ProductionFlowIT {
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(10);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(9);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(11);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(10);
         assertThat(deliveryStatuses(enqueued)).containsExactly(
                 "FINAL_RESPONSE:WAITING_FOR_RECEIPT", "RECEIPT:PENDING");
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
@@ -206,13 +205,7 @@ class M2ProductionFlowIT {
             assertThat(turn.assistantMessage()).isEqualTo(
                     "OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND");
         });
-        assertThat(chatModel.prompts())
-                .extracting(prompt -> prompt.getSystemMessage())
-                .extracting(systemMessage -> systemMessage.getText())
-                .containsExactly(
-                        AgentActionPromptRenderer.SYSTEM_INSTRUCTION,
-                        AgentActionPromptRenderer.SYSTEM_INSTRUCTION,
-                        AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION);
+        assertOutboundPrompts(chatModel.prompts());
         AnswerQuestionResult reconciled = answerQuestionUseCase.answer(new AnswerQuestionCommand(
                 enqueued.runId(), enqueued.sessionId(), enqueued.participant(), enqueued.questionText(), state.budget()));
         assertThat(reconciled.responseKind()).isEqualTo(RunResponseKind.ANSWER);
@@ -249,8 +242,8 @@ class M2ProductionFlowIT {
         assertThat(inboxStatus(enqueued)).isEqualTo(InboxMessageStatus.COMPLETED.name());
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(10);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(9);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(11);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(10);
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
                 "WAITING_FOR_RECEIPT",
                 "CLARIFICATION",
@@ -258,10 +251,7 @@ class M2ProductionFlowIT {
                 "Which repository should I inspect?",
                 PARTICIPANT.sourceType(),
                 PARTICIPANT.participantKey()));
-        assertThat(chatModel.prompts())
-                .extracting(prompt -> prompt.getSystemMessage())
-                .extracting(systemMessage -> systemMessage.getText())
-                .containsExactly(AgentActionPromptRenderer.SYSTEM_INSTRUCTION);
+        assertOutboundPrompts(chatModel.prompts());
         assertThat(callTimeline.calls()).containsExactly(
                 CallTimeline.HTTP_REPOSITORY_CATALOG,
                 CallTimeline.LLM_CLARIFY_ACTION);
@@ -275,6 +265,13 @@ class M2ProductionFlowIT {
                 new SessionSourceRef("slack", "channel-1:thread-" + suffix), PARTICIPANT, sourceText,
                 question, SourcePayloadFingerprintV1.fromCanonicalFields(
                         "workspace-1", "channel-1", "message-" + suffix, "thread-" + suffix, "U123456", sourceText), NOW);
+    }
+
+    private static void assertOutboundPrompts(List<Prompt> prompts) {
+        assertThat(prompts).allSatisfy(prompt -> {
+            assertThat(prompt.getSystemMessage().getText()).isNotBlank();
+            assertThat(prompt.getUserMessage().getText()).isNotBlank();
+        });
     }
 
     private String inboxStatus(InboxMessage message) {

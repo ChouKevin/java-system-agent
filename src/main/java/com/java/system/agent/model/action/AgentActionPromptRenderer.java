@@ -29,11 +29,13 @@ import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,72 +46,81 @@ import java.util.StringJoiner;
  */
 public final class AgentActionPromptRenderer {
 
-    public static final String SYSTEM_INSTRUCTION = """
-            Choose exactly one registered planning tool call.
-            Do not emit a preamble, explanation, trailing prose, or any text outside that one function call.
-            Use only issued opaque handles.
-            Candidate handles must come from Candidates, never Evidence.
-            Preserve the candidate subset and order you intend.
-            Treat every explicitly requested deliverable and evidence type as required.
-            Do not submit an answer while any required evidence type is absent from Evidence or remains uncited.
-            Prefer a query that supplies a missing evidence type over another query for an evidence type already available.
-            When a question requests evidence for each item, execute the requested capability once for every distinct issued item before answering.
-            Do not substitute source text for explicitly requested call-graph, implementation, or internal-reference evidence.
-            For evidence-type matching: outgoing call-graph evidence requires codebase_outgoing_call_graph; implementation evidence requires codebase_discover_method_implementations; internal-reference evidence requires codebase_find_internal_references; complete method source requires codebase_get_method_source.
-            codebase_discover_method_implementations is follow-up-only. When no eligible FOLLOW_UP exists, use codebase_discover_concepts and type-member follow-ups to locate an eligible declaration first.
-            A METHOD concept issues only source and call-graph navigation. For implementation evidence, discover the abstract or interface declaration TYPE named in the method contract, execute that TYPE's codebase_discover_type_members follow-up, then choose codebase_discover_method_implementations from the eligible abstract or interface method member. A concrete implementation method does not issue implementation discovery.
-            When complete implementation source is requested, obtain implementation evidence first and read source from the selected implementation candidate; do not use entry-point source as a substitute.
-            For internal-reference evidence, discover its owning TYPE, inspect FIELD members, and choose the field's codebase_find_internal_references follow-up.
-            For a follow-up-only operation, call the registered tool named by targetCapability and pass its opaque handle as followUpCandidateHandle.
-            Before another search or unrelated source read, execute an already issued exact provider-bound FOLLOW_UP for a still-missing evidence type.
-            Do not repeat a discovery query when its result already issued an eligible FOLLOW_UP for the missing evidence path.
-            Do not repeat the same discovery execution payload when it did not issue the required targetCapability; change the concept kind or search term, or choose an eligible current FOLLOW_UP.
-            Respect every tool schema limit such as maxItems; when one call accepts one candidate handle, make separate sequential calls instead of batching handles.
-            Express unresolved uncertainty in answer statements, observations, or clarification.
-            Do not emit confidence, score, rank, adapter name, or retry instruction.
-            Emit a URL only as execute_http.targetUrl.
-            """;
+    private final PromptResourceCatalog promptCatalog;
+
+    public AgentActionPromptRenderer(PromptResourceCatalog promptCatalog) {
+        this.promptCatalog = Objects.requireNonNull(promptCatalog, "prompt resource catalog must not be null");
+    }
 
     /**
      * 依 answering collection 的既有順序輸出明確 action context
      */
     public String render(AgentPromptContext context) {
+        return promptCatalog.renderActionContext(project(context));
+    }
+
+    Map<String, Object> project(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        StringBuilder prompt = new StringBuilder();
-        section(prompt, "Original question", context.originalQuestion());
-        prompt.append("Session turns:\n");
+        Map<String, Object> projection = new LinkedHashMap<>();
+        projection.put("originalQuestion", context.originalQuestion());
+        projection.put("sessionTurns", sessionTurns(context));
+        projection.put("capabilities", capabilities(context));
+        projection.put("candidates", candidates(context));
+        projection.put("evidence", evidence(context));
+        projection.put("evidenceCoverage", evidenceCoverage(context));
+        projection.put("observations", observations(context));
+        projection.put("latestRejection", context.latestRejection().orElse("none"));
+        projection.put("remainingBudget", remainingBudget(context));
+        projection.put("modelInteractions", ModelInteractionRenderer.render(context.modelInteractions()));
+        return Map.copyOf(projection);
+    }
+
+    private static String sessionTurns(AgentPromptContext context) {
+        StringBuilder turns = new StringBuilder();
         for (ConversationTurn turn : context.sessionHistory().turns()) {
-            prompt.append(turn.participant().promptLabel()).append(": ").append(turn.userMessage()).append('\n');
-            prompt.append("assistant: ").append(turn.assistantMessage()).append('\n');
+            turns.append(turn.participant().promptLabel()).append(": ").append(turn.userMessage()).append('\n');
+            turns.append("assistant: ").append(turn.assistantMessage()).append('\n');
         }
-        prompt.append("Capabilities:\n");
+        return turns.toString();
+    }
+
+    private static String capabilities(AgentPromptContext context) {
+        StringBuilder capabilities = new StringBuilder();
         for (Map.Entry<CapabilityHandle, CapabilityPolicy> entry : context.issuedCapabilities().entrySet()) {
             CapabilityPolicy descriptor = entry.getValue();
-            prompt.append("- ").append(entry.getKey().value()).append(": ").append(descriptor.name())
+            capabilities.append("- ").append(entry.getKey().value()).append(": ").append(descriptor.name())
                     .append("@ ").append(descriptor.version()).append('\n');
         }
-        prompt.append("Candidates:\n");
+        return capabilities.toString();
+    }
+
+    private static String candidates(AgentPromptContext context) {
+        StringBuilder candidates = new StringBuilder();
         for (Map.Entry<CandidateHandle, IssuedCandidate> entry : context.issuedCandidates().entrySet()) {
-            prompt.append("- ").append(entry.getKey().value()).append(": ")
+            candidates.append("- ").append(entry.getKey().value()).append(": ")
                     .append(renderCandidate(entry.getValue().candidate())).append('\n');
         }
-        prompt.append("Evidence:\n");
+        return candidates.toString();
+    }
+
+    private static String evidence(AgentPromptContext context) {
+        StringBuilder evidence = new StringBuilder();
         for (Map.Entry<EvidenceHandle, IssuedEvidence> entry : context.issuedEvidence().entrySet()) {
-            prompt.append("- ").append(entry.getKey().value())
+            evidence.append("- ").append(entry.getKey().value())
                     .append(" [producedBy=").append(producedBy(entry.getKey(), context.evidenceProvenance()))
                     .append("]: ")
                     .append(entry.getValue().evidence().content()).append('\n');
         }
-        evidenceCoverage(prompt, context);
-        prompt.append("Observations:\n");
+        return evidence.toString();
+    }
+
+    private static String observations(AgentPromptContext context) {
+        StringBuilder observations = new StringBuilder();
         for (Map.Entry<ObservationId, AgentObservation> entry : context.observations().entrySet()) {
-            prompt.append("- ").append(entry.getKey().value()).append(": ")
+            observations.append("- ").append(entry.getKey().value()).append(": ")
                     .append(entry.getValue().description()).append('\n');
         }
-        section(prompt, "Latest rejection", context.latestRejection().orElse("none"));
-        section(prompt, "Remaining budget", remainingBudget(context));
-        section(prompt, "Previous model choices and results", ModelInteractionRenderer.render(context.modelInteractions()));
-        return prompt.toString();
+        return observations.toString();
     }
 
     private static String renderCandidate(AnalysisCandidate candidate) {
@@ -126,10 +137,6 @@ public final class AgentActionPromptRenderer {
         };
         return "kind=" + candidate.kind() + ", repository=" + repository
                 + ", description=" + candidate.description() + selectionMetadata;
-    }
-
-    private static void section(StringBuilder prompt, String label, String content) {
-        prompt.append(label).append(":\n").append(content).append('\n');
     }
 
     private static String remainingBudget(AgentPromptContext context) {
@@ -152,8 +159,8 @@ public final class AgentActionPromptRenderer {
         return capabilities.isEmpty() ? "unrecorded" : String.join(",", capabilities);
     }
 
-    private static void evidenceCoverage(StringBuilder prompt, AgentPromptContext context) {
-        prompt.append("Evidence coverage by capability:\n");
+    private static String evidenceCoverage(AgentPromptContext context) {
+        StringBuilder coverage = new StringBuilder();
         for (Map.Entry<CapabilityHandle, CapabilityPolicy> entry : context.issuedCapabilities().entrySet()) {
             CapabilityPolicy capability = entry.getValue();
             List<String> evidenceHandles = context.evidenceProvenance().stream()
@@ -162,10 +169,11 @@ public final class AgentActionPromptRenderer {
                     .distinct()
                     .sorted()
                     .toList();
-            prompt.append("- ").append(capability.name()).append('@').append(capability.version()).append(": ")
+            coverage.append("- ").append(capability.name()).append('@').append(capability.version()).append(": ")
                     .append(evidenceHandles.isEmpty() ? "none" : String.join(",", evidenceHandles))
                     .append('\n');
         }
+        return coverage.toString();
     }
 
     private static final class ModelInteractionRenderer {
@@ -184,7 +192,8 @@ public final class AgentActionPromptRenderer {
         private static String renderInteraction(ModelInteraction interaction) {
             return switch (interaction) {
                 case ModelInteraction.ActionSelected selected -> "- attempt=" + selected.attemptId().value()
-                        + " selected " + renderAction(selected.action());
+                        + " selected actionFingerprint=" + AgentActionFingerprint.from(selected.action()).value()
+                        + " " + renderAction(selected.action());
                 case ModelInteraction.ActionResultRecorded recorded -> "- attempt=" + recorded.attemptId().value()
                         + " result " + renderResult(recorded.result());
                 case ModelInteraction.MalformedResponse malformed -> "- attempt=" + malformed.attemptId().value()

@@ -40,31 +40,28 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
     private final PlanningToolRegistry toolRegistry;
     private final SpringAiPlanningToolCallbackAdapter callbackAdapter;
     private final AgentActionPromptRenderer promptRenderer;
+    private final PromptResourceCatalog promptCatalog;
 
     public SpringAiAgentActionAdapter(
             ChatClient chatClient,
             PlanningToolRegistry toolRegistry,
             PromptResourceCatalog promptCatalog) {
         this(chatClient, toolRegistry, new SpringAiPlanningToolCallbackAdapter(
-                toolRegistry, new SpringAiPlanningToolSchemaFactory(), promptCatalog));
+                toolRegistry, new SpringAiPlanningToolSchemaFactory(), promptCatalog),
+                new AgentActionPromptRenderer(promptCatalog), promptCatalog);
     }
 
     public SpringAiAgentActionAdapter(
             ChatClient chatClient,
             PlanningToolRegistry toolRegistry,
-            SpringAiPlanningToolCallbackAdapter callbackAdapter) {
-        this(chatClient, toolRegistry, callbackAdapter, new AgentActionPromptRenderer());
-    }
-
-    SpringAiAgentActionAdapter(
-            ChatClient chatClient,
-            PlanningToolRegistry toolRegistry,
             SpringAiPlanningToolCallbackAdapter callbackAdapter,
-                               AgentActionPromptRenderer promptRenderer) {
+            AgentActionPromptRenderer promptRenderer,
+            PromptResourceCatalog promptCatalog) {
         this.chatClient = Objects.requireNonNull(chatClient, "chat client must not be null");
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "planning tool registry must not be null");
         this.callbackAdapter = Objects.requireNonNull(callbackAdapter, "planning tool callback adapter must not be null");
         this.promptRenderer = Objects.requireNonNull(promptRenderer, "action prompt renderer must not be null");
+        this.promptCatalog = Objects.requireNonNull(promptCatalog, "prompt resource catalog must not be null");
     }
 
     @Override
@@ -88,7 +85,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
                 response = chatClient.prompt()
                         .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false))
                         .toolCallbacks(callbacks)
-                        .system(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
+                        .system(promptCatalog.actionSystemInstruction())
                         .user(renderedPrompt)
                         .call()
                         .chatClientResponse();
@@ -175,7 +172,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
                 : AgentActionFingerprint.executionPayloadFrom(action);
     }
 
-    private static void logOperation(
+    private void logOperation(
             AgentPromptContext context,
             PromptMetadata promptMetadata,
             String resultCategory,
@@ -195,13 +192,13 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
                 - context.budget().usedActionRejections();
         LOGGER.log(level,
                 "agent action operation=NEXT_ACTION runId={0} attemptId={1} promptCharacterCount={2} promptSha256={3} "
-                        + "interactionCount={4} remainingAgentSteps={5} remainingQueryExecutions={6} "
-                        + "remainingExecuteExecutions={7} remainingActionRejections={8} resultCategory={9} "
-                        + "malformedReason={10} actionType={11} actionFingerprint={12} executionPayloadFingerprint={13} "
-                        + "priorIdenticalCurrentAttemptSelectionCount={14} "
-                        + "priorEquivalentCurrentAttemptPayloadSelectionCount={15} elapsedMs={16}",
+                        + "catalogSha256={4} interactionCount={5} remainingAgentSteps={6} remainingQueryExecutions={7} "
+                        + "remainingExecuteExecutions={8} remainingActionRejections={9} resultCategory={10} "
+                        + "malformedReason={11} actionType={12} actionFingerprint={13} executionPayloadFingerprint={14} "
+                        + "priorIdenticalCurrentAttemptSelectionCount={15} "
+                        + "priorEquivalentCurrentAttemptPayloadSelectionCount={16} elapsedMs={17}",
                 new Object[]{context.runId().value(), context.attemptId().value(), promptMetadata.characterCount(),
-                        promptMetadata.sha256(), context.modelInteractions().size(), remainingAgentSteps,
+                        promptMetadata.sha256(), promptCatalog.catalogDigest(), context.modelInteractions().size(), remainingAgentSteps,
                         remainingQueryExecutions, remainingExecuteExecutions, remainingActionRejections, resultCategory,
                         malformedReason, actionType, actionFingerprint, executionPayloadFingerprint,
                         priorIdenticalCurrentAttemptSelectionCount, priorEquivalentCurrentAttemptPayloadSelectionCount,

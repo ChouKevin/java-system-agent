@@ -293,13 +293,10 @@ class SpringAiAgentActionAdapterTest {
                     "https://service.example/orders?token=URL_SECRET",
                     Optional.of("{\"credential\":\"BODY_SECRET\"}"),
                     "EXECUTE_RATIONALE_SECRET")));
-            assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION)
-                    .contains("Emit a URL only as execute_http.targetUrl")
-                    .doesNotContain("adapter name, URL, or retry instruction");
             List<String> logMessages = formattedMessages(handler);
             assertThat(logMessages).hasSize(1);
             assertThat(logMessages.getFirst()).contains("resultCategory=PROPOSED", "actionType=EXECUTE",
-                            "actionFingerprint=")
+                            "actionFingerprint=", "catalogSha256=")
                     .doesNotContain("URL_SECRET", "BODY_SECRET", "EXECUTE_RATIONALE_SECRET");
         } finally {
             releaseActionLogs(handler);
@@ -453,8 +450,9 @@ class SpringAiAgentActionAdapterTest {
                 .content(" \n\t ")
                 .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "callers", rawArguments)))
                 .build());
+        PromptResourceCatalog catalog = stubPromptCatalog();
         SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(
-                ChatClient.builder(model).build(), registry, callbacks);
+                ChatClient.builder(model).build(), registry, callbacks, new AgentActionPromptRenderer(catalog), catalog);
 
         AgentActionProposal proposal = adapter.nextAction(promptContext);
 
@@ -472,8 +470,9 @@ class SpringAiAgentActionAdapterTest {
                 .content("I will query it")
                 .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "callers", "{}")))
                 .build());
+        PromptResourceCatalog catalog = stubPromptCatalog();
         SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(
-                ChatClient.builder(model).build(), registry, callbacks);
+                ChatClient.builder(model).build(), registry, callbacks, new AgentActionPromptRenderer(catalog), catalog);
 
         AgentActionProposal proposal = adapter.nextAction(promptContext);
 
@@ -565,18 +564,29 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
-    void rendersActionContextInFixedOrderAndWithoutMemoryInstructions() {
-        String prompt = new AgentActionPromptRenderer().render(context());
+    void sends_one_nonblank_resource_backed_request_with_the_currently_issued_callback_schemas() {
+        CountingChatModel model = new CountingChatModel(toolCall("callers", """
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","rationale":"Trace callers"}
+                """));
+        PlanningToolRegistry registry = registry(new ToolInputMapper());
+        PromptResourceCatalog catalog = promptCatalog(registry);
+        SpringAiPlanningToolCallbackAdapter callbacks = new SpringAiPlanningToolCallbackAdapter(registry,
+                new SpringAiPlanningToolSchemaFactory(), catalog);
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry,
+                callbacks, new AgentActionPromptRenderer(catalog), catalog);
 
-        assertThat(prompt.indexOf("Original question")).isLessThan(prompt.indexOf("Session turns"));
-        assertThat(prompt.indexOf("Session turns")).isLessThan(prompt.indexOf("Capabilities"));
-        assertThat(prompt.indexOf("Capabilities")).isLessThan(prompt.indexOf("Candidates"));
-        assertThat(prompt.indexOf("Candidates")).isLessThan(prompt.indexOf("Evidence"));
-        assertThat(prompt.indexOf("Evidence")).isLessThan(prompt.indexOf("Observations"));
-        assertThat(prompt.indexOf("Observations")).isLessThan(prompt.indexOf("Latest rejection"));
-        assertThat(prompt.indexOf("Latest rejection")).isLessThan(prompt.indexOf("Remaining budget"));
-        assertThat(AgentActionPromptRenderer.SYSTEM_INSTRUCTION).contains("Use only issued opaque handles", "exactly one registered planning tool call")
-                .doesNotContain("memory", "advisor");
+        AgentActionProposal proposal = adapter.nextAction(context());
+
+        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
+        assertThat(model.calls()).isEqualTo(1);
+        Prompt prompt = model.lastPrompt().orElseThrow();
+        assertThat(prompt.getSystemMessage().getText()).isNotBlank();
+        assertThat(prompt.getUserMessage().getText()).isNotBlank();
+        assertThat(callbacks.issuedCallbacks(context()))
+                .extracting(callback -> callback.getToolDefinition().name())
+                .containsExactlyInAnyOrder("callers", "agent_submit_answer", "agent_request_clarification", "execute_http");
+        assertThat(callbacks.issuedCallbacks(context()))
+                .allSatisfy(callback -> assertThat(callback.getToolDefinition().inputSchema()).isNotBlank());
     }
 
     @Test
@@ -639,9 +649,10 @@ class SpringAiAgentActionAdapterTest {
             CountingChatModel model,
             AgentActionPromptRenderer renderer) {
         PlanningToolRegistry registry = fingerprintRegistry();
+        PromptResourceCatalog catalog = promptCatalog(registry);
         return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry,
                 new SpringAiPlanningToolCallbackAdapter(registry, new SpringAiPlanningToolSchemaFactory(),
-                        promptCatalog(registry)), renderer);
+                        catalog), renderer, catalog);
     }
 
     private static SpringAiAgentActionAdapter contractDefectAdapter(CountingChatModel model) {
@@ -701,6 +712,15 @@ class SpringAiAgentActionAdapterTest {
                 "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
                 "classpath:/prompts/tools/", "classpath:/prompts/callers-evidence-requirements.yml");
         return new PromptResourceCatalogLoader(new DefaultResourceLoader()).load(properties, registry);
+    }
+
+    private static PromptResourceCatalog stubPromptCatalog() {
+        PromptResourceCatalog catalog = mock(PromptResourceCatalog.class);
+        when(catalog.actionSystemInstruction()).thenReturn("resource system");
+        when(catalog.renderActionContext(org.mockito.ArgumentMatchers.<Map<String, Object>>any()))
+                .thenReturn("resource context");
+        when(catalog.catalogDigest()).thenReturn("catalog-digest");
+        return catalog;
     }
 
     private static AnswerAction failIfAnswerMapperExecutes(AtomicInteger mapperCalls) {

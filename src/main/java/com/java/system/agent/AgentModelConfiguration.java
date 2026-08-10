@@ -1,6 +1,7 @@
 package com.java.system.agent;
 
 import com.java.system.agent.model.action.SpringAiAgentActionAdapter;
+import com.java.system.agent.model.action.AgentActionPromptRenderer;
 import com.java.system.agent.model.action.SpringAiPlanningToolCallbackAdapter;
 import com.java.system.agent.model.action.SpringAiPlanningToolSchemaFactory;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
@@ -125,10 +126,17 @@ public final class AgentModelConfiguration {
     }
 
     @Bean
+    AgentActionPromptRenderer agentActionPromptRenderer(PromptResourceCatalog promptCatalog) {
+        return new AgentActionPromptRenderer(promptCatalog);
+    }
+
+    @Bean
     AgentActionPort agentActionPort(@Qualifier("agentActionChatClient") ChatClient chatClient,
                                     PlanningToolRegistry registry,
-                                    SpringAiPlanningToolCallbackAdapter callbackAdapter) {
-        return new SpringAiAgentActionAdapter(chatClient, registry, callbackAdapter);
+                                    SpringAiPlanningToolCallbackAdapter callbackAdapter,
+                                    AgentActionPromptRenderer promptRenderer,
+                                    PromptResourceCatalog promptCatalog) {
+        return new SpringAiAgentActionAdapter(chatClient, registry, callbackAdapter, promptRenderer, promptCatalog);
     }
 
     @Bean
