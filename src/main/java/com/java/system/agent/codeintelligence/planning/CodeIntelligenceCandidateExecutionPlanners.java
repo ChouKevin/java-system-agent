@@ -112,7 +112,8 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
         @Override
         public OutgoingCallGraphExecutionInput planFollowUp(
                 OutgoingCallGraphPlanningInput input, OutgoingCallGraphExecutionInput providerInput) {
-            return new OutgoingCallGraphExecutionInput(depth(input.depth()), requiredBoundTarget(providerInput.boundTarget()));
+            return new OutgoingCallGraphExecutionInput(followUpDepth(input.depth(), providerInput.depth()),
+                    requiredBoundTarget(providerInput.boundTarget()));
         }
     }
 
@@ -139,7 +140,8 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
         @Override
         public IncomingCallGraphExecutionInput planFollowUp(
                 IncomingCallGraphPlanningInput input, IncomingCallGraphExecutionInput providerInput) {
-            return new IncomingCallGraphExecutionInput(depth(input.depth()), requiredBoundTarget(providerInput.boundTarget()));
+            return new IncomingCallGraphExecutionInput(followUpDepth(input.depth(), providerInput.depth()),
+                    requiredBoundTarget(providerInput.boundTarget()));
         }
     }
 
@@ -408,6 +410,10 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
 
     private static int depth(Integer configuredDepth) {
         return Optional.ofNullable(configuredDepth).orElse(2);
+    }
+
+    private static int followUpDepth(Integer configuredDepth, int providerDepth) {
+        return Optional.ofNullable(configuredDepth).orElse(providerDepth);
     }
 
     private static int limit(Integer configuredLimit, int providerDefault) {

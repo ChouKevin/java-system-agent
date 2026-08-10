@@ -346,9 +346,31 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
-    void rejectsBoundTargetsInjectedIntoDirectCallGraphInputsBeforeHttp() {
+    void acceptsExactCandidateDerivedTargetsForDirectCallGraphs() {
         TestClient client = testClient();
         SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
+                .andExpect(method(POST))
+                .andExpect(content().json(graphRequest(target)))
+                .andRespond(withSuccess(graphResponse(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/incoming"))
+                .andExpect(method(POST))
+                .andExpect(content().json(graphRequest(target)))
+                .andRespond(withSuccess(graphResponse(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertSucceeded(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
+                new OutgoingCallGraphExecutionInput(1, Optional.of(target))));
+        assertSucceeded(() -> adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"),
+                new IncomingCallGraphExecutionInput(1, Optional.of(target))));
+
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsMismatchedDirectCallGraphTargetsBeforeHttp() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload mismatchedTarget = targetPayload();
         client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
                 requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"));
         client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
@@ -356,10 +378,10 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(target))))
+                new OutgoingCallGraphExecutionInput(1, Optional.of(mismatchedTarget))))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         assertThatThrownBy(() -> adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"),
-                new IncomingCallGraphExecutionInput(1, Optional.of(target))))
+                new IncomingCallGraphExecutionInput(1, Optional.of(mismatchedTarget))))
                 .isInstanceOf(CapabilityExecutionContractException.class);
 
         client.server().verify();
@@ -412,7 +434,7 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
-                new OutgoingCallGraphExecutionInput(1)))
+                new OutgoingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("revision");
 
@@ -632,9 +654,11 @@ class JavaSemanticServiceHttpAdapterTest {
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.suggestApiRoute(repositoryContext("codebase_suggest_api_route"), new SuggestApiRouteExecutionInput("/orders", null, 3)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
-        assertThat(adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"), new OutgoingCallGraphExecutionInput(1)))
+        assertThat(adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
+                new OutgoingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
-        assertThat(adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"), new IncomingCallGraphExecutionInput(1)))
+        assertThat(adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"),
+                new IncomingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         client.server().verify();
     }
@@ -734,7 +758,8 @@ class JavaSemanticServiceHttpAdapterTest {
                         """, MediaType.APPLICATION_JSON));
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
-        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"), new OutgoingCallGraphExecutionInput(1)))
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
+                new OutgoingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
@@ -753,7 +778,8 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         assertThatThrownBy(adapter::availableRepositories).isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"), new OutgoingCallGraphExecutionInput(1)))
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
+                new OutgoingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }

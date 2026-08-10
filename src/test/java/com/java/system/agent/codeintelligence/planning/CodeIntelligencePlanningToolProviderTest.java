@@ -465,6 +465,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 conceptsPolicy, payloadCodec.encode(followUpConceptsInput));
         CapabilityExecutionResult expected = new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
         when(adapter.outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphTunedInput))).thenReturn(expected);
+        when(adapter.outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphFollowUpInput))).thenReturn(expected);
         when(adapter.discoverConcepts(any(CapabilityExecutionContext.class), eq(directConceptsInput))).thenReturn(expected);
         when(adapter.discoverConcepts(any(CapabilityExecutionContext.class), eq(followUpConceptsInput))).thenReturn(expected);
         when(adapter.discoverEventListeners(any(CapabilityExecutionContext.class), eq(directListenersInput)))
@@ -472,6 +473,9 @@ class CodeIntelligencePlanningToolProviderTest {
 
         QueryAction graphAction = queryAction(registry.interpretToolCall(graphPolicy.name(), """
                 {"candidateHandles":["candidate-graph-follow-up"],"questionToResolve":"Trace order calls","rationale":"Inspect downstream calls","depth":2}
+                """, promptContext(graphPolicy, graphFollowUp, binding)));
+        QueryAction graphOmittedDepthAction = queryAction(registry.interpretToolCall(graphPolicy.name(), """
+                {"candidateHandles":["candidate-graph-follow-up"],"questionToResolve":"Trace provider calls","rationale":"Retain the provider traversal depth"}
                 """, promptContext(graphPolicy, graphFollowUp, binding)));
         QueryAction directConceptsAction = queryAction(registry.interpretToolCall(conceptsPolicy.name(), """
                 {"candidateHandles":["candidate-repository"],"questionToResolve":"Find order concepts","rationale":"Locate order types","searchCriteria":{"terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}}
@@ -484,6 +488,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 """, promptContext(listenersPolicy, directRepository, binding)));
 
         assertThat(graphAction.payload()).isEqualTo(payloadCodec.encode(graphTunedInput));
+        assertThat(graphOmittedDepthAction.payload()).isEqualTo(payloadCodec.encode(graphFollowUpInput));
         assertThat(graphAction.candidates()).extracting(candidate -> candidate.value())
                 .containsExactly("candidate-graph-follow-up");
         assertThat(graphAction.questionToResolve()).isEqualTo("Trace order calls");
@@ -492,10 +497,12 @@ class CodeIntelligencePlanningToolProviderTest {
         assertThat(followUpConceptsAction.payload()).isEqualTo(payloadCodec.encode(followUpConceptsInput));
         assertThat(directListenersAction.payload()).isEqualTo(payloadCodec.encode(directListenersInput));
         assertThat(execute(registry, graphPolicy, graphFollowUp, graphAction, revisions)).isSameAs(expected);
+        assertThat(execute(registry, graphPolicy, graphFollowUp, graphOmittedDepthAction, revisions)).isSameAs(expected);
         assertThat(execute(registry, conceptsPolicy, directRepository, directConceptsAction, revisions)).isSameAs(expected);
         assertThat(execute(registry, conceptsPolicy, conceptsFollowUp, followUpConceptsAction, revisions)).isSameAs(expected);
         assertThat(execute(registry, listenersPolicy, directRepository, directListenersAction, revisions)).isSameAs(expected);
         verify(adapter, times(1)).outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphTunedInput));
+        verify(adapter, times(1)).outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphFollowUpInput));
         verify(adapter, times(1)).discoverConcepts(any(CapabilityExecutionContext.class), eq(directConceptsInput));
         verify(adapter, times(1)).discoverConcepts(any(CapabilityExecutionContext.class), eq(followUpConceptsInput));
         verify(adapter, times(1)).discoverEventListeners(any(CapabilityExecutionContext.class), eq(directListenersInput));

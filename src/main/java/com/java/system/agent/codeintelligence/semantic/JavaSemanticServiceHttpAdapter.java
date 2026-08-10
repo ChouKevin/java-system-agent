@@ -218,7 +218,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             OutgoingCallGraphExecutionInput input) {
         DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH, input,
                 OutgoingCallGraphExecutionInput.class, SemanticTargetCandidate.class);
-        SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "outgoing call graph");
+        SemanticDtos.MethodTargetPayload target = callGraphTargetFor(scope, input.boundTarget(), "outgoing call graph");
         try {
             SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
                     scope.repositoryId().value(), scope.expectedRevision().value(), input.depth(), target);
@@ -247,7 +247,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             IncomingCallGraphExecutionInput input) {
         DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.INCOMING_CALL_GRAPH, input,
                 IncomingCallGraphExecutionInput.class, SemanticTargetCandidate.class);
-        SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "incoming call graph");
+        SemanticDtos.MethodTargetPayload target = callGraphTargetFor(scope, input.boundTarget(), "incoming call graph");
         try {
             SemanticDtos.AnalyzeIncomingCallGraphRequest request = new SemanticDtos.AnalyzeIncomingCallGraphRequest(
                     scope.repositoryId().value(), scope.expectedRevision().value(), input.depth(), target);
@@ -595,6 +595,25 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             throw contract(description + " direct candidate must provide exactly one unbound semantic target");
         }
         return resultMapper.methodTargetPayload(target.semanticTarget());
+    }
+
+    private SemanticDtos.MethodTargetPayload callGraphTargetFor(
+            DiscoveryScope scope,
+            Optional<SemanticDtos.MethodTargetPayload> boundTarget,
+            String description) {
+        if (scope.followUp()) {
+            return boundTarget.orElseThrow(() -> contract(description + " follow-up target is required"));
+        }
+        if (!(scope.selected() instanceof SemanticTargetCandidate selectedTarget)) {
+            throw contract(description + " direct candidate must provide exactly one semantic target");
+        }
+        SemanticDtos.MethodTargetPayload expectedTarget = targetMapper.methodTarget(selectedTarget.semanticTarget());
+        SemanticDtos.MethodTargetPayload requestedTarget = boundTarget.orElseThrow(
+                () -> contract(description + " direct target is required"));
+        if (!expectedTarget.equals(requestedTarget)) {
+            throw contract(description + " direct target does not match the selected semantic target");
+        }
+        return expectedTarget;
     }
 
     private SemanticDtos.MethodTargetPayload methodImplementationTargetFor(
