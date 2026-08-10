@@ -54,9 +54,14 @@ list. Before each action-model turn, the registry filters contributed registrati
 `PlanningToolRegistration.isIssued(context)` into one snapshot: the model may call only those
 names, and the prompt names and callbacks are projected from that same snapshot. Provider follow-up
 candidates carry canonical payload and analyzed-revision scope; historical evidence provenance is
-context, not permission to repeat a tool. Semantic method navigation can reach fields on its owning
-type through a provider-issued type-member follow-up, and a typed field result can authorize a
-provider-issued internal-reference search.
+context, not permission to repeat a tool. Follow-ups are trusted target/recommendation candidates,
+not universal prerequisites: current revision-pinned direct candidates can project safe method,
+type, and source targets through runtime-owned typed inputs. Identity tools that require a
+provider-issued identity remain follow-up-required. Semantic method navigation can reach fields on
+its owning type through a provider-issued type-member follow-up, and a typed field result can
+authorize a provider-issued internal-reference search. Active candidate expiry, accumulated
+candidate history, and session compaction remain deferred concerns; this repository does not yet
+implement those future lifecycle designs.
 
 The external `java-code-intelligence` service owns repository lifecycle, JDT LS integration,
 call-graph construction, its HTTP/MCP adapters, build, deployment, and service documentation. This

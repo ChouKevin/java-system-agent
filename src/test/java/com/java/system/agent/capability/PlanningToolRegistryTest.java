@@ -276,6 +276,38 @@ class PlanningToolRegistryTest {
     }
 
     @Test
+    void failsClosedBeforeDecodingOrExecutingForAbsentMismatchedAndModelWritableCandidateBoundCalls() {
+        AtomicInteger followUpExecutorCalls = new AtomicInteger();
+        PlanningToolRegistry followUpRegistry = followUpRegistry(followUpExecutorCalls);
+        AtomicInteger candidateBoundExecutorCalls = new AtomicInteger();
+        PlanningToolRegistry candidateBoundRegistry = candidateBoundRegistry(candidateBoundExecutorCalls);
+
+        AgentActionProposal absentFollowUp = followUpRegistry.interpretToolCall(
+                "codebase_get_source_segment", "{", contextWithoutFollowUps());
+        AgentActionProposal mismatchedFollowUp = candidateBoundRegistry.interpretToolCall("candidate_bound_test",
+                candidateBoundInput("candidate-bound-follow-up", 2), contextWithMismatchedFollowUpAndDirectCandidate());
+        AgentActionProposal modelWritableProtectedField = candidateBoundRegistry.interpretToolCall("candidate_bound_test", """
+                {"candidateHandles":["candidate-method"],
+                 "questionToResolve":"Find callers",
+                 "rationale":"The selected candidate defines the scope",
+                 "option":2,
+                 "target":"model-writable-target"}
+                """, contextWithDirectSemanticCandidate());
+
+        assertThat(absentFollowUp).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: requestedTool=codebase_get_source_segment; "
+                        + "toolStatus=NOT_CURRENTLY_ISSUED; expected=currentlyIssuedTool"));
+        assertThat(mismatchedFollowUp).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=candidate_bound_test; reason=CANDIDATE_SELECTION; "
+                        + "invalidFields=[candidateHandles]; "
+                        + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
+        assertThat(modelWritableProtectedField).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=candidate_bound_test; reason=JSON_CONTRACT"));
+        assertThat(followUpExecutorCalls).hasValue(0);
+        assertThat(candidateBoundExecutorCalls).hasValue(0);
+    }
+
+    @Test
     void executesFollowUpOnlyRegistrationThroughTheCommonQueryExecutionIndex() {
         AtomicInteger executorCalls = new AtomicInteger();
         PlanningToolRegistry registry = followUpRegistry(executorCalls);

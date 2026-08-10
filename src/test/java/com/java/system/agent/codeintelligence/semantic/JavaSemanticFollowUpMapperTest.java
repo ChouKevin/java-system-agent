@@ -217,6 +217,24 @@ class JavaSemanticFollowUpMapperTest {
     }
 
     @Test
+    void rejects_unknown_operations_and_repository_revision_scope_mismatches() {
+        SemanticDtos.MethodTargetPayload target = methodTarget();
+        SemanticDtos.FollowUpApi implementationApi = new SemanticDtos.FollowUpApi("POST",
+                "/v1/discovery/method-implementations", "discoverMethodImplementations");
+        JavaSemanticFollowUpMapper mapper = new JavaSemanticFollowUpMapper();
+        SemanticDtos.AvailableFollowUp unknownOperation = new SemanticDtos.AvailableFollowUp("UNKNOWN_OPERATION",
+                implementationApi, new SemanticDtos.DiscoverMethodImplementationsFollowUpRequest("orders", "FIXTURE", target));
+        SemanticDtos.AvailableFollowUp mismatchedScope = new SemanticDtos.AvailableFollowUp(
+                "DISCOVER_METHOD_IMPLEMENTATIONS", implementationApi,
+                new SemanticDtos.DiscoverMethodImplementationsFollowUpRequest("other-orders", "OTHER", target));
+
+        assertThatThrownBy(() -> mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), unknownOperation))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), mismatchedScope))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
     void rejects_source_segment_follow_up_with_reversed_range() {
         SemanticDtos.AvailableFollowUp reversedRange = new SemanticDtos.AvailableFollowUp("GET_SOURCE_SEGMENT",
                 new SemanticDtos.FollowUpApi("POST", "/v1/discovery/source-segment", "getSourceSegment"),
