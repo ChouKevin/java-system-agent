@@ -12,6 +12,7 @@ public final class PromptResourceCatalog {
 
     private final String actionSystemInstruction;
     private final StrictPromptTemplate actionContext;
+    private final StrictPromptTemplate latestAnswerFeedback;
     private final String verificationSystemInstruction;
     private final StrictPromptTemplate verificationContext;
     private final Map<PlanningToolDescriptor, String> toolDescriptions;
@@ -22,6 +23,7 @@ public final class PromptResourceCatalog {
     PromptResourceCatalog(
             String actionSystemInstruction,
             StrictPromptTemplate actionContext,
+            StrictPromptTemplate latestAnswerFeedback,
             String verificationSystemInstruction,
             StrictPromptTemplate verificationContext,
             Map<PlanningToolDescriptor, String> toolDescriptions,
@@ -31,6 +33,8 @@ public final class PromptResourceCatalog {
         this.actionSystemInstruction = Objects.requireNonNull(actionSystemInstruction,
                 "action system instruction must not be null");
         this.actionContext = Objects.requireNonNull(actionContext, "action context template must not be null");
+        this.latestAnswerFeedback = Objects.requireNonNull(latestAnswerFeedback,
+                "latest answer feedback template must not be null");
         this.verificationSystemInstruction = Objects.requireNonNull(verificationSystemInstruction,
                 "verification system instruction must not be null");
         this.verificationContext = Objects.requireNonNull(verificationContext,
@@ -50,6 +54,10 @@ public final class PromptResourceCatalog {
 
     public String renderActionContext(Map<String, ?> values) {
         return actionContext.render(values);
+    }
+
+    public String renderLatestAnswerFeedback(Map<String, ?> values) {
+        return latestAnswerFeedback.render(values);
     }
 
     public String verificationSystemInstruction() {

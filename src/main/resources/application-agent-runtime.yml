@@ -12,6 +12,7 @@ agent:
     prompts:
       action-system: classpath:/prompts/action/system.md
       action-context: classpath:/prompts/action/context.st
+      action-latest-answer-feedback: classpath:/prompts/action/latest-answer-feedback.st
       verification-system: classpath:/prompts/verification/system.md
       verification-context: classpath:/prompts/verification/context.st
       tool-root: classpath:/prompts/tools/

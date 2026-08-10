@@ -51,6 +51,7 @@ class PromptResourceCatalogTest {
         AgentPromptResourceProperties properties = new AgentPromptResourceProperties(
                 actionSystem.toUri().toString(),
                 "classpath:/prompts/action/context.st",
+                "classpath:/prompts/action/latest-answer-feedback.st",
                 "classpath:/prompts/verification/system.md",
                 "classpath:/prompts/verification/context.st",
                 "classpath:/prompts/tools/");
@@ -77,19 +78,30 @@ class PromptResourceCatalogTest {
     @Test
     void rejectsActionAndVerificationPlaceholderMismatches(@TempDir Path temporaryDirectory) throws IOException {
         Path actionContext = temporaryDirectory.resolve("action-context.st");
+        Path latestAnswerFeedback = temporaryDirectory.resolve("latest-answer-feedback.st");
         Path verificationContext = temporaryDirectory.resolve("verification-context.st");
         Files.writeString(actionContext, "<unexpected>");
+        Files.writeString(latestAnswerFeedback, "<unexpected>");
         Files.writeString(verificationContext, "<unexpected>");
 
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> loader().load(properties(
                         "classpath:/prompts/action/system.md", actionContext.toUri().toString(),
+                        "classpath:/prompts/action/latest-answer-feedback.st",
                         "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
                         "classpath:/prompts/tools/"), registry()))
                 .withMessageContaining("placeholder set");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> loader().load(properties(
                         "classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
+                        latestAnswerFeedback.toUri().toString(),
+                        "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
+                        "classpath:/prompts/tools/"), registry()))
+                .withMessageContaining("placeholder set");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> loader().load(properties(
+                        "classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
+                        "classpath:/prompts/action/latest-answer-feedback.st",
                         "classpath:/prompts/verification/system.md", verificationContext.toUri().toString(),
                         "classpath:/prompts/tools/"), registry()))
                 .withMessageContaining("placeholder set");
@@ -100,6 +112,7 @@ class PromptResourceCatalogTest {
         PromptResourceCatalog catalog = loader().load(productionProperties(), registry());
 
         assertThat(catalog.resourceDigests()).containsKeys(
+                "action/latest-answer-feedback",
                 "tools/cardinality/exact.st",
                 "tools/cardinality/range.st",
                 "tools/follow-up/allowed.st",
@@ -119,6 +132,7 @@ class PromptResourceCatalogTest {
 
     private static AgentPromptResourceProperties actionSystemProperties(Path actionSystem) {
         return properties(actionSystem.toUri().toString(), "classpath:/prompts/action/context.st",
+                "classpath:/prompts/action/latest-answer-feedback.st",
                 "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
                 "classpath:/prompts/tools/");
     }
@@ -127,6 +141,7 @@ class PromptResourceCatalogTest {
         return properties(
                 "classpath:/prompts/action/system.md",
                 "classpath:/prompts/action/context.st",
+                "classpath:/prompts/action/latest-answer-feedback.st",
                 "classpath:/prompts/verification/system.md",
                 "classpath:/prompts/verification/context.st",
                 "classpath:/prompts/tools/");
@@ -135,11 +150,12 @@ class PromptResourceCatalogTest {
     private static AgentPromptResourceProperties properties(
             String actionSystem,
             String actionContext,
+            String latestAnswerFeedback,
             String verificationSystem,
             String verificationContext,
             String toolRoot) {
-        return new AgentPromptResourceProperties(actionSystem, actionContext, verificationSystem, verificationContext,
-                toolRoot);
+        return new AgentPromptResourceProperties(actionSystem, actionContext, latestAnswerFeedback, verificationSystem,
+                verificationContext, toolRoot);
     }
 
     private static PlanningToolRegistry registry() {

@@ -47,9 +47,11 @@ import java.util.StringJoiner;
 public final class AgentActionPromptRenderer {
 
     private final PromptResourceCatalog promptCatalog;
+    private final LatestAnswerFeedbackProjector latestAnswerFeedbackProjector;
 
     public AgentActionPromptRenderer(PromptResourceCatalog promptCatalog) {
         this.promptCatalog = Objects.requireNonNull(promptCatalog, "prompt resource catalog must not be null");
+        this.latestAnswerFeedbackProjector = new LatestAnswerFeedbackProjector();
     }
 
     /**
@@ -69,10 +71,33 @@ public final class AgentActionPromptRenderer {
         projection.put("evidence", evidence(context));
         projection.put("evidenceCoverage", evidenceCoverage(context));
         projection.put("observations", observations(context));
+        projection.put("latestAnswerFeedback", latestAnswerFeedback(context));
         projection.put("latestRejection", context.latestRejection().orElse("none"));
         projection.put("remainingBudget", remainingBudget(context));
         projection.put("modelInteractions", ModelInteractionRenderer.render(context.modelInteractions()));
         return Map.copyOf(projection);
+    }
+
+    private String latestAnswerFeedback(AgentPromptContext context) {
+        return latestAnswerFeedbackProjector.project(context.modelInteractions())
+                .map(this::renderLatestAnswerFeedback)
+                .orElse("");
+    }
+
+    private String renderLatestAnswerFeedback(LatestAnswerFeedbackProjector.LatestAnswerFeedback feedback) {
+        AnswerVerdict verdict = feedback.verdict();
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("disposition", verdict.disposition());
+        values.put("statementVerdicts", verdict.statementVerdicts().stream()
+                .map(ModelInteractionRenderer::renderStatementVerdict)
+                .collect(java.util.stream.Collectors.joining("\n")));
+        values.put("unaddressedParts", String.join("\n", verdict.unaddressedParts()));
+        values.put("blockingUncertainties", String.join("\n", verdict.blockingUncertainties()));
+        values.put("rejectionReasons", String.join("\n", verdict.rejectionReasons()));
+        values.put("subsequentResults", feedback.subsequentResults().stream()
+                .map(ModelInteractionRenderer::renderResult)
+                .collect(java.util.stream.Collectors.joining("\n")));
+        return promptCatalog.renderLatestAnswerFeedback(Map.copyOf(values));
     }
 
     private static String sessionTurns(AgentPromptContext context) {

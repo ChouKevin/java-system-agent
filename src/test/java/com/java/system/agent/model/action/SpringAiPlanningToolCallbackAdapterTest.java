@@ -76,6 +76,7 @@ class SpringAiPlanningToolCallbackAdapterTest {
     private static PromptResourceCatalog catalog(PlanningToolRegistry registry) {
         AgentPromptResourceProperties properties = new AgentPromptResourceProperties(
                 "classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
+                "classpath:/prompts/action/latest-answer-feedback.st",
                 "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
                 "classpath:/prompts/tools/");
         return new PromptResourceCatalogLoader(new DefaultResourceLoader()).load(properties, registry);

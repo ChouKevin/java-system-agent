@@ -19,6 +19,8 @@ Evidence coverage:
 Recorded observations:
 <observations>
 
+<latestAnswerFeedback>
+
 Latest rejection:
 <latestRejection>
 
