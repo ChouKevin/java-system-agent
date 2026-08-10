@@ -238,8 +238,11 @@ class PlanningToolRegistryTest {
         AgentActionProposal capabilityAbsent = registry.interpretToolCall("codebase_get_source_segment",
                 followUpInput("candidate-follow-up"), contextWithFollowUpButNoTargetCapability());
 
-        assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
-        assertThat(repository).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+        String invalidFollowUpSelection = "INVALID_TOOL_INPUT: tool=codebase_get_source_segment; "
+                + "reason=FOLLOW_UP_SELECTION; invalidFields=[followUpCandidateHandle]; "
+                + "constraints=[followUpCandidateHandle:CurrentlyAuthorizedFollowUp]";
+        assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed(invalidFollowUpSelection));
+        assertThat(repository).isEqualTo(new AgentActionProposal.Malformed(invalidFollowUpSelection));
         assertThat(capabilityAbsent).isEqualTo(new AgentActionProposal.Malformed(
                 "MALFORMED_ACTION_RESPONSE: requestedTool=codebase_get_source_segment; "
                         + "toolStatus=NOT_CURRENTLY_ISSUED; expected=currentlyIssuedTool"));

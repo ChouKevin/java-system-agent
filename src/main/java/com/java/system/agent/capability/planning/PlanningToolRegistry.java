@@ -99,11 +99,11 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
             String inputType = Objects.isNull(rejectedRegistration)
                     ? "UNKNOWN"
                     : rejectedRegistration.planningInputType().getSimpleName();
+            Optional<String> safeDiagnostic = exception.safeDiagnostic();
             LOGGER.log(Level.WARNING,
                     "planning tool operation=INTERPRET toolName={0} inputType={1} rawUtf8Bytes={2} "
-                            + "resultCategory=INVALID_TOOL_INPUT",
-                    new Object[]{toolName, inputType, utf8Bytes(rawArguments)});
-            Optional<String> safeDiagnostic = exception.safeDiagnostic();
+                            + "resultCategory=INVALID_TOOL_INPUT safeDiagnostic={3}",
+                    new Object[]{toolName, inputType, utf8Bytes(rawArguments), safeDiagnostic.orElse("NONE")});
             String malformedReason = Objects.nonNull(rejectedRegistration) && safeDiagnostic.isPresent()
                     ? "INVALID_TOOL_INPUT: tool=" + rejectedRegistration.name() + "; "
                     + safeDiagnostic.orElseThrow()

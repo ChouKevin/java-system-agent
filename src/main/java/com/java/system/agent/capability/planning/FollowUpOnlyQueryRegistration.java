@@ -22,6 +22,10 @@ import java.util.Optional;
 public final class FollowUpOnlyQueryRegistration<E>
         implements PlanningToolRegistration<FollowUpPlanningInput>, QueryCapabilityRegistration<E> {
 
+    private static final String INVALID_FOLLOW_UP_SELECTION = "reason=FOLLOW_UP_SELECTION; "
+            + "invalidFields=[followUpCandidateHandle]; "
+            + "constraints=[followUpCandidateHandle:CurrentlyAuthorizedFollowUp]";
+
     private final CapabilityPolicy policy;
     private final Class<E> executionInputType;
     private final CapabilityExecutor<E> executor;
@@ -79,13 +83,18 @@ public final class FollowUpOnlyQueryRegistration<E>
         Map.Entry<CandidateHandle, IssuedCandidate> selected = context.issuedCandidates().entrySet().stream()
                 .filter(entry -> entry.getKey().value().equals(input.followUpCandidateHandle()))
                 .findFirst()
-                .orElseThrow(PlanningToolInputException::new);
+                .orElseThrow(FollowUpOnlyQueryRegistration::invalidFollowUpSelection);
         CapabilityHandle capability = ProviderBoundFollowUp.targetCapability(context, selected, policy)
-                .orElseThrow(PlanningToolInputException::new);
+                .orElseThrow(FollowUpOnlyQueryRegistration::invalidFollowUpSelection);
         CandidateHandleRef reference = new CandidateHandleRef(selected.getKey().value());
         CapabilityInputPayload payload = ProviderBoundFollowUp.boundPayload(
-                context, capability, policy, List.of(reference)).orElseThrow(PlanningToolInputException::new);
+                context, capability, policy, List.of(reference))
+                .orElseThrow(FollowUpOnlyQueryRegistration::invalidFollowUpSelection);
         return new QueryAction(capability, List.of(reference), input.questionToResolve(), payload, input.rationale());
+    }
+
+    private static PlanningToolInputException invalidFollowUpSelection() {
+        return new PlanningToolInputException(INVALID_FOLLOW_UP_SELECTION, null);
     }
 
     @Override
