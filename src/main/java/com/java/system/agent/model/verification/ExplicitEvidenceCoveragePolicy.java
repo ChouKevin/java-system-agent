@@ -3,6 +3,7 @@ package com.java.system.agent.model.verification;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.observation.ObservationSource;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 import com.java.system.agent.model.prompt.CapabilityReference;
@@ -34,11 +35,13 @@ public final class ExplicitEvidenceCoveragePolicy {
     AnswerVerdict enforce(AnswerVerificationContext context, AnswerVerdict verdict) {
         Objects.requireNonNull(context, "answer verification context must not be null");
         Objects.requireNonNull(verdict, "answer verdict must not be null");
-        if (verdict.disposition() == AnswerDisposition.ACCEPTED_INCONCLUSIVE) {
-            return verdict;
-        }
         List<ConfiguredEvidenceRequirement> missing = missingRequirements(context);
         if (missing.isEmpty()) {
+            return verdict;
+        }
+        if (verdict.disposition() == AnswerDisposition.ACCEPTED_INCONCLUSIVE
+                && context.referencedObservations().stream()
+                        .anyMatch(observation -> observation.source() == ObservationSource.CAPABILITY_EXECUTOR)) {
             return verdict;
         }
         LOGGER.log(Level.WARNING,
