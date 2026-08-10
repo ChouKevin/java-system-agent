@@ -223,7 +223,17 @@ class AgentCapabilityConfigurationTest {
 
     private static PromptResourceCatalog promptCatalog(PlanningToolRegistry registry) {
         return new PromptResourceCatalogLoader(new DefaultResourceLoader()).load(
-                new AgentPromptResourceProperties(), registry);
+                promptResourceProperties(), registry);
+    }
+
+    private static AgentPromptResourceProperties promptResourceProperties() {
+        return new AgentPromptResourceProperties(
+                "classpath:/prompts/action/system.md",
+                "classpath:/prompts/action/context.st",
+                "classpath:/prompts/verification/system.md",
+                "classpath:/prompts/verification/context.st",
+                "classpath:/prompts/tools/",
+                "classpath:/prompts/evidence-requirements.yml");
     }
 
     private static List<String> required(Map<String, JsonNode> schemas, String toolName) {

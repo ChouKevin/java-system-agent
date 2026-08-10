@@ -35,7 +35,7 @@ class PromptResourceCatalogTest {
     @Test
     void loadsProductionResourcesWithDescriptionsAndDeterministicDigests() {
         PlanningToolRegistry registry = registry();
-        PromptResourceCatalog catalog = loader().load(new AgentPromptResourceProperties(), registry);
+        PromptResourceCatalog catalog = loader().load(productionProperties(), registry);
 
         for (PlanningToolRegistration<?> registration : registry.registrations()) {
             assertThat(catalog.toolDescription(registration.descriptor())).isNotBlank();
@@ -147,7 +147,7 @@ class PromptResourceCatalogTest {
     @Test
     void rejectsDescriptorGuidanceResourcesThatAreAbsent(@TempDir Path temporaryDirectory) {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> loader().load(new AgentPromptResourceProperties(), registry("missing-guidance")))
+                .isThrownBy(() -> loader().load(productionProperties(), registry("missing-guidance")))
                 .withMessageContaining("unreadable");
     }
 
@@ -159,6 +159,16 @@ class PromptResourceCatalogTest {
         return properties(actionSystem.toUri().toString(), "classpath:/prompts/action/context.st",
                 "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
                 "classpath:/prompts/tools/", "classpath:/prompts/evidence-requirements.yml");
+    }
+
+    private static AgentPromptResourceProperties productionProperties() {
+        return properties(
+                "classpath:/prompts/action/system.md",
+                "classpath:/prompts/action/context.st",
+                "classpath:/prompts/verification/system.md",
+                "classpath:/prompts/verification/context.st",
+                "classpath:/prompts/tools/",
+                "classpath:/prompts/evidence-requirements.yml");
     }
 
     private static AgentPromptResourceProperties evidenceProperties(Path evidenceRequirements) {

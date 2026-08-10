@@ -10,9 +10,14 @@ import com.java.system.agent.capability.planning.QueryPlanningToolRegistration;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.port.out.AgentActionPort;
+import com.java.system.agent.answering.port.out.AnswerVerificationPort;
+import com.java.system.agent.model.action.SpringAiAgentActionAdapter;
+import com.java.system.agent.model.action.SpringAiPlanningToolCallbackAdapter;
 import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import jakarta.validation.Validation;
 import com.java.system.agent.model.quota.ModelQuotaGate;
+import com.java.system.agent.model.verification.AnswerVerificationDispatcher;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -57,6 +62,34 @@ class AgentModelConfigurationTest {
 
             assertThatThrownBy(() -> verifierClient.prompt("second").call().content())
                     .isInstanceOf(com.java.system.agent.answering.port.out.ExternalExecutionDeferredException.class);
+        });
+    }
+
+    @Test
+    void failsClosedWhenTheConfiguredActionSystemResourceIsMissingBeforePortsAreUsable() {
+        contextRunner.withPropertyValues(
+                        "agent.model.prompts.action-system=file:/tmp/java-system-agent-missing-prompts/action-system.md")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasStackTraceContaining("action/system");
+                    assertThat(context.getStartupFailure()).hasStackTraceContaining("promptResourceCatalog");
+                });
+    }
+
+    @Test
+    void composesOnePromptCatalogIntoActionVerificationAndPlanningAdapters() {
+        contextRunner.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBeansOfType(PromptResourceCatalog.class)).hasSize(1);
+            assertThat(context.getBeansOfType(SpringAiPlanningToolCallbackAdapter.class)).hasSize(1);
+            assertThat(context.getBean(AgentActionPort.class)).isInstanceOf(SpringAiAgentActionAdapter.class);
+            assertThat(context.getBean(AnswerVerificationPort.class)).isInstanceOf(AnswerVerificationDispatcher.class);
+            assertThat(context.getBeanFactory().getDependenciesForBean("springAiPlanningToolCallbackAdapter"))
+                    .contains("promptResourceCatalog");
+            assertThat(context.getBeanFactory().getDependenciesForBean("agentActionPort"))
+                    .contains("promptResourceCatalog");
+            assertThat(context.getBeanFactory().getDependenciesForBean("answerVerificationPort"))
+                    .contains("promptResourceCatalog");
         });
     }
 
