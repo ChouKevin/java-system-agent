@@ -37,10 +37,19 @@ public final class SpringAiPlanningToolCallbackAdapter {
     }
 
     public List<ToolCallback> issuedCallbacks(AgentPromptContext context) {
+        return issuedTools(context).callbacks();
+    }
+
+    IssuedPlanningTools issuedTools(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        return registry.issuedRegistrations(context).stream()
+        List<PlanningToolRegistration<?>> issuedRegistrations = registry.issuedRegistrations(context);
+        List<ToolCallback> callbacks = issuedRegistrations.stream()
                 .map(registration -> callback(registration.name()))
                 .toList();
+        List<String> names = callbacks.stream()
+                .map(callback -> callback.getToolDefinition().name())
+                .toList();
+        return new IssuedPlanningTools(names, callbacks);
     }
 
     private ToolCallback callback(String name) {

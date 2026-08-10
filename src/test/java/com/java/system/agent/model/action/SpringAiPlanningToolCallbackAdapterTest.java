@@ -42,35 +42,48 @@ class SpringAiPlanningToolCallbackAdapterTest {
     void rendersGenericQueryCallbackDescriptionFromTheImmutableCatalog() {
         TrackingSchemaFactory schemaFactory = new TrackingSchemaFactory();
         CapabilityPolicy policy = new CapabilityPolicy("test_lookup_symbol", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
-        PlanningToolRegistry registry = registry(policy);
+        CapabilityPolicy unissuedPolicy = new CapabilityPolicy("test_lookup_unissued", "v1",
+                Set.of(CandidateKind.REPOSITORY), 1, 1);
+        PlanningToolRegistry registry = registry(policy, unissuedPolicy);
         PromptResourceCatalog catalog = catalog(registry);
 
         SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry, schemaFactory, catalog);
 
         assertThat(schemaFactory.verified()).extracting(verified -> verified.inputType().getName())
-                .containsExactly(TestLookupPlanningInput.class.getName());
+                .containsExactly(TestLookupPlanningInput.class.getName(), TestLookupPlanningInput.class.getName());
         assertThat(schemaFactory.verified()).allSatisfy(verified ->
                 assertThat(verified.projectedSchema()).contains("\"additionalProperties\":false"));
-        assertThat(adapter.issuedCallbacks(context(policy)))
-                .filteredOn(toolCallback -> toolCallback.getToolDefinition().name().equals("test_lookup_symbol"))
-                .singleElement()
-                .satisfies(toolCallback -> {
-                    assertThat(toolCallback.getToolDefinition().description()).isNotBlank();
-                    assertThat(toolCallback.getToolDefinition().inputSchema()).contains("questionToResolve");
-                });
+        IssuedPlanningTools issued = adapter.issuedTools(context(policy));
+
+        assertThat(issued.names()).containsExactly("test_lookup_symbol");
+        assertThat(issued.callbacks()).extracting(toolCallback -> toolCallback.getToolDefinition().name())
+                .containsExactlyElementsOf(issued.names());
+        assertThat(issued.callbacks()).singleElement().satisfies(toolCallback -> {
+            assertThat(toolCallback.getToolDefinition().description()).isNotBlank();
+            assertThat(toolCallback.getToolDefinition().inputSchema()).contains("questionToResolve");
+        });
+        assertThat(issued.names()).doesNotContain("test_lookup_unissued");
+        assertThat(adapter.issuedCallbacks(context(policy))).containsExactlyElementsOf(issued.callbacks());
         assertThat(catalog.resourceDigests().keySet())
                 .noneMatch(logicalId -> logicalId.contains("test_lookup_symbol"));
     }
 
-    private static PlanningToolRegistry registry(CapabilityPolicy policy) {
-        PlanningToolProvider provider = () -> List.of(new QueryPlanningToolRegistration<>(policy,
-                TestLookupPlanningInput.class, String.class,
-                input -> new QueryPlanningSelection<>(List.of(), input.questionToResolve(), "test rationale", "input"),
-                (context, input) -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
-                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator())));
+    private static PlanningToolRegistry registry(CapabilityPolicy policy, CapabilityPolicy unissuedPolicy) {
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolProvider provider = () -> List.of(registration(policy, payloadCodec),
+                registration(unissuedPolicy, payloadCodec));
         return new PlanningToolRegistry(List.of(provider), new StrictPlanningToolDecoder(
                 Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator()));
+    }
+
+    private static QueryPlanningToolRegistration<TestLookupPlanningInput, String> registration(
+            CapabilityPolicy policy,
+            CanonicalCapabilityPayloadCodec payloadCodec) {
+        return new QueryPlanningToolRegistration<>(policy, TestLookupPlanningInput.class, String.class,
+                input -> new QueryPlanningSelection<>(List.of(), input.questionToResolve(), "test rationale", "input"),
+                (context, input) -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()), payloadCodec);
     }
 
     private static PromptResourceCatalog catalog(PlanningToolRegistry registry) {
