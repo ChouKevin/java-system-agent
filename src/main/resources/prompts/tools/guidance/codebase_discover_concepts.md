@@ -1,0 +1,1 @@
+Use concept discovery to locate the owning type or declaration. An abstract type or interface can unlock implementation follow-ups; an owning type can unlock member discovery. If an identical search did not expose the needed target, change the terms or kinds instead of repeating it.

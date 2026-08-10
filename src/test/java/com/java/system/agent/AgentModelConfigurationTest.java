@@ -3,7 +3,14 @@ package com.java.system.agent;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.CorePlanningToolProvider;
+import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
+import com.java.system.agent.capability.planning.QueryPlanningSelection;
+import com.java.system.agent.capability.planning.QueryPlanningToolRegistration;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import jakarta.validation.Validation;
 import com.java.system.agent.model.quota.ModelQuotaGate;
 import org.junit.jupiter.api.Test;
@@ -16,6 +23,8 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,6 +47,7 @@ class AgentModelConfigurationTest {
         contextRunner.run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBeansOfType(ModelQuotaGate.class)).hasSize(1);
+            assertThat(context.getBean(PromptResourceCatalog.class).catalogDigest()).matches("[0-9a-f]{64}");
             ChatClient actionClient = context.getBean("agentActionChatClient", ChatClient.class);
             ChatClient verifierClient = context.getBean("agentVerifierChatClient", ChatClient.class);
 
@@ -66,6 +76,7 @@ class AgentModelConfigurationTest {
     void rejectsAMissingProviderChatModel() {
         new ApplicationContextRunner()
                 .withUserConfiguration(AgentModelConfiguration.class)
+                .withBean(PlanningToolRegistry.class, AgentModelConfigurationTest::planningToolRegistry)
                 .withPropertyValues(
                         "spring.profiles.active=agent-runtime",
                         "agent.model.rate-limit.requests-per-minute=15",
@@ -119,8 +130,30 @@ class AgentModelConfigurationTest {
     }
 
     private static PlanningToolRegistry planningToolRegistry() {
-        return new PlanningToolRegistry(List.<PlanningToolProvider>of(), new StrictPlanningToolDecoder(
-                Validation.buildDefaultValidatorFactory().getValidator()),
-                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()));
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolProvider queryProvider = () -> List.of(
+                query("codebase_outgoing_call_graph", CandidateKind.SEMANTIC_TARGET, Optional.empty()),
+                query("codebase_incoming_call_graph", CandidateKind.SEMANTIC_TARGET, Optional.empty()),
+                query("codebase_discover_method_implementations", CandidateKind.FOLLOW_UP, Optional.empty()),
+                query("codebase_find_internal_references", CandidateKind.FOLLOW_UP, Optional.empty()),
+                query("codebase_get_method_source", CandidateKind.SEMANTIC_TARGET, Optional.empty()));
+        PlanningToolProvider executeProvider = () -> List.of(new ExecutePlanningToolRegistration());
+        return new PlanningToolRegistry(List.of(new CorePlanningToolProvider(), executeProvider, queryProvider),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+    }
+
+    private static QueryPlanningToolRegistration<TestPlanningInput, String> query(
+            String capabilityName,
+            CandidateKind candidateKind,
+            Optional<String> guidanceId) {
+        CapabilityPolicy policy = new CapabilityPolicy(capabilityName, "v1", Set.of(candidateKind), 1, 1);
+        return new QueryPlanningToolRegistration<>(policy, TestPlanningInput.class, String.class,
+                input -> new QueryPlanningSelection<>(List.of(), "question", "rationale", input.value()),
+                (context, input) -> null,
+                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()), guidanceId);
+    }
+
+    private record TestPlanningInput(String value) {
     }
 }

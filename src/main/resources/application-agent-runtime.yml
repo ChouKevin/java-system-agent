@@ -9,6 +9,13 @@ spring:
           model: ${GOOGLE_GENAI_MODEL:gemini-3.1-flash-lite}
 agent:
   model:
+    prompts:
+      action-system: classpath:/prompts/action/system.md
+      action-context: classpath:/prompts/action/context.st
+      verification-system: classpath:/prompts/verification/system.md
+      verification-context: classpath:/prompts/verification/context.st
+      tool-root: classpath:/prompts/tools/
+      evidence-requirements: classpath:/prompts/evidence-requirements.yml
     rate-limit:
       requests-per-minute: ${AGENT_MODEL_RPM:15}
       input-tokens-per-minute: ${AGENT_MODEL_INPUT_TPM:250000}

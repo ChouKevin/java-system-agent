@@ -1,0 +1,1 @@
+Use type-member discovery after the owning type is known. A method member can unlock implementation, source, and call-graph follow-ups; a field member can unlock internal-reference follow-ups. Execute only provider-issued follow-ups.

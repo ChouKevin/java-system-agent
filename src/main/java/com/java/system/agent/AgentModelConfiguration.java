@@ -9,6 +9,9 @@ import com.java.system.agent.model.quota.ModelInputTokenEstimator;
 import com.java.system.agent.model.quota.ModelQuotaGate;
 import com.java.system.agent.model.quota.ModelQuotaWindow;
 import com.java.system.agent.model.quota.ModelRetryAfterExtractor;
+import com.java.system.agent.model.prompt.AgentPromptResourceProperties;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
+import com.java.system.agent.model.prompt.PromptResourceCatalogLoader;
 import com.java.system.agent.model.verification.AnswerVerificationDispatcher;
 import com.java.system.agent.model.verification.ContractOnlyAnswerVerificationAdapter;
 import com.java.system.agent.model.verification.SpringAiAnswerVerificationAdapter;
@@ -26,6 +29,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.io.ResourceLoader;
 
 import java.time.Clock;
 import java.util.Arrays;
@@ -36,8 +40,16 @@ import java.util.List;
  */
 @Configuration(proxyBeanMethods = false)
 @Profile("agent-runtime")
-@EnableConfigurationProperties(AgentModelRateLimitProperties.class)
+@EnableConfigurationProperties({AgentModelRateLimitProperties.class, AgentPromptResourceProperties.class})
 public final class AgentModelConfiguration {
+
+    @Bean
+    PromptResourceCatalog promptResourceCatalog(
+            AgentPromptResourceProperties properties,
+            PlanningToolRegistry registry,
+            ResourceLoader resourceLoader) {
+        return new PromptResourceCatalogLoader(resourceLoader).load(properties, registry);
+    }
 
     @Bean
     ModelQuotaWindow modelQuotaWindow(AgentModelRateLimitProperties properties) {
