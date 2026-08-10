@@ -77,8 +77,21 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
             Objects.requireNonNull(toolName, "tool name must not be null");
             Objects.requireNonNull(context, "agent prompt context must not be null");
             PlanningToolRegistration<?> registration = planningRegistrations.get(toolName);
-            if (Objects.isNull(registration) || !registration.isIssued(context)) {
-                return new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE");
+            if (Objects.isNull(registration)) {
+                LOGGER.log(Level.WARNING,
+                        "planning tool operation=INTERPRET rawUtf8Bytes={0} resultCategory=UNKNOWN_TOOL",
+                        utf8Bytes(rawArguments));
+                return new AgentActionProposal.Malformed(
+                        "MALFORMED_ACTION_RESPONSE: toolStatus=UNKNOWN; expected=currentlyIssuedTool");
+            }
+            if (!registration.isIssued(context)) {
+                LOGGER.log(Level.WARNING,
+                        "planning tool operation=INTERPRET toolName={0} inputType={1} rawUtf8Bytes={2} "
+                                + "resultCategory=TOOL_NOT_CURRENTLY_ISSUED",
+                        new Object[]{registration.name(), registration.planningInputType().getSimpleName(),
+                                utf8Bytes(rawArguments)});
+                return new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE: requestedTool="
+                        + registration.name() + "; toolStatus=NOT_CURRENTLY_ISSUED; expected=currentlyIssuedTool");
             }
             return new AgentActionProposal.Proposed(interpret(registration, rawArguments, context));
         } catch (PlanningToolInputException exception) {

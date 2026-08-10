@@ -557,8 +557,12 @@ class SpringAiAgentActionAdapterTest {
         AgentActionProposal unknownProposal = adapter(unknownTool).nextAction(context());
         AgentActionProposal unissuedProposal = adapter(unissuedTool).nextAction(context());
 
-        assertThat(unknownProposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
-        assertThat(unissuedProposal).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(unknownProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: toolStatus=UNKNOWN; expected=currentlyIssuedTool"));
+        assertThat(unknownProposal.toString()).doesNotContain("unknown_tool");
+        assertThat(unissuedProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: requestedTool=codebase_lookup_api_route; "
+                        + "toolStatus=NOT_CURRENTLY_ISSUED; expected=currentlyIssuedTool"));
         assertThat(unknownTool.calls()).isEqualTo(1);
         assertThat(unissuedTool.calls()).isEqualTo(1);
     }

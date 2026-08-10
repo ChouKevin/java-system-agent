@@ -142,7 +142,7 @@ class PlanningToolRegistryTest {
     }
 
     @Test
-    void exposesFixedToolsOnEveryTurnAndRejectsUnknownOrUnissuedNamesAsMalformedResponses() {
+    void exposesFixedToolsOnEveryTurnAndExplainsUnknownOrUnissuedToolSelectionsSafely() {
         PlanningToolRegistry registry = registry();
         AgentPromptContext context = context();
 
@@ -153,8 +153,12 @@ class PlanningToolRegistryTest {
 
         assertThat(issuedNames).containsExactlyInAnyOrder("agent_submit_answer", "agent_request_clarification");
         assertThat(issuedNames).doesNotContain("execute_http");
-        assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
-        assertThat(unissued).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: toolStatus=UNKNOWN; expected=currentlyIssuedTool"));
+        assertThat(unknown.toString()).doesNotContain("unknown_tool");
+        assertThat(unissued).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: requestedTool=query_tool; toolStatus=NOT_CURRENTLY_ISSUED; "
+                        + "expected=currentlyIssuedTool"));
     }
 
     @Test
@@ -236,7 +240,9 @@ class PlanningToolRegistryTest {
 
         assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(repository).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
-        assertThat(capabilityAbsent).isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+        assertThat(capabilityAbsent).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: requestedTool=codebase_get_source_segment; "
+                        + "toolStatus=NOT_CURRENTLY_ISSUED; expected=currentlyIssuedTool"));
         assertThat(executorCalls).hasValue(0);
     }
 
@@ -251,7 +257,9 @@ class PlanningToolRegistryTest {
                 .doesNotContain("codebase_follow_up", "codebase_get_source_segment");
         assertThat(registry.interpretToolCall(
                 "codebase_get_source_segment", followUpInput("candidate-old-attempt"), staleContext))
-                .isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE"));
+                .isEqualTo(new AgentActionProposal.Malformed(
+                        "MALFORMED_ACTION_RESPONSE: requestedTool=codebase_get_source_segment; "
+                                + "toolStatus=NOT_CURRENTLY_ISSUED; expected=currentlyIssuedTool"));
         assertThat(executorCalls).hasValue(0);
     }
 
