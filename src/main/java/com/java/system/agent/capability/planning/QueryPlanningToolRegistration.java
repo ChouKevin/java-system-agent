@@ -5,7 +5,6 @@ import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
-import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
@@ -58,22 +57,6 @@ public final class QueryPlanningToolRegistration<P, E>
     @Override
     public String name() {
         return policy.name();
-    }
-
-    @Override
-    public String description() {
-        String candidateCardinality = policy.minimumCandidates() == policy.maximumCandidates()
-                ? "exactly " + policy.minimumCandidates()
-                : "between " + policy.minimumCandidates() + " and " + policy.maximumCandidates();
-        String acceptedKinds = String.join(", ", policy.acceptedCandidateKinds().stream()
-                .map(Enum::name)
-                .sorted()
-                .toList());
-        String followUpConstraint = policy.acceptedCandidateKinds().contains(CandidateKind.FOLLOW_UP)
-                ? " A FOLLOW_UP candidate must target " + policy.name() + "@" + policy.version() + "."
-                : "";
-        return "Agent QUERY capability. candidateHandles must contain " + candidateCardinality
-                + " candidate of kinds [" + acceptedKinds + "]." + followUpConstraint;
     }
 
     @Override

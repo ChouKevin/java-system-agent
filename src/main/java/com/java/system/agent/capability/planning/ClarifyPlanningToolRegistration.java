@@ -33,11 +33,6 @@ public final class ClarifyPlanningToolRegistration<I> implements PlanningToolReg
     }
 
     @Override
-    public String description() {
-        return "Agent CLARIFY action";
-    }
-
-    @Override
     public PlanningToolDescriptor descriptor() {
         return descriptor;
     }

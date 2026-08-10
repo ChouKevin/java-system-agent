@@ -119,8 +119,9 @@ public final class AgentModelConfiguration {
     @Bean
     SpringAiPlanningToolCallbackAdapter springAiPlanningToolCallbackAdapter(
             PlanningToolRegistry registry,
-            PlanningToolSchemaFactory schemaFactory) {
-        return new SpringAiPlanningToolCallbackAdapter(registry, schemaFactory);
+            PlanningToolSchemaFactory schemaFactory,
+            PromptResourceCatalog promptCatalog) {
+        return new SpringAiPlanningToolCallbackAdapter(registry, schemaFactory, promptCatalog);
     }
 
     @Bean

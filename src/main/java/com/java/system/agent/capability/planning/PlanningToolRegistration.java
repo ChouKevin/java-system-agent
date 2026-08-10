@@ -12,8 +12,6 @@ public sealed interface PlanningToolRegistration<I>
 
     String name();
 
-    String description();
-
     PlanningToolDescriptor descriptor();
 
     Class<I> planningInputType();

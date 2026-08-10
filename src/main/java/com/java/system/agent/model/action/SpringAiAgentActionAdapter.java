@@ -1,6 +1,7 @@
 package com.java.system.agent.model.action;
 
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import com.java.system.agent.model.ModelTransportFailureClassifier;
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
@@ -40,9 +41,12 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
     private final SpringAiPlanningToolCallbackAdapter callbackAdapter;
     private final AgentActionPromptRenderer promptRenderer;
 
-    public SpringAiAgentActionAdapter(ChatClient chatClient, PlanningToolRegistry toolRegistry) {
+    public SpringAiAgentActionAdapter(
+            ChatClient chatClient,
+            PlanningToolRegistry toolRegistry,
+            PromptResourceCatalog promptCatalog) {
         this(chatClient, toolRegistry, new SpringAiPlanningToolCallbackAdapter(
-                toolRegistry, new SpringAiPlanningToolSchemaFactory()));
+                toolRegistry, new SpringAiPlanningToolSchemaFactory(), promptCatalog));
     }
 
     public SpringAiAgentActionAdapter(

@@ -10,6 +10,9 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.model.action.SpringAiPlanningToolCallbackAdapter;
 import com.java.system.agent.model.action.SpringAiPlanningToolSchemaFactory;
+import com.java.system.agent.model.prompt.AgentPromptResourceProperties;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
+import com.java.system.agent.model.prompt.PromptResourceCatalogLoader;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
 import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
@@ -26,6 +29,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.core.io.DefaultResourceLoader;
 import jakarta.validation.Validation;
 
 import java.util.LinkedHashMap;
@@ -186,7 +190,7 @@ class AgentCapabilityConfigurationTest {
         ObjectMapper objectMapper = new ObjectMapper();
         LinkedHashMap<String, JsonNode> schemas = new LinkedHashMap<>();
         SpringAiPlanningToolCallbackAdapter callbackAdapter = new SpringAiPlanningToolCallbackAdapter(
-                registry, new SpringAiPlanningToolSchemaFactory());
+                registry, new SpringAiPlanningToolSchemaFactory(), promptCatalog(registry));
         for (ToolCallback callback : callbackAdapter.issuedCallbacks(context)) {
             schemas.put(callback.getToolDefinition().name(), objectMapper.readTree(callback.getToolDefinition().inputSchema()));
         }
@@ -215,6 +219,11 @@ class AgentCapabilityConfigurationTest {
                         configuration.corePlanningToolProvider(),
                         configuration.codeIntelligencePlanningToolProvider(mock(JavaSemanticServiceHttpAdapter.class), payloadCodec)),
                 validator, payloadCodec);
+    }
+
+    private static PromptResourceCatalog promptCatalog(PlanningToolRegistry registry) {
+        return new PromptResourceCatalogLoader(new DefaultResourceLoader()).load(
+                new AgentPromptResourceProperties(), registry);
     }
 
     private static List<String> required(Map<String, JsonNode> schemas, String toolName) {

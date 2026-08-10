@@ -5,6 +5,7 @@ import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
 import com.java.system.agent.answering.port.out.AgentActionContractException;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.ai.tool.definition.ToolDefinition;
@@ -25,11 +26,14 @@ public final class SpringAiPlanningToolCallbackAdapter {
 
     public SpringAiPlanningToolCallbackAdapter(
             PlanningToolRegistry registry,
-            PlanningToolSchemaFactory schemaFactory) {
+            PlanningToolSchemaFactory schemaFactory,
+            PromptResourceCatalog promptCatalog) {
         this.registry = Objects.requireNonNull(registry, "planning tool registry must not be null");
         PlanningToolSchemaFactory requiredSchemaFactory = Objects.requireNonNull(
                 schemaFactory, "planning schema factory must not be null");
-        this.callbacksByName = project(registry.registrations(), requiredSchemaFactory);
+        PromptResourceCatalog requiredPromptCatalog = Objects.requireNonNull(promptCatalog,
+                "prompt resource catalog must not be null");
+        this.callbacksByName = project(registry.registrations(), requiredSchemaFactory, requiredPromptCatalog);
     }
 
     public List<ToolCallback> issuedCallbacks(AgentPromptContext context) {
@@ -50,12 +54,13 @@ public final class SpringAiPlanningToolCallbackAdapter {
 
     private static Map<String, ToolCallback> project(
             List<PlanningToolRegistration<?>> registrations,
-            PlanningToolSchemaFactory schemaFactory) {
+            PlanningToolSchemaFactory schemaFactory,
+            PromptResourceCatalog promptCatalog) {
         Map<String, ToolCallback> callbacks = new LinkedHashMap<>();
         for (PlanningToolRegistration<?> registration : registrations) {
             PlanningToolRegistration<?> required = Objects.requireNonNull(
                     registration, "planning registration must not contain null");
-            ToolCallback callback = callback(required, schemaFactory);
+            ToolCallback callback = callback(required, schemaFactory, promptCatalog);
             if (Objects.nonNull(callbacks.putIfAbsent(required.name(), callback))) {
                 throw new AgentActionContractException("duplicate planning callback projection",
                         new IllegalStateException("callback projection is duplicated"));
@@ -66,11 +71,12 @@ public final class SpringAiPlanningToolCallbackAdapter {
 
     private static ToolCallback callback(
             PlanningToolRegistration<?> registration,
-            PlanningToolSchemaFactory schemaFactory) {
+            PlanningToolSchemaFactory schemaFactory,
+            PromptResourceCatalog promptCatalog) {
         String schema = schemaFactory.createSchema(registration.planningInputType());
         ToolCallback callback = new SchemaToolCallback(DefaultToolDefinition.builder()
                 .name(registration.name())
-                .description(registration.description())
+                .description(promptCatalog.toolDescription(registration.descriptor()))
                 .inputSchema(schema)
                 .build());
         schemaFactory.verifySchema(registration.planningInputType(), callback.getToolDefinition().inputSchema());

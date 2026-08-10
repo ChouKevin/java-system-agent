@@ -54,12 +54,6 @@ public final class FollowUpOnlyQueryRegistration<E>
     }
 
     @Override
-    public String description() {
-        return "Execute one provider-bound follow-up for " + policy.name()
-                + " by opaque FOLLOW_UP candidate handle";
-    }
-
-    @Override
     public PlanningToolDescriptor descriptor() {
         return descriptor;
     }

@@ -1,27 +1,39 @@
 package com.java.system.agent.model.action;
 
-import com.java.system.agent.capability.planning.AnswerPlanningToolRegistration;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
-import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
-import com.java.system.agent.capability.planning.RequestClarificationPlanningInput;
-import com.java.system.agent.capability.planning.RequestClarificationPlanningMapper;
+import com.java.system.agent.capability.planning.QueryPlanningSelection;
+import com.java.system.agent.capability.planning.QueryPlanningToolRegistration;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
-import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
-import com.java.system.agent.capability.planning.SubmitAnswerPlanningMapper;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
+import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
+import com.java.system.agent.model.prompt.AgentPromptResourceProperties;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
+import com.java.system.agent.model.prompt.PromptResourceCatalogLoader;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.core.io.DefaultResourceLoader;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,44 +43,65 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SpringAiPlanningToolCallbackAdapterTest {
 
     @Test
-    void eagerlyProjectsEveryRegistrationAndVerifiesTheActualCallbackSchema() {
+    void rendersGenericQueryCallbackDescriptionFromTheImmutableCatalog(@TempDir Path temporaryDirectory) throws IOException {
         TrackingSchemaFactory schemaFactory = new TrackingSchemaFactory();
-        PlanningToolRegistry registry = registry();
+        CapabilityPolicy policy = new CapabilityPolicy("test_lookup_symbol", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+        PlanningToolRegistry registry = registry(policy);
+        PromptResourceCatalog catalog = catalog(temporaryDirectory, registry);
 
-        SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry, schemaFactory);
+        SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry, schemaFactory, catalog);
 
-        assertThat(schemaFactory.verified()).extracting(verified -> verified.inputType().getName()).containsExactly(
-                RequestClarificationPlanningInput.class.getName(), SubmitAnswerPlanningInput.class.getName());
+        assertThat(schemaFactory.verified()).extracting(verified -> verified.inputType().getName())
+                .containsExactly(TestLookupPlanningInput.class.getName());
         assertThat(schemaFactory.verified()).allSatisfy(verified ->
                 assertThat(verified.projectedSchema()).contains("\"additionalProperties\":false"));
-        assertThat(adapter.issuedCallbacks(context())).extracting(toolCallback -> toolCallback.getToolDefinition())
-                .extracting(definition -> definition.name())
-                .containsExactly("agent_request_clarification", "agent_submit_answer");
-        assertThat(adapter.issuedCallbacks(context()))
-                .filteredOn(toolCallback -> toolCallback.getToolDefinition().name().equals("agent_submit_answer"))
+        assertThat(adapter.issuedCallbacks(context(policy)))
+                .filteredOn(toolCallback -> toolCallback.getToolDefinition().name().equals("test_lookup_symbol"))
                 .singleElement()
-                .satisfies(toolCallback -> assertThat(toolCallback.getToolDefinition().description())
-                        .contains("Evidence coverage by capability must contain evidence handles")
-                        .contains("explicitly requested evidence type")
-                        .contains("Do not substitute another evidence type"));
+                .satisfies(toolCallback -> {
+                    assertThat(toolCallback.getToolDefinition().description()).isNotBlank();
+                    assertThat(toolCallback.getToolDefinition().inputSchema()).contains("questionToResolve");
+                });
+        assertThat(catalog.resourceDigests().keySet())
+                .noneMatch(logicalId -> logicalId.contains("test_lookup_symbol"));
     }
 
-    private static PlanningToolRegistry registry() {
-        PlanningToolProvider provider = () -> List.of(
-                new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
-                        new SubmitAnswerPlanningMapper()),
-                new ClarifyPlanningToolRegistration<>("agent_request_clarification",
-                        RequestClarificationPlanningInput.class, new RequestClarificationPlanningMapper()));
+    private static PlanningToolRegistry registry(CapabilityPolicy policy) {
+        PlanningToolProvider provider = () -> List.of(new QueryPlanningToolRegistration<>(policy,
+                TestLookupPlanningInput.class, String.class,
+                input -> new QueryPlanningSelection<>(List.of(), input.questionToResolve(), "test rationale", "input"),
+                (context, input) -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
+                new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator())));
         return new PlanningToolRegistry(List.of(provider), new StrictPlanningToolDecoder(
                 Validation.buildDefaultValidatorFactory().getValidator()), new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator()));
     }
 
-    private static AgentPromptContext context() {
+    private static PromptResourceCatalog catalog(Path temporaryDirectory, PlanningToolRegistry registry) throws IOException {
+        Path evidenceRequirements = temporaryDirectory.resolve("evidence-requirements.yml");
+        Files.writeString(evidenceRequirements, """
+                requirements:
+                  - id: test-lookup-symbol
+                    capability: {name: test_lookup_symbol, version: v1}
+                    aliases: [test lookup symbol evidence]
+                """);
+        AgentPromptResourceProperties properties = new AgentPromptResourceProperties(
+                "classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
+                "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
+                "classpath:/prompts/tools/", evidenceRequirements.toUri().toString());
+        return new PromptResourceCatalogLoader(new DefaultResourceLoader()).load(properties, registry);
+    }
+
+    private static AgentPromptContext context(CapabilityPolicy policy) {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
-        return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
+        HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty());
+        return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId,
+                Map.of(new CapabilityHandle("capability-1", binding), policy), Map.of(),
                 Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private record TestLookupPlanningInput(String questionToResolve) {
     }
 
     private record Verified(Class<?> inputType, String projectedSchema) {

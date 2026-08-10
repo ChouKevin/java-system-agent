@@ -62,6 +62,9 @@ import com.java.system.agent.answering.port.out.AgentActionContractException;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.model.prompt.AgentPromptResourceProperties;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
+import com.java.system.agent.model.prompt.PromptResourceCatalogLoader;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import jakarta.validation.Validation;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -74,6 +77,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.core.io.DefaultResourceLoader;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -627,7 +631,8 @@ class SpringAiAgentActionAdapterTest {
     private static SpringAiAgentActionAdapter adapter(
             CountingChatModel model,
             Function<SubmitAnswerPlanningInput, AnswerAction> answerMapper) {
-        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry(new ToolInputMapper(), answerMapper));
+        PlanningToolRegistry registry = registry(new ToolInputMapper(), answerMapper);
+        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry, promptCatalog(registry));
     }
 
     private static SpringAiAgentActionAdapter fingerprintAdapter(
@@ -635,13 +640,15 @@ class SpringAiAgentActionAdapterTest {
             AgentActionPromptRenderer renderer) {
         PlanningToolRegistry registry = fingerprintRegistry();
         return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry,
-                new SpringAiPlanningToolCallbackAdapter(registry, new SpringAiPlanningToolSchemaFactory()), renderer);
+                new SpringAiPlanningToolCallbackAdapter(registry, new SpringAiPlanningToolSchemaFactory(),
+                        promptCatalog(registry)), renderer);
     }
 
     private static SpringAiAgentActionAdapter contractDefectAdapter(CountingChatModel model) {
-        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry(input -> {
+        PlanningToolRegistry registry = registry(input -> {
             throw new IllegalStateException("broken mapper");
-        }));
+        });
+        return new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry, promptCatalog(registry));
     }
 
     private static PlanningToolRegistry registry(QueryPlanningMapper<ToolInput, ToolInput> mapper) {
@@ -686,6 +693,14 @@ class SpringAiAgentActionAdapterTest {
                 policy, ToolInput.class, FingerprintExecutionInput.class, mapper, executor, payloadCodec));
         return new PlanningToolRegistry(List.of(provider), new StrictPlanningToolDecoder(
                 Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+    }
+
+    private static PromptResourceCatalog promptCatalog(PlanningToolRegistry registry) {
+        AgentPromptResourceProperties properties = new AgentPromptResourceProperties(
+                "classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
+                "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
+                "classpath:/prompts/tools/", "classpath:/prompts/callers-evidence-requirements.yml");
+        return new PromptResourceCatalogLoader(new DefaultResourceLoader()).load(properties, registry);
     }
 
     private static AnswerAction failIfAnswerMapperExecutes(AtomicInteger mapperCalls) {

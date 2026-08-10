@@ -200,9 +200,7 @@ class PlanningToolRegistryTest {
         assertThat(registry.registrations())
                 .filteredOn(registration -> registration.name().equals("codebase_get_source_segment"))
                 .singleElement()
-                .satisfies(registration -> assertThat(registration.description())
-                        .contains("provider-bound follow-up for codebase_get_source_segment")
-                        .contains("opaque FOLLOW_UP candidate handle"));
+                .satisfies(registration -> assertThat(registration.descriptor().guidanceId()).isEmpty());
     }
 
     @Test

@@ -200,7 +200,7 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
-    void describesTheCandidateKindsAcceptedByDirectQueryTools() {
+    void retainsTheCandidateKindContractForDirectQueryTools() {
         CodeIntelligencePlanningToolProvider provider = new CodeIntelligencePlanningToolProvider(
                 mock(JavaSemanticServiceHttpAdapter.class), new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator()));
@@ -209,10 +209,9 @@ class CodeIntelligencePlanningToolProviderTest {
                 .filteredOn(registration -> registration.name().equals(
                         CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName()))
                 .singleElement()
-                .extracting(registration -> registration.description())
-                .isEqualTo("Agent QUERY capability. candidateHandles must contain exactly 1 candidate of kinds "
-                        + "[FOLLOW_UP, REPOSITORY]. A FOLLOW_UP candidate must target "
-                        + "codebase_discover_concepts@v1.");
+                .satisfies(registration -> assertThat(((QueryCapabilityRegistration<?>) registration)
+                        .policy().acceptedCandidateKinds())
+                        .containsExactlyInAnyOrder(CandidateKind.FOLLOW_UP, CandidateKind.REPOSITORY));
     }
 
     @Test

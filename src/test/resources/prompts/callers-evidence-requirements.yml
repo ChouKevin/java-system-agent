@@ -1,0 +1,4 @@
+requirements:
+  - id: callers
+    capability: {name: callers, version: v1}
+    aliases: [callers evidence]

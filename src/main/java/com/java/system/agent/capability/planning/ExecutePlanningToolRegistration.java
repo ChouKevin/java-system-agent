@@ -23,11 +23,6 @@ public final class ExecutePlanningToolRegistration
     }
 
     @Override
-    public String description() {
-        return "Agent EXECUTE preview HTTP mutation intent";
-    }
-
-    @Override
     public PlanningToolDescriptor descriptor() {
         return DESCRIPTOR;
     }
