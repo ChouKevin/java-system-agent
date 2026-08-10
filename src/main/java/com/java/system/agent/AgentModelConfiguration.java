@@ -17,7 +17,6 @@ import com.java.system.agent.model.verification.AnswerVerificationDispatcher;
 import com.java.system.agent.model.verification.AnswerVerificationPromptRenderer;
 import com.java.system.agent.model.verification.AnswerVerdictResponseInterpreter;
 import com.java.system.agent.model.verification.ContractOnlyAnswerVerificationAdapter;
-import com.java.system.agent.model.verification.ExplicitEvidenceCoveragePolicy;
 import com.java.system.agent.model.verification.SpringAiAnswerVerificationAdapter;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationPort;
@@ -143,14 +142,8 @@ public final class AgentModelConfiguration {
     }
 
     @Bean
-    ExplicitEvidenceCoveragePolicy explicitEvidenceCoveragePolicy(PromptResourceCatalog promptCatalog) {
-        return new ExplicitEvidenceCoveragePolicy(promptCatalog.evidenceRequirements());
-    }
-
-    @Bean
-    AnswerVerdictResponseInterpreter answerVerdictResponseInterpreter(
-            ExplicitEvidenceCoveragePolicy evidenceCoveragePolicy) {
-        return new AnswerVerdictResponseInterpreter(evidenceCoveragePolicy);
+    AnswerVerdictResponseInterpreter answerVerdictResponseInterpreter() {
+        return new AnswerVerdictResponseInterpreter();
     }
 
     @Bean

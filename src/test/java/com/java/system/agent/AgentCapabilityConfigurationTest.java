@@ -232,8 +232,7 @@ class AgentCapabilityConfigurationTest {
                 "classpath:/prompts/action/context.st",
                 "classpath:/prompts/verification/system.md",
                 "classpath:/prompts/verification/context.st",
-                "classpath:/prompts/tools/",
-                "classpath:/prompts/evidence-requirements.yml");
+                "classpath:/prompts/tools/");
     }
 
     private static List<String> required(Map<String, JsonNode> schemas, String toolName) {

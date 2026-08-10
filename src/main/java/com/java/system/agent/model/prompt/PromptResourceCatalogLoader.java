@@ -1,8 +1,5 @@
 package com.java.system.agent.model.prompt;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.capability.planning.PlanningToolCategory;
@@ -16,7 +13,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -72,8 +68,6 @@ public final class PromptResourceCatalogLoader {
                 VERIFICATION_CONTEXT_VARIABLES);
         ToolPromptTemplates toolTemplates = loadToolTemplates(resources,
                 requiredProperties.toolRoot());
-        List<ConfiguredEvidenceRequirement> evidenceRequirements = loadEvidenceRequirements(resources,
-                requiredProperties.evidenceRequirements(), requiredRegistry);
         Map<PlanningToolDescriptor, String> descriptions = renderToolDescriptions(resources, requiredProperties.toolRoot(),
                 requiredRegistry, toolTemplates);
         Map<String, String> digests = digests(resources);
@@ -85,7 +79,6 @@ public final class PromptResourceCatalogLoader {
                 verificationSystem.content(),
                 verificationContextTemplate,
                 descriptions,
-                evidenceRequirements,
                 rawResources(resources),
                 digests,
                 catalogDigest);
@@ -130,70 +123,6 @@ public final class PromptResourceCatalogLoader {
             Set<String> variables) {
         LoadedResource template = read(resources, logicalId, childLocation(toolRoot, filename));
         return new StrictPromptTemplate(template.content(), variables);
-    }
-
-    private List<ConfiguredEvidenceRequirement> loadEvidenceRequirements(
-            Map<String, LoadedResource> resources,
-            String location,
-            PlanningToolRegistry registry) {
-        LoadedResource yaml = read(resources, "evidence-requirements", location);
-        EvidenceRequirementsDocument document;
-        try {
-            ObjectMapper mapper = new ObjectMapper(new YAMLFactory())
-                    .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-            document = mapper.readValue(yaml.content(), EvidenceRequirementsDocument.class);
-        } catch (IOException exception) {
-            throw new IllegalArgumentException("prompt evidence requirements YAML is malformed", exception);
-        }
-        EvidenceRequirementsDocument requiredDocument = Objects.requireNonNull(document,
-                "prompt evidence requirements YAML must not be null");
-        List<YamlEvidenceRequirement> configuredRequirements = Objects.requireNonNull(requiredDocument.requirements(),
-                "prompt evidence requirements YAML requirements must not be null");
-        if (configuredRequirements.isEmpty()) {
-            throw new IllegalArgumentException("prompt evidence requirements YAML must not be empty");
-        }
-        Set<CapabilityReference> registeredCapabilities = registry.availableCapabilities().stream()
-                .map(policy -> new CapabilityReference(policy.name(), policy.version()))
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
-        List<ConfiguredEvidenceRequirement> requirements = new ArrayList<>();
-        Set<String> ids = new java.util.HashSet<>();
-        Map<String, String> triggers = new HashMap<>();
-        for (YamlEvidenceRequirement yamlRequirement : configuredRequirements) {
-            ConfiguredEvidenceRequirement requirement = configuredRequirement(yamlRequirement);
-            if (!ids.add(requirement.id())) {
-                throw new IllegalArgumentException("duplicate prompt evidence requirement id: " + requirement.id());
-            }
-            if (!registeredCapabilities.contains(requirement.capability())) {
-                throw new IllegalArgumentException("prompt evidence requirement capability is not registered: "
-                        + requirement.capability().name() + "@" + requirement.capability().version());
-            }
-            for (String trigger : runtimeTriggers(requirement)) {
-                String existingId = triggers.putIfAbsent(trigger, requirement.id());
-                if (Objects.nonNull(existingId) && !existingId.equals(requirement.id())) {
-                    throw new IllegalArgumentException("duplicate prompt evidence requirement trigger: " + trigger);
-                }
-            }
-            requirements.add(requirement);
-        }
-        return List.copyOf(requirements);
-    }
-
-    private static Set<String> runtimeTriggers(ConfiguredEvidenceRequirement requirement) {
-        Set<String> triggers = new java.util.LinkedHashSet<>();
-        triggers.add(EvidenceTriggerNormalizer.normalize(requirement.capability().name()));
-        for (String alias : requirement.aliases()) {
-            triggers.add(EvidenceTriggerNormalizer.normalize(alias));
-        }
-        return Set.copyOf(triggers);
-    }
-
-    private static ConfiguredEvidenceRequirement configuredRequirement(YamlEvidenceRequirement requirement) {
-        YamlEvidenceRequirement requiredRequirement = Objects.requireNonNull(requirement,
-                "prompt evidence requirement must not be null");
-        YamlCapabilityReference yamlCapability = Objects.requireNonNull(requiredRequirement.capability(),
-                "prompt evidence requirement capability must not be null");
-        return new ConfiguredEvidenceRequirement(requiredRequirement.id(),
-                new CapabilityReference(yamlCapability.name(), yamlCapability.version()), requiredRequirement.aliases());
     }
 
     private Map<PlanningToolDescriptor, String> renderToolDescriptions(
@@ -375,12 +304,4 @@ public final class PromptResourceCatalogLoader {
         }
     }
 
-    private record EvidenceRequirementsDocument(List<YamlEvidenceRequirement> requirements) {
-    }
-
-    private record YamlEvidenceRequirement(String id, YamlCapabilityReference capability, List<String> aliases) {
-    }
-
-    private record YamlCapabilityReference(String name, String version) {
-    }
 }

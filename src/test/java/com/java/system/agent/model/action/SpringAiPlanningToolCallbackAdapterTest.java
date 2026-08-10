@@ -23,12 +23,8 @@ import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import com.java.system.agent.model.prompt.PromptResourceCatalogLoader;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,11 +39,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SpringAiPlanningToolCallbackAdapterTest {
 
     @Test
-    void rendersGenericQueryCallbackDescriptionFromTheImmutableCatalog(@TempDir Path temporaryDirectory) throws IOException {
+    void rendersGenericQueryCallbackDescriptionFromTheImmutableCatalog() {
         TrackingSchemaFactory schemaFactory = new TrackingSchemaFactory();
         CapabilityPolicy policy = new CapabilityPolicy("test_lookup_symbol", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
         PlanningToolRegistry registry = registry(policy);
-        PromptResourceCatalog catalog = catalog(temporaryDirectory, registry);
+        PromptResourceCatalog catalog = catalog(registry);
 
         SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry, schemaFactory, catalog);
 
@@ -77,18 +73,11 @@ class SpringAiPlanningToolCallbackAdapterTest {
                 Validation.buildDefaultValidatorFactory().getValidator()));
     }
 
-    private static PromptResourceCatalog catalog(Path temporaryDirectory, PlanningToolRegistry registry) throws IOException {
-        Path evidenceRequirements = temporaryDirectory.resolve("evidence-requirements.yml");
-        Files.writeString(evidenceRequirements, """
-                requirements:
-                  - id: test-lookup-symbol
-                    capability: {name: test_lookup_symbol, version: v1}
-                    aliases: [test lookup symbol evidence]
-                """);
+    private static PromptResourceCatalog catalog(PlanningToolRegistry registry) {
         AgentPromptResourceProperties properties = new AgentPromptResourceProperties(
                 "classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
                 "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
-                "classpath:/prompts/tools/", evidenceRequirements.toUri().toString());
+                "classpath:/prompts/tools/");
         return new PromptResourceCatalogLoader(new DefaultResourceLoader()).load(properties, registry);
     }
 
