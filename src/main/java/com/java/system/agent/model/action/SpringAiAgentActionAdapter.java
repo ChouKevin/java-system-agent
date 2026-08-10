@@ -124,8 +124,9 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             AssistantMessage assistant = Objects.requireNonNull(response, "chat client response must not be null")
                     .chatResponse().getResult().getOutput();
             List<AssistantMessage.ToolCall> toolCalls = assistant.getToolCalls();
-            if (toolCalls.size() != 1 || StringUtils.hasText(assistant.getText())) {
-                return malformed();
+            boolean assistantTextPresent = StringUtils.hasText(assistant.getText());
+            if (toolCalls.size() != 1 || assistantTextPresent) {
+                return malformed(toolCalls.size(), assistantTextPresent);
             }
             AssistantMessage.ToolCall toolCall = toolCalls.getFirst();
             return toolRegistry.interpretToolCall(toolCall.name(), toolCall.arguments(), context);
@@ -138,6 +139,11 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
 
     private static AgentActionProposal.Malformed malformed() {
         return new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE");
+    }
+
+    private static AgentActionProposal.Malformed malformed(int actualToolCallCount, boolean assistantTextPresent) {
+        return new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE: actualToolCallCount="
+                + actualToolCallCount + "; assistantTextPresent=" + assistantTextPresent);
     }
 
     private static String actionType(AgentActionProposal proposal) {
