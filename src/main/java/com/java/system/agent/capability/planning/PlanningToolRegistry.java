@@ -163,6 +163,65 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
         return new FollowUpOnlyQueryRegistration<>(policy, executionInputType, executor, Optional.of(guidanceId));
     }
 
+    public static <P extends CandidateBoundPlanningInput, E> QueryPlanningToolRegistration<P, E>
+    candidateBoundRegistration(
+            PlanningToolCategory category,
+            CapabilityPolicy policy,
+            Class<P> planningInputType,
+            Class<E> executionInputType,
+            CandidateBoundExecutionPlanner<P, E> planner,
+            CapabilityExecutor<E> executor,
+            CanonicalCapabilityPayloadCodec payloadCodec) {
+        return candidateBoundRegistration(category, policy, planningInputType, executionInputType, planner, executor,
+                payloadCodec, Optional.empty());
+    }
+
+    public static <P extends CandidateBoundPlanningInput, E> QueryPlanningToolRegistration<P, E>
+    candidateBoundRegistration(
+            PlanningToolCategory category,
+            CapabilityPolicy policy,
+            Class<P> planningInputType,
+            Class<E> executionInputType,
+            CandidateBoundExecutionPlanner<P, E> planner,
+            CapabilityExecutor<E> executor,
+            CanonicalCapabilityPayloadCodec payloadCodec,
+            String guidanceId) {
+        return candidateBoundRegistration(category, policy, planningInputType, executionInputType, planner, executor,
+                payloadCodec, Optional.of(guidanceId));
+    }
+
+    private static <P extends CandidateBoundPlanningInput, E> QueryPlanningToolRegistration<P, E>
+    candidateBoundRegistration(
+            PlanningToolCategory category,
+            CapabilityPolicy policy,
+            Class<P> planningInputType,
+            Class<E> executionInputType,
+            CandidateBoundExecutionPlanner<P, E> planner,
+            CapabilityExecutor<E> executor,
+            CanonicalCapabilityPayloadCodec payloadCodec,
+            Optional<String> guidanceId) {
+        PlanningToolCategory requiredCategory = Objects.requireNonNull(category,
+                "candidate-bound planning tool category must not be null");
+        if (requiredCategory != PlanningToolCategory.QUERY && requiredCategory != PlanningToolCategory.FOLLOW_UP_QUERY) {
+            throw new IllegalArgumentException("candidate-bound planning tools must be QUERY categories");
+        }
+        CapabilityPolicy requiredPolicy = Objects.requireNonNull(policy, "candidate-bound policy must not be null");
+        Class<P> requiredPlanningInputType = Objects.requireNonNull(planningInputType,
+                "candidate-bound planning input type must not be null");
+        Class<E> requiredExecutionInputType = Objects.requireNonNull(executionInputType,
+                "candidate-bound execution input type must not be null");
+        CandidateBoundExecutionPlanner<P, E> requiredPlanner = Objects.requireNonNull(planner,
+                "candidate-bound execution planner must not be null");
+        CanonicalCapabilityPayloadCodec requiredPayloadCodec = Objects.requireNonNull(payloadCodec,
+                "candidate-bound payload codec must not be null");
+        Optional<String> requiredGuidanceId = Objects.requireNonNull(guidanceId,
+                "candidate-bound guidance ID must not be null");
+        return new QueryPlanningToolRegistration<>(requiredCategory, requiredPolicy, requiredPlanningInputType,
+                requiredExecutionInputType, executor, requiredGuidanceId,
+                new CandidateBoundQueryPlanningStrategy<>(requiredPolicy, requiredExecutionInputType, requiredPlanner,
+                        requiredPayloadCodec));
+    }
+
     private <I> AgentAction interpret(
             PlanningToolRegistration<I> registration,
             String rawInput,

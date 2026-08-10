@@ -48,6 +48,27 @@ final class ProviderBoundFollowUp {
         return Optional.of(followUp.payload());
     }
 
+    static Optional<Selection> selection(
+            AgentPromptContext context,
+            CapabilityPolicy policy,
+            CandidateHandleRef reference) {
+        Objects.requireNonNull(context, "agent prompt context must not be null");
+        Objects.requireNonNull(policy, "follow-up target policy must not be null");
+        Objects.requireNonNull(reference, "follow-up candidate reference must not be null");
+        List<Map.Entry<CandidateHandle, IssuedCandidate>> candidates = context.issuedCandidates().entrySet().stream()
+                .filter(entry -> entry.getKey().value().equals(reference.value()))
+                .toList();
+        if (candidates.size() != 1) {
+            return Optional.empty();
+        }
+        Map.Entry<CandidateHandle, IssuedCandidate> candidate = candidates.getFirst();
+        if (!(candidate.getValue().candidate() instanceof FollowUpCandidate followUp)) {
+            return Optional.empty();
+        }
+        return targetCapability(context, candidate, policy)
+                .map(capability -> new Selection(capability, reference, followUp.payload()));
+    }
+
     static Optional<CapabilityHandle> targetCapability(
             AgentPromptContext context,
             Map.Entry<CandidateHandle, IssuedCandidate> candidate,
@@ -90,5 +111,20 @@ final class ProviderBoundFollowUp {
     private static boolean matches(CapabilityPolicy policy, FollowUpCandidate followUp) {
         return policy.name().equals(followUp.targetCapabilityName())
                 && policy.version().equals(followUp.targetCapabilityVersion());
+    }
+
+    /**
+     * 完整驗證目前 follow-up authority 後保留的 capability、候選 reference 與 provider payload
+     */
+    record Selection(
+            CapabilityHandle capability,
+            CandidateHandleRef candidateReference,
+            CapabilityInputPayload providerPayload) {
+
+        Selection {
+            Objects.requireNonNull(capability, "follow-up selection capability must not be null");
+            Objects.requireNonNull(candidateReference, "follow-up selection candidate reference must not be null");
+            Objects.requireNonNull(providerPayload, "follow-up selection payload must not be null");
+        }
     }
 }
