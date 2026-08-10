@@ -766,7 +766,7 @@ class SpringAiAgentActionAdapterTest {
         AgentPromptResourceProperties properties = new AgentPromptResourceProperties(
                 "classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
                 "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
-                "classpath:/prompts/tools/", "classpath:/prompts/callers-evidence-requirements.yml");
+                "classpath:/prompts/tools/");
         return new PromptResourceCatalogLoader(new DefaultResourceLoader()).load(properties, registry);
     }
 

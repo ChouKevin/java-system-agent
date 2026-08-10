@@ -12,6 +12,5 @@ public record AgentPromptResourceProperties(
         @DefaultValue("classpath:/prompts/action/context.st") String actionContext,
         @DefaultValue("classpath:/prompts/verification/system.md") String verificationSystem,
         @DefaultValue("classpath:/prompts/verification/context.st") String verificationContext,
-        @DefaultValue("classpath:/prompts/tools/") String toolRoot,
-        @DefaultValue("classpath:/prompts/evidence-requirements.yml") String evidenceRequirements) {
+        @DefaultValue("classpath:/prompts/tools/") String toolRoot) {
 }

@@ -53,8 +53,7 @@ class PromptResourceCatalogTest {
                 "classpath:/prompts/action/context.st",
                 "classpath:/prompts/verification/system.md",
                 "classpath:/prompts/verification/context.st",
-                "classpath:/prompts/tools/",
-                "classpath:/prompts/evidence-requirements.yml");
+                "classpath:/prompts/tools/");
 
         PromptResourceCatalog catalog = loader().load(properties, registry());
         Files.writeString(actionSystem, "mutated action system instruction");
@@ -86,66 +85,14 @@ class PromptResourceCatalogTest {
                 .isThrownBy(() -> loader().load(properties(
                         "classpath:/prompts/action/system.md", actionContext.toUri().toString(),
                         "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
-                        "classpath:/prompts/tools/", "classpath:/prompts/evidence-requirements.yml"), registry()))
+                        "classpath:/prompts/tools/"), registry()))
                 .withMessageContaining("placeholder set");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> loader().load(properties(
                         "classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
                         "classpath:/prompts/verification/system.md", verificationContext.toUri().toString(),
-                        "classpath:/prompts/tools/", "classpath:/prompts/evidence-requirements.yml"), registry()))
+                        "classpath:/prompts/tools/"), registry()))
                 .withMessageContaining("placeholder set");
-    }
-
-    @Test
-    void rejectsMalformedAndUnknownEvidenceRequirementYaml(@TempDir Path temporaryDirectory) throws IOException {
-        Path malformed = temporaryDirectory.resolve("malformed.yml");
-        Path unknown = temporaryDirectory.resolve("unknown.yml");
-        Files.writeString(malformed, "requirements: [");
-        Files.writeString(unknown, "requirements: []\nunexpected: value\n");
-
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> loader().load(evidenceProperties(malformed), registry()))
-                .withMessageContaining("malformed");
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> loader().load(evidenceProperties(unknown), registry()))
-                .withMessageContaining("malformed");
-    }
-
-    @Test
-    void rejectsAliasesThatDuplicateAfterNormalization(@TempDir Path temporaryDirectory) throws IOException {
-        Path requirements = temporaryDirectory.resolve("duplicate-aliases.yml");
-        Files.writeString(requirements, """
-                requirements:
-                  - id: first
-                    capability: {name: codebase_outgoing_call_graph, version: v1}
-                    aliases: [Call Graph]
-                  - id: second
-                    capability: {name: codebase_incoming_call_graph, version: v1}
-                    aliases: [call\u3000graph]
-                """);
-
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> loader().load(evidenceProperties(requirements), registry()))
-                .withMessageContaining("duplicate");
-    }
-
-    @Test
-    void rejectsAliasesThatCollideAfterDashNormalization(
-            @TempDir Path temporaryDirectory) throws IOException {
-        Path requirements = temporaryDirectory.resolve("dash-trigger-collision.yml");
-        Files.writeString(requirements, """
-                requirements:
-                  - id: outgoing
-                    capability: {name: codebase_outgoing_call_graph, version: v1}
-                    aliases: [call–graph proof]
-                  - id: incoming
-                    capability: {name: codebase_incoming_call_graph, version: v1}
-                    aliases: [call-graph proof]
-                """);
-
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> loader().load(evidenceProperties(requirements), registry()))
-                .withMessageContaining("duplicate");
     }
 
     @Test
@@ -157,21 +104,6 @@ class PromptResourceCatalogTest {
                 "tools/cardinality/range.st",
                 "tools/follow-up/allowed.st",
                 "tools/follow-up/disallowed.st");
-    }
-
-    @Test
-    void rejectsEvidenceRequirementsForUnregisteredCapabilities(@TempDir Path temporaryDirectory) throws IOException {
-        Path requirements = temporaryDirectory.resolve("absent-capability.yml");
-        Files.writeString(requirements, """
-                requirements:
-                  - id: absent
-                    capability: {name: absent_capability, version: v1}
-                    aliases: [absent evidence]
-                """);
-
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> loader().load(evidenceProperties(requirements), registry()))
-                .withMessageContaining("not registered");
     }
 
     @Test
@@ -188,7 +120,7 @@ class PromptResourceCatalogTest {
     private static AgentPromptResourceProperties actionSystemProperties(Path actionSystem) {
         return properties(actionSystem.toUri().toString(), "classpath:/prompts/action/context.st",
                 "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
-                "classpath:/prompts/tools/", "classpath:/prompts/evidence-requirements.yml");
+                "classpath:/prompts/tools/");
     }
 
     private static AgentPromptResourceProperties productionProperties() {
@@ -197,14 +129,7 @@ class PromptResourceCatalogTest {
                 "classpath:/prompts/action/context.st",
                 "classpath:/prompts/verification/system.md",
                 "classpath:/prompts/verification/context.st",
-                "classpath:/prompts/tools/",
-                "classpath:/prompts/evidence-requirements.yml");
-    }
-
-    private static AgentPromptResourceProperties evidenceProperties(Path evidenceRequirements) {
-        return properties("classpath:/prompts/action/system.md", "classpath:/prompts/action/context.st",
-                "classpath:/prompts/verification/system.md", "classpath:/prompts/verification/context.st",
-                "classpath:/prompts/tools/", evidenceRequirements.toUri().toString());
+                "classpath:/prompts/tools/");
     }
 
     private static AgentPromptResourceProperties properties(
@@ -212,10 +137,9 @@ class PromptResourceCatalogTest {
             String actionContext,
             String verificationSystem,
             String verificationContext,
-            String toolRoot,
-            String evidenceRequirements) {
+            String toolRoot) {
         return new AgentPromptResourceProperties(actionSystem, actionContext, verificationSystem, verificationContext,
-                toolRoot, evidenceRequirements);
+                toolRoot);
     }
 
     private static PlanningToolRegistry registry() {

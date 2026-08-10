@@ -2,7 +2,6 @@ package com.java.system.agent.model.prompt;
 
 import com.java.system.agent.capability.planning.PlanningToolDescriptor;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -16,7 +15,6 @@ public final class PromptResourceCatalog {
     private final String verificationSystemInstruction;
     private final StrictPromptTemplate verificationContext;
     private final Map<PlanningToolDescriptor, String> toolDescriptions;
-    private final List<ConfiguredEvidenceRequirement> evidenceRequirements;
     private final Map<String, String> rawResources;
     private final Map<String, String> resourceDigests;
     private final String catalogDigest;
@@ -27,7 +25,6 @@ public final class PromptResourceCatalog {
             String verificationSystemInstruction,
             StrictPromptTemplate verificationContext,
             Map<PlanningToolDescriptor, String> toolDescriptions,
-            List<ConfiguredEvidenceRequirement> evidenceRequirements,
             Map<String, String> rawResources,
             Map<String, String> resourceDigests,
             String catalogDigest) {
@@ -40,8 +37,6 @@ public final class PromptResourceCatalog {
                 "verification context template must not be null");
         this.toolDescriptions = Map.copyOf(Objects.requireNonNull(toolDescriptions,
                 "tool descriptions must not be null"));
-        this.evidenceRequirements = List.copyOf(Objects.requireNonNull(evidenceRequirements,
-                "evidence requirements must not be null"));
         this.rawResources = Map.copyOf(Objects.requireNonNull(rawResources,
                 "raw prompt resources must not be null"));
         this.resourceDigests = Map.copyOf(Objects.requireNonNull(resourceDigests,
@@ -73,10 +68,6 @@ public final class PromptResourceCatalog {
             throw new IllegalArgumentException("planning tool descriptor is not present in prompt resource catalog");
         }
         return description;
-    }
-
-    public List<ConfiguredEvidenceRequirement> evidenceRequirements() {
-        return evidenceRequirements;
     }
 
     public Map<String, String> resourceDigests() {
