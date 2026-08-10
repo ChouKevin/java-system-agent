@@ -1,10 +1,12 @@
 package com.java.system.agent.codeintelligence.planning;
 
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.capability.planning.CandidateBoundExecutionPlanner;
 import com.java.system.agent.capability.planning.PlanningToolInputException;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticCandidateTargetMapper;
+import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 
 import java.util.HashSet;
 import java.util.List;
@@ -31,6 +33,18 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
     private static final String INVALID_SOURCE_RANGE = "reason=CANDIDATE_SELECTION; "
             + "invalidFields=[candidateHandles]; "
             + "constraints=[candidateHandles:ExactSourceRange]";
+    private static final String MISSING_CONCEPT_CRITERIA = "reason=CANDIDATE_INPUT; "
+            + "invalidFields=[searchCriteria]; "
+            + "constraints=[searchCriteria:RequiredForDirectCandidate]";
+    private static final String INVALID_CONCEPT_CRITERIA = "reason=CANDIDATE_INPUT; "
+            + "invalidFields=[searchCriteria]; "
+            + "constraints=[searchCriteria:ContinuationCriteria]";
+    private static final String MISSING_EVENT_TYPE = "reason=CANDIDATE_INPUT; "
+            + "invalidFields=[eventType]; "
+            + "constraints=[eventType:RequiredForDirectCandidate]";
+    private static final String INVALID_EVENT_TYPE = "reason=CANDIDATE_INPUT; "
+            + "invalidFields=[eventType]; "
+            + "constraints=[eventType:ContinuationEventType]";
 
     private CodeIntelligenceCandidateExecutionPlanners() {
     }
@@ -48,6 +62,190 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
     public static CandidateBoundExecutionPlanner<GetSourceSegmentPlanningInput,
             GetSourceSegmentExecutionInput> getSourceSegment() {
         return new GetSourceSegmentPlanner(new JavaSemanticCandidateTargetMapper());
+    }
+
+    public static CandidateBoundExecutionPlanner<OutgoingCallGraphPlanningInput,
+            OutgoingCallGraphExecutionInput> outgoingCallGraph() {
+        return new OutgoingCallGraphPlanner(new JavaSemanticCandidateTargetMapper());
+    }
+
+    public static CandidateBoundExecutionPlanner<IncomingCallGraphPlanningInput,
+            IncomingCallGraphExecutionInput> incomingCallGraph() {
+        return new IncomingCallGraphPlanner(new JavaSemanticCandidateTargetMapper());
+    }
+
+    public static CandidateBoundExecutionPlanner<DiscoverConceptsPlanningInput,
+            DiscoverConceptsExecutionInput> discoverConcepts() {
+        return new DiscoverConceptsPlanner();
+    }
+
+    public static CandidateBoundExecutionPlanner<DiscoverEventListenersPlanningInput,
+            DiscoverEventListenersExecutionInput> discoverEventListeners() {
+        return new DiscoverEventListenersPlanner();
+    }
+
+    public static CandidateBoundExecutionPlanner<FindInternalReferencesPlanningInput,
+            FindInternalReferencesExecutionInput> findInternalReferences() {
+        return new FindInternalReferencesPlanner();
+    }
+
+    private static final class OutgoingCallGraphPlanner implements CandidateBoundExecutionPlanner<
+            OutgoingCallGraphPlanningInput, OutgoingCallGraphExecutionInput> {
+
+        private final JavaSemanticCandidateTargetMapper targetMapper;
+
+        private OutgoingCallGraphPlanner(JavaSemanticCandidateTargetMapper targetMapper) {
+            this.targetMapper = Objects.requireNonNull(targetMapper, "semantic candidate target mapper must not be null");
+        }
+
+        @Override
+        public boolean supportsDirectCandidate(AnalysisCandidate candidate) {
+            return candidate instanceof SemanticTargetCandidate semanticTarget
+                    && targetMapper.supportsMethodTarget(semanticTarget.semanticTarget());
+        }
+
+        @Override
+        public OutgoingCallGraphExecutionInput planDirect(OutgoingCallGraphPlanningInput input, AnalysisCandidate candidate) {
+            return new OutgoingCallGraphExecutionInput(depth(input.depth()), Optional.of(methodTarget(candidate, targetMapper)));
+        }
+
+        @Override
+        public OutgoingCallGraphExecutionInput planFollowUp(
+                OutgoingCallGraphPlanningInput input, OutgoingCallGraphExecutionInput providerInput) {
+            return new OutgoingCallGraphExecutionInput(depth(input.depth()), requiredBoundTarget(providerInput.boundTarget()));
+        }
+    }
+
+    private static final class IncomingCallGraphPlanner implements CandidateBoundExecutionPlanner<
+            IncomingCallGraphPlanningInput, IncomingCallGraphExecutionInput> {
+
+        private final JavaSemanticCandidateTargetMapper targetMapper;
+
+        private IncomingCallGraphPlanner(JavaSemanticCandidateTargetMapper targetMapper) {
+            this.targetMapper = Objects.requireNonNull(targetMapper, "semantic candidate target mapper must not be null");
+        }
+
+        @Override
+        public boolean supportsDirectCandidate(AnalysisCandidate candidate) {
+            return candidate instanceof SemanticTargetCandidate semanticTarget
+                    && targetMapper.supportsMethodTarget(semanticTarget.semanticTarget());
+        }
+
+        @Override
+        public IncomingCallGraphExecutionInput planDirect(IncomingCallGraphPlanningInput input, AnalysisCandidate candidate) {
+            return new IncomingCallGraphExecutionInput(depth(input.depth()), Optional.of(methodTarget(candidate, targetMapper)));
+        }
+
+        @Override
+        public IncomingCallGraphExecutionInput planFollowUp(
+                IncomingCallGraphPlanningInput input, IncomingCallGraphExecutionInput providerInput) {
+            return new IncomingCallGraphExecutionInput(depth(input.depth()), requiredBoundTarget(providerInput.boundTarget()));
+        }
+    }
+
+    private static final class DiscoverConceptsPlanner implements CandidateBoundExecutionPlanner<
+            DiscoverConceptsPlanningInput, DiscoverConceptsExecutionInput> {
+
+        @Override
+        public boolean supportsDirectCandidate(AnalysisCandidate candidate) {
+            return candidate instanceof RepositoryCandidate;
+        }
+
+        @Override
+        public DiscoverConceptsExecutionInput planDirect(DiscoverConceptsPlanningInput input, AnalysisCandidate candidate) {
+            if (!(candidate instanceof RepositoryCandidate)) {
+                throw invalidMethodTarget();
+            }
+            DiscoverConceptsPlanningInput.SearchCriteria criteria = input.searchCriteria()
+                    .orElseThrow(CodeIntelligenceCandidateExecutionPlanners::missingConceptCriteria);
+            return conceptsInput(criteria, 0, limit(input.limit(), 50));
+        }
+
+        @Override
+        public DiscoverConceptsExecutionInput planFollowUp(
+                DiscoverConceptsPlanningInput input, DiscoverConceptsExecutionInput providerInput) {
+            input.searchCriteria().ifPresent(criteria -> {
+                if (!matches(providerInput, criteria)) {
+                    throw invalidConceptCriteria();
+                }
+            });
+            return new DiscoverConceptsExecutionInput(providerInput.terms(), providerInput.kinds(), providerInput.packagePrefix(),
+                    providerInput.offset(), limit(input.limit(), providerInput.limit()));
+        }
+
+        private static boolean matches(DiscoverConceptsExecutionInput providerInput,
+                                       DiscoverConceptsPlanningInput.SearchCriteria criteria) {
+            return providerInput.terms().equals(terms(criteria))
+                    && providerInput.kinds().equals(kinds(criteria))
+                    && providerInput.packagePrefix().equals(criteria.packagePrefix());
+        }
+
+        private static DiscoverConceptsExecutionInput conceptsInput(
+                DiscoverConceptsPlanningInput.SearchCriteria criteria, int offset, int limit) {
+            return new DiscoverConceptsExecutionInput(terms(criteria), kinds(criteria), criteria.packagePrefix(), offset, limit);
+        }
+
+        private static List<DiscoverConceptsExecutionInput.Term> terms(DiscoverConceptsPlanningInput.SearchCriteria criteria) {
+            return criteria.terms().stream().map(term -> new DiscoverConceptsExecutionInput.Term(
+                    term.value(), term.matchMode().name())).toList();
+        }
+
+        private static List<String> kinds(DiscoverConceptsPlanningInput.SearchCriteria criteria) {
+            return criteria.kinds().stream().map(Enum::name).toList();
+        }
+    }
+
+    private static final class DiscoverEventListenersPlanner implements CandidateBoundExecutionPlanner<
+            DiscoverEventListenersPlanningInput, DiscoverEventListenersExecutionInput> {
+
+        @Override
+        public boolean supportsDirectCandidate(AnalysisCandidate candidate) {
+            return candidate instanceof RepositoryCandidate;
+        }
+
+        @Override
+        public DiscoverEventListenersExecutionInput planDirect(
+                DiscoverEventListenersPlanningInput input, AnalysisCandidate candidate) {
+            if (!(candidate instanceof RepositoryCandidate)) {
+                throw invalidMethodTarget();
+            }
+            String eventType = input.eventType().orElseThrow(CodeIntelligenceCandidateExecutionPlanners::missingEventType);
+            return new DiscoverEventListenersExecutionInput(eventType, 0, limit(input.limit(), 50));
+        }
+
+        @Override
+        public DiscoverEventListenersExecutionInput planFollowUp(
+                DiscoverEventListenersPlanningInput input, DiscoverEventListenersExecutionInput providerInput) {
+            input.eventType().ifPresent(eventType -> {
+                if (!eventType.equals(providerInput.eventType())) {
+                    throw invalidEventType();
+                }
+            });
+            return new DiscoverEventListenersExecutionInput(providerInput.eventType(), providerInput.offset(),
+                    limit(input.limit(), providerInput.limit()));
+        }
+    }
+
+    private static final class FindInternalReferencesPlanner implements CandidateBoundExecutionPlanner<
+            FindInternalReferencesPlanningInput, FindInternalReferencesExecutionInput> {
+
+        @Override
+        public boolean supportsDirectCandidate(AnalysisCandidate candidate) {
+            return false;
+        }
+
+        @Override
+        public FindInternalReferencesExecutionInput planDirect(
+                FindInternalReferencesPlanningInput input, AnalysisCandidate candidate) {
+            throw invalidMethodTarget();
+        }
+
+        @Override
+        public FindInternalReferencesExecutionInput planFollowUp(
+                FindInternalReferencesPlanningInput input, FindInternalReferencesExecutionInput providerInput) {
+            return new FindInternalReferencesExecutionInput(providerInput.target(), providerInput.offset(),
+                    limit(input.limit(), providerInput.limit()));
+        }
     }
 
     private static final class DiscoverMethodImplementationsPlanner implements CandidateBoundExecutionPlanner<
@@ -189,6 +387,47 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
 
     private static PlanningToolInputException invalidMethodTarget() {
         return PlanningToolInputException.safeDiagnostic(INVALID_METHOD_TARGET);
+    }
+
+    private static SemanticDtos.MethodTargetPayload methodTarget(
+            AnalysisCandidate candidate, JavaSemanticCandidateTargetMapper targetMapper) {
+        if (!(candidate instanceof SemanticTargetCandidate semanticTarget)
+                || !targetMapper.supportsMethodTarget(semanticTarget.semanticTarget())) {
+            throw invalidMethodTarget();
+        }
+        return targetMapper.methodTarget(semanticTarget.semanticTarget());
+    }
+
+    private static Optional<SemanticDtos.MethodTargetPayload> requiredBoundTarget(
+            Optional<SemanticDtos.MethodTargetPayload> boundTarget) {
+        if (boundTarget.isEmpty()) {
+            throw invalidMethodTarget();
+        }
+        return boundTarget;
+    }
+
+    private static int depth(Integer configuredDepth) {
+        return Optional.ofNullable(configuredDepth).orElse(2);
+    }
+
+    private static int limit(Integer configuredLimit, int providerDefault) {
+        return Optional.ofNullable(configuredLimit).orElse(providerDefault);
+    }
+
+    private static PlanningToolInputException missingConceptCriteria() {
+        return PlanningToolInputException.safeDiagnostic(MISSING_CONCEPT_CRITERIA);
+    }
+
+    private static PlanningToolInputException invalidConceptCriteria() {
+        return PlanningToolInputException.safeDiagnostic(INVALID_CONCEPT_CRITERIA);
+    }
+
+    private static PlanningToolInputException missingEventType() {
+        return PlanningToolInputException.safeDiagnostic(MISSING_EVENT_TYPE);
+    }
+
+    private static PlanningToolInputException invalidEventType() {
+        return PlanningToolInputException.safeDiagnostic(INVALID_EVENT_TYPE);
     }
 
     private static PlanningToolInputException missingTypeMemberFilter() {

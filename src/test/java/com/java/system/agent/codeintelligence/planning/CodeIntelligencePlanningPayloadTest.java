@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -42,29 +43,34 @@ class CodeIntelligencePlanningPayloadTest {
     }
 
     @Test
-    void maps_direct_discovery_inputs_with_provider_defaults_and_unbound_exact_targets() {
-        DiscoverConceptsPlanningInput concepts = new DiscoverConceptsPlanningInput(
-                List.of("candidate-1"), "Find orders", "Need concept matches",
-                List.of(new DiscoverConceptsPlanningInput.Term(
-                        "orders", DiscoverConceptsPlanningInput.MatchMode.TOKEN_EXACT)),
-                List.of(DiscoverConceptsPlanningInput.Kind.TYPE),
-                Optional.empty(), null, null);
-        DiscoverEventListenersPlanningInput listeners = new DiscoverEventListenersPlanningInput(
-                List.of("candidate-1"), "Find listeners", "Need event listeners", "OrderCreated", null, null);
+    void keepsDirectSourceAndSymbolPlanningInputsIndependentFromFollowUpTuning() {
         ResolveSourceSymbolPlanningInput symbols = new ResolveSourceSymbolPlanningInput(
                 List.of("candidate-1"), "Resolve symbol", "Need source declaration", "order", Optional.empty());
 
-        assertThat(new DiscoverConceptsPlanningMapper().map(concepts).executionInput())
-                .isEqualTo(new DiscoverConceptsExecutionInput(
-                        List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")),
-                        List.of("TYPE"), Optional.empty(), 0, 50));
-        assertThat(new DiscoverEventListenersPlanningMapper().map(listeners).executionInput())
-                .isEqualTo(new DiscoverEventListenersExecutionInput("OrderCreated", 0, 50));
         assertThat(new GetMethodSourcePlanningMapper().map(
                 new GetMethodSourcePlanningInput(List.of("candidate-1"), "Read method", "Need source"))
                 .executionInput().boundTarget()).isEmpty();
         assertThat(new ResolveSourceSymbolPlanningMapper().map(symbols).executionInput())
                 .isEqualTo(new ResolveSourceSymbolExecutionInput("order", Optional.empty(), Optional.empty()));
+    }
+
+    @Test
+    void acceptsCandidateBoundDiscoveryTuningWithoutModelWritableContinuationOffsets() {
+        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(
+                Validation.buildDefaultValidatorFactory().getValidator());
+
+        assertThatCode(() -> decoder.decode("""
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
+                "searchCriteria":{"terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]},"limit":25}
+                """, DiscoverConceptsPlanningInput.class)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> decoder.decode("""
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
+                "searchCriteria":{"terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]},"offset":5}
+                """, DiscoverConceptsPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
+        assertThatThrownBy(() -> decoder.decode("""
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
+                "eventType":"OrderCreated","offset":5}
+                """, DiscoverEventListenersPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
     }
 
     @Test
@@ -74,7 +80,7 @@ class CodeIntelligencePlanningPayloadTest {
 
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"],"repoId":"orders"}
+                "searchCriteria":{"terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]},"repoId":"orders"}
                 """, DiscoverConceptsPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
@@ -89,7 +95,7 @@ class CodeIntelligencePlanningPayloadTest {
 
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "terms":[{"value":"orders","matchMode":"EXACT"}],"kinds":["UNKNOWN"]}
+                "searchCriteria":{"terms":[{"value":"orders","matchMode":"EXACT"}],"kinds":["UNKNOWN"]}}
                 """, DiscoverConceptsPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
         assertThatThrownBy(() -> decoder.decode("""
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\

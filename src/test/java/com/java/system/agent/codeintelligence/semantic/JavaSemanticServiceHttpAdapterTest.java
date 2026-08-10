@@ -214,6 +214,96 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
+    void permitsOnlyBoundedFollowUpTuningAcrossSemanticQueryFamilies() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+        OutgoingCallGraphExecutionInput graphProvider = new OutgoingCallGraphExecutionInput(1, Optional.of(target));
+        OutgoingCallGraphExecutionInput graphTuned = new OutgoingCallGraphExecutionInput(2, Optional.of(target));
+        DiscoverConceptsExecutionInput conceptsProvider = new DiscoverConceptsExecutionInput(
+                List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")), List.of("TYPE"),
+                Optional.of("com.example"), 20, 1);
+        DiscoverConceptsExecutionInput conceptsTuned = new DiscoverConceptsExecutionInput(
+                conceptsProvider.terms(), conceptsProvider.kinds(), conceptsProvider.packagePrefix(), 20, 2);
+        DiscoverEventListenersExecutionInput listenersProvider = new DiscoverEventListenersExecutionInput(
+                "com.example.OrderCreated", 10, 1);
+        DiscoverEventListenersExecutionInput listenersTuned = new DiscoverEventListenersExecutionInput(
+                listenersProvider.eventType(), 10, 2);
+        FindInternalReferencesExecutionInput referencesProvider = new FindInternalReferencesExecutionInput(
+                new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", target), 5, 1);
+        FindInternalReferencesExecutionInput referencesTuned = new FindInternalReferencesExecutionInput(
+                referencesProvider.target(), 5, 2);
+        client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
+                .andRespond(withSuccess(graphResponse(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/concepts"))
+                .andRespond(withSuccess(conceptsScopeMismatchSuccess().replace("\"repoId\":\"other\"",
+                        "\"repoId\":\"orders\""), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/event-listeners"))
+                .andRespond(withSuccess(listenersSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/internal-references"))
+                .andRespond(withSuccess(referencesSuccess(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertSucceeded(() -> adapter.outgoingCallGraph(
+                followUpContext("codebase_outgoing_call_graph", graphProvider), graphTuned));
+        assertSucceeded(() -> adapter.discoverConcepts(
+                followUpContext("codebase_discover_concepts", conceptsProvider), conceptsTuned));
+        assertSucceeded(() -> adapter.discoverEventListeners(
+                followUpContext("codebase_discover_event_listeners", listenersProvider), listenersTuned));
+        assertSucceeded(() -> adapter.findInternalReferences(
+                followUpContext("codebase_find_internal_references", referencesProvider), referencesTuned));
+
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsProtectedFollowUpMutationsBeforeAnySemanticHttpRequest() {
+        TestClient client = testClient();
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"));
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/discovery/concepts"));
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/discovery/event-listeners"));
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/discovery/internal-references"));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        OutgoingCallGraphExecutionInput graphProvider = new OutgoingCallGraphExecutionInput(1,
+                Optional.of(graphTargetPayload()));
+        DiscoverConceptsExecutionInput conceptsProvider = new DiscoverConceptsExecutionInput(
+                List.of(new DiscoverConceptsExecutionInput.Term("payments", "TOKEN_EXACT")), List.of("TYPE"),
+                Optional.empty(), 10, 1);
+        DiscoverEventListenersExecutionInput listenersProvider = new DiscoverEventListenersExecutionInput(
+                "com.example.PaymentCreated", 10, 1);
+        FindInternalReferencesExecutionInput referencesProvider = new FindInternalReferencesExecutionInput(
+                new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", graphTargetPayload()), 10, 1);
+
+        assertThatThrownBy(() -> adapter.outgoingCallGraph(
+                followUpContext("codebase_outgoing_call_graph", graphProvider),
+                new OutgoingCallGraphExecutionInput(2, Optional.of(targetPayload()))))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageNotContaining("Orders");
+        assertThatThrownBy(() -> adapter.discoverConcepts(
+                followUpContext("codebase_discover_concepts", conceptsProvider),
+                new DiscoverConceptsExecutionInput(List.of(new DiscoverConceptsExecutionInput.Term(
+                        "secrettarget", "TOKEN_EXACT")), List.of("TYPE"), Optional.empty(), 10, 2)))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageNotContaining("secrettarget");
+        assertThatThrownBy(() -> adapter.discoverEventListeners(
+                followUpContext("codebase_discover_event_listeners", listenersProvider),
+                new DiscoverEventListenersExecutionInput("secret.event.Type", 10, 2)))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageNotContaining("secret.event.Type");
+        assertThatThrownBy(() -> adapter.findInternalReferences(
+                followUpContext("codebase_find_internal_references", referencesProvider),
+                new FindInternalReferencesExecutionInput(new SemanticDtos.InternalReferenceFollowUpTarget(
+                        "METHOD", targetPayload()), 10, 2)))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageNotContaining("Orders");
+
+        client.server().verify();
+    }
+
+    @Test
     void postsTheExactMethodImplementationTargetFromEitherCandidateBoundAuthority() {
         TestClient client = testClient();
         SemanticDtos.MethodTargetPayload target = graphTargetPayload();

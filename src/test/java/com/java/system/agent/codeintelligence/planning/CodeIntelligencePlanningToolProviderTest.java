@@ -26,6 +26,8 @@ import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec
 import com.java.system.agent.capability.planning.CorePlanningToolProvider;
 import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolCategory;
+import com.java.system.agent.capability.planning.PlanningToolRegistration;
 import com.java.system.agent.capability.planning.QueryCapabilityRegistration;
 import com.java.system.agent.capability.planning.QueryPlanningToolRegistration;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
@@ -140,16 +142,17 @@ class CodeIntelligencePlanningToolProviderTest {
                         CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                         CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
+                        CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
                         CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
                         CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(),
                         CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
-        assertThat(provider.registrations())
-                .filteredOn(registration -> registration instanceof FollowUpOnlyQueryRegistration<?>)
-                .extracting(registration -> registration.name())
-                .containsExactly(
-                        CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
-                        CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
-                        CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName());
+        List<String> followUpOnlyNames = provider.registrations().stream()
+                .filter(registration -> registration instanceof FollowUpOnlyQueryRegistration<?>)
+                .map(PlanningToolRegistration::name)
+                .toList();
+        assertThat(followUpOnlyNames).containsExactlyInAnyOrder(
+                CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
+                CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName());
 
         Map<String, Set<CandidateKind>> candidateKinds = provider.registrations().stream()
                 .map(registration -> (QueryCapabilityRegistration<?>) registration)
@@ -432,7 +435,7 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
-    void bindsFollowUpPayloadsDuringNormalPlanningWhileDirectInputsRemainMapperProduced() {
+    void preservesProviderFollowUpAuthorityWhilePermittingBoundedQueryTuning() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
@@ -445,43 +448,57 @@ class CodeIntelligencePlanningToolProviderTest {
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
         CapabilityPolicy graphPolicy = policy(registry, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH);
         CapabilityPolicy conceptsPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_CONCEPTS);
+        CapabilityPolicy listenersPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS);
         OutgoingCallGraphExecutionInput graphFollowUpInput = new OutgoingCallGraphExecutionInput(1,
                 Optional.of(graphTarget()));
+        OutgoingCallGraphExecutionInput graphTunedInput = new OutgoingCallGraphExecutionInput(2,
+                Optional.of(graphTarget()));
         DiscoverConceptsExecutionInput directConceptsInput = conceptsInput("orders");
-        DiscoverConceptsExecutionInput followUpConceptsInput = conceptsInput("payments");
+        DiscoverEventListenersExecutionInput directListenersInput = new DiscoverEventListenersExecutionInput(
+                "com.example.OrderPlaced", 0, 50);
+        DiscoverConceptsExecutionInput followUpConceptsInput = new DiscoverConceptsExecutionInput(
+                conceptsInput("payments").terms(), conceptsInput("payments").kinds(), Optional.empty(), 0, 25);
         IssuedCandidate graphFollowUp = followUpCandidate("candidate-graph-follow-up", binding, repositoryId, revision,
                 graphPolicy, payloadCodec.encode(graphFollowUpInput));
         IssuedCandidate directRepository = repositoryCandidate("candidate-repository", binding, repositoryId);
         IssuedCandidate conceptsFollowUp = followUpCandidate("candidate-concepts-follow-up", binding, repositoryId, revision,
                 conceptsPolicy, payloadCodec.encode(followUpConceptsInput));
         CapabilityExecutionResult expected = new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
-        when(adapter.outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphFollowUpInput))).thenReturn(expected);
+        when(adapter.outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphTunedInput))).thenReturn(expected);
         when(adapter.discoverConcepts(any(CapabilityExecutionContext.class), eq(directConceptsInput))).thenReturn(expected);
         when(adapter.discoverConcepts(any(CapabilityExecutionContext.class), eq(followUpConceptsInput))).thenReturn(expected);
+        when(adapter.discoverEventListeners(any(CapabilityExecutionContext.class), eq(directListenersInput)))
+                .thenReturn(expected);
 
         QueryAction graphAction = queryAction(registry.interpretToolCall(graphPolicy.name(), """
                 {"candidateHandles":["candidate-graph-follow-up"],"questionToResolve":"Trace order calls","rationale":"Inspect downstream calls","depth":2}
                 """, promptContext(graphPolicy, graphFollowUp, binding)));
         QueryAction directConceptsAction = queryAction(registry.interpretToolCall(conceptsPolicy.name(), """
-                {"candidateHandles":["candidate-repository"],"questionToResolve":"Find order concepts","rationale":"Locate order types","terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}
+                {"candidateHandles":["candidate-repository"],"questionToResolve":"Find order concepts","rationale":"Locate order types","searchCriteria":{"terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}}
                 """, promptContext(conceptsPolicy, directRepository, binding)));
         QueryAction followUpConceptsAction = queryAction(registry.interpretToolCall(conceptsPolicy.name(), """
-                {"candidateHandles":["candidate-concepts-follow-up"],"questionToResolve":"Find payment concepts","rationale":"Continue the provider result","terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}
+                {"candidateHandles":["candidate-concepts-follow-up"],"questionToResolve":"Find payment concepts","rationale":"Continue the provider result","limit":25}
                 """, promptContext(conceptsPolicy, conceptsFollowUp, binding)));
+        QueryAction directListenersAction = queryAction(registry.interpretToolCall(listenersPolicy.name(), """
+                {"candidateHandles":["candidate-repository"],"questionToResolve":"Find listeners","rationale":"Locate order event consumers","eventType":"com.example.OrderPlaced"}
+                """, promptContext(listenersPolicy, directRepository, binding)));
 
-        assertThat(graphAction.payload()).isEqualTo(payloadCodec.encode(graphFollowUpInput));
+        assertThat(graphAction.payload()).isEqualTo(payloadCodec.encode(graphTunedInput));
         assertThat(graphAction.candidates()).extracting(candidate -> candidate.value())
                 .containsExactly("candidate-graph-follow-up");
         assertThat(graphAction.questionToResolve()).isEqualTo("Trace order calls");
         assertThat(graphAction.rationale()).isEqualTo("Inspect downstream calls");
         assertThat(directConceptsAction.payload()).isEqualTo(payloadCodec.encode(directConceptsInput));
         assertThat(followUpConceptsAction.payload()).isEqualTo(payloadCodec.encode(followUpConceptsInput));
+        assertThat(directListenersAction.payload()).isEqualTo(payloadCodec.encode(directListenersInput));
         assertThat(execute(registry, graphPolicy, graphFollowUp, graphAction, revisions)).isSameAs(expected);
         assertThat(execute(registry, conceptsPolicy, directRepository, directConceptsAction, revisions)).isSameAs(expected);
         assertThat(execute(registry, conceptsPolicy, conceptsFollowUp, followUpConceptsAction, revisions)).isSameAs(expected);
-        verify(adapter, times(1)).outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphFollowUpInput));
+        assertThat(execute(registry, listenersPolicy, directRepository, directListenersAction, revisions)).isSameAs(expected);
+        verify(adapter, times(1)).outgoingCallGraph(any(CapabilityExecutionContext.class), eq(graphTunedInput));
         verify(adapter, times(1)).discoverConcepts(any(CapabilityExecutionContext.class), eq(directConceptsInput));
         verify(adapter, times(1)).discoverConcepts(any(CapabilityExecutionContext.class), eq(followUpConceptsInput));
+        verify(adapter, times(1)).discoverEventListeners(any(CapabilityExecutionContext.class), eq(directListenersInput));
     }
 
     @Test
@@ -511,11 +528,90 @@ class CodeIntelligencePlanningToolProviderTest {
         assertThat(registry.interpretToolCall(graphPolicy.name(), """
                 {"candidateHandles":["candidate-mismatched"],"questionToResolve":"Trace calls","rationale":"Continue graph analysis"}
                 """, promptContext(graphPolicy, mismatched, currentBinding)))
-                .isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+                .isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE: "
+                        + "requestedTool=codebase_outgoing_call_graph; toolStatus=NOT_CURRENTLY_ISSUED; "
+                        + "expected=currentlyIssuedTool"));
         assertThat(registry.interpretToolCall(graphPolicy.name(), """
                 {"candidateHandles":["candidate-stale"],"questionToResolve":"Trace calls","rationale":"Continue graph analysis"}
                 """, promptContext(graphPolicy, stale, currentBinding)))
-                .isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
+                .isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE: "
+                        + "requestedTool=codebase_outgoing_call_graph; toolStatus=NOT_CURRENTLY_ISSUED; "
+                        + "expected=currentlyIssuedTool"));
+    }
+
+    @Test
+    void rejectsProtectedContinuationMutationsWithoutExecutingTheSemanticAdapter() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy conceptsPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_CONCEPTS);
+        CapabilityPolicy listenersPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS);
+        IssuedCandidate concepts = followUpCandidate("candidate-concepts", binding, repositoryId, revision, conceptsPolicy,
+                payloadCodec.encode(conceptsInput("payments")));
+        DiscoverEventListenersExecutionInput listenersInput = new DiscoverEventListenersExecutionInput(
+                "com.example.PaymentCreated", 5, 1);
+        IssuedCandidate listeners = followUpCandidate("candidate-listeners", binding, repositoryId, revision, listenersPolicy,
+                payloadCodec.encode(listenersInput));
+
+        assertThat(registry.interpretToolCall(conceptsPolicy.name(), """
+                {"candidateHandles":["candidate-concepts"],"questionToResolve":"Find concepts","rationale":"Continue",\
+                "searchCriteria":{"terms":[{"value":"secrettarget","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}}
+                """, promptContext(conceptsPolicy, concepts, binding)))
+                .isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT: tool=codebase_discover_concepts; "
+                        + "reason=CANDIDATE_INPUT; invalidFields=[searchCriteria]; "
+                        + "constraints=[searchCriteria:ContinuationCriteria]"));
+        assertThat(registry.interpretToolCall(listenersPolicy.name(), """
+                {"candidateHandles":["candidate-listeners"],"questionToResolve":"Find listeners","rationale":"Continue",\
+                "eventType":"secret.event.Type"}
+                """, promptContext(listenersPolicy, listeners, binding)))
+                .isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT: tool=codebase_discover_event_listeners; "
+                        + "reason=CANDIDATE_INPUT; invalidFields=[eventType]; "
+                        + "constraints=[eventType:ContinuationEventType]"));
+        verify(adapter, times(0)).discoverConcepts(any(CapabilityExecutionContext.class), any());
+        verify(adapter, times(0)).discoverEventListeners(any(CapabilityExecutionContext.class), any());
+    }
+
+    @Test
+    void issuesInternalReferencesOnlyForAMatchingProviderFollowUp() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES);
+        FindInternalReferencesExecutionInput providerInput = new FindInternalReferencesExecutionInput(
+                new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", graphTarget()), 5, 1);
+        IssuedCandidate matching = followUpCandidate("candidate-references", binding, repositoryId, revision, policy,
+                payloadCodec.encode(providerInput));
+        IssuedCandidate repository = repositoryCandidate("candidate-repository", binding, repositoryId);
+        IssuedCandidate semantic = semanticTargetCandidate("candidate-semantic", binding, repositoryId, revision);
+        PlanningToolRegistration<?> registration = registry.registrations().stream()
+                .filter(candidate -> candidate.name().equals(policy.name())).findFirst().orElseThrow();
+
+        assertThat(registration.descriptor().category()).isEqualTo(PlanningToolCategory.FOLLOW_UP_QUERY);
+        assertThat(registry.issuedRegistrations(promptContext(policy, repository, binding)))
+                .extracting(PlanningToolRegistration::name).doesNotContain(policy.name());
+        assertThat(registry.issuedRegistrations(promptContext(policy, semantic, binding)))
+                .extracting(PlanningToolRegistration::name).doesNotContain(policy.name());
+        assertThat(registry.issuedRegistrations(promptContext(policy, matching, binding)))
+                .extracting(PlanningToolRegistration::name).contains(policy.name());
+        QueryAction action = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-references"],"questionToResolve":"Find references","rationale":"Continue provider result","limit":25}
+                """, promptContext(policy, matching, binding)));
+        assertThat(payloadCodec.decode(action.payload(), FindInternalReferencesExecutionInput.class))
+                .isEqualTo(new FindInternalReferencesExecutionInput(providerInput.target(), providerInput.offset(), 25));
     }
 
     private static CapabilityExecutionResult execute(PlanningToolRegistry registry, CapabilityPolicy policy,

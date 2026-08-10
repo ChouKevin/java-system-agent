@@ -88,16 +88,25 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 new SpringAiPlanningToolSchemaFactory().createSchema(DiscoverConceptsPlanningInput.class));
 
         JsonNode properties = schema.path("properties");
-        assertThat(properties.path("terms").path("items").path("properties")
+        JsonNode searchCriteria = properties.path("searchCriteria");
+        JsonNode criteriaProperties = searchCriteria.path("properties");
+        assertThat(schema.path("required")).extracting(JsonNode::asText)
+                .doesNotContain("searchCriteria", "limit");
+        assertThat(criteriaProperties.path("terms").path("items").path("properties")
                 .path("matchMode").path("enum"))
                 .extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("TOKEN_EXACT", "TOKEN_PREFIX");
-        assertThat(properties.path("kinds").path("items").path("enum"))
+        assertThat(criteriaProperties.path("kinds").path("items").path("enum"))
                 .extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder(
                         "TYPE", "METHOD", "FIELD", "ANNOTATION_USAGE", "TYPE_USAGE", "API_ROUTE",
                         "MQ_DESTINATION", "SCHEDULE", "MAPPER_STATEMENT", "SQL_IDENTIFIER",
                         "CONFIGURATION_KEY", "OUTBOUND_API", "MQ_PUBLISHER", "ERROR_CONTRACT", "ENUM_CONSTANT");
+        assertThat(criteriaProperties.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("terms", "kinds", "packagePrefix");
+        assertThat(properties.path("limit").path("minimum").asInt()).isEqualTo(1);
+        assertThat(properties.path("limit").path("maximum").asInt()).isEqualTo(100);
+        assertThat(properties.path("offset").isMissingNode()).isTrue();
     }
 
     @Test

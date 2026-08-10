@@ -104,10 +104,14 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
         AnalysisCandidate analysisCandidate = candidate.getValue().candidate();
         return hasCurrentBinding(candidate.getKey().binding(), context)
                 && policy.acceptedCandidateKinds().contains(analysisCandidate.kind())
-                && analysisCandidate.repositoryRevision().isPresent()
-                && candidate.getKey().binding().revisionVector().matches(analysisCandidate.repositoryId(),
-                analysisCandidate.repositoryRevision().orElseThrow())
+                && hasPinnedCandidateRevision(candidate.getKey().binding(), analysisCandidate)
                 && planner.supportsDirectCandidate(analysisCandidate);
+    }
+
+    private static boolean hasPinnedCandidateRevision(HandleBinding binding, AnalysisCandidate candidate) {
+        return binding.revisionVector().revisionOf(candidate.repositoryId())
+                .map(pinnedRevision -> candidate.repositoryRevision().map(pinnedRevision::equals).orElse(true))
+                .orElse(false);
     }
 
     private Optional<CapabilityHandle> currentCapability(AgentPromptContext context) {

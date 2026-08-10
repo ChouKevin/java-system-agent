@@ -515,6 +515,34 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     }
 
     private <T> boolean isCompatibleFollowUpInput(CodeIntelligenceQuery query, T providerInput, T input) {
+        if (query == CodeIntelligenceQuery.OUTGOING_CALL_GRAPH
+                && providerInput instanceof OutgoingCallGraphExecutionInput provider
+                && input instanceof OutgoingCallGraphExecutionInput requested) {
+            return provider.boundTarget().equals(requested.boundTarget());
+        }
+        if (query == CodeIntelligenceQuery.INCOMING_CALL_GRAPH
+                && providerInput instanceof IncomingCallGraphExecutionInput provider
+                && input instanceof IncomingCallGraphExecutionInput requested) {
+            return provider.boundTarget().equals(requested.boundTarget());
+        }
+        if (query == CodeIntelligenceQuery.DISCOVER_CONCEPTS
+                && providerInput instanceof DiscoverConceptsExecutionInput provider
+                && input instanceof DiscoverConceptsExecutionInput requested) {
+            return provider.terms().equals(requested.terms())
+                    && provider.kinds().equals(requested.kinds())
+                    && provider.packagePrefix().equals(requested.packagePrefix())
+                    && provider.offset() == requested.offset();
+        }
+        if (query == CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS
+                && providerInput instanceof DiscoverEventListenersExecutionInput provider
+                && input instanceof DiscoverEventListenersExecutionInput requested) {
+            return provider.eventType().equals(requested.eventType()) && provider.offset() == requested.offset();
+        }
+        if (query == CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES
+                && providerInput instanceof FindInternalReferencesExecutionInput provider
+                && input instanceof FindInternalReferencesExecutionInput requested) {
+            return provider.target().equals(requested.target()) && provider.offset() == requested.offset();
+        }
         if (query == CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS
                 && providerInput instanceof DiscoverTypeMembersExecutionInput provider
                 && input instanceof DiscoverTypeMembersExecutionInput requested) {
