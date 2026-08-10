@@ -102,11 +102,15 @@ class AgentActionPromptRendererTest {
         AgentActionPromptRenderer renderer = new AgentActionPromptRenderer(catalog);
         when(catalog.renderLatestAnswerFeedback(anyMap())).thenReturn("typed-feedback-fragment");
 
-        Map<String, Object> projection = renderer.project(context);
+        List<String> currentToolNames = List.of("agent_submit_answer", "agent_request_clarification");
 
-        assertThat(projection).containsOnlyKeys("originalQuestion", "sessionTurns", "capabilities", "candidates",
+        Map<String, Object> projection = renderer.project(context, currentToolNames);
+
+        assertThat(projection).containsOnlyKeys("originalQuestion", "sessionTurns", "currentlyCallableTools", "candidates",
                 "evidence", "evidenceCoverage", "observations", "latestAnswerFeedback", "latestRejection",
                 "remainingBudget", "modelInteractions");
+        assertThat(projection).doesNotContainKey("capabilities");
+        assertThat(projection.get("currentlyCallableTools")).isEqualTo("- agent_submit_answer\n- agent_request_clarification\n");
         assertThat(projection.get("latestAnswerFeedback")).isEqualTo("typed-feedback-fragment");
         assertThat(projection.get("originalQuestion")).isEqualTo("question");
         String interactions = (String) projection.get("modelInteractions");
@@ -131,7 +135,7 @@ class AgentActionPromptRendererTest {
     }
 
     @Test
-    void projects_concluded_session_turns_and_follow_up_metadata_without_copying_payloads() {
+    void projects_concluded_session_turns_and_preserves_follow_up_candidates_without_unissued_target_metadata() {
         RepositoryId repositoryId = new RepositoryId("repository-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
@@ -150,12 +154,49 @@ class AgentActionPromptRendererTest {
                 followUp)), Map.of(), Map.of(), List.of(), Optional.empty(),
                 new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
-        Map<String, Object> projection = renderer().project(context);
+        Map<String, Object> projection = renderer().project(context, List.of("agent_request_clarification"));
 
         assertThat((String) projection.get("sessionTurns")).containsSubsequence(
                 "first question", "first answer", "second question", "second answer");
-        assertThat((String) projection.get("candidates")).contains("candidate-follow-up",
-                "codebase_get_source_segment@v1").doesNotContain(payload.value());
+        assertThat((String) projection.get("candidates")).contains("candidate-follow-up", "repository-1@revision-1",
+                "Read the remaining bounded source segment").doesNotContain("targetCapability=codebase_get_source_segment@v1",
+                payload.value());
+    }
+
+    @Test
+    void projects_only_current_tools_and_omits_empty_historical_evidence_coverage() {
+        AnalysisRunId runId = new AnalysisRunId("run-4");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        RepositoryId repositoryId = new RepositoryId("repository-1");
+        RepositoryRevision repositoryRevision = new RepositoryRevision("revision-1");
+        HandleBinding binding = new HandleBinding(runId, attemptId,
+                RevisionVector.empty().pin(repositoryId, repositoryRevision));
+        CapabilityHandle issuedButUnused = new CapabilityHandle("capability-1", binding);
+        CapabilityPolicy historicalCapability = new CapabilityPolicy("codebase_find_internal_references", "v1",
+                Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        CapabilityHandle producedCapability = new CapabilityHandle("capability-2", binding);
+        CapabilityPolicy producingCapability = new CapabilityPolicy("codebase_get_method_source", "v1",
+                Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-1", binding);
+        EvidenceRef evidence = new EvidenceRef("semantic", repositoryId, repositoryRevision,
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Type#method",
+                Optional.empty()), "method source", List.of(), new ArtifactRef("digest-1"));
+        QueryAction query = new QueryAction(producedCapability, List.of(), "read method source",
+                new CapabilityInputPayload("{}"), "need source evidence");
+        AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), runId, attemptId,
+                Map.of(issuedButUnused, historicalCapability, producedCapability, producingCapability), Map.of(),
+                Map.of(evidenceHandle, new IssuedEvidence(evidenceHandle, evidence)), Map.of(), List.of(
+                        new ModelInteraction.ActionSelected(attemptId, query),
+                        new ModelInteraction.ActionResultRecorded(attemptId,
+                                new ActionResult.QuerySucceeded(List.of(), List.of("evidence-1"), List.of()))), Optional.empty(),
+                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+
+        Map<String, Object> projection = renderer().project(context,
+                List.of("agent_submit_answer", "agent_request_clarification"));
+
+        assertThat(projection.get("currentlyCallableTools"))
+                .isEqualTo("- agent_submit_answer\n- agent_request_clarification\n");
+        assertThat(projection.get("evidenceCoverage")).isEqualTo("- codebase_get_method_source@v1: evidence-1\n");
     }
 
     @Test
@@ -165,10 +206,12 @@ class AgentActionPromptRendererTest {
         AgentPromptContext context = minimalContext();
         when(catalog.renderActionContext(anyMap())).thenReturn("resource-rendered-context");
 
-        String rendered = renderer.render(context);
+        List<String> currentToolNames = List.of("agent_submit_answer");
+
+        String rendered = renderer.render(context, currentToolNames);
 
         assertThat(rendered).isEqualTo("resource-rendered-context");
-        verify(catalog).renderActionContext(renderer.project(context));
+        verify(catalog).renderActionContext(renderer.project(context, currentToolNames));
     }
 
     @Test
@@ -176,7 +219,7 @@ class AgentActionPromptRendererTest {
         PromptResourceCatalog catalog = mock(PromptResourceCatalog.class);
         AgentActionPromptRenderer renderer = new AgentActionPromptRenderer(catalog);
 
-        Map<String, Object> projection = renderer.project(minimalContext());
+        Map<String, Object> projection = renderer.project(minimalContext(), List.of("agent_submit_answer"));
 
         assertThat(projection.get("latestAnswerFeedback")).isEqualTo("");
         verify(catalog, never()).renderLatestAnswerFeedback(anyMap());

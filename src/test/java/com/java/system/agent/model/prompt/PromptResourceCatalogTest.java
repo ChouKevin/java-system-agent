@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -40,6 +41,9 @@ class PromptResourceCatalogTest {
         for (PlanningToolRegistration<?> registration : registry.registrations()) {
             assertThat(catalog.toolDescription(registration.descriptor())).isNotBlank();
         }
+        assertThat(catalog.renderActionContext(actionContextValues())).contains("currently-callable-tool");
+        assertThat(catalog.resourceDigests()).containsKeys("action/system", "action/context",
+                "action/latest-answer-feedback", "verification/system", "verification/context");
         assertThat(catalog.resourceDigests().values()).allMatch(digest -> SHA_256.matcher(digest).matches());
         assertThat(catalog.catalogDigest()).matches(SHA_256);
     }
@@ -128,6 +132,21 @@ class PromptResourceCatalogTest {
 
     private static PromptResourceCatalogLoader loader() {
         return new PromptResourceCatalogLoader(new DefaultResourceLoader());
+    }
+
+    private static Map<String, String> actionContextValues() {
+        return Map.ofEntries(
+                Map.entry("originalQuestion", "original-question"),
+                Map.entry("sessionTurns", "session-turns"),
+                Map.entry("currentlyCallableTools", "currently-callable-tool"),
+                Map.entry("candidates", "candidates"),
+                Map.entry("evidence", "evidence"),
+                Map.entry("evidenceCoverage", "evidence-coverage"),
+                Map.entry("observations", "observations"),
+                Map.entry("latestAnswerFeedback", "latest-answer-feedback"),
+                Map.entry("latestRejection", "latest-rejection"),
+                Map.entry("remainingBudget", "remaining-budget"),
+                Map.entry("modelInteractions", "model-interactions"));
     }
 
     private static AgentPromptResourceProperties actionSystemProperties(Path actionSystem) {

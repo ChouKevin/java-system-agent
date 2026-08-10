@@ -4,8 +4,8 @@ Current question:
 Concluded session turns:
 <sessionTurns>
 
-Issued capabilities:
-<capabilities>
+Currently callable planning tools are the only allowed names for the next action:
+<currentlyCallableTools>
 
 Issued candidates:
 <candidates>
@@ -13,7 +13,7 @@ Issued candidates:
 Issued evidence:
 <evidence>
 
-Evidence coverage:
+Historical evidence provenance does not grant planning tool-call permission:
 <evidenceCoverage>
 
 Recorded observations:

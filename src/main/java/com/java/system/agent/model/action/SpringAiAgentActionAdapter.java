@@ -79,12 +79,12 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
         try {
             ChatClientResponse response;
             try {
-                List<org.springframework.ai.tool.ToolCallback> callbacks = callbackAdapter.issuedCallbacks(context);
-                String renderedPrompt = promptRenderer.render(context);
+                IssuedPlanningTools issuedTools = callbackAdapter.issuedTools(context);
+                String renderedPrompt = promptRenderer.render(context, issuedTools.names());
                 promptMetadata = PromptMetadata.rendered(renderedPrompt);
                 response = chatClient.prompt()
                         .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false))
-                        .toolCallbacks(callbacks)
+                        .toolCallbacks(issuedTools.callbacks())
                         .system(promptCatalog.actionSystemInstruction())
                         .user(renderedPrompt)
                         .call()

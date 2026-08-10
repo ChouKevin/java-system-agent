@@ -39,6 +39,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.StringJoiner;
 
 /**
@@ -57,17 +58,20 @@ public final class AgentActionPromptRenderer {
     /**
      * 依 answering collection 的既有順序輸出明確 action context
      */
-    public String render(AgentPromptContext context) {
-        return promptCatalog.renderActionContext(project(context));
+    public String render(AgentPromptContext context, List<String> currentToolNames) {
+        return promptCatalog.renderActionContext(project(context, currentToolNames));
     }
 
-    Map<String, Object> project(AgentPromptContext context) {
+    Map<String, Object> project(AgentPromptContext context, List<String> currentToolNames) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
+        List<String> requiredCurrentToolNames = List.copyOf(Objects.requireNonNull(currentToolNames,
+                "current planning tool names must not be null"));
+        Set<String> currentToolNameSet = Set.copyOf(requiredCurrentToolNames);
         Map<String, Object> projection = new LinkedHashMap<>();
         projection.put("originalQuestion", context.originalQuestion());
         projection.put("sessionTurns", sessionTurns(context));
-        projection.put("capabilities", capabilities(context));
-        projection.put("candidates", candidates(context));
+        projection.put("currentlyCallableTools", currentlyCallableTools(requiredCurrentToolNames));
+        projection.put("candidates", candidates(context, currentToolNameSet));
         projection.put("evidence", evidence(context));
         projection.put("evidenceCoverage", evidenceCoverage(context));
         projection.put("observations", observations(context));
@@ -109,21 +113,19 @@ public final class AgentActionPromptRenderer {
         return turns.toString();
     }
 
-    private static String capabilities(AgentPromptContext context) {
-        StringBuilder capabilities = new StringBuilder();
-        for (Map.Entry<CapabilityHandle, CapabilityPolicy> entry : context.issuedCapabilities().entrySet()) {
-            CapabilityPolicy descriptor = entry.getValue();
-            capabilities.append("- ").append(entry.getKey().value()).append(": ").append(descriptor.name())
-                    .append("@ ").append(descriptor.version()).append('\n');
+    private static String currentlyCallableTools(List<String> currentToolNames) {
+        StringBuilder tools = new StringBuilder();
+        for (String currentToolName : currentToolNames) {
+            tools.append("- ").append(currentToolName).append('\n');
         }
-        return capabilities.toString();
+        return tools.toString();
     }
 
-    private static String candidates(AgentPromptContext context) {
+    private static String candidates(AgentPromptContext context, Set<String> currentToolNames) {
         StringBuilder candidates = new StringBuilder();
         for (Map.Entry<CandidateHandle, IssuedCandidate> entry : context.issuedCandidates().entrySet()) {
             candidates.append("- ").append(entry.getKey().value()).append(": ")
-                    .append(renderCandidate(entry.getValue().candidate())).append('\n');
+                    .append(renderCandidate(entry.getValue().candidate(), currentToolNames)).append('\n');
         }
         return candidates.toString();
     }
@@ -148,13 +150,14 @@ public final class AgentActionPromptRenderer {
         return observations.toString();
     }
 
-    private static String renderCandidate(AnalysisCandidate candidate) {
+    private static String renderCandidate(AnalysisCandidate candidate, Set<String> currentToolNames) {
         String repository = candidate.repositoryId().value() + candidate.repositoryRevision()
                 .map(revision -> "@" + revision.value())
                 .orElse("");
         String selectionMetadata = switch (candidate) {
-            case FollowUpCandidate followUp -> ", targetCapability=" + followUp.targetCapabilityName()
-                    + "@" + followUp.targetCapabilityVersion();
+            case FollowUpCandidate followUp -> currentToolNames.contains(followUp.targetCapabilityName())
+                    ? ", targetCapability=" + followUp.targetCapabilityName() + "@" + followUp.targetCapabilityVersion()
+                    : "";
             case RouteCandidate route -> ", route=" + route.route();
             case SemanticTargetCandidate target -> ", semanticTarget=" + target.semanticTarget().kind()
                     + ":" + target.semanticTarget().key();
@@ -194,9 +197,10 @@ public final class AgentActionPromptRenderer {
                     .distinct()
                     .sorted()
                     .toList();
-            coverage.append("- ").append(capability.name()).append('@').append(capability.version()).append(": ")
-                    .append(evidenceHandles.isEmpty() ? "none" : String.join(",", evidenceHandles))
-                    .append('\n');
+            if (!evidenceHandles.isEmpty()) {
+                coverage.append("- ").append(capability.name()).append('@').append(capability.version()).append(": ")
+                        .append(String.join(",", evidenceHandles)).append('\n');
+            }
         }
         return coverage.toString();
     }

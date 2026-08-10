@@ -71,11 +71,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.core.io.DefaultResourceLoader;
 
@@ -86,6 +89,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
@@ -94,6 +98,7 @@ import java.text.MessageFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -126,7 +131,7 @@ class SpringAiAgentActionAdapterTest {
                         new ActionResult.QuerySucceeded(List.of(), List.of(), List.of()))));
         AgentActionPromptRenderer renderer = mock(AgentActionPromptRenderer.class);
         String renderedPrompt = "PROMPT_SECRET apiKey=TOKEN_SECRET source=evidence secret";
-        when(renderer.render(promptContext)).thenReturn(renderedPrompt);
+        when(renderer.render(promptContext, List.of("callers"))).thenReturn(renderedPrompt);
         CountingChatModel model = new CountingChatModel(toolCall("callers", """
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Changed question secret","rationale":"Changed rationale secret"}
                 """));
@@ -139,7 +144,7 @@ class SpringAiAgentActionAdapterTest {
             assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
             assertThat(model.calls()).isEqualTo(1);
             assertThat(model.lastPrompt().orElseThrow().getUserMessage().getText()).isEqualTo(renderedPrompt);
-            verify(renderer, times(1)).render(promptContext);
+            verify(renderer, times(1)).render(promptContext, List.of("callers"));
             List<String> logMessages = formattedMessages(handler);
             assertThat(logMessages).hasSize(1);
             assertThat(logMessages.getFirst())
@@ -155,6 +160,47 @@ class SpringAiAgentActionAdapterTest {
         } finally {
             releaseActionLogs(handler);
         }
+    }
+
+    @Test
+    void renders_and_sends_the_same_issued_tool_snapshot_once() {
+        AgentPromptContext promptContext = context();
+        PlanningToolRegistry registry = mock(PlanningToolRegistry.class);
+        SpringAiPlanningToolCallbackAdapter callbackAdapter = mock(SpringAiPlanningToolCallbackAdapter.class);
+        AgentActionPromptRenderer renderer = mock(AgentActionPromptRenderer.class);
+        ToolCallback callback = mock(ToolCallback.class);
+        ToolDefinition definition = mock(ToolDefinition.class);
+        when(callback.getToolDefinition()).thenReturn(definition);
+        when(definition.name()).thenReturn("issued_callers");
+        IssuedPlanningTools issued = new IssuedPlanningTools(List.of("issued_callers"), List.of(callback));
+        when(callbackAdapter.issuedTools(promptContext)).thenReturn(issued);
+        when(renderer.render(promptContext, issued.names())).thenReturn("snapshot-rendered-context");
+        AgentActionProposal expected = new AgentActionProposal.Malformed("INVALID_TOOL_INPUT");
+        when(registry.interpretToolCall("issued_callers", "{}", promptContext)).thenReturn(expected);
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.CallResponseSpec responseSpec = mock(ChatClient.CallResponseSpec.class);
+        ChatClientResponse response = new ChatClientResponse(new ChatResponse(List.of(new Generation(
+                toolCall("issued_callers", "{}")))), Map.of());
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.advisors(any(Consumer.class))).thenReturn(requestSpec);
+        when(requestSpec.toolCallbacks(issued.callbacks())).thenReturn(requestSpec);
+        when(requestSpec.system("resource system")).thenReturn(requestSpec);
+        when(requestSpec.user("snapshot-rendered-context")).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(responseSpec);
+        when(responseSpec.chatClientResponse()).thenReturn(response);
+        PromptResourceCatalog catalog = stubPromptCatalog();
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(chatClient, registry,
+                callbackAdapter, renderer, catalog);
+
+        AgentActionProposal proposal = adapter.nextAction(promptContext);
+
+        assertThat(proposal).isEqualTo(expected);
+        verify(callbackAdapter, times(1)).issuedTools(promptContext);
+        verify(renderer, times(1)).render(promptContext, issued.names());
+        verify(requestSpec).toolCallbacks(issued.callbacks());
+        verify(requestSpec, times(1)).call();
+        verify(registry).interpretToolCall("issued_callers", "{}", promptContext);
     }
 
     @Test
@@ -490,7 +536,7 @@ class SpringAiAgentActionAdapterTest {
         AgentPromptContext promptContext = context();
         PlanningToolRegistry registry = mock(PlanningToolRegistry.class);
         SpringAiPlanningToolCallbackAdapter callbacks = mock(SpringAiPlanningToolCallbackAdapter.class);
-        when(callbacks.issuedCallbacks(promptContext)).thenReturn(List.of());
+        when(callbacks.issuedTools(promptContext)).thenReturn(new IssuedPlanningTools(List.of(), List.of()));
         AgentActionProposal expected = new AgentActionProposal.Malformed("INVALID_TOOL_INPUT");
         when(registry.interpretToolCall("callers", rawArguments, promptContext)).thenReturn(expected);
         CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
@@ -512,7 +558,7 @@ class SpringAiAgentActionAdapterTest {
         AgentPromptContext promptContext = context();
         PlanningToolRegistry registry = mock(PlanningToolRegistry.class);
         SpringAiPlanningToolCallbackAdapter callbacks = mock(SpringAiPlanningToolCallbackAdapter.class);
-        when(callbacks.issuedCallbacks(promptContext)).thenReturn(List.of());
+        when(callbacks.issuedTools(promptContext)).thenReturn(new IssuedPlanningTools(List.of(), List.of()));
         CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
                 .content("I will query it")
                 .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "callers", "{}")))
@@ -630,6 +676,7 @@ class SpringAiAgentActionAdapterTest {
                 new SpringAiPlanningToolSchemaFactory(), catalog);
         SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry,
                 callbacks, new AgentActionPromptRenderer(catalog), catalog);
+        IssuedPlanningTools issued = callbacks.issuedTools(context());
 
         AgentActionProposal proposal = adapter.nextAction(context());
 
@@ -638,10 +685,10 @@ class SpringAiAgentActionAdapterTest {
         Prompt prompt = model.lastPrompt().orElseThrow();
         assertThat(prompt.getSystemMessage().getText()).isNotBlank();
         assertThat(prompt.getUserMessage().getText()).isNotBlank();
-        assertThat(callbacks.issuedCallbacks(context()))
+        assertThat(issued.callbacks())
                 .extracting(callback -> callback.getToolDefinition().name())
                 .containsExactlyInAnyOrder("callers", "agent_submit_answer", "agent_request_clarification", "execute_http");
-        assertThat(callbacks.issuedCallbacks(context()))
+        assertThat(issued.callbacks())
                 .allSatisfy(callback -> assertThat(callback.getToolDefinition().inputSchema()).isNotBlank());
     }
 
