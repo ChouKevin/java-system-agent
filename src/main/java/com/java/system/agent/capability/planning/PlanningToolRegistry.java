@@ -206,6 +206,9 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
             throw new IllegalArgumentException("candidate-bound planning tools must be QUERY categories");
         }
         CapabilityPolicy requiredPolicy = Objects.requireNonNull(policy, "candidate-bound policy must not be null");
+        if (requiredPolicy.minimumCandidates() > 1 || requiredPolicy.maximumCandidates() < 1) {
+            throw new IllegalArgumentException("candidate-bound capability must permit exactly one candidate");
+        }
         Class<P> requiredPlanningInputType = Objects.requireNonNull(planningInputType,
                 "candidate-bound planning input type must not be null");
         Class<E> requiredExecutionInputType = Objects.requireNonNull(executionInputType,

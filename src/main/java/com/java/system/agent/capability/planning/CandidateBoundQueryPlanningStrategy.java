@@ -26,6 +26,8 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
     private static final String INVALID_CANDIDATE_SELECTION = "reason=CANDIDATE_SELECTION; "
             + "invalidFields=[candidateHandles]; "
             + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]";
+    private static final String CANDIDATE_INPUT_REASON = "reason=CANDIDATE_INPUT; invalidFields=[%s]; "
+            + "constraints=[%s:NotBlank]";
 
     private final CapabilityPolicy policy;
     private final Class<E> executionInputType;
@@ -57,6 +59,7 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
     public AgentAction toAction(P input, AgentPromptContext context) {
         Objects.requireNonNull(input, "candidate-bound planning input must not be null");
         Objects.requireNonNull(context, "agent prompt context must not be null");
+        validatePlanningText(input);
         CandidateHandleRef reference = selectedReference(input);
         Map.Entry<CandidateHandle, IssuedCandidate> selected = selectedCandidate(context, reference);
         CapabilityHandle capability = currentCapability(context).orElseThrow(
@@ -128,6 +131,19 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
         return new CandidateHandleRef(handle);
     }
 
+    private static void validatePlanningText(CandidateBoundPlanningInput input) {
+        if (isBlank(input.questionToResolve())) {
+            throw invalidCandidateInput("questionToResolve");
+        }
+        if (isBlank(input.rationale())) {
+            throw invalidCandidateInput("rationale");
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return Objects.isNull(value) || value.isBlank();
+    }
+
     private static Map.Entry<CandidateHandle, IssuedCandidate> selectedCandidate(
             AgentPromptContext context,
             CandidateHandleRef reference) {
@@ -147,6 +163,10 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
 
     private static PlanningToolInputException invalidCandidateSelection() {
         return PlanningToolInputException.safeDiagnostic(INVALID_CANDIDATE_SELECTION);
+    }
+
+    private static PlanningToolInputException invalidCandidateInput(String invalidField) {
+        return PlanningToolInputException.safeDiagnostic(CANDIDATE_INPUT_REASON.formatted(invalidField, invalidField));
     }
 }
 

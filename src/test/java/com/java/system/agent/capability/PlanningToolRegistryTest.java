@@ -358,6 +358,53 @@ class PlanningToolRegistryTest {
                         "candidate-semantic-target-old", false, notIssued));
     }
 
+    @ParameterizedTest(name = "rejects blank {0} without leaking model input")
+    @MethodSource("candidateBoundBlankTextInputs")
+    void rejectsBlankCandidateBoundQuestionAndRationaleAsSafeInvalidToolInput(
+            String invalidField,
+            String questionToResolve,
+            String rationale) {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = candidateBoundRegistry(executorCalls);
+
+        AgentActionProposal proposal = registry.interpretToolCall("candidate_bound_test",
+                candidateBoundInput("candidate-sensitive-handle", questionToResolve, rationale, 2),
+                contextWithDirectSemanticCandidate());
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=candidate_bound_test; reason=CANDIDATE_INPUT; "
+                        + "invalidFields=[%s]; constraints=[%s:NotBlank]".formatted(invalidField, invalidField)));
+        assertThat(proposal.toString()).doesNotContain("candidate-sensitive-handle", "question-secret", "rationale-secret");
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    private static Stream<Arguments> candidateBoundBlankTextInputs() {
+        return Stream.of(
+                Arguments.of("questionToResolve", "   ", "rationale-secret"),
+                Arguments.of("rationale", "question-secret", "  "));
+    }
+
+    @ParameterizedTest(name = "rejects candidate cardinality {0}")
+    @MethodSource("candidateBoundIncompatibleCardinalities")
+    void rejectsCandidateBoundRegistrationWhenPolicyCannotRepresentOneSelectedCandidate(
+            String scenario,
+            int minimumCandidates,
+            int maximumCandidates) {
+        assertThatThrownBy(() -> PlanningToolRegistry.candidateBoundRegistration(
+                PlanningToolCategory.QUERY, candidateBoundPolicy(minimumCandidates, maximumCandidates),
+                TestCandidateBoundInput.class, TestExecutionInput.class, candidateBoundPlanner(),
+                (executionContext, input) -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
+                payloadCodec()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("candidate-bound capability must permit exactly one candidate");
+    }
+
+    private static Stream<Arguments> candidateBoundIncompatibleCardinalities() {
+        return Stream.of(
+                Arguments.of("below one", 0, 0),
+                Arguments.of("above one", 2, 2));
+    }
+
     private static PlanningToolRegistry registry() {
         CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
         return registry(List.of(provider(List.of(
@@ -390,7 +437,17 @@ class PlanningToolRegistryTest {
     }
 
     private static PlanningToolRegistry candidateBoundRegistry(AtomicInteger executorCalls) {
-        CandidateBoundExecutionPlanner<TestCandidateBoundInput, TestExecutionInput> planner =
+        return registry(List.of(provider(List.of(PlanningToolRegistry.candidateBoundRegistration(
+                PlanningToolCategory.QUERY, candidateBoundPolicy(), TestCandidateBoundInput.class, TestExecutionInput.class,
+                candidateBoundPlanner(),
+                (executionContext, input) -> {
+                    executorCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+                }, payloadCodec())))));
+    }
+
+    private static CandidateBoundExecutionPlanner<TestCandidateBoundInput, TestExecutionInput> candidateBoundPlanner() {
+        return
                 new CandidateBoundExecutionPlanner<>() {
                     @Override
                     public boolean supportsDirectCandidate(com.java.system.agent.answering.domain.candidate.AnalysisCandidate candidate) {
@@ -411,13 +468,6 @@ class PlanningToolRegistryTest {
                         return new TestExecutionInput(providerInput.target(), input.option());
                     }
                 };
-        return registry(List.of(provider(List.of(PlanningToolRegistry.candidateBoundRegistration(
-                PlanningToolCategory.QUERY, candidateBoundPolicy(), TestCandidateBoundInput.class, TestExecutionInput.class,
-                planner,
-                (executionContext, input) -> {
-                    executorCalls.incrementAndGet();
-                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
-                }, payloadCodec())))));
     }
 
     private static PlanningToolRegistry registry(
@@ -533,8 +583,12 @@ class PlanningToolRegistryTest {
     }
 
     private static CapabilityPolicy candidateBoundPolicy() {
+        return candidateBoundPolicy(0, 1);
+    }
+
+    private static CapabilityPolicy candidateBoundPolicy(int minimumCandidates, int maximumCandidates) {
         return new CapabilityPolicy("candidate_bound_test", "v1",
-                Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP), 0, 1);
+                Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP), minimumCandidates, maximumCandidates);
     }
 
     private static CapabilityHandle candidateBoundCapabilityHandle() {
@@ -601,12 +655,16 @@ class PlanningToolRegistryTest {
     }
 
     private static String candidateBoundInput(String handle, int option) {
+        return candidateBoundInput(handle, "Find callers", "The selected candidate defines the scope", option);
+    }
+
+    private static String candidateBoundInput(String handle, String questionToResolve, String rationale, int option) {
         return """
                 {"candidateHandles":["%s"],
-                 "questionToResolve":"Find callers",
-                 "rationale":"The selected candidate defines the scope",
+                 "questionToResolve":"%s",
+                 "rationale":"%s",
                  "option":%d}
-                """.formatted(handle, option);
+                """.formatted(handle, questionToResolve, rationale, option);
     }
 
     private static CanonicalCapabilityPayloadCodec payloadCodec() {
