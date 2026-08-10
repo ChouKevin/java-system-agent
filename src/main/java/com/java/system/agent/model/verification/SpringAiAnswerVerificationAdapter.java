@@ -1,6 +1,7 @@
 package com.java.system.agent.model.verification;
 
 import com.java.system.agent.model.ModelTransportFailureClassifier;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import com.java.system.agent.model.verification.dto.AnswerVerdictResponse;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
@@ -25,17 +26,18 @@ public final class SpringAiAnswerVerificationAdapter implements AnswerVerificati
     private static final Logger LOGGER = Logger.getLogger(SpringAiAnswerVerificationAdapter.class.getName());
 
     private final ChatClient chatClient;
+    private final PromptResourceCatalog promptCatalog;
     private final BeanOutputConverter<AnswerVerdictResponse> converter;
     private final AnswerVerificationPromptRenderer promptRenderer;
     private final AnswerVerdictResponseInterpreter interpreter;
 
-    public SpringAiAnswerVerificationAdapter(ChatClient chatClient) {
-        this(chatClient, new AnswerVerificationPromptRenderer(), new AnswerVerdictResponseInterpreter());
-    }
-
-    SpringAiAnswerVerificationAdapter(ChatClient chatClient, AnswerVerificationPromptRenderer promptRenderer,
-                                      AnswerVerdictResponseInterpreter interpreter) {
+    public SpringAiAnswerVerificationAdapter(
+            ChatClient chatClient,
+            PromptResourceCatalog promptCatalog,
+            AnswerVerificationPromptRenderer promptRenderer,
+            AnswerVerdictResponseInterpreter interpreter) {
         this.chatClient = Objects.requireNonNull(chatClient, "chat client must not be null");
+        this.promptCatalog = Objects.requireNonNull(promptCatalog, "prompt resource catalog must not be null");
         this.promptRenderer = Objects.requireNonNull(promptRenderer, "answer verification prompt renderer must not be null");
         this.interpreter = Objects.requireNonNull(interpreter, "answer verdict response interpreter must not be null");
         this.converter = new BeanOutputConverter<>(AnswerVerdictResponse.class);
@@ -58,7 +60,7 @@ public final class SpringAiAnswerVerificationAdapter implements AnswerVerificati
         String content;
         try {
             try {
-                content = chatClient.prompt().system(AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION)
+                content = chatClient.prompt().system(promptCatalog.verificationSystemInstruction())
                         .user(promptRenderer.render(context, converter.getFormat())).call().content();
             } catch (ExternalExecutionDeferredException exception) {
                 throw exception;
@@ -78,14 +80,15 @@ public final class SpringAiAnswerVerificationAdapter implements AnswerVerificati
                 throw new AnswerVerificationUnavailableException(UNAVAILABLE, exception);
             }
         } finally {
-            logOperation(resultCategory, startedNanos);
+            logOperation(resultCategory, startedNanos, promptCatalog.catalogDigest());
         }
     }
 
-    private static void logOperation(String resultCategory, long startedNanos) {
+    private static void logOperation(String resultCategory, long startedNanos, String catalogSha256) {
         Level level = "LLM_VERDICT".equals(resultCategory) ? Level.INFO : Level.WARNING;
-        LOGGER.log(level, "answer verifier operation=VERIFY resultCategory={0} elapsedMs={1}",
-                new Object[]{resultCategory, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos)});
+        LOGGER.log(level, "answer verifier operation=VERIFY resultCategory={0} elapsedMs={1} catalogSha256={2}",
+                new Object[]{resultCategory, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos),
+                        catalogSha256});
     }
 
     private static String category(RuntimeException exception) {

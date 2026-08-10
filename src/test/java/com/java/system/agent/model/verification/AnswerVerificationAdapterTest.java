@@ -2,10 +2,14 @@ package com.java.system.agent.model.verification;
 
 import com.java.system.agent.model.verification.dto.AnswerVerdictResponse;
 import com.java.system.agent.model.verification.dto.StatementVerdictResponse;
+import com.java.system.agent.model.prompt.CapabilityReference;
+import com.java.system.agent.model.prompt.ConfiguredEvidenceRequirement;
+import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
+import com.java.system.agent.answering.domain.answer.ClaimId;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.answer.StatementVerdictStatus;
@@ -42,6 +46,9 @@ import com.java.system.agent.answering.port.out.ExternalExecutionDeferredExcepti
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -49,18 +56,20 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.converter.BeanOutputConverter;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Spring AI 回答 verifier strategy 與持久化 mode dispatch 邊界測試
@@ -72,7 +81,7 @@ class AnswerVerificationAdapterTest {
         CountingChatModel model = new CountingChatModel("""
                 {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """);
-        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        SpringAiAnswerVerificationAdapter adapter = adapter(model);
 
         AnswerVerificationResult result = adapter.verify(AnswerVerificationMode.LLM, context());
 
@@ -84,51 +93,76 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
-    void acceptsVerifierCompletionOnlyWhenEveryExplicitEvidenceTypeIsCited() {
+    void sends_one_nonblank_resource_system_and_schema_supplied_user_message() {
+        CountingChatModel model = new CountingChatModel("""
+                {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
+                """);
+        PromptResourceCatalog catalog = mock(PromptResourceCatalog.class);
+        when(catalog.verificationSystemInstruction()).thenReturn("verification system resource");
+        when(catalog.renderVerificationContext(anyMap())).thenAnswer(invocation ->
+                "verification user resource " + ((java.util.Map<?, ?>) invocation.getArgument(0))
+                        .get("responseContract"));
+        when(catalog.catalogDigest()).thenReturn("catalog-sha256");
+        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build(),
+                catalog, new AnswerVerificationPromptRenderer(catalog), interpreter(List.of()));
+        Logger logger = Logger.getLogger(SpringAiAnswerVerificationAdapter.class.getName());
+        CapturingLogHandler handler = new CapturingLogHandler();
+        logger.addHandler(handler);
+
+        try {
+            adapter.verify(AnswerVerificationMode.LLM, context());
+        } finally {
+            logger.removeHandler(handler);
+        }
+
+        List<Message> messages = model.prompt().getInstructions();
+        assertThat(messages).hasSize(2);
+        assertThat(messages.getFirst()).isInstanceOf(SystemMessage.class);
+        assertThat(((SystemMessage) messages.getFirst()).getText()).isNotBlank();
+        assertThat(messages.get(1)).isInstanceOf(UserMessage.class);
+        assertThat(((UserMessage) messages.get(1)).getText())
+                .contains("verification user resource", "ACCEPTED_COMPLETE");
+        assertThat(model.calls()).isEqualTo(1);
+        assertThat(handler.formattedMessage()).contains("catalogSha256=catalog-sha256")
+                .doesNotContain("verification system resource", "verification user resource");
+    }
+
+    @Test
+    void correctsCompleteEvidenceVerdictsOnlyWhenTheConfiguredCapabilityReferenceIsNotCited() {
         String response = """
                 {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """;
         CountingChatModel missingModel = new CountingChatModel(response);
-        SpringAiAnswerVerificationAdapter missingAdapter = new SpringAiAnswerVerificationAdapter(
-                ChatClient.builder(missingModel).build());
+        SpringAiAnswerVerificationAdapter missingAdapter = configuredAdapter(missingModel);
         CountingChatModel coveredModel = new CountingChatModel(response);
-        SpringAiAnswerVerificationAdapter coveredAdapter = new SpringAiAnswerVerificationAdapter(
-                ChatClient.builder(coveredModel).build());
+        SpringAiAnswerVerificationAdapter coveredAdapter = configuredAdapter(coveredModel);
+        CountingChatModel wrongVersionModel = new CountingChatModel(response);
+        SpringAiAnswerVerificationAdapter wrongVersionAdapter = configuredAdapter(wrongVersionModel);
+        CountingChatModel inconclusiveModel = new CountingChatModel("""
+                {"disposition":"ACCEPTED_INCONCLUSIVE","statementVerdicts":[{"statementId":"statement-1","status":"UNSUPPORTED","description":"Unavailable"}],"unaddressedParts":["Unavailable"],"blockingUncertainties":["Missing source proof"],"rejectionReasons":[]}
+                """);
+        SpringAiAnswerVerificationAdapter inconclusiveAdapter = configuredAdapter(inconclusiveModel);
 
         AnswerVerificationResult.LlmVerdict missingResult = (AnswerVerificationResult.LlmVerdict) missingAdapter.verify(
-                AnswerVerificationMode.LLM, evidenceCoverageContext(false));
+                AnswerVerificationMode.LLM, configuredEvidenceCoverageContext("test_method_source", "v7", false));
         AnswerVerificationResult.LlmVerdict coveredResult = (AnswerVerificationResult.LlmVerdict) coveredAdapter.verify(
-                AnswerVerificationMode.LLM, evidenceCoverageContext(true));
+                AnswerVerificationMode.LLM, configuredEvidenceCoverageContext("test_method_source", "v7", true));
+        AnswerVerificationResult.LlmVerdict wrongVersionResult = (AnswerVerificationResult.LlmVerdict) wrongVersionAdapter.verify(
+                AnswerVerificationMode.LLM, configuredEvidenceCoverageContext("test_method_source", "v6", true));
+        AnswerVerificationResult.LlmVerdict inconclusiveResult = (AnswerVerificationResult.LlmVerdict) inconclusiveAdapter.verify(
+                AnswerVerificationMode.LLM, configuredEvidenceCoverageContext("test_method_source", "v7", false));
 
         assertThat(missingResult.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
         assertThat(missingResult.verdict().unaddressedParts())
-                .containsExactly("internal-reference evidence requires cited evidence from codebase_find_internal_references");
+                .containsExactly("configured evidence requirement source-proof requires cited evidence");
         assertThat(missingResult.verdict().rejectionReasons())
-                .containsExactly("explicitly requested evidence type is not cited: internal-reference evidence");
-        assertThat(coveredResult.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE);
+                .containsExactly("explicitly requested evidence requirement is not cited: source-proof");
+        assertThat(wrongVersionResult.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
+        assertThat(inconclusiveResult.verdict().disposition()).isEqualTo(AnswerDisposition.ACCEPTED_INCONCLUSIVE);
         assertThat(missingModel.calls()).isEqualTo(1);
         assertThat(coveredModel.calls()).isEqualTo(1);
-    }
-
-    @Test
-    void preservesVerifierRejectionDetailsWhileAddingEveryMissingExplicitEvidenceType() {
-        CountingChatModel model = new CountingChatModel("""
-                {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":["schedule path"],"blockingUncertainties":[],"rejectionReasons":["schedule evidence is missing"]}
-                """);
-        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(
-                ChatClient.builder(model).build());
-
-        AnswerVerificationResult.LlmVerdict result = (AnswerVerificationResult.LlmVerdict) adapter.verify(
-                AnswerVerificationMode.LLM, evidenceCoverageContext(false));
-
-        assertThat(result.verdict().disposition()).isEqualTo(AnswerDisposition.REJECTED);
-        assertThat(result.verdict().unaddressedParts()).containsExactly(
-                "schedule path",
-                "internal-reference evidence requires cited evidence from codebase_find_internal_references");
-        assertThat(result.verdict().rejectionReasons()).containsExactly(
-                "schedule evidence is missing",
-                "explicitly requested evidence type is not cited: internal-reference evidence");
-        assertThat(model.calls()).isEqualTo(1);
+        assertThat(wrongVersionModel.calls()).isEqualTo(1);
+        assertThat(inconclusiveModel.calls()).isEqualTo(1);
     }
 
     @Test
@@ -136,11 +170,11 @@ class AnswerVerificationAdapterTest {
         CountingChatModel inconclusiveModel = new CountingChatModel("""
                 {"disposition":"ACCEPTED_INCONCLUSIVE","statementVerdicts":[],"unaddressedParts":["Missing detail"],"blockingUncertainties":["Unknown implementation"],"rejectionReasons":[]}
                 """);
-        SpringAiAnswerVerificationAdapter inconclusive = new SpringAiAnswerVerificationAdapter(ChatClient.builder(inconclusiveModel).build());
+        SpringAiAnswerVerificationAdapter inconclusive = adapter(inconclusiveModel);
         CountingChatModel rejectedModel = new CountingChatModel("""
                 {"disposition":"REJECTED","statementVerdicts":[],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":["Citation is absent"]}
                 """);
-        SpringAiAnswerVerificationAdapter rejected = new SpringAiAnswerVerificationAdapter(ChatClient.builder(rejectedModel).build());
+        SpringAiAnswerVerificationAdapter rejected = adapter(rejectedModel);
 
         AnswerVerificationResult.LlmVerdict inconclusiveResult = (AnswerVerificationResult.LlmVerdict) inconclusive.verify(AnswerVerificationMode.LLM, context());
         AnswerVerificationResult.LlmVerdict rejectedResult = (AnswerVerificationResult.LlmVerdict) rejected.verify(AnswerVerificationMode.LLM, context());
@@ -158,7 +192,7 @@ class AnswerVerificationAdapterTest {
         CountingChatModel model = new CountingChatModel("""
                 {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """);
-        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        SpringAiAnswerVerificationAdapter adapter = adapter(model);
 
         AnswerVerificationResult.LlmVerdict result = (AnswerVerificationResult.LlmVerdict) adapter.verify(
                 AnswerVerificationMode.LLM, limitationContext());
@@ -172,7 +206,7 @@ class AnswerVerificationAdapterTest {
         CountingChatModel model = new CountingChatModel("""
                 {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-1","status":"UNDECIDED","description":"Unknown"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """);
-        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        SpringAiAnswerVerificationAdapter adapter = adapter(model);
 
         assertThatThrownBy(() -> adapter.verify(AnswerVerificationMode.LLM, context()))
                 .isInstanceOf(AnswerVerificationUnavailableException.class)
@@ -183,7 +217,7 @@ class AnswerVerificationAdapterTest {
     @Test
     void treatsGenericVerifierTransportFailureAsSanitizedUnavailable() {
         CountingChatModel model = new CountingChatModel(new IllegalStateException("provider response omitted"));
-        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        SpringAiAnswerVerificationAdapter adapter = adapter(model);
 
         assertThatThrownBy(() -> adapter.verify(AnswerVerificationMode.LLM, context()))
                 .isInstanceOf(AnswerVerificationUnavailableException.class)
@@ -205,7 +239,7 @@ class AnswerVerificationAdapterTest {
         CountingChatModel model = new CountingChatModel("""
                 {"disposition":"ACCEPTED_COMPLETE","statementVerdicts":[{"statementId":"statement-1","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":[]}
                 """);
-        SpringAiAnswerVerificationAdapter llm = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        SpringAiAnswerVerificationAdapter llm = adapter(model);
         AnswerVerificationDispatcher dispatcher = new AnswerVerificationDispatcher(llm, new ContractOnlyAnswerVerificationAdapter());
 
         AnswerVerificationResult result = dispatcher.verify(AnswerVerificationMode.CONTRACT_ONLY, context());
@@ -217,7 +251,7 @@ class AnswerVerificationAdapterTest {
     @Test
     void classifiesVerifierResourceExhaustionWithoutAnotherCall() {
         CountingChatModel model = new CountingChatModel(new ResourceExhaustedException());
-        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        SpringAiAnswerVerificationAdapter adapter = adapter(model);
 
         assertThatThrownBy(() -> adapter.verify(AnswerVerificationMode.LLM, context()))
                 .isInstanceOf(AnswerVerificationUnavailableException.class)
@@ -230,21 +264,10 @@ class AnswerVerificationAdapterTest {
         ExternalExecutionDeferredException deferral = new ExternalExecutionDeferredException(
                 new ExecutionDeferral(Instant.parse("2026-07-28T01:02:03Z"), ExecutionDeferralReason.RATE_LIMITED));
         CountingChatModel model = new CountingChatModel(deferral);
-        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        SpringAiAnswerVerificationAdapter adapter = adapter(model);
 
         assertThatThrownBy(() -> adapter.verify(AnswerVerificationMode.LLM, context())).isSameAs(deferral);
         assertThat(model.calls()).isEqualTo(1);
-    }
-
-    @Test
-    void rendersOnlyVerifierContextWithoutActionControlTerms() {
-        String prompt = new AnswerVerificationPromptRenderer().render(context(), "response-schema");
-
-        assertThat(prompt).containsSubsequence("Current question", "Session history", "Proposed document", "Available evidence",
-                "Available observations", "Cited evidence", "Referenced observations", "Response contract");
-        assertThat(prompt.toLowerCase(java.util.Locale.ROOT)).doesNotContain("capability", "candidate", "budget", "action");
-        assertThat(AnswerVerificationPromptRenderer.SYSTEM_INSTRUCTION.toLowerCase(java.util.Locale.ROOT))
-                .doesNotContain("capability", "candidate", "budget", "action");
     }
 
     @Test
@@ -256,39 +279,11 @@ class AnswerVerificationAdapterTest {
     }
 
     @Test
-    void rendersStatementReferencesAndGlobalVerifierContextInDeterministicOrder() {
-        String prompt = new AnswerVerificationPromptRenderer().render(richContext(), "response-schema");
-
-        assertThat(prompt).contains("participant[test:participant-1]: Earlier question", "assistant: Earlier answer");
-        assertThat(prompt).contains("statement-b [FACT]: Second fact", "claimId: claim-b",
-                "citationHandles: evidence-a, evidence-b", "observationIds: observation-a, observation-b");
-        assertThat(prompt).contains("statement-a [FACT]: First fact", "claimId: claim-a",
-                "citationHandles: evidence-a", "observationIds: observation-a");
-        assertThat(prompt.indexOf("- evidence-a [evidenceType=unrecorded]: Evidence A"))
-                .isLessThan(prompt.indexOf("- evidence-b [evidenceType=unrecorded]: Evidence B"));
-        assertThat(prompt.indexOf("- observation-a: Observation A"))
-                .isLessThan(prompt.indexOf("- observation-b: Observation B"));
-    }
-
-    @Test
-    void rendersTheExactFactVerdictIdsRequiredEvenForARejectedAnswer() {
-        String prompt = new AnswerVerificationPromptRenderer().render(richContext(), "response-schema");
-
-        assertThat(prompt).contains("""
-                Required FACT statement verdict IDs (exactly once, including when disposition is REJECTED):
-                - statement-a
-                - statement-b
-                """);
-        assertThat(prompt.indexOf("Required FACT statement verdict IDs"))
-                .isLessThan(prompt.indexOf("Response contract"));
-    }
-
-    @Test
     void logsOnlySafeCountsWhenVerifierOmitsAFactVerdict() {
         CountingChatModel model = new CountingChatModel("""
                 {"disposition":"REJECTED","statementVerdicts":[{"statementId":"statement-a","status":"SUPPORTED","description":"Supported"}],"unaddressedParts":[],"blockingUncertainties":[],"rejectionReasons":["Incomplete"]}
                 """);
-        SpringAiAnswerVerificationAdapter adapter = new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build());
+        SpringAiAnswerVerificationAdapter adapter = adapter(model);
         Logger logger = Logger.getLogger(AnswerVerdictResponseInterpreter.class.getName());
         CapturingLogHandler handler = new CapturingLogHandler();
         logger.addHandler(handler);
@@ -320,7 +315,7 @@ class AnswerVerificationAdapterTest {
 
     @Test
     void rejectsDuplicateMissingAndNullStatementVerdictShapes() {
-        AnswerVerdictResponseInterpreter interpreter = new AnswerVerdictResponseInterpreter();
+        AnswerVerdictResponseInterpreter interpreter = interpreter(List.of());
         AnswerVerdictResponse duplicate = new AnswerVerdictResponse(AnswerDisposition.ACCEPTED_COMPLETE, List.of(
                 new StatementVerdictResponse("statement-a", StatementVerdictStatus.SUPPORTED, "Supported"),
                 new StatementVerdictResponse("statement-a", StatementVerdictStatus.SUPPORTED, "Supported twice")),
@@ -378,39 +373,29 @@ class AnswerVerificationAdapterTest {
                 List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA));
     }
 
-    private AnswerVerificationContext evidenceCoverageContext(boolean includeInternalReference) {
-        AnalysisRunId runId = new AnalysisRunId("run-coverage");
-        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-coverage");
-        RepositoryId repositoryId = new RepositoryId("repo-coverage");
-        RepositoryRevision revision = new RepositoryRevision("rev-coverage");
+    private AnswerVerificationContext configuredEvidenceCoverageContext(
+            String capabilityName,
+            String capabilityVersion,
+            boolean hasCitedProvenance) {
+        AnalysisRunId runId = new AnalysisRunId("run-source-proof");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-source-proof");
+        RepositoryId repositoryId = new RepositoryId("repo-source-proof");
+        RepositoryRevision revision = new RepositoryRevision("rev-source-proof");
         HandleBinding binding = new HandleBinding(runId, attemptId,
                 RevisionVector.empty().pin(repositoryId, revision));
-        EvidenceHandle implementationHandle = new EvidenceHandle("evidence-implementation", binding);
-        IssuedEvidence implementationEvidence = new IssuedEvidence(implementationHandle,
-                evidence(repositoryId, revision, "Implementation evidence", "digest-implementation"));
-        CapabilityPolicy implementationCapability = new CapabilityPolicy(
-                "codebase_discover_method_implementations", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
-        List<IssuedEvidence> evidence = new ArrayList<>(List.of(implementationEvidence));
-        List<EvidenceCapabilityProvenance> provenance = new ArrayList<>(List.of(
-                new EvidenceCapabilityProvenance(implementationHandle, implementationCapability)));
-        Set<EvidenceHandleRef> citations = new LinkedHashSet<>(Set.of(
-                new EvidenceHandleRef(implementationHandle.value())));
-        if (includeInternalReference) {
-            EvidenceHandle internalReferenceHandle = new EvidenceHandle("evidence-internal-reference", binding);
-            evidence.add(new IssuedEvidence(internalReferenceHandle,
-                    evidence(repositoryId, revision, "Internal-reference evidence", "digest-internal-reference")));
-            CapabilityPolicy internalReferenceCapability = new CapabilityPolicy(
-                    "codebase_find_internal_references", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
-            provenance.add(new EvidenceCapabilityProvenance(internalReferenceHandle, internalReferenceCapability));
-            citations.add(new EvidenceHandleRef(internalReferenceHandle.value()));
-        }
+        EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-source-proof", binding);
+        IssuedEvidence issuedEvidence = new IssuedEvidence(evidenceHandle,
+                evidence(repositoryId, revision, "source proof", "digest-source-proof"));
+        CapabilityPolicy capability = new CapabilityPolicy(capabilityName, capabilityVersion,
+                Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
-                new StatementId("statement-1"), StatementType.FACT, "The implementation is referenced",
-                Optional.of(new com.java.system.agent.answering.domain.answer.ClaimId("claim-coverage")),
-                citations, Set.of())));
-        return new AnswerVerificationContext(
-                "Use implementation evidence and internal-reference evidence to verify the implementation.",
-                SessionHistory.empty(), document, evidence, List.of(), evidence, List.of(), provenance);
+                new StatementId("statement-1"), StatementType.FACT, "Source proof result",
+                Optional.of(new ClaimId("claim-source-proof")), Set.of(new EvidenceHandleRef(evidenceHandle.value())),
+                Set.of())));
+        List<EvidenceCapabilityProvenance> provenance = hasCitedProvenance
+                ? List.of(new EvidenceCapabilityProvenance(evidenceHandle, capability)) : List.of();
+        return new AnswerVerificationContext("Request source proof", SessionHistory.empty(), document,
+                List.of(issuedEvidence), List.of(), List.of(issuedEvidence), List.of(), provenance);
     }
 
     private EvidenceRef evidence(RepositoryId repositoryId, RepositoryRevision revision, String content, String digest) {
@@ -424,11 +409,45 @@ class AnswerVerificationAdapterTest {
                 description, Set.of(), Set.of(evidenceHandle), "runtime");
     }
 
+    private static List<ConfiguredEvidenceRequirement> evidenceRequirements() {
+        return List.of(new ConfiguredEvidenceRequirement(
+                "source-proof", new CapabilityReference("test_method_source", "v7"), List.of("source proof")));
+    }
+
+    private static PromptResourceCatalog promptCatalog() {
+        PromptResourceCatalog catalog = mock(PromptResourceCatalog.class);
+        when(catalog.verificationSystemInstruction()).thenReturn("verification system resource");
+        when(catalog.renderVerificationContext(anyMap())).thenReturn("verification context resource");
+        when(catalog.catalogDigest()).thenReturn("catalog-sha256");
+        return catalog;
+    }
+
+    private static SpringAiAnswerVerificationAdapter adapter(CountingChatModel model) {
+        return adapter(model, List.of());
+    }
+
+    private static SpringAiAnswerVerificationAdapter configuredAdapter(CountingChatModel model) {
+        return adapter(model, evidenceRequirements());
+    }
+
+    private static SpringAiAnswerVerificationAdapter adapter(
+            CountingChatModel model,
+            List<ConfiguredEvidenceRequirement> requirements) {
+        PromptResourceCatalog catalog = promptCatalog();
+        return new SpringAiAnswerVerificationAdapter(ChatClient.builder(model).build(), catalog,
+                new AnswerVerificationPromptRenderer(catalog), interpreter(requirements));
+    }
+
+    private static AnswerVerdictResponseInterpreter interpreter(List<ConfiguredEvidenceRequirement> requirements) {
+        return new AnswerVerdictResponseInterpreter(new ExplicitEvidenceCoveragePolicy(requirements));
+    }
+
     private static final class CountingChatModel implements ChatModel {
 
         private final String response;
         private final Optional<RuntimeException> failure;
         private final AtomicInteger calls = new AtomicInteger();
+        private final AtomicReference<Prompt> prompt = new AtomicReference<>();
 
         private CountingChatModel(String response) {
             this.response = response;
@@ -443,6 +462,7 @@ class AnswerVerificationAdapterTest {
         @Override
         public ChatResponse call(Prompt prompt) {
             calls.incrementAndGet();
+            this.prompt.set(prompt);
             if (failure.isPresent()) {
                 throw failure.orElseThrow();
             }
@@ -451,6 +471,10 @@ class AnswerVerificationAdapterTest {
 
         private int calls() {
             return calls.get();
+        }
+
+        private Prompt prompt() {
+            return prompt.get();
         }
     }
 

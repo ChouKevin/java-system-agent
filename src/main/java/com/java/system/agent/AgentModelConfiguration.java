@@ -14,7 +14,10 @@ import com.java.system.agent.model.prompt.AgentPromptResourceProperties;
 import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import com.java.system.agent.model.prompt.PromptResourceCatalogLoader;
 import com.java.system.agent.model.verification.AnswerVerificationDispatcher;
+import com.java.system.agent.model.verification.AnswerVerificationPromptRenderer;
+import com.java.system.agent.model.verification.AnswerVerdictResponseInterpreter;
 import com.java.system.agent.model.verification.ContractOnlyAnswerVerificationAdapter;
+import com.java.system.agent.model.verification.ExplicitEvidenceCoveragePolicy;
 import com.java.system.agent.model.verification.SpringAiAnswerVerificationAdapter;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationPort;
@@ -140,9 +143,29 @@ public final class AgentModelConfiguration {
     }
 
     @Bean
-    AnswerVerificationPort answerVerificationPort(@Qualifier("agentVerifierChatClient") ChatClient chatClient) {
+    ExplicitEvidenceCoveragePolicy explicitEvidenceCoveragePolicy(PromptResourceCatalog promptCatalog) {
+        return new ExplicitEvidenceCoveragePolicy(promptCatalog.evidenceRequirements());
+    }
+
+    @Bean
+    AnswerVerdictResponseInterpreter answerVerdictResponseInterpreter(
+            ExplicitEvidenceCoveragePolicy evidenceCoveragePolicy) {
+        return new AnswerVerdictResponseInterpreter(evidenceCoveragePolicy);
+    }
+
+    @Bean
+    AnswerVerificationPromptRenderer answerVerificationPromptRenderer(PromptResourceCatalog promptCatalog) {
+        return new AnswerVerificationPromptRenderer(promptCatalog);
+    }
+
+    @Bean
+    AnswerVerificationPort answerVerificationPort(
+            @Qualifier("agentVerifierChatClient") ChatClient chatClient,
+            PromptResourceCatalog promptCatalog,
+            AnswerVerificationPromptRenderer promptRenderer,
+            AnswerVerdictResponseInterpreter interpreter) {
         return new AnswerVerificationDispatcher(
-                new SpringAiAnswerVerificationAdapter(chatClient),
+                new SpringAiAnswerVerificationAdapter(chatClient, promptCatalog, promptRenderer, interpreter),
                 new ContractOnlyAnswerVerificationAdapter());
     }
 }
