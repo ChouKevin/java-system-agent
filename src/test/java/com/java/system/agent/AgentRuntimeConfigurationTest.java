@@ -120,7 +120,7 @@ class AgentRuntimeConfigurationTest {
             assertThat(budget.maxAgentSteps()).isEqualTo(12);
             assertThat(budget.maxQueryExecutions()).isEqualTo(12);
             assertThat(budget.maxExecuteExecutions()).isEqualTo(1);
-            assertThat(budget.maxActionRejections()).isEqualTo(4);
+            assertThat(budget.maxActionRejections()).isEqualTo(6);
             assertThat(budget.maxRevisionRestarts()).isEqualTo(1);
             assertThat(budget.usedAgentSteps()).isZero();
             assertThat(budget.usedQueryExecutions()).isZero();
