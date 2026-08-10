@@ -39,6 +39,7 @@ public final class StrictPromptTemplate {
                 .validationMode(ValidationMode.THROW)
                 .build();
         validateSyntax(this.template, this.variables, configuredRenderer);
+        validateClosedPlaceholderGrammar(this.template);
         this.renderer = configuredRenderer;
     }
 
@@ -73,6 +74,13 @@ public final class StrictPromptTemplate {
             renderer.apply(template, Map.copyOf(syntaxValidationValues));
         } catch (RuntimeException exception) {
             throw new IllegalArgumentException("malformed prompt template", exception);
+        }
+    }
+
+    private static void validateClosedPlaceholderGrammar(String template) {
+        String templateWithoutPlaceholders = PLACEHOLDER.matcher(template).replaceAll("");
+        if (templateWithoutPlaceholders.contains("<") || templateWithoutPlaceholders.contains(">")) {
+            throw new IllegalArgumentException("only placeholder expressions are allowed in prompt templates");
         }
     }
 }

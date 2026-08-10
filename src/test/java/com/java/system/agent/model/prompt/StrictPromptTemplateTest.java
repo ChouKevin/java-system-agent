@@ -26,6 +26,13 @@ class StrictPromptTemplateTest {
     }
 
     @Test
+    void rejectsStringTemplateExpressionsThatAreNotPlaceholdersAtConstruction() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new StrictPromptTemplate("<question><first(question)>", Set.of("question")))
+                .withMessageContaining("only placeholder expressions are allowed");
+    }
+
+    @Test
     void rejectsRenderVariablesThatDoNotExactlyMatchPlaceholders() {
         StrictPromptTemplate template = new StrictPromptTemplate("Question: <question>", Set.of("question"));
 
