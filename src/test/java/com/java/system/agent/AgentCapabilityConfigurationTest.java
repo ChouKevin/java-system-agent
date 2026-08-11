@@ -30,6 +30,8 @@ import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
@@ -77,7 +79,7 @@ class AgentCapabilityConfigurationTest {
                         CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
                         CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
                         CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
-        assertThat(required(schemas, "agent_submit_answer")).containsExactly("statements");
+        assertThat(required(schemas, "agent_submit_answer")).containsExactly("resolutions", "statements");
         assertThat(required(schemas, "agent_request_clarification"))
                 .containsExactlyInAnyOrder("question", "candidateHandles", "reason");
         for (Map.Entry<String, JsonNode> entry : schemas.entrySet()) {
@@ -112,14 +114,25 @@ class AgentCapabilityConfigurationTest {
     @Test
     void startupRegistryVerifiesTheNestedAnswerStatementSchemaContract() throws Exception {
         PlanningToolRegistry registry = registry();
-        JsonNode statement = schemasByToolName(registry).get("agent_submit_answer")
-                .path("properties").path("statements").path("items");
+        JsonNode answerSchema = schemasByToolName(registry).get("agent_submit_answer");
+        JsonNode statement = answerSchema.path("properties").path("statements").path("items");
+        JsonNode resolution = answerSchema.path("properties").path("resolutions").path("items");
 
+        assertThat(answerSchema.path("required")).extracting(jsonNode -> jsonNode.asText())
+                .containsExactly("resolutions", "statements");
         assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
         assertThat(statement.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
         assertThat(statement.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
         assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
+                .isEqualTo(1);
+        assertThat(resolution.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(resolution.path("required")).extracting(jsonNode -> jsonNode.asText())
+                .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
+        assertThat(resolution.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
+        assertThat(resolution.path("properties").path("needId").path("minLength").asInt()).isEqualTo(1);
+        assertThat(resolution.path("properties").path("evidenceHandles").path("items").path("minLength").asInt())
                 .isEqualTo(1);
     }
 
@@ -147,7 +160,7 @@ class AgentCapabilityConfigurationTest {
         AgentPromptContext context = contextFor(List.of());
 
         AgentActionProposal answerProposal = registry.interpretToolCall("agent_submit_answer", """
-                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"The route is called by checkout","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}]}
+                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"The route is called by checkout","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-2","status":"SUPPORTED","evidenceHandles":["evidence-unknown"],"observationIds":[]},{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                         """, context);
         AgentActionProposal clarifyProposal = registry.interpretToolCall("agent_request_clarification", """
                         {"question":"Which repository?","candidateHandles":["candidate-2","candidate-1"],"reason":"The route scope is ambiguous"}
@@ -157,6 +170,17 @@ class AgentCapabilityConfigurationTest {
         AnswerAction answer = (AnswerAction) ((AgentActionProposal.Proposed) answerProposal).action();
         assertThat(answer.document().statements().getFirst().citations())
                 .extracting(evidenceHandleReference -> evidenceHandleReference.value()).containsExactly("evidence-unknown");
+        assertThat(answer.resolutions()).extracting(NeedResolution::needId)
+                .extracting(InformationNeedId::value)
+                .containsExactly("need-2", "need-1");
+        assertThat(answer.resolutions()).extracting(NeedResolution::status)
+                .containsExactly(NeedResolutionStatus.SUPPORTED, NeedResolutionStatus.UNAVAILABLE);
+        assertThat(answer.resolutions().getFirst().evidence())
+                .extracting(evidenceHandleReference -> evidenceHandleReference.value())
+                .containsExactly("evidence-unknown");
+        assertThat(answer.resolutions().get(1).observations())
+                .extracting(observationId -> observationId.value())
+                .containsExactly("observation-1");
         assertThat(clarifyProposal).isInstanceOf(AgentActionProposal.Proposed.class);
         ClarifyAction clarify = (ClarifyAction) ((AgentActionProposal.Proposed) clarifyProposal).action();
         assertThat(clarify.candidates()).extracting(candidateHandleReference -> candidateHandleReference.value())
@@ -191,12 +215,37 @@ class AgentCapabilityConfigurationTest {
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
     }
 
+    @Test
+    void exposesTheCanonicalPlanActionAndSchemaBeforeTheDurablePlanExists() throws Exception {
+        PlanningToolRegistry registry = registry();
+        Map<String, JsonNode> schemas = schemasByToolName(registry, planningContext());
+        AgentActionProposal proposal = registry.interpretToolCall("agent_plan_question", """
+                        {"needs":[{"id":"scope","description":"Confirm the answer scope"}]}
+                        """, planningContext());
+
+        assertThat(registry.registrations()).extracting(registration -> registration.name())
+                .containsOnlyOnce("agent_plan_question");
+        assertThat(schemas).containsOnlyKeys("agent_plan_question");
+        JsonNode needs = schemas.get("agent_plan_question").path("properties").path("needs");
+        assertThat(needs.path("minItems").asInt()).isEqualTo(1);
+        assertThat(needs.path("items").path("additionalProperties").asBoolean()).isFalse();
+        assertThat(needs.path("items").path("required")).extracting(jsonNode -> jsonNode.asText())
+                .containsExactlyInAnyOrder("id", "description");
+        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
+        assertThat(((PlanAction) ((AgentActionProposal.Proposed) proposal).action()).plan().needs())
+                .extracting(need -> need.id().value())
+                .containsExactly("scope");
+    }
+
     private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry) throws Exception {
         return schemasByToolName(registry, registry.availableCapabilities());
     }
 
     private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry, List<CapabilityPolicy> policies) throws Exception {
-        AgentPromptContext context = contextFor(policies);
+        return schemasByToolName(registry, contextFor(policies));
+    }
+
+    private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry, AgentPromptContext context) throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
         LinkedHashMap<String, JsonNode> schemas = new LinkedHashMap<>();
         SpringAiPlanningToolCallbackAdapter callbackAdapter = new SpringAiPlanningToolCallbackAdapter(
@@ -216,12 +265,20 @@ class AgentCapabilityConfigurationTest {
             sequence++;
         }
         QuestionPlan plan = new QuestionPlan(List.of(
-                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
+                new InformationNeed(new InformationNeedId("need-1"), "確認業務範圍"),
+                new InformationNeed(new InformationNeedId("need-2"), "確認路由證據")));
         return new AgentPromptContext("Find routes", SessionHistory.empty(), binding.runId(), binding.attemptId(),
                 issuedCapabilities, Map.of(), Map.of(), Map.of(), List.of(
                 new ModelInteraction.ActionSelected(binding.attemptId(), new PlanAction(plan)),
                 new ModelInteraction.ActionResultRecorded(
                         binding.attemptId(), new ActionResult.QuestionPlanRecorded(plan))), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext planningContext() {
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), RevisionVector.empty());
+        return new AgentPromptContext("Find routes", SessionHistory.empty(), binding.runId(), binding.attemptId(),
+                Map.of(), Map.of(), Map.of(), Map.of(), List.of(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 

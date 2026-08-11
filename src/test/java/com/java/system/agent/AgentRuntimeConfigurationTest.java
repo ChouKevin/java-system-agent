@@ -98,6 +98,9 @@ class AgentRuntimeConfigurationTest {
                     .containsExactlyInAnyOrderElementsOf(java.util.Arrays.stream(CodeIntelligenceQuery.values())
                             .map(CodeIntelligenceQuery::capabilityName)
                             .toList());
+            assertThat(context.getBean(PlanningToolRegistry.class).registrations())
+                    .extracting(registration -> registration.name())
+                    .containsOnlyOnce("agent_plan_question");
 
             MockRestServiceServer server = context.getBean(MockRestServiceServer.class);
             server.expect(requestTo("http://localhost:8081/v1/repositories"))

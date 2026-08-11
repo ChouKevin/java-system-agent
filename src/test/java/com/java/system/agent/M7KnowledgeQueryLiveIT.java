@@ -1,6 +1,7 @@
 package com.java.system.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
@@ -10,8 +11,11 @@ import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentRunStatus;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
@@ -238,6 +242,7 @@ class M7KnowledgeQueryLiveIT {
         PendingTerminalResponse.Answer acceptedAnswer = (PendingTerminalResponse.Answer) response;
         assertThat(acceptedAnswer.acceptance().verdict()).hasValueSatisfying(verdict ->
                 assertThat(verdict.disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE));
+        assertPersistedQuestionPlanCoverage(state, acceptedAnswer);
         return acceptedAnswer;
     }
 
@@ -373,7 +378,38 @@ class M7KnowledgeQueryLiveIT {
         assertThat(answer.document().statements()).extracting(AnswerStatement::type)
                 .containsAnyOf(StatementType.UNCERTAINTY, StatementType.LIMITATION)
                 .doesNotContain(StatementType.FACT);
+        assertPersistedQuestionPlanCoverage(state, answer);
         return answer;
+    }
+
+    private void assertPersistedQuestionPlanCoverage(
+            AgentRunState state,
+            PendingTerminalResponse.Answer acceptedAnswer) {
+        QuestionPlan plan = state.questionPlan().orElseThrow(
+                () -> new AssertionError("accepted run did not persist a question plan"));
+        List<ActionResult.QuestionPlanRecorded> recordedPlans = state.modelInteractions().stream()
+                .filter(ModelInteraction.ActionResultRecorded.class::isInstance)
+                .map(ModelInteraction.ActionResultRecorded.class::cast)
+                .map(ModelInteraction.ActionResultRecorded::result)
+                .filter(ActionResult.QuestionPlanRecorded.class::isInstance)
+                .map(ActionResult.QuestionPlanRecorded.class::cast)
+                .toList();
+
+        assertThat(recordedPlans).containsExactly(new ActionResult.QuestionPlanRecorded(plan));
+        AnswerAction acceptedAction = state.modelInteractions().stream()
+                .filter(ModelInteraction.ActionSelected.class::isInstance)
+                .map(ModelInteraction.ActionSelected.class::cast)
+                .map(ModelInteraction.ActionSelected::action)
+                .filter(AnswerAction.class::isInstance)
+                .map(AnswerAction.class::cast)
+                .filter(action -> action.document().equals(acceptedAnswer.document()))
+                .reduce((previous, latest) -> latest)
+                .orElseThrow(() -> new AssertionError("accepted answer did not have a selected answer action"));
+        assertThat(plan.needs()).extracting(need -> need.id().value())
+                .containsExactlyElementsOf(acceptedAction.resolutions().stream()
+                        .map(NeedResolution::needId)
+                        .map(needId -> needId.value())
+                        .toList());
     }
 
     private void assertEvidenceExpectation(

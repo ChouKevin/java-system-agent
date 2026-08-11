@@ -167,6 +167,7 @@ class M2ProductionFlowIT {
         InboxClaim claim = inbox.claimNext(NOW).orElseThrow();
         InboxMessage enqueued = claim.message();
         String attemptId = enqueued.runId().value() + ":A1";
+        chatModel.enqueue("LLM plan action", planToolCall("unresolved-entry-point"));
         chatModel.enqueue(CallTimeline.LLM_QUERY_ACTION, queryToolCall(attemptId));
         chatModel.enqueue(CallTimeline.LLM_ANSWER_ACTION, answerToolCall(attemptId));
         chatModel.enqueue(CallTimeline.LLM_VERIFIER, verdictJson());
@@ -177,8 +178,11 @@ class M2ProductionFlowIT {
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(11);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(10);
+        assertThat(state.questionPlan()).hasValueSatisfying(plan ->
+                assertThat(plan.needs()).extracting(need -> need.id().value())
+                        .containsExactly("unresolved-entry-point"));
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(13);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(12);
         assertThat(deliveryStatuses(enqueued)).containsExactly(
                 "FINAL_RESPONSE:WAITING_FOR_RECEIPT", "RECEIPT:PENDING");
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
@@ -194,7 +198,10 @@ class M2ProductionFlowIT {
             assertThat(answer.acceptance().verificationBasis()).isEqualTo(AnswerVerificationBasis.LLM);
         });
         assertThat(eventTypes(enqueued)).containsSubsequence(
-                "ACTION_ACCEPTED", "QUERY_BUDGET_CONSUMED", "ANSWER_PROPOSED", "ANSWER_ACCEPTED", "RUN_CONCLUDED");
+                "ACTION_SELECTED", "QUESTION_PLAN_CREATED", "ACTION_SELECTED", "ACTION_ACCEPTED",
+                "QUERY_BUDGET_CONSUMED", "ACTION_SELECTED", "ANSWER_PROPOSED", "ANSWER_ACCEPTED", "RUN_CONCLUDED");
+        assertThat(eventTypes(enqueued)).filteredOn("QUESTION_PLAN_CREATED"::equals).hasSize(1);
+        assertThat(eventTypes(enqueued)).filteredOn("ACTION_SELECTED"::equals).hasSize(3);
         assertThat(eventTypes(enqueued)).filteredOn("ACTION_ACCEPTED"::equals).hasSize(1);
         assertThat(eventTypes(enqueued)).filteredOn("QUERY_BUDGET_CONSUMED"::equals).hasSize(1);
         assertThat(sessionAnswerCount(enqueued)).isEqualTo(1L);
@@ -210,9 +217,10 @@ class M2ProductionFlowIT {
                 enqueued.runId(), enqueued.sessionId(), enqueued.participant(), enqueued.questionText(), state.budget()));
         assertThat(reconciled.responseKind()).isEqualTo(RunResponseKind.ANSWER);
         assertThat(reconciled.verificationBasis()).contains(AnswerVerificationBasis.LLM);
-        assertThat(chatModel.prompts()).hasSize(3);
+        assertThat(chatModel.prompts()).hasSize(4);
         assertThat(callTimeline.calls()).containsExactly(
                 CallTimeline.HTTP_REPOSITORY_CATALOG,
+                "LLM plan action",
                 CallTimeline.LLM_QUERY_ACTION,
                 CallTimeline.HTTP_REPOSITORY_REVISION,
                 CallTimeline.HTTP_LIST_ENTRY_POINTS,
@@ -234,6 +242,7 @@ class M2ProductionFlowIT {
 
         InboxClaim claim = inbox.claimNext(NOW).orElseThrow();
         InboxMessage enqueued = claim.message();
+        chatModel.enqueue("LLM plan action", planToolCall("repository-scope"));
         chatModel.enqueue(CallTimeline.LLM_CLARIFY_ACTION, clarificationToolCall());
 
         InboxProcessingOutcome outcome = processor.process(claim, NOW);
@@ -242,8 +251,10 @@ class M2ProductionFlowIT {
         assertThat(inboxStatus(enqueued)).isEqualTo(InboxMessageStatus.COMPLETED.name());
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(11);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(10);
+        assertThat(state.questionPlan()).hasValueSatisfying(plan ->
+                assertThat(plan.needs()).extracting(need -> need.id().value()).containsExactly("repository-scope"));
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(13);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(12);
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
                 "WAITING_FOR_RECEIPT",
                 "CLARIFICATION",
@@ -251,9 +262,14 @@ class M2ProductionFlowIT {
                 "Which repository should I inspect?",
                 PARTICIPANT.sourceType(),
                 PARTICIPANT.participantKey()));
+        assertThat(eventTypes(enqueued)).containsSubsequence(
+                "ACTION_SELECTED", "QUESTION_PLAN_CREATED", "ACTION_SELECTED", "CLARIFICATION_ACCEPTED", "RUN_CONCLUDED");
+        assertThat(eventTypes(enqueued)).filteredOn("QUESTION_PLAN_CREATED"::equals).hasSize(1);
+        assertThat(eventTypes(enqueued)).filteredOn("ACTION_SELECTED"::equals).hasSize(2);
         assertOutboundPrompts(chatModel.prompts());
         assertThat(callTimeline.calls()).containsExactly(
                 CallTimeline.HTTP_REPOSITORY_CATALOG,
+                "LLM plan action",
                 CallTimeline.LLM_CLARIFY_ACTION);
         server.verify();
     }
@@ -386,6 +402,19 @@ class M2ProductionFlowIT {
                 .build();
     }
 
+    private static AssistantMessage planToolCall(String needId) {
+        return AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall(
+                        "call-plan",
+                        "function",
+                        "agent_plan_question",
+                        """
+                                {"needs":[{"id":"%s","description":"Establish the information needed to answer the question"}]}
+                                """.formatted(needId))))
+                .build();
+    }
+
     private static AssistantMessage answerToolCall(String attemptId) {
         return AssistantMessage.builder()
                 .content("")
@@ -394,8 +423,8 @@ class M2ProductionFlowIT {
                         "function",
                         "agent_submit_answer",
                         """
-                                {"statements":[{"statementId":"limitation-1","type":"LIMITATION","text":"OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND","citationHandles":[],"observationIds":["%s:O1"]}]}
-                                """.formatted(attemptId))))
+                                {"statements":[{"statementId":"limitation-1","type":"LIMITATION","text":"OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND","citationHandles":[],"observationIds":["%s:O1"]}],"resolutions":[{"needId":"unresolved-entry-point","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["%s:O1"]}]}
+                                """.formatted(attemptId, attemptId))))
                 .build();
     }
 
