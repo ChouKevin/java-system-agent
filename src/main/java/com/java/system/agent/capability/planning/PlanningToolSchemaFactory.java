@@ -6,6 +6,4 @@ package com.java.system.agent.capability.planning;
 public interface PlanningToolSchemaFactory {
 
     String createSchema(Class<?> inputType);
-
-    void verifySchema(Class<?> inputType, String projectedSchema);
 }

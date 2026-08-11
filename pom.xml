@@ -22,6 +22,7 @@
         <google-genai.version>1.58.0</google-genai.version>
         <slack-java-sdk.version>1.49.0</slack-java-sdk.version>
         <java-websocket.version>1.6.0</java-websocket.version>
+        <victools.version>5.0.0</victools.version>
 
     </properties>
 
@@ -51,6 +52,21 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-template-st</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.victools</groupId>
+            <artifactId>jsonschema-generator</artifactId>
+            <version>${victools.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.victools</groupId>
+            <artifactId>jsonschema-module-jackson</artifactId>
+            <version>${victools.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.victools</groupId>
+            <artifactId>jsonschema-module-jakarta-validation</artifactId>
+            <version>${victools.version}</version>
         </dependency>
         <dependency>
             <groupId>com.google.genai</groupId>

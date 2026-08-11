@@ -2,9 +2,6 @@ package com.java.system.agent.model.action;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.java.system.agent.capability.planning.ExecuteHttpPlanningInput;
 import com.java.system.agent.capability.planning.PlanQuestionPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
 import com.java.system.agent.codeintelligence.planning.DiscoverConceptsPlanningInput;
@@ -20,8 +17,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 /**
  * QUERY planning schema 由 input type 產生且封閉物件屬性測試
@@ -76,7 +71,7 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(statement.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
         assertThat(statement.path("properties").path("statementId").path("minLength").asInt()).isEqualTo(1);
-        assertThat(statement.path("properties").path("statementId").path("pattern").asText()).isEqualTo(".*\\S.*");
+        assertThat(statement.at("/properties/statementId/pattern").isMissingNode()).isTrue();
         assertThat(statement.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
         assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
                 .isEqualTo(1);
@@ -119,11 +114,10 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(informationNeed.path("properties").fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("id", "description");
         assertThat(informationNeed.path("properties").path("id").path("minLength").asInt()).isEqualTo(1);
-        assertThat(informationNeed.path("properties").path("id").path("pattern").asText()).isEqualTo(".*\\S.*");
+        assertThat(informationNeed.at("/properties/id/pattern").isMissingNode()).isTrue();
         assertThat(informationNeed.path("properties").path("id").path("maxLength").asInt()).isEqualTo(32);
         assertThat(informationNeed.path("properties").path("description").path("minLength").asInt()).isEqualTo(1);
-        assertThat(informationNeed.path("properties").path("description").path("pattern").asText())
-                .isEqualTo(".*\\S.*");
+        assertThat(informationNeed.at("/properties/description/pattern").isMissingNode()).isTrue();
         assertThat(informationNeed.path("properties").path("description").path("maxLength").asInt()).isEqualTo(500);
     }
 
@@ -166,77 +160,16 @@ class SpringAiPlanningToolSchemaFactoryTest {
         JsonNode memberKinds = initialFilter.path("properties").path("memberKinds");
         JsonNode namePrefix = initialFilter.path("properties").path("namePrefix");
 
+        assertThat(schema.path("required")).extracting(JsonNode::asText).doesNotContain("initialFilter");
         assertThat(initialFilter.path("additionalProperties").asBoolean()).isFalse();
         assertThat(initialFilter.path("type")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("object", "null");
+        assertThat(initialFilter.path("required")).extracting(JsonNode::asText).doesNotContain("namePrefix");
         assertThat(memberKinds.path("minItems").asInt()).isEqualTo(1);
         assertThat(namePrefix.path("minLength").asInt()).isEqualTo(1);
-        assertThat(namePrefix.path("pattern").asText()).isEqualTo(".*\\S.*");
+        assertThat(initialFilter.at("/properties/namePrefix/pattern").isMissingNode()).isTrue();
         assertThat(namePrefix.path("type")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("string", "null");
-    }
-
-    @Test
-    void rejects_every_registered_schema_that_differs_from_the_canonical_input_contract() throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        SpringAiPlanningToolSchemaFactory factory = new SpringAiPlanningToolSchemaFactory();
-
-        for (TamperedSchema tampered : tamperedSchemas(factory, mapper)) {
-            assertThatIllegalArgumentException()
-                    .isThrownBy(() -> factory.verifySchema(tampered.inputType(), mapper.writeValueAsString(tampered.schema())));
-        }
-    }
-
-    @Test
-    void accepts_the_schema_it_generates_for_every_registered_input_type() {
-        ObjectMapper mapper = new ObjectMapper();
-        SpringAiPlanningToolSchemaFactory factory = new SpringAiPlanningToolSchemaFactory();
-
-        for (Class<?> inputType : schemaInputTypes()) {
-            assertThatCode(() -> factory.verifySchema(inputType, factory.createSchema(inputType)))
-                    .as(inputType.getSimpleName())
-                    .doesNotThrowAnyException();
-        }
-    }
-
-    private static List<TamperedSchema> tamperedSchemas(SpringAiPlanningToolSchemaFactory factory, ObjectMapper mapper) throws Exception {
-        ObjectNode extraRequired = canonical(factory, mapper, ListEntryPointsPlanningInput.class);
-        ((ArrayNode) extraRequired.path("required")).add("unexpected");
-
-        ObjectNode extraProperty = canonical(factory, mapper, ListEntryPointsPlanningInput.class);
-        ((ObjectNode) extraProperty.path("properties")).putObject("unexpected").put("type", "string");
-
-        ObjectNode extraEnumValue = canonical(factory, mapper, ListEntryPointsPlanningInput.class);
-        ((ArrayNode) extraEnumValue.path("properties").path("type").path("enum")).add("UNSUPPORTED");
-
-        ObjectNode changedCollectionLimit = canonical(factory, mapper, ListEntryPointsPlanningInput.class);
-        ((ObjectNode) changedCollectionLimit.path("properties").path("candidateHandles")).put("minItems", 0);
-
-        ObjectNode changedRange = canonical(factory, mapper, SuggestApiRoutePlanningInput.class);
-        ((ObjectNode) changedRange.path("properties").path("limit")).put("maximum", 21);
-
-        ObjectNode explicitNullBranch = canonical(factory, mapper, ListEntryPointsPlanningInput.class);
-        ObjectNode type = (ObjectNode) explicitNullBranch.path("properties").path("type");
-        type.removeAll();
-        type.putArray("anyOf").addObject().put("type", "string");
-        type.withArray("anyOf").addObject().put("type", "null");
-
-        ObjectNode changedNestedConstraint = canonical(factory, mapper, SubmitAnswerPlanningInput.class);
-        ((ObjectNode) changedNestedConstraint.path("properties").path("statements").path("items")
-                .path("properties").path("text")).put("minLength", 0);
-
-        return List.of(
-                new TamperedSchema(ListEntryPointsPlanningInput.class, extraRequired),
-                new TamperedSchema(ListEntryPointsPlanningInput.class, extraProperty),
-                new TamperedSchema(ListEntryPointsPlanningInput.class, extraEnumValue),
-                new TamperedSchema(ListEntryPointsPlanningInput.class, changedCollectionLimit),
-                new TamperedSchema(SuggestApiRoutePlanningInput.class, changedRange),
-                new TamperedSchema(ListEntryPointsPlanningInput.class, explicitNullBranch),
-                new TamperedSchema(SubmitAnswerPlanningInput.class, changedNestedConstraint));
-    }
-
-    private static ObjectNode canonical(SpringAiPlanningToolSchemaFactory factory, ObjectMapper mapper, Class<?> inputType) throws Exception {
-        return (ObjectNode) mapper.readTree(factory.createSchema(inputType));
     }
 
     private static List<Class<?>> queryInputTypes() {
@@ -248,21 +181,4 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 IncomingCallGraphPlanningInput.class);
     }
 
-    private static List<Class<?>> schemaInputTypes() {
-        return List.of(
-                ListEntryPointsPlanningInput.class,
-                LookupApiRoutePlanningInput.class,
-                SuggestApiRoutePlanningInput.class,
-                OutgoingCallGraphPlanningInput.class,
-                IncomingCallGraphPlanningInput.class,
-                ExecuteHttpPlanningInput.class,
-                PlanQuestionPlanningInput.class,
-                SubmitAnswerPlanningInput.class);
-    }
-
-    /**
-     * 模擬啟動驗證收到的非 canonical schema
-     */
-    private record TamperedSchema(Class<?> inputType, ObjectNode schema) {
-    }
 }

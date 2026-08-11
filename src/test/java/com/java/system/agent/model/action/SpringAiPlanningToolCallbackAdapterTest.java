@@ -92,10 +92,10 @@ class SpringAiPlanningToolCallbackAdapterTest {
 
         SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry, schemaFactory, catalog);
 
-        assertThat(schemaFactory.verified()).extracting(verified -> verified.inputType().getName())
+        assertThat(schemaFactory.created()).extracting(created -> created.inputType().getName())
                 .containsExactly(TestLookupPlanningInput.class.getName(), TestLookupPlanningInput.class.getName());
-        assertThat(schemaFactory.verified()).allSatisfy(verified ->
-                assertThat(verified.projectedSchema()).contains("\"additionalProperties\":false"));
+        assertThat(schemaFactory.created()).allSatisfy(created ->
+                assertThat(created.schema()).contains("\"additionalProperties\":false"));
         IssuedPlanningTools issued = adapter.issuedTools(context(policy));
 
         assertThat(issued.names()).containsExactly("test_lookup_symbol");
@@ -312,27 +312,23 @@ class SpringAiPlanningToolCallbackAdapterTest {
     private record TestLookupPlanningInput(String questionToResolve) {
     }
 
-    private record Verified(Class<?> inputType, String projectedSchema) {
+    private record Created(Class<?> inputType, String schema) {
     }
 
     private static final class TrackingSchemaFactory implements PlanningToolSchemaFactory {
 
         private final SpringAiPlanningToolSchemaFactory delegate = new SpringAiPlanningToolSchemaFactory();
-        private final List<Verified> verified = new ArrayList<>();
+        private final List<Created> created = new ArrayList<>();
 
         @Override
         public String createSchema(Class<?> inputType) {
-            return delegate.createSchema(inputType);
+            String schema = delegate.createSchema(inputType);
+            created.add(new Created(inputType, schema));
+            return schema;
         }
 
-        @Override
-        public void verifySchema(Class<?> inputType, String projectedSchema) {
-            delegate.verifySchema(inputType, projectedSchema);
-            verified.add(new Verified(inputType, projectedSchema));
-        }
-
-        private List<Verified> verified() {
-            return List.copyOf(verified);
+        private List<Created> created() {
+            return List.copyOf(created);
         }
     }
 }

@@ -88,7 +88,6 @@ public final class SpringAiPlanningToolCallbackAdapter {
                 .description(promptCatalog.toolDescription(registration.descriptor()))
                 .inputSchema(schema)
                 .build());
-        schemaFactory.verifySchema(registration.planningInputType(), callback.getToolDefinition().inputSchema());
         return callback;
     }
 
