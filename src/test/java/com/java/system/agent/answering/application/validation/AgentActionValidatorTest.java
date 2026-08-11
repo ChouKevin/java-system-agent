@@ -18,7 +18,9 @@ import com.java.system.agent.answering.domain.plan.InformationNeedId;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -53,6 +55,27 @@ class AgentActionValidatorTest {
         ActionValidation.Accepted accepted = (ActionValidation.Accepted) validation;
         assertThat(accepted.originalAction()).isSameAs(action);
         assertThat(accepted.resolvedCandidates()).containsExactly(issued(second), issued(fixture.first()));
+    }
+
+    @Test
+    void allowsAnEquivalentQueryToRetryAfterItsPreviousExecutionFailed() {
+        Fixture fixture = fixture();
+        CapabilityInputPayload payload = new CapabilityInputPayload("stable-payload");
+        QueryAction previous = new QueryAction(
+                fixture.capability(), List.of(new CandidateHandleRef(fixture.first().value())),
+                "Initial wording", payload, "Initial rationale");
+        QueryAction retry = new QueryAction(
+                fixture.capability(), List.of(new CandidateHandleRef(fixture.first().value())),
+                "Retry wording", payload, "Retry after a typed failure");
+        List<ModelInteraction> interactions = List.of(
+                new ModelInteraction.ActionSelected(fixture.binding().attemptId(), previous),
+                new ModelInteraction.ActionResultRecorded(fixture.binding().attemptId(),
+                        new ActionResult.QueryFailed(List.of("attempt-1:O1"), "dependency unavailable")));
+
+        ActionValidation validation = validator.validate(
+                retry, fixture.context(Map.of(fixture.first(), issued(fixture.first())), interactions));
+
+        assertThat(validation).isEqualTo(new ActionValidation.Accepted(retry, List.of(issued(fixture.first()))));
     }
 
     @Test
@@ -196,25 +219,37 @@ class AgentActionValidatorTest {
 
     private record Fixture(HandleBinding binding, CapabilityHandle capability, CandidateHandle first) {
         private AgentValidationContext context(Map<CandidateHandle, IssuedCandidate> candidates) {
-            return context(candidates, new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.of(plan()));
+            return context(candidates, List.of());
+        }
+
+        private AgentValidationContext context(
+                Map<CandidateHandle, IssuedCandidate> candidates,
+                List<ModelInteraction> modelInteractions) {
+            return context(
+                    candidates, modelInteractions,
+                    new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.of(plan()));
         }
 
         private AgentValidationContext context(
                 Map<CandidateHandle, IssuedCandidate> candidates,
                 AttemptBudget budget) {
-            return context(candidates, budget, Optional.of(plan()));
+            return context(candidates, List.of(), budget, Optional.of(plan()));
         }
 
         private AgentValidationContext contextWithoutPlan(Map<CandidateHandle, IssuedCandidate> candidates) {
-            return context(candidates, new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.empty());
+            return context(
+                    candidates, List.of(),
+                    new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.empty());
         }
 
         private AgentValidationContext context(
                 Map<CandidateHandle, IssuedCandidate> candidates,
+                List<ModelInteraction> modelInteractions,
                 AttemptBudget budget,
                 Optional<QuestionPlan> questionPlan) {
             CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.ROUTE), 1, 2);
-            return new AgentValidationContext(Map.of(capability, policy), candidates, Map.of(), Map.of(), binding,
+            return new AgentValidationContext(
+                    Map.of(capability, policy), candidates, Map.of(), Map.of(), modelInteractions, binding,
                     budget, questionPlan);
         }
     }

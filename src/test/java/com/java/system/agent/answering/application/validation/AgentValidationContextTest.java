@@ -42,7 +42,7 @@ class AgentValidationContextTest {
                 new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
 
         AgentValidationContext context = new AgentValidationContext(
-                Map.of(), Map.of(), Map.of(), Map.of(), binding(),
+                Map.of(), Map.of(), Map.of(), Map.of(), List.of(), binding(),
                 new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0), Optional.of(plan));
 
         assertThat(context.questionPlan()).contains(plan);
@@ -68,7 +68,7 @@ class AgentValidationContextTest {
 
     private static AgentValidationContext context(Map<CandidateHandle, IssuedCandidate> candidates,
             Map<EvidenceHandle, IssuedEvidence> evidence, Map<ObservationId, AgentObservation> observations) {
-        return new AgentValidationContext(Map.of(), candidates, evidence, observations, binding(),
+        return new AgentValidationContext(Map.of(), candidates, evidence, observations, List.of(), binding(),
                 new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0), Optional.of(new QuestionPlan(List.of(
                         new InformationNeed(new InformationNeedId("need-1"), "Trace the route")))));
     }

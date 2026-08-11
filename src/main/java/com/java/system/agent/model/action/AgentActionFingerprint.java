@@ -5,6 +5,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.QueryExecutionIdentity;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
@@ -74,14 +75,15 @@ public record AgentActionFingerprint(String value) {
             MessageDigest digest,
             QueryAction action,
             boolean includeQuestion) {
+        QueryExecutionIdentity identity = QueryExecutionIdentity.from(action);
         frame(digest, "actionType", "QUERY");
-        frame(digest, "capabilityHandle", action.capability().value());
-        sequence(digest, "candidateHandle", action.candidates().stream()
+        frame(digest, "capabilityHandle", identity.capability().value());
+        sequence(digest, "candidateHandle", identity.candidates().stream()
                 .map(candidate -> candidate.value()).toList());
         if (includeQuestion) {
             frame(digest, "questionToResolve", action.questionToResolve());
         }
-        frame(digest, "canonicalPayload", action.payload().value());
+        frame(digest, "canonicalPayload", identity.payload().value());
     }
 
     private static void execute(MessageDigest digest, ExecuteAction action) {

@@ -198,7 +198,11 @@ class PaymentKnowledgeLiveIT {
         QuestionPlan plan = state.questionPlan()
                 .orElseThrow(() -> new AssertionError("accepted payment run did not persist a question plan"));
         PendingTerminalResponse response = state.pendingTerminalResponse()
-                .orElseThrow(() -> new AssertionError("accepted payment run did not retain a terminal response"));
+                .orElseThrow(() -> new AssertionError(
+                        "payment run concluded without an accepted terminal response: outcome="
+                                + state.finalOutcome().map(Enum::name).orElse("NONE")
+                                + "; runtimeNoticeReason="
+                                + state.runtimeNoticeReason().map(Enum::name).orElse("NONE")));
         assertThat(response).isInstanceOf(PendingTerminalResponse.Answer.class);
         PendingTerminalResponse.Answer answer = (PendingTerminalResponse.Answer) response;
         assertThat(answer.acceptance().verificationBasis()).isEqualTo(AnswerVerificationBasis.LLM);

@@ -300,6 +300,7 @@ public final class ValidatedAgentLoop {
                 state.currentAttempt().issuedCandidates(),
                 state.currentAttempt().issuedEvidence(),
                 state.currentAttempt().observations(),
+                state.modelInteractions(),
                 transitions.currentBinding(state),
                 state.budget(),
                 state.questionPlan());

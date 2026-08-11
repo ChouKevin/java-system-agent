@@ -30,10 +30,12 @@ public final class AgentActionValidator {
 
     private final AnswerDocumentValidator answerDocumentValidator;
     private final NeedResolutionValidator needResolutionValidator;
+    private final SuccessfulQueryExecutionPolicy successfulQueryExecutionPolicy;
 
     public AgentActionValidator() {
         answerDocumentValidator = new AnswerDocumentValidator();
         needResolutionValidator = new NeedResolutionValidator();
+        successfulQueryExecutionPolicy = new SuccessfulQueryExecutionPolicy();
     }
 
     public ActionValidation validate(AgentAction action, AgentValidationContext context) {
@@ -98,6 +100,10 @@ public final class AgentActionValidator {
         }
         if (!hasPermittedCardinality(candidates, capability)) {
             return rejected(ActionRejectionCode.CARDINALITY, action);
+        }
+        if (successfulQueryExecutionPolicy.wasAlreadySuccessful(
+                action, context.currentBinding().attemptId(), context.modelInteractions())) {
+            return rejected(ActionRejectionCode.REPEATED_SUCCESSFUL_QUERY, action);
         }
         if (!context.budget().hasAgentStepRemaining() || !context.budget().hasQueryExecutionRemaining()) {
             return rejected(ActionRejectionCode.BUDGET_EXHAUSTED, action);

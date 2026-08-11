@@ -106,7 +106,9 @@ The validated action-loop contract is current:
 - After planning, the model proposes exactly one currently issued `QUERY`, `ANSWER`, or `CLARIFY`
   action and chooses any allowed subset and order of issued capability and candidate handles.
 - Deterministic validation rejects unknown, stale, out-of-scope, schema-incompatible, over-budget,
-  uncited, unsupported, or incomplete plan-need resolutions before execution or persistence.
+  repeated-successful QUERY executions, uncited, unsupported, or incomplete plan-need resolutions
+  before execution or persistence. QUERY retry remains available after failure or revision restart,
+  and changing the canonical payload is a new execution.
 - Every post-plan action prompt puts the immutable plan before current evidence and appends
   model-selected actions and results. Prompt names and Spring AI callbacks come from one issued-tool
   snapshot; historical candidates/evidence do not themselves grant permission.

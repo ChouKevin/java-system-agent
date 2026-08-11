@@ -75,7 +75,10 @@ Follow-ups are trusted target or recommendation candidates, not universal prereq
 semantic query. The model selects exactly one current candidate handle and only the safe typed
 options exposed by that tool; direct method/type/source target projection remains runtime-owned and
 revision-pinned. Tools whose identity must be provider-issued remain follow-up-required. Direct and
-follow-up query modes consume the same existing query budget and rate limit.
+follow-up query modes consume the same existing query budget and rate limit. Within one pinned
+attempt, a QUERY whose capability, candidate handles, and canonical payload already completed
+successfully is rejected before another provider call or budget consumption; failed executions may
+be retried, and a changed payload remains a new execution.
 
 ## Durable Slack Flow
 

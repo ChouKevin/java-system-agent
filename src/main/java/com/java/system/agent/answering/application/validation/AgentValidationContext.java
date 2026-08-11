@@ -11,7 +11,9 @@ import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -21,13 +23,14 @@ import java.util.Optional;
  */
 public record AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> capabilities,
         Map<CandidateHandle, IssuedCandidate> candidates, Map<EvidenceHandle, IssuedEvidence> evidence,
-        Map<ObservationId, AgentObservation> observations, HandleBinding currentBinding, AttemptBudget budget,
-        Optional<QuestionPlan> questionPlan) {
+        Map<ObservationId, AgentObservation> observations, List<ModelInteraction> modelInteractions,
+        HandleBinding currentBinding, AttemptBudget budget, Optional<QuestionPlan> questionPlan) {
     public AgentValidationContext {
         Objects.requireNonNull(capabilities, "capabilities must not be null");
         Objects.requireNonNull(candidates, "candidates must not be null");
         Objects.requireNonNull(evidence, "evidence must not be null");
         Objects.requireNonNull(observations, "observations must not be null");
+        Objects.requireNonNull(modelInteractions, "model interactions must not be null");
         Objects.requireNonNull(currentBinding, "current binding must not be null");
         Objects.requireNonNull(budget, "budget must not be null");
         Objects.requireNonNull(questionPlan, "question plan must not be null");
@@ -38,6 +41,7 @@ public record AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> cap
         candidates = Map.copyOf(candidates);
         evidence = Map.copyOf(evidence);
         observations = Map.copyOf(observations);
+        modelInteractions = List.copyOf(modelInteractions);
     }
 
     private static void validateCandidateEntries(Map<CandidateHandle, IssuedCandidate> candidates) {

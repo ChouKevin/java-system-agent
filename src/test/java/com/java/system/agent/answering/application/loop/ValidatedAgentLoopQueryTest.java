@@ -337,9 +337,10 @@ class ValidatedAgentLoopQueryTest {
     }
 
     @Test
-    void continuesAfterRepeatedSuccessfulCapabilityResultWithoutDuplicatingIssuedValues() {
-        CapabilityInputPayload payload = new CapabilityInputPayload("same-payload");
-        FollowUpCandidate followUp = followUpCandidate(payload);
+    void continuesAfterDifferentQueriesReturnTheSameCapabilityValues() {
+        CapabilityInputPayload firstPayload = new CapabilityInputPayload("first-payload");
+        CapabilityInputPayload secondPayload = new CapabilityInputPayload("second-payload");
+        FollowUpCandidate followUp = followUpCandidate(firstPayload);
         EvidenceRef evidence = evidence("rev-1", "same-result");
         CapabilityObservation observation = new CapabilityObservation(
                 ObservationCode.EXECUTION_FAILED,
@@ -359,7 +360,7 @@ class ValidatedAgentLoopQueryTest {
                     return new CapabilityExecutionResult.Succeeded(
                             List.of(followUp), List.of(evidence), List.of(observation));
                 },
-                context -> nextRepeatedResultAction(prompts, context, payload));
+                context -> nextRepeatedResultAction(prompts, context, firstPayload, secondPayload));
 
         AgentLoopResult result = loop.execute(followUpRequest());
 
@@ -389,6 +390,39 @@ class ValidatedAgentLoopQueryTest {
                 new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
                         new ActionResult.QuerySucceeded(
                                 List.of(followUpHandle), List.of(evidenceHandle), List.of("attempt-1:O2"))));
+    }
+
+    @Test
+    void rejectsARepeatedSuccessfulQueryBeforeConsumingMoreExecutionBudget() {
+        CapabilityInputPayload payload = new CapabilityInputPayload("stable-payload");
+        AtomicInteger capabilityCalls = new AtomicInteger();
+        List<AgentPromptContext> prompts = new ArrayList<>();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        EvidenceRef evidence = evidence("rev-1", "stable-result");
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                invocation -> {
+                    capabilityCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(evidence), List.of());
+                },
+                context -> nextEquivalentQueryAction(prompts, context, payload));
+        seedPinnedRun(transitions);
+
+        AgentLoopResult result = loop.execute(capacityResumeRequest());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(capabilityCalls).hasValue(1);
+        assertThat(prompts).hasSize(3);
+        assertThat(transitions.events()).filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance).hasSize(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.ActionRejected.class::isInstance).singleElement()
+                .satisfies(event -> {
+                    AgentEvent.ActionRejected rejected = (AgentEvent.ActionRejected) event;
+                    assertThat(rejected.rejectionCode()).isEqualTo("REPEATED_SUCCESSFUL_QUERY");
+                    assertThat(rejected.description()).isEqualTo("REPEATED_SUCCESSFUL_QUERY");
+                });
+        assertThat(prompts.get(2).latestRejection()).contains("REPEATED_SUCCESSFUL_QUERY");
     }
 
     @Test
@@ -512,12 +546,32 @@ class ValidatedAgentLoopQueryTest {
     private AgentActionProposal nextRepeatedResultAction(
             List<AgentPromptContext> prompts,
             AgentPromptContext context,
-            CapabilityInputPayload payload) {
+            CapabilityInputPayload firstPayload,
+            CapabilityInputPayload secondPayload) {
         prompts.add(context);
-        if (prompts.size() < 3) {
-            return new AgentActionProposal.Proposed(query(context, payload));
+        if (prompts.size() == 1) {
+            return new AgentActionProposal.Proposed(query(context, firstPayload));
+        }
+        if (prompts.size() == 2) {
+            return new AgentActionProposal.Proposed(query(context, secondPayload));
         }
         return new AgentActionProposal.Proposed(answer(context, "Repeated evidence is available"));
+    }
+
+    private AgentActionProposal nextEquivalentQueryAction(
+            List<AgentPromptContext> prompts,
+            AgentPromptContext context,
+            CapabilityInputPayload payload) {
+        prompts.add(context);
+        if (prompts.size() == 1) {
+            return new AgentActionProposal.Proposed(query(
+                    context, payload, "Find the payment rules", "Need the initial repository result"));
+        }
+        if (prompts.size() == 2) {
+            return new AgentActionProposal.Proposed(query(
+                    context, payload, "Describe the payment rules", "Need a more explicit explanation"));
+        }
+        return new AgentActionProposal.Proposed(answer(context, "The repository result is available"));
     }
 
     private QueryAction query(AgentPromptContext context) {
@@ -525,10 +579,18 @@ class ValidatedAgentLoopQueryTest {
     }
 
     private QueryAction query(AgentPromptContext context, CapabilityInputPayload payload) {
+        return query(context, payload, "Trace the repository flow", "Need repository evidence");
+    }
+
+    private QueryAction query(
+            AgentPromptContext context,
+            CapabilityInputPayload payload,
+            String questionToResolve,
+            String rationale) {
         return new QueryAction(
                 context.issuedCapabilities().keySet().iterator().next(),
                 List.of(new CandidateHandleRef(context.issuedCandidates().keySet().iterator().next().value())),
-                "Trace the repository flow", payload, "Need repository evidence");
+                questionToResolve, payload, rationale);
     }
 
     private QueryAction followUpQuery(AgentPromptContext context, CapabilityInputPayload payload) {
