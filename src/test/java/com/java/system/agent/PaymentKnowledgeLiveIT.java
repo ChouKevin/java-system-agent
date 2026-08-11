@@ -48,6 +48,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -61,13 +63,27 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
 
+import javax.sql.DataSource;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Live acceptance for the payment knowledge fixture.
+ *
+ * <p>The scenario-specific {@code PAYMENT_KNOWLEDGE_LIVE} gate remains intentional: Task 9 sets
+ * it independently from {@code M7_KNOWLEDGE_LIVE}, while generic {@code KNOWLEDGE_*} variables
+ * carry shared source-SHA and report metadata. The acceptance checks durable plan, resolution,
+ * citation, provenance, and LLM-verification structure rather than question-specific prose or
+ * fixture payment rules. It also deliberately uses no test-only claim transaction: the dedicated
+ * database precondition is guarded by its connected catalog and foreign eligible rows still fail
+ * fast before every production inbox processor call.
+ */
 @SpringBootTest
 @ActiveProfiles("agent-runtime")
 @EnabledIfEnvironmentVariable(named = "PAYMENT_KNOWLEDGE_LIVE", matches = "true")
 class PaymentKnowledgeLiveIT {
 
+    private static final String LIVE_DATABASE_CATALOG = "agent_knowledge_live";
     private static final String SOURCE_TYPE = "payment-knowledge-live";
     private static final String FIXTURE_ID = "payment-knowledge-query";
     private static final String SCENARIO_ID = "payment-options";
@@ -94,6 +110,9 @@ class PaymentKnowledgeLiveIT {
     private JdbcClient jdbcClient;
 
     @Autowired
+    private DataSource dataSource;
+
+    @Autowired
     private Environment environment;
 
     @Autowired
@@ -103,7 +122,10 @@ class PaymentKnowledgeLiveIT {
     private ObjectMapper objectMapper;
 
     @Test
-    void answers_payment_knowledge_through_the_normal_durable_runtime() throws IOException, InterruptedException {
+    void answers_payment_knowledge_through_the_normal_durable_runtime()
+            throws IOException, InterruptedException, SQLException {
+        assertConnectedLiveDatabaseCatalog();
+        Optional<Path> reportDirectory = reportDirectoryIfRequested();
         SourceShas sourceShas = requiredSourceShas();
         assertNoEligibleInboxBeforeSubmission();
 
@@ -120,7 +142,16 @@ class PaymentKnowledgeLiveIT {
                 terminal.state(), acceptedState.plan(), acceptedState.answer(), citedEvidence);
         AcceptedRun acceptedRun = new AcceptedRun(acceptedState.plan(), acceptedState.answer(), resolutions);
         assertCitedCapabilityProvenance(terminal.state(), citedEvidence);
-        writeReportIfRequested(admission, terminal, acceptedRun, citedEvidence, sourceShas);
+        writeReportIfRequested(reportDirectory, admission, terminal, acceptedRun, citedEvidence, sourceShas);
+    }
+
+    private void assertConnectedLiveDatabaseCatalog() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            String catalog = connection.getCatalog();
+            if (!LIVE_DATABASE_CATALOG.equals(catalog)) {
+                throw new AssertionError("live test database catalog must be " + LIVE_DATABASE_CATALOG);
+            }
+        }
     }
 
     private TerminalProcessing processUntilTerminal(SourceAdmission admission, Instant deadline) throws InterruptedException {
@@ -361,16 +392,26 @@ class PaymentKnowledgeLiveIT {
         return sourceSha;
     }
 
+    private Optional<Path> reportDirectoryIfRequested() {
+        return Optional.ofNullable(System.getenv("KNOWLEDGE_REPORT_DIRECTORY"))
+                .filter(value -> !value.isBlank())
+                .map(Path::of)
+                .map(reportDirectory -> {
+                    if (!Files.isDirectory(reportDirectory) || !Files.isWritable(reportDirectory)) {
+                        throw new IllegalStateException(
+                                "KNOWLEDGE_REPORT_DIRECTORY must be an existing writable directory");
+                    }
+                    return reportDirectory;
+                });
+    }
+
     private void writeReportIfRequested(
+            Optional<Path> reportDirectory,
             SourceAdmission admission,
             TerminalProcessing terminal,
             AcceptedRun acceptedRun,
             CitedEvidence citedEvidence,
             SourceShas sourceShas) throws IOException {
-        Optional<Path> reportDirectory = Optional.ofNullable(System.getenv("KNOWLEDGE_REPORT_DIRECTORY"))
-                .filter(value -> !value.isBlank())
-                .map(Path::of)
-                .filter(Files::isDirectory);
         if (reportDirectory.isEmpty()) {
             return;
         }
