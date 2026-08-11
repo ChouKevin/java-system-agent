@@ -229,6 +229,45 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void deduplicatesRepeatedClassFollowUpsAcrossEntryPointMethodsBeforeStrictCapabilityIssuance() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Orders");
+        SemanticDtos.AvailableFollowUp typeMembersFollowUp = new SemanticDtos.AvailableFollowUp(
+                "GET_TYPE_MEMBERS",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/type-members", "discoverTypeMembers"),
+                new SemanticDtos.TypeMembersFollowUpRequest("orders", REVISION, sourceType, List.of("FIELD"),
+                        Optional.empty(), 0, 50));
+        SemanticDtos.EntryPointsResponse response = new SemanticDtos.EntryPointsResponse("orders", REVISION, List.of(
+                new SemanticDtos.EntryPointClassResponse(sourceType, "Order entry points", List.of("/orders"), List.of(
+                        entryPointMethod(sourceType, "create", "/orders", typeMembersFollowUp),
+                        entryPointMethod(sourceType, "find", "/orders/{id}", typeMembersFollowUp)))));
+
+        CapabilityExecutionResult.Succeeded mapped = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
+                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+        ContextIssuer issuer = new ContextIssuer();
+        ContextIssuer.CapabilityIssue issued = issuer.issueCapabilityResult(
+                new AnalysisRunId("run-duplicate-entry-point-follow-ups"),
+                issuer.issueInitial(
+                        new AnalysisRunId("run-duplicate-entry-point-follow-ups"),
+                        new AnalysisAttemptId("attempt-duplicate-entry-point-follow-ups"),
+                        RevisionVector.empty().pin(REPOSITORY_ID, REPOSITORY_REVISION),
+                        List.of(new CapabilityPolicy("find", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 10)),
+                        List.of(new RepositoryDescriptor(REPOSITORY_ID, "Orders repository"))),
+                mapped,
+                Set.of(REPOSITORY_ID));
+
+        assertThat(mapped.discoveredCandidates()).extracting(AnalysisCandidate::kind)
+                .containsExactly(CandidateKind.ROUTE, CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP,
+                        CandidateKind.ROUTE, CandidateKind.SEMANTIC_TARGET);
+        assertThat(mapped.discoveredCandidates().stream()
+                .filter(FollowUpCandidate.class::isInstance)
+                .map(FollowUpCandidate.class::cast)
+                .map(FollowUpCandidate::targetCapabilityName))
+                .containsExactly("codebase_discover_type_members");
+        assertThat(issued.resultCandidateHandleValues()).hasSize(5);
+    }
+
+    @Test
     void projectsGraphEdgeImplementationFollowUpsWithoutInferringThem() throws Exception {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.MethodTargetPayload abstractTarget = methodTargetPayload();
@@ -915,6 +954,19 @@ class JavaSemanticResultMapperTest {
         return new SemanticDtos.GraphEdge("root", calleeNodeId,
                 new SemanticDtos.SourceRangePayload("src/Orders.java", textRange(line, 0, line, 1)),
                 "delegate()", "JDT_CALL_HIERARCHY", "RESOLVED_ANALYZABLE", List.of(), List.of(followUp));
+    }
+
+    private static SemanticDtos.ApiEntryPointMethodResponse entryPointMethod(
+            SemanticDtos.SourceTypeIdentityPayload sourceType,
+            String methodName,
+            String apiUrl,
+            SemanticDtos.AvailableFollowUp followUp) {
+        SemanticDtos.MethodTarget target = new SemanticDtos.MethodTarget(sourceType.sourceFile(),
+                sourceType.javaType().packageName(), sourceType.javaType().className(), methodName, List.of());
+        return new SemanticDtos.ApiEntryPointMethodResponse(methodName, methodName + " order", "API", apiUrl,
+                List.of("GET"), List.of(methodName + " order"),
+                new SemanticDtos.MethodTargetResolutionResponse("RESOLVED", target, List.of(), "RESOLVED_TARGET",
+                        List.of(followUp)));
     }
 
     private static SemanticDtos.MethodTargetPayload methodTargetPayload() {

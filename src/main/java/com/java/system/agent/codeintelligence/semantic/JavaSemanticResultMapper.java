@@ -98,7 +98,7 @@ public final class JavaSemanticResultMapper {
                 }
             }
         }
-        return succeeded(candidates, evidence, observations);
+        return succeeded(new ArrayList<>(new LinkedHashSet<>(candidates)), evidence, observations);
     }
 
     public CapabilityExecutionResult apiRoutes(SemanticDtos.ApiRouteCandidatesResponse response) {
