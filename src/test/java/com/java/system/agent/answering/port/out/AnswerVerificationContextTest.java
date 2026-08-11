@@ -19,6 +19,11 @@ import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
@@ -27,6 +32,7 @@ import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -42,16 +48,29 @@ class AnswerVerificationContextTest {
         IssuedEvidence otherEvidence = evidence("evidence-2", "other");
         AgentObservation referenced = observation("observation-1", "referenced");
         AgentObservation otherObservation = observation("observation-2", "other");
+        QuestionPlan plan = questionPlan();
+        List<NeedResolution> resolutions = new ArrayList<>(List.of(new NeedResolution(
+                new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE, Set.of(),
+                Set.of(referenced.id()))));
 
         AnswerVerificationContext context = new AnswerVerificationContext(
                 "question", SessionHistory.empty(), document(cited, referenced),
                 List.of(cited, otherEvidence), List.of(referenced, otherObservation),
-                List.of(cited), List.of(referenced));
+                List.of(cited), List.of(referenced), List.of(), plan, resolutions);
+        resolutions.add(new NeedResolution(new InformationNeedId("need-2"), NeedResolutionStatus.UNAVAILABLE,
+                Set.of(), Set.of(otherObservation.id())));
 
         assertThat(context.availableEvidence()).containsExactly(cited, otherEvidence);
         assertThat(context.availableObservations()).containsExactly(referenced, otherObservation);
         assertThat(context.citedEvidence()).containsExactly(cited);
         assertThat(context.referencedObservations()).containsExactly(referenced);
+        assertThat(context.questionPlan()).isEqualTo(plan);
+        assertThat(context.needResolutions()).containsExactly(new NeedResolution(
+                new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE, Set.of(),
+                Set.of(referenced.id())));
+        assertThatThrownBy(() -> context.needResolutions().add(new NeedResolution(
+                new InformationNeedId("need-2"), NeedResolutionStatus.UNAVAILABLE, Set.of(),
+                Set.of(otherObservation.id())))).isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -63,11 +82,13 @@ class AnswerVerificationContextTest {
 
         AnswerVerificationContext context = new AnswerVerificationContext(
                 "question", SessionHistory.empty(), document(cited, referenced),
-                List.of(cited), List.of(referenced), List.of(tamperedEvidence), List.of(referenced));
+                List.of(cited), List.of(referenced), List.of(tamperedEvidence), List.of(referenced),
+                List.of(), questionPlan(), List.of());
         assertThat(context.citedEvidence()).containsExactly(tamperedEvidence);
         AnswerVerificationContext reissuedObservationContext = new AnswerVerificationContext(
                 "question", SessionHistory.empty(), document(cited, referenced),
-                List.of(cited), List.of(referenced), List.of(cited), List.of(tamperedObservation));
+                List.of(cited), List.of(referenced), List.of(cited), List.of(tamperedObservation),
+                List.of(), questionPlan(), List.of());
         assertThat(reissuedObservationContext.referencedObservations()).containsExactly(tamperedObservation);
     }
 
@@ -79,7 +100,8 @@ class AnswerVerificationContextTest {
 
         AnswerVerificationContext context = new AnswerVerificationContext(
                 "question", SessionHistory.empty(), document(new EvidenceHandleRef("evidence-1"), referenced),
-                List.of(reissued), List.of(referenced), List.of(reissued), List.of(referenced));
+                List.of(reissued), List.of(referenced), List.of(reissued), List.of(referenced),
+                List.of(), questionPlan(), List.of());
 
         assertThat(context.citedEvidence()).containsExactly(reissued);
     }
@@ -95,7 +117,7 @@ class AnswerVerificationContextTest {
         assertThatThrownBy(() -> new AnswerVerificationContext(
                 "question", SessionHistory.empty(), document(cited, referenced),
                 List.of(cited), List.of(referenced), List.of(cited), List.of(referenced),
-                List.of(new EvidenceCapabilityProvenance(foreign.handle(), capability))))
+                List.of(new EvidenceCapabilityProvenance(foreign.handle(), capability)), questionPlan(), List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("available evidence");
     }
@@ -129,5 +151,9 @@ class AnswerVerificationContextTest {
     private AgentObservation observation(String id, String description) {
         return new AgentObservation(new ObservationId(id), ObservationSource.RUNTIME,
                 ObservationCode.UNRESOLVED_CALL, description, Set.of(), Set.of(), "test");
+    }
+
+    private QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Resolve the request")));
     }
 }

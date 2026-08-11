@@ -5,6 +5,8 @@ import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 
 import java.util.LinkedHashSet;
@@ -20,19 +22,9 @@ public record AnswerVerificationContext(String question, SessionHistory sessionH
                                         List<AgentObservation> availableObservations,
                                         List<IssuedEvidence> citedEvidence,
                                         List<AgentObservation> referencedObservations,
-                                        List<EvidenceCapabilityProvenance> evidenceProvenance) {
-
-    public AnswerVerificationContext(
-            String question,
-            SessionHistory sessionHistory,
-            AnswerDocument document,
-            List<IssuedEvidence> availableEvidence,
-            List<AgentObservation> availableObservations,
-            List<IssuedEvidence> citedEvidence,
-            List<AgentObservation> referencedObservations) {
-        this(question, sessionHistory, document, availableEvidence, availableObservations, citedEvidence,
-                referencedObservations, List.of());
-    }
+                                        List<EvidenceCapabilityProvenance> evidenceProvenance,
+                                        QuestionPlan questionPlan,
+                                        List<NeedResolution> needResolutions) {
 
     public AnswerVerificationContext {
         Objects.requireNonNull(question, "verification question must not be null");
@@ -46,6 +38,8 @@ public record AnswerVerificationContext(String question, SessionHistory sessionH
         citedEvidence = immutableList(citedEvidence, "cited evidence");
         referencedObservations = immutableList(referencedObservations, "referenced observation");
         evidenceProvenance = immutableList(evidenceProvenance, "evidence provenance");
+        questionPlan = Objects.requireNonNull(questionPlan, "verification question plan must not be null");
+        needResolutions = immutableList(needResolutions, "need resolution");
         validate(document, availableEvidence, availableObservations, citedEvidence, referencedObservations,
                 evidenceProvenance);
     }

@@ -66,6 +66,7 @@ import com.java.system.agent.answering.port.out.AgentTransitionConflictException
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.TerminalAcceptanceCancelledException;
 import com.java.system.agent.answering.port.out.AnswerVerificationPort;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 import com.java.system.agent.answering.port.out.AnswerVerificationContractException;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
@@ -221,21 +222,32 @@ class ValidatedAgentLoopAnswerTest {
     void verifierRejectionIsCarriedToRewriteAndRejectedDraftIsNotPersisted() {
         AnswerDocument rejected = document("Rejected draft");
         AnswerDocument accepted = document("Rewritten answer");
+        QuestionPlan plan = questionPlan();
+        NeedResolution resolution = new NeedResolution(new InformationNeedId("need-1"),
+                NeedResolutionStatus.UNAVAILABLE, Set.of(), Set.of(new ObservationId("attempt-1:O1")));
         AnswerVerdict rejectedVerdict = new AnswerVerdict(
                 AnswerDisposition.REJECTED,
                 List.of(),
-                List.of(),
+                List.of("The remaining planned part is unaddressed"),
                 List.of(),
                 List.of("The answer does not address the question"));
         Deque<AnswerVerdict> verdicts = new ArrayDeque<>(List.of(rejectedVerdict, acceptedComplete()));
         FakeSessionAdapter session = new FakeSessionAdapter();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
+        List<AnswerVerificationContext> verificationContexts = new ArrayList<>();
+        List<AgentPromptContext> actionContexts = new ArrayList<>();
         ValidatedAgentLoop loop = loop(
                 session,
                 transitions,
-                (mode, context) -> new AnswerVerificationResult.LlmVerdict(verdicts.removeFirst()),
-                new AgentActionProposal.Proposed(new AnswerAction(rejected, List.of())),
-                new AgentActionProposal.Proposed(new AnswerAction(accepted, List.of())));
+                (mode, context) -> {
+                    verificationContexts.add(context);
+                    return new AnswerVerificationResult.LlmVerdict(verdicts.removeFirst());
+                },
+                context -> {
+                    actionContexts.add(context);
+                    return new AgentActionProposal.Proposed(new AnswerAction(
+                            actionContexts.size() == 1 ? rejected : accepted, List.of()));
+                });
 
         AgentLoopResult result = loop.execute(request());
 
@@ -247,6 +259,15 @@ class ValidatedAgentLoopAnswerTest {
         assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions())
                 .contains(new ModelInteraction.ActionResultRecorded(
                         new AnalysisAttemptId("attempt-1"), new ActionResult.AnswerRejected(rejectedVerdict)));
+        assertThat(verificationContexts).hasSize(2);
+        assertThat(verificationContexts.getFirst().questionPlan()).isEqualTo(plan);
+        assertThat(verificationContexts.getFirst().needResolutions()).containsExactly(resolution);
+        assertThat(actionContexts).hasSize(2);
+        assertThat(actionContexts.get(1).latestRejection())
+                .hasValueSatisfying(rejection -> assertThat(rejection)
+                        .contains("unaddressed part: The remaining planned part is unaddressed"));
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().questionPlan())
+                .contains(plan);
     }
 
     @Test

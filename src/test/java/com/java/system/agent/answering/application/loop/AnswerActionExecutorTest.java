@@ -16,6 +16,9 @@ import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -45,6 +48,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -56,7 +60,11 @@ class AnswerActionExecutorTest {
 
     @Test
     void acceptsAFreshVerifiedAnswerAndAppendsTheSessionTurn() {
-        Fixture fixture = fixture((mode, context) -> new AnswerVerificationResult.LlmVerdict(accepted()));
+        AtomicReference<QuestionPlan> verifiedPlan = new AtomicReference<>();
+        Fixture fixture = fixture((mode, context) -> {
+            verifiedPlan.set(context.questionPlan());
+            return new AnswerVerificationResult.LlmVerdict(accepted());
+        });
 
         ActionLaneOutcome outcome = fixture.executor().execute(
                 fixture.request(), fixture.session().read(fixture.request().sessionId()), fixture.state(), answer(), 1);
@@ -64,6 +72,7 @@ class AnswerActionExecutorTest {
         assertThat(outcome).isInstanceOf(ActionLaneOutcome.Terminal.class);
         assertThat(((ActionLaneOutcome.Terminal) outcome).result().responseText()).isEqualTo("Verified answer");
         assertThat(fixture.session().read(fixture.request().sessionId()).turns()).hasSize(1);
+        assertThat(verifiedPlan).hasValue(plan());
     }
 
     @Test
@@ -142,8 +151,14 @@ class AnswerActionExecutorTest {
                 new RunRequestIdentity(
                         request.sessionId().value(), request.participant(), request.question()));
         AgentRunState bootstrapped = transitions.bootstrap(initial, RunAttempt.empty(attemptId));
-        AgentRunState state = transitions.apply(bootstrapped, new AgentEvent.ActionSelected(
-                bootstrapped.runId(), bootstrapped.currentAttempt().attemptId(), bootstrapped.stateRevision(), answer()));
+        QuestionPlan plan = plan();
+        AgentRunState planSelected = transitions.apply(bootstrapped, new AgentEvent.ActionSelected(
+                bootstrapped.runId(), bootstrapped.currentAttempt().attemptId(), bootstrapped.stateRevision(),
+                new com.java.system.agent.answering.domain.action.PlanAction(plan)));
+        AgentRunState planRecorded = transitions.apply(planSelected, new AgentEvent.QuestionPlanCreated(
+                planSelected.runId(), planSelected.currentAttempt().attemptId(), planSelected.stateRevision(), plan));
+        AgentRunState state = transitions.apply(planRecorded, new AgentEvent.ActionSelected(
+                planRecorded.runId(), planRecorded.currentAttempt().attemptId(), planRecorded.stateRevision(), answer()));
         return new Fixture(executor, transitions, session, request, state, port);
     }
 
@@ -151,6 +166,10 @@ class AnswerActionExecutorTest {
         return new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.QUESTION, "Verified answer", Optional.empty(), Set.of(), Set.of()))),
                 List.of());
+    }
+
+    private static QuestionPlan plan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 
     private static AnswerVerdict accepted() {

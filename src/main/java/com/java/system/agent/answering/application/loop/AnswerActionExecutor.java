@@ -142,7 +142,10 @@ final class AnswerActionExecutor {
                 EvidenceCapabilityProvenance.resolve(
                         state.currentAttempt().issuedCapabilities(),
                         state.currentAttempt().issuedEvidence(),
-                        state.modelInteractions()));
+                        state.modelInteractions()),
+                state.questionPlan().orElseThrow(
+                        () -> new IllegalStateException("LLM answer verification requires a question plan")),
+                pending.action().resolutions());
         AnswerVerificationResult verificationResult;
         try {
             verificationResult = telemetry.verifyAnswer(state, AnswerVerificationMode.LLM, verificationContext);

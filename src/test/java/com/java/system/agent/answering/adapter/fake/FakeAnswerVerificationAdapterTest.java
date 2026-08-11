@@ -8,6 +8,9 @@ import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import org.junit.jupiter.api.Test;
@@ -26,7 +29,7 @@ class FakeAnswerVerificationAdapterTest {
                 List.of(), List.of());
         FakeAnswerVerificationAdapter adapter = new FakeAnswerVerificationAdapter(verdict);
         AnswerVerificationContext context = new AnswerVerificationContext("question", SessionHistory.empty(), document(),
-                List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), questionPlan(), List.of());
 
         assertThat(adapter.verify(AnswerVerificationMode.LLM, context))
                 .isEqualTo(new AnswerVerificationResult.LlmVerdict(verdict));
@@ -36,5 +39,9 @@ class FakeAnswerVerificationAdapterTest {
     private AnswerDocument document() {
         return new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.QUESTION, "answer", Optional.empty(), Set.of(), Set.of())));
+    }
+
+    private QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Resolve the request")));
     }
 }

@@ -8,6 +8,9 @@ import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
@@ -180,7 +183,11 @@ class AgentLoopTelemetryTest {
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.QUESTION, "Answer", Optional.empty(), Set.of(), Set.of())));
         return new AnswerVerificationContext("Question?", SessionHistory.empty(), document,
-                List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), questionPlan(), List.of());
+    }
+
+    private QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Resolve the request")));
     }
 
     private CapturingHandler captureTelemetryLogs() {

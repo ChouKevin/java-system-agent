@@ -36,6 +36,7 @@ import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
+import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
 import com.java.system.agent.answering.port.out.CapabilityCatalogPort;
@@ -53,6 +54,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -87,7 +89,9 @@ class AgentRunRecoveryCoordinatorTest {
     @Test
     void pendingVerificationCallsOnlyTheVerifierAndDoesNotRestartTheAttempt() {
         AtomicInteger verifications = new AtomicInteger();
+        AtomicReference<AnswerVerificationContext> verificationContext = new AtomicReference<>();
         Fixture fixture = fixture((mode, context) -> {
+            verificationContext.set(context);
             if (verifications.incrementAndGet() == 1) {
                 throw new AnswerVerificationUnavailableException("temporary outage", null); // cs-allow
             }
@@ -95,12 +99,26 @@ class AgentRunRecoveryCoordinatorTest {
         });
         AgentRunRecoveryOutcome.Active active = (AgentRunRecoveryOutcome.Active) fixture.coordinator().recover(
                 fixture.initialRequest());
-        AnswerAction proposedAnswer = answer();
-        AgentRunState selectedState = fixture.port().commit(new AgentStateReducer().reduce(active.execution().state(),
+        QuestionPlan plan = plan();
+        AgentStateReducer reducer = new AgentStateReducer();
+        AgentRunState planSelectedState = fixture.port().commit(reducer.reduce(active.execution().state(),
                 new AgentEvent.ActionSelected(
                         active.execution().state().runId(),
                         active.execution().state().currentAttempt().attemptId(),
                         active.execution().state().stateRevision(),
+                        new PlanAction(plan))));
+        AgentRunState planRecordedState = fixture.port().commit(reducer.reduce(planSelectedState,
+                new AgentEvent.QuestionPlanCreated(
+                        planSelectedState.runId(),
+                        planSelectedState.currentAttempt().attemptId(),
+                        planSelectedState.stateRevision(),
+                        plan)));
+        AnswerAction proposedAnswer = answer();
+        AgentRunState selectedState = fixture.port().commit(reducer.reduce(planRecordedState,
+                new AgentEvent.ActionSelected(
+                        planRecordedState.runId(),
+                        planRecordedState.currentAttempt().attemptId(),
+                        planRecordedState.stateRevision(),
                         proposedAnswer)));
         assertThatThrownBy(() -> fixture.answerExecutor().execute(
                 fixture.initialRequest(), fixture.session().read(fixture.initialRequest().sessionId()), selectedState,
@@ -111,6 +129,10 @@ class AgentRunRecoveryCoordinatorTest {
 
         assertThat(outcome).isInstanceOf(AgentRunRecoveryOutcome.Terminal.class);
         assertThat(verifications).hasValue(2);
+        assertThat(verificationContext).hasValueSatisfying(context -> {
+            assertThat(context.questionPlan()).isEqualTo(plan);
+            assertThat(context.needResolutions()).isEmpty();
+        });
         assertThat(fixture.mutationCalls()).hasValue(0);
         assertThat(fixture.port().events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
     }

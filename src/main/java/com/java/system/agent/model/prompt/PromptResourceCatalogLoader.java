@@ -39,7 +39,7 @@ public final class PromptResourceCatalogLoader {
     private static final Set<String> VERIFICATION_CONTEXT_VARIABLES = Set.of(
             "currentQuestion", "sessionHistory", "proposedDocument", "availableEvidence", "availableObservations",
             "citedEvidence", "evidenceTypeCoverage", "referencedObservations", "requiredFactStatementVerdicts",
-            "responseContract");
+            "questionPlan", "needResolutions", "responseContract");
     private static final Set<String> CORE_TOOL_VARIABLES = Set.of("toolName");
     private static final Set<String> QUERY_TOOL_VARIABLES = Set.of(
             "toolName", "capabilityName", "capabilityVersion", "guidance");
