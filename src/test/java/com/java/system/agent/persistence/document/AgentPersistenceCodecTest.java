@@ -352,6 +352,25 @@ class AgentPersistenceCodecTest {
     }
 
     @Test
+    void rejects_contract_only_pending_verification_before_recovery() {
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
+                StatementType.UNCERTAINTY, "uncertain", Optional.empty(), Set.of(), Set.of())));
+        PendingAnswerVerification pending = new PendingAnswerVerification(
+                attemptId(), RevisionVector.empty(), new AnswerAction(document, List.of(resolution())),
+                AnswerVerificationMode.LLM);
+        AgentRunState state = new AgentRunState(runId(), AgentRunStatus.RUNNING,
+                AgentRunState.initial(runId(), attemptId(), budget(), identity()).currentAttempt(), 1, budget(), 0, 0, 1,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(pending), Optional.empty(),
+                identity(), List.of());
+        VersionedJsonDocument documentPayload = stateCodec.encode(state);
+        ObjectNode malformed = documentPayload.payload().deepCopy();
+        ((ObjectNode) malformed.path("pending_answer_verification")).put("verification_mode", "CONTRACT_ONLY");
+
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(13, malformed)))
+                .isInstanceOf(PersistenceDocumentException.class);
+    }
+
+    @Test
     void preserves_every_event_discriminator() {
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
                 StatementType.UNCERTAINTY, "uncertain", Optional.empty(), Set.of(), Set.of())));

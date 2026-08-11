@@ -236,11 +236,13 @@ public final class AgentStateReducer {
             throw new IllegalArgumentException("accepted answer cannot replace a pending terminal response");
         }
         Optional<PendingAnswerVerification> pending = state.pendingAnswerVerification();
-        if (pending.isPresent() && (!pending.orElseThrow().action().equals(event.action())
-                || !verificationBasisMatches(pending.orElseThrow(), event.acceptance()))) {
-            throw new IllegalArgumentException("accepted answer must match the pending answer verification checkpoint");
-        }
-        if (pending.isEmpty() && event.acceptance().verificationBasis() != AnswerVerificationBasis.CONTRACT_ONLY) {
+        if (pending.isPresent()) {
+            PendingAnswerVerification checkpoint = pending.orElseThrow();
+            if (!checkpoint.action().equals(event.action())
+                    || event.acceptance().verificationBasis() != AnswerVerificationBasis.LLM) {
+                throw new IllegalArgumentException("accepted answer must match the pending answer verification checkpoint");
+            }
+        } else if (event.acceptance().verificationBasis() != AnswerVerificationBasis.CONTRACT_ONLY) {
             throw new IllegalArgumentException("LLM accepted answer requires the pending answer verification checkpoint");
         }
         AttemptBudget budget = state.budget().consumeAgentStep();
@@ -251,13 +253,6 @@ public final class AgentStateReducer {
                         event.sessionId(), event.turn(), event.action().document(), event.acceptance())), Optional.empty(),
                 Optional.empty(), withInteraction(state, new ModelInteraction.ActionResultRecorded(event.attemptId(),
                         new ActionResult.AnswerAccepted())));
-    }
-
-    private boolean verificationBasisMatches(PendingAnswerVerification pending, AnswerAcceptance acceptance) {
-        return switch (pending.verificationMode()) {
-            case LLM -> acceptance.verificationBasis() == AnswerVerificationBasis.LLM;
-            case CONTRACT_ONLY -> acceptance.verificationBasis() == AnswerVerificationBasis.CONTRACT_ONLY;
-        };
     }
 
     private AgentRunState applyAnswerProposed(AgentRunState state, AgentEvent.AnswerProposed event) {

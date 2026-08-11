@@ -16,5 +16,8 @@ public record PendingAnswerVerification(AnalysisAttemptId attemptId, RevisionVec
         Objects.requireNonNull(revisions, "pending answer verification revisions must not be null");
         Objects.requireNonNull(action, "pending answer verification action must not be null");
         Objects.requireNonNull(verificationMode, "pending answer verification mode must not be null");
+        if (verificationMode != AnswerVerificationMode.LLM) {
+            throw new IllegalArgumentException("pending answer verification requires LLM mode");
+        }
     }
 }

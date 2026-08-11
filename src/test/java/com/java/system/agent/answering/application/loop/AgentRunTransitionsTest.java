@@ -82,15 +82,20 @@ class AgentRunTransitionsTest {
         AnswerDocument document = answerDocument();
         AgentRunState selected = transitions.apply(state, new AgentEvent.ActionSelected(
                 state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), new AnswerAction(document, List.of())));
-        AgentRunState proposed = transitions.apply(selected, new AgentEvent.AnswerProposed(
-                selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(),
-                new PendingAnswerVerification(state.currentAttempt().attemptId(), RevisionVector.empty(),
-                        new AnswerAction(document, List.of()), AnswerVerificationMode.CONTRACT_ONLY)));
-        AgentEvent acceptance = answerAccepted(proposed);
+        AgentEvent acceptance = answerAccepted(selected);
 
-        assertThatThrownBy(() -> transitions.applyTerminalAcceptance(proposed, acceptance))
+        assertThatThrownBy(() -> transitions.applyTerminalAcceptance(selected, acceptance))
                 .isInstanceOf(TerminalAcceptanceCancelledException.class)
                 .hasMessage("terminal acceptance cancelled");
+    }
+
+    @Test
+    void rejectsContractOnlyPendingVerificationCheckpoints() {
+        assertThatThrownBy(() -> new PendingAnswerVerification(
+                new AnalysisAttemptId("attempt-1"), RevisionVector.empty(),
+                new AnswerAction(answerDocument(), List.of()), AnswerVerificationMode.CONTRACT_ONLY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("pending answer verification requires LLM mode");
     }
 
     @Test

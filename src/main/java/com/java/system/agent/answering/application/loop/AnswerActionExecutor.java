@@ -145,7 +145,7 @@ final class AnswerActionExecutor {
                         state.modelInteractions()));
         AnswerVerificationResult verificationResult;
         try {
-            verificationResult = telemetry.verifyAnswer(state, pending.verificationMode(), verificationContext);
+            verificationResult = telemetry.verifyAnswer(state, AnswerVerificationMode.LLM, verificationContext);
         } catch (ExternalExecutionDeferredException exception) {
             throw terminalResponseCoordinator.deferredExecution(exception);
         } catch (AnswerVerificationUnavailableException exception) {
@@ -160,8 +160,7 @@ final class AnswerActionExecutor {
                     Optional.empty(), Optional.empty()));
         }
         AnswerAcceptance acceptance;
-        if (pending.verificationMode() == AnswerVerificationMode.LLM
-                && verificationResult instanceof AnswerVerificationResult.LlmVerdict llmVerdict) {
+        if (verificationResult instanceof AnswerVerificationResult.LlmVerdict llmVerdict) {
             AnswerVerdict verdict = llmVerdict.verdict();
             try {
                 verdictValidator.validate(documentValidation, verdict);
@@ -176,9 +175,6 @@ final class AnswerActionExecutor {
                 return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.of(rejection));
             }
             acceptance = AnswerAcceptance.llm(verdict);
-        } else if (pending.verificationMode() == AnswerVerificationMode.CONTRACT_ONLY
-                && verificationResult instanceof AnswerVerificationResult.ContractAccepted) {
-            acceptance = AnswerAcceptance.contractOnly();
         } else {
             return new ActionLaneOutcome.Terminal(terminalResponseCoordinator.concludeIntegrationFailure(
                     state,
