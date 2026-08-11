@@ -5,6 +5,7 @@ import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
@@ -37,6 +38,9 @@ import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -107,7 +111,7 @@ class AgentActionPromptRendererTest {
         Map<String, Object> projection = renderer.project(context, currentToolNames);
 
         assertThat(projection).containsOnlyKeys("originalQuestion", "sessionTurns", "currentlyCallableTools", "candidates",
-                "evidence", "evidenceCoverage", "observations", "latestAnswerFeedback", "latestRejection",
+                "evidence", "evidenceCoverage", "observations", "questionPlan", "latestAnswerFeedback", "latestRejection",
                 "remainingBudget", "modelInteractions");
         assertThat(projection).doesNotContainKey("capabilities");
         assertThat(projection.get("currentlyCallableTools")).isEqualTo("- agent_submit_answer\n- agent_request_clarification\n");
@@ -132,6 +136,25 @@ class AgentActionPromptRendererTest {
                     "canonical-follow-up", "secret.example.invalid", "execute-secret", "execute-secret-body");
             return true;
         }));
+    }
+
+    @Test
+    void projects_the_committed_question_plan_in_its_persisted_need_order() {
+        AnalysisRunId runId = new AnalysisRunId("run-5");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-2"), "Resolve the boundary"),
+                new InformationNeed(new InformationNeedId("need-1"), "Trace the entry point")));
+        AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), runId, attemptId,
+                Map.of(), Map.of(), Map.of(), Map.of(), List.of(
+                        new ModelInteraction.ActionSelected(attemptId, new PlanAction(plan)),
+                        new ModelInteraction.ActionResultRecorded(attemptId, new ActionResult.QuestionPlanRecorded(plan))),
+                Optional.empty(), new AttemptBudget(3, 1, 1, 0, 1, 0, 1, 0, 1, 0));
+
+        Map<String, Object> projection = renderer().project(context, List.of("agent_request_clarification"));
+
+        assertThat(projection.get("questionPlan")).isEqualTo("- need-2: Resolve the boundary\n"
+                + "- need-1: Trace the entry point\n");
     }
 
     @Test

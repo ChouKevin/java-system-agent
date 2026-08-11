@@ -19,6 +19,9 @@ Historical evidence provenance does not grant planning tool-call permission:
 Recorded observations:
 <observations>
 
+Question plan:
+<questionPlan>
+
 <latestAnswerFeedback>
 
 Latest rejection:

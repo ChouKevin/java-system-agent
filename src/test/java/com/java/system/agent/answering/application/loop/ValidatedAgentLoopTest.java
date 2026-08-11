@@ -10,8 +10,10 @@ import com.java.system.agent.answering.application.state.AgentTransitionCommitte
 import com.java.system.agent.answering.application.validation.AgentActionValidator;
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
+import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
@@ -40,6 +42,7 @@ import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
@@ -128,14 +131,21 @@ class ValidatedAgentLoopTest {
     }
 
     @Test
-    void commits_a_plan_as_one_agent_step_without_consuming_a_query_step() {
+    void commits_one_plan_before_a_later_clarification_without_consuming_a_query_step() {
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         AtomicInteger modelCalls = new AtomicInteger();
+        List<AgentPromptContext> issuedContexts = new ArrayList<>();
+        List<AgentAction> proposedActions = new ArrayList<>();
         ValidatedAgentLoop loop = loop(
                 transitions,
                 context -> {
+                    issuedContexts.add(context);
                     modelCalls.incrementAndGet();
-                    return new AgentActionProposal.Proposed(new PlanAction(plan()));
+                    AgentAction action = context.questionPlan().isEmpty()
+                            ? new PlanAction(plan())
+                            : new ClarifyAction("Which repository should be analysed?", List.of(), "Scope is ambiguous");
+                    proposedActions.add(action);
+                    return new AgentActionProposal.Proposed(action);
                 },
                 invocation -> {
                     throw new AssertionError("PLAN must not execute a query");
@@ -148,14 +158,20 @@ class ValidatedAgentLoopTest {
 
         AgentRunState state = transitions.state(request.runId());
         assertThat(state.questionPlan()).contains(plan());
-        assertThat(state.budget().usedAgentSteps()).isEqualTo(1);
+        assertThat(issuedContexts).hasSize(2);
+        assertThat(issuedContexts.getFirst().questionPlan()).isEmpty();
+        assertThat(issuedContexts.get(1).questionPlan()).contains(plan());
+        assertThat(issuedContexts.get(1).budget().usedAgentSteps()).isEqualTo(1);
+        assertThat(issuedContexts.get(1).budget().usedQueryExecutions()).isZero();
+        assertThat(proposedActions).filteredOn(PlanAction.class::isInstance).singleElement()
+                .isEqualTo(new PlanAction(plan()));
+        assertThat(proposedActions).filteredOn(ClarifyAction.class::isInstance).singleElement()
+                .isEqualTo(new ClarifyAction("Which repository should be analysed?", List.of(), "Scope is ambiguous"));
         assertThat(state.budget().usedQueryExecutions()).isZero();
         assertThat(state.modelInteractions()).filteredOn(ModelInteraction.ActionResultRecorded.class::isInstance)
                 .extracting(ModelInteraction.ActionResultRecorded.class::cast)
                 .extracting(ModelInteraction.ActionResultRecorded::result)
-                .containsExactly(new ActionResult.QuestionPlanRecorded(plan()),
-                        new ActionResult.ValidationRejected("QUESTION_PLAN_ALREADY_EXISTS",
-                                "QUESTION_PLAN_ALREADY_EXISTS"));
+                .containsExactly(new ActionResult.QuestionPlanRecorded(plan()), new ActionResult.ClarificationAccepted());
         assertThat(modelCalls).hasValue(2);
     }
 

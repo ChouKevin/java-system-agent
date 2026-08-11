@@ -143,6 +143,7 @@ class PromptResourceCatalogTest {
                 Map.entry("evidence", "evidence"),
                 Map.entry("evidenceCoverage", "evidence-coverage"),
                 Map.entry("observations", "observations"),
+                Map.entry("questionPlan", "question-plan"),
                 Map.entry("latestAnswerFeedback", "latest-answer-feedback"),
                 Map.entry("latestRejection", "latest-rejection"),
                 Map.entry("remainingBudget", "remaining-budget"),

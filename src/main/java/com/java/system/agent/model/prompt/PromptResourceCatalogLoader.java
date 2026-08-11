@@ -32,7 +32,7 @@ public final class PromptResourceCatalogLoader {
     private static final Logger LOGGER = Logger.getLogger(PromptResourceCatalogLoader.class.getName());
     private static final Set<String> ACTION_CONTEXT_VARIABLES = Set.of(
             "originalQuestion", "sessionTurns", "currentlyCallableTools", "candidates", "evidence", "evidenceCoverage",
-            "observations", "latestAnswerFeedback", "latestRejection", "remainingBudget", "modelInteractions");
+            "observations", "questionPlan", "latestAnswerFeedback", "latestRejection", "remainingBudget", "modelInteractions");
     private static final Set<String> LATEST_ANSWER_FEEDBACK_VARIABLES = Set.of(
             "disposition", "statementVerdicts", "unaddressedParts", "blockingUncertainties", "rejectionReasons",
             "subsequentResults");

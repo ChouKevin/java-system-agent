@@ -160,7 +160,7 @@ class SpringAiAgentActionAdapterTest {
                             "priorEquivalentCurrentAttemptPayloadSelectionCount=1", "elapsedMs=")
                     .doesNotContain("PROMPT_SECRET", "TOKEN_SECRET", "source=evidence secret", "Previous question secret",
                             "Previous rationale secret", "Prior attempt rationale secret", "Changed question secret",
-                            "Changed rationale secret", "candidate-1");
+                            "Changed rationale secret", "candidate-1", "確認業務範圍");
         } finally {
             releaseActionLogs(handler);
         }
@@ -683,7 +683,7 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
-    void sends_one_nonblank_resource_backed_request_with_the_currently_issued_callback_schemas() {
+    void resumes_with_the_committed_question_plan_in_the_prompt_and_without_the_plan_callback() {
         CountingChatModel model = new CountingChatModel(toolCall("callers", """
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","rationale":"Trace callers"}
                 """));
@@ -701,7 +701,7 @@ class SpringAiAgentActionAdapterTest {
         assertThat(model.calls()).isEqualTo(1);
         Prompt prompt = model.lastPrompt().orElseThrow();
         assertThat(prompt.getSystemMessage().getText()).isNotBlank();
-        assertThat(prompt.getUserMessage().getText()).isNotBlank();
+        assertThat(prompt.getUserMessage().getText()).contains("- scope: 確認業務範圍");
         assertThat(issued.callbacks())
                 .extracting(callback -> callback.getToolDefinition().name())
                 .containsExactlyInAnyOrder("callers", "agent_submit_answer", "agent_request_clarification", "execute_http");

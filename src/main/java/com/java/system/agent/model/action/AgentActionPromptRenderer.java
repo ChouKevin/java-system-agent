@@ -76,6 +76,7 @@ public final class AgentActionPromptRenderer {
         projection.put("evidence", evidence(context));
         projection.put("evidenceCoverage", evidenceCoverage(context));
         projection.put("observations", observations(context));
+        projection.put("questionPlan", questionPlan(context));
         projection.put("latestAnswerFeedback", latestAnswerFeedback(context));
         projection.put("latestRejection", context.latestRejection().orElse("none"));
         projection.put("remainingBudget", remainingBudget(context));
@@ -149,6 +150,14 @@ public final class AgentActionPromptRenderer {
                     .append(entry.getValue().description()).append('\n');
         }
         return observations.toString();
+    }
+
+    private static String questionPlan(AgentPromptContext context) {
+        return context.questionPlan()
+                .map(plan -> plan.needs().stream()
+                        .map(need -> "- " + need.id().value() + ": " + need.description())
+                        .collect(java.util.stream.Collectors.joining("\n", "", "\n")))
+                .orElse("none");
     }
 
     private static String renderCandidate(AnalysisCandidate candidate, Set<String> currentToolNames) {
