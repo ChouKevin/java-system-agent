@@ -9,7 +9,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
- * Model 整合只依賴 Spring AI 與 answering 已公開 domain 和 outbound contract 的邊界測試
+ * Model 整合只依賴 schema/model adapter 與 answering 已公開 domain 和 outbound contract 的邊界測試
  */
 @AnalyzeClasses(
         packages = {"com.java.system.agent.model", "com.java.system.agent.capability.planning"},
@@ -17,11 +17,12 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 class ModelModuleArchitectureTest {
 
     @ArchTest
-    static final ArchRule MODEL_DEPENDS_ONLY_ON_SPRING_AI_AND_RUNTIME_CONTRACTS = classes()
+    static final ArchRule MODEL_DEPENDS_ONLY_ON_APPROVED_ADAPTER_AND_RUNTIME_CONTRACTS = classes()
             .that().resideInAPackage("..model..")
             .and().doNotHaveSimpleName("package-info")
             .should().onlyDependOnClassesThat()
-            .resideInAnyPackage("java..", "com.fasterxml.jackson..", "jakarta..", "org.springframework..", "reactor..", "tools.jackson..", "com.google.genai..",
+            .resideInAnyPackage("java..", "com.fasterxml.jackson..", "com.github.victools..", "jakarta..",
+                    "org.springframework..", "reactor..", "tools.jackson..", "com.google.genai..",
                     "..model..",
                     "..answering.domain..",
                     "..answering.port.out..",
