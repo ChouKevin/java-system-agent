@@ -1,11 +1,12 @@
 package com.java.system.agent.codeintelligence.semantic;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
-import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
@@ -14,18 +15,23 @@ import com.java.system.agent.answering.domain.evidence.EvidenceRef;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
-import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
-import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
-import com.java.system.agent.answering.port.out.RepositoryRevisionFailureCode;
-import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
-import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
+import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
+import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.CapabilityInvocation;
+import com.java.system.agent.answering.port.out.RepositoryRevisionFailureCode;
+import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
@@ -142,10 +148,16 @@ class JavaSemanticServiceLiveContractIT {
         HandleBinding binding = new HandleBinding(new AnalysisRunId("offline-run"), new AnalysisAttemptId("offline-attempt"), revisions);
         CandidateHandle candidateHandle = new CandidateHandle("implementation-follow-up", binding, CandidateKind.FOLLOW_UP);
         IssuedCandidate issuedCandidate = new IssuedCandidate(candidateHandle, followUp);
+        QuestionPlan questionPlan = new QuestionPlan(List.of(new InformationNeed(
+                new InformationNeedId("implementation"), "Find the concrete implementation")));
+        List<ModelInteraction> plannedInteractions = List.of(
+                new ModelInteraction.ActionSelected(binding.attemptId(), new PlanAction(questionPlan)),
+                new ModelInteraction.ActionResultRecorded(
+                        binding.attemptId(), new ActionResult.QuestionPlanRecorded(questionPlan)));
         AgentPromptContext context = new AgentPromptContext("Which concrete lookup implements the declaration?",
                 com.java.system.agent.answering.domain.conversation.SessionHistory.empty(), binding.runId(), binding.attemptId(),
                 Map.of(new com.java.system.agent.answering.domain.handle.CapabilityHandle("implementation-capability", binding), policy),
-                Map.of(candidateHandle, issuedCandidate), Map.of(), Map.of(), List.of(), Optional.empty(),
+                Map.of(candidateHandle, issuedCandidate), Map.of(), Map.of(), plannedInteractions, Optional.empty(),
                 new com.java.system.agent.answering.domain.run.AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
         CandidateHandle wrongVersionHandle = new CandidateHandle("wrong-version-follow-up", binding, CandidateKind.FOLLOW_UP);
         FollowUpCandidate wrongVersionFollowUp = new FollowUpCandidate(repositoryId, revision, policy.name(), "v999",
@@ -154,7 +166,8 @@ class JavaSemanticServiceLiveContractIT {
                 com.java.system.agent.answering.domain.conversation.SessionHistory.empty(), binding.runId(), binding.attemptId(),
                 Map.of(new com.java.system.agent.answering.domain.handle.CapabilityHandle("implementation-capability", binding), policy),
                 Map.of(wrongVersionHandle, new IssuedCandidate(wrongVersionHandle, wrongVersionFollowUp)), Map.of(), Map.of(),
-                List.of(), Optional.empty(), new com.java.system.agent.answering.domain.run.AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                plannedInteractions, Optional.empty(),
+                new com.java.system.agent.answering.domain.run.AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
 
         assertThat(offlineRegistry.issuedRegistrations(wrongVersionContext).stream()
                 .map(registration -> registration.name()).toList()).doesNotContain(policy.name());
@@ -199,10 +212,10 @@ class JavaSemanticServiceLiveContractIT {
                 new SuggestApiRouteExecutionInput("/v1/repositories", null, 3)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph", revision),
-                new OutgoingCallGraphExecutionInput(1)))
+                new OutgoingCallGraphExecutionInput(1, Optional.of(methodTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph", revision),
-                new IncomingCallGraphExecutionInput(1)))
+                new IncomingCallGraphExecutionInput(1, Optional.of(methodTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
 
         SemanticDtos.OutgoingCallGraphResponse response = rawOutgoingCallGraph(revision);
@@ -251,9 +264,11 @@ class JavaSemanticServiceLiveContractIT {
                 repositoryCandidate(repositoryId, revisions), payloadCodec.encode(
                         new DiscoverEventListenersExecutionInput("com.example.m6.OrderChanged", 0, 20)),
                 revisions, executedCapabilities);
+        SemanticTarget orderLookup = orderLookupTarget();
         executeDiscovery(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
-                targetCandidate(repositoryId, revision, revisions, orderLookupTarget(), "order-lookup-interface"),
-                payloadCodec.encode(new DiscoverMethodImplementationsExecutionInput(Optional.empty())),
+                targetCandidate(repositoryId, revision, revisions, orderLookup, "order-lookup-interface"),
+                payloadCodec.encode(new DiscoverMethodImplementationsExecutionInput(Optional.of(
+                        new JavaSemanticCandidateTargetMapper().methodTarget(orderLookup)))),
                 revisions, executedCapabilities);
 
         CapabilityExecutionResult.Succeeded resolved = executeDiscovery(
