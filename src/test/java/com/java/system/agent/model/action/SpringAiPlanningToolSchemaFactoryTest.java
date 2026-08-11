@@ -8,6 +8,7 @@ import com.java.system.agent.capability.planning.ExecuteHttpPlanningInput;
 import com.java.system.agent.capability.planning.PlanQuestionPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
 import com.java.system.agent.codeintelligence.planning.DiscoverConceptsPlanningInput;
+import com.java.system.agent.codeintelligence.planning.DiscoverTypeMembersPlanningInput;
 import com.java.system.agent.codeintelligence.planning.EntryPointType;
 import com.java.system.agent.codeintelligence.planning.IncomingCallGraphPlanningInput;
 import com.java.system.agent.codeintelligence.planning.ListEntryPointsPlanningInput;
@@ -141,6 +142,8 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 .path("matchMode").path("enum"))
                 .extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("TOKEN_EXACT", "TOKEN_PREFIX");
+        assertThat(criteriaProperties.path("terms").path("items").path("properties")
+                .path("value").path("minLength").asInt()).isEqualTo(2);
         assertThat(criteriaProperties.path("kinds").path("items").path("enum"))
                 .extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder(
@@ -152,6 +155,23 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(properties.path("limit").path("minimum").asInt()).isEqualTo(1);
         assertThat(properties.path("limit").path("maximum").asInt()).isEqualTo(100);
         assertThat(properties.path("offset").isMissingNode()).isTrue();
+    }
+
+    @Test
+    void projects_optional_nested_constraints_to_the_model_schema() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode schema = mapper.readTree(
+                new SpringAiPlanningToolSchemaFactory().createSchema(DiscoverTypeMembersPlanningInput.class));
+        JsonNode initialFilter = schema.path("properties").path("initialFilter");
+        JsonNode memberKinds = initialFilter.path("properties").path("memberKinds");
+        JsonNode namePrefix = initialFilter.path("properties").path("namePrefix");
+
+        assertThat(initialFilter.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(memberKinds.path("minItems").asInt()).isEqualTo(1);
+        assertThat(namePrefix.path("minLength").asInt()).isEqualTo(1);
+        assertThat(namePrefix.path("pattern").asText()).isEqualTo(".*\\S.*");
+        assertThat(namePrefix.path("type")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("string", "null");
     }
 
     @Test

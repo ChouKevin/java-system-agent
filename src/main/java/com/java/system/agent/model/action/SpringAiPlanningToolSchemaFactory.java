@@ -24,6 +24,7 @@ import java.lang.reflect.Type;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 從 planning input Java 型別產生唯一 provider schema，並驗證已註冊 schema 忠實表達宣告約束
@@ -107,7 +108,7 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
             applySize(rawType, schema, size);
         }
         if (Objects.nonNull(annotation(annotations, NotBlank.class))) {
-            schema.put("minLength", 1);
+            putMinimum(schema, "minLength", 1);
             schema.put("pattern", NONBLANK_PATTERN);
         }
         if (Objects.nonNull(annotation(annotations, NotEmpty.class))) {
@@ -122,24 +123,28 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
         if (rawType.isRecord()) {
             enrichRecordSchema(rawType, schema);
         }
-        if (Collection.class.isAssignableFrom(rawType) && type instanceof AnnotatedParameterizedType parameterized) {
-            AnnotatedType[] arguments = parameterized.getAnnotatedActualTypeArguments();
-            if (arguments.length != 1) {
-                throw new IllegalArgumentException("planning collection input must have exactly one element type");
-            }
-            AnnotatedType elementType = arguments[0];
+        if (Optional.class.equals(rawType)) {
+            AnnotatedType valueType = singleTypeArgument(type, "planning optional input");
+            enrichType(valueType, valueType.getAnnotations(), schema);
+        }
+        if (Collection.class.isAssignableFrom(rawType)) {
+            AnnotatedType elementType = singleTypeArgument(type, "planning collection input");
             enrichType(elementType, elementType.getAnnotations(), object(schema.path("items"), "planning schema collection item"));
         }
     }
 
     private static void applyNotEmpty(Class<?> rawType, ObjectNode schema) {
         if (Collection.class.isAssignableFrom(rawType)) {
-            schema.put("minItems", 1);
+            putMinimum(schema, "minItems", 1);
         } else if (CharSequence.class.isAssignableFrom(rawType)) {
-            schema.put("minLength", 1);
+            putMinimum(schema, "minLength", 1);
         } else {
             throw new IllegalArgumentException("planning @NotEmpty constraint requires a collection or string");
         }
+    }
+
+    private static void putMinimum(ObjectNode schema, String property, int requiredMinimum) {
+        schema.put(property, Math.max(schema.path(property).asInt(0), requiredMinimum));
     }
 
     private static void applySize(Class<?> rawType, ObjectNode schema, Size size) {
@@ -190,6 +195,14 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
     }
 
     private static void verifyTypeContract(AnnotatedType type, Annotation[] annotations, ObjectNode schema) {
+        verifyTypeContract(type, annotations, schema, false);
+    }
+
+    private static void verifyTypeContract(
+            AnnotatedType type,
+            Annotation[] annotations,
+            ObjectNode schema,
+            boolean optionalValue) {
         Class<?> rawType = rawType(type.getType());
         Min min = annotation(annotations, Min.class);
         Max max = annotation(annotations, Max.class);
@@ -211,7 +224,7 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
         if (Objects.nonNull(size)) {
             verifySizeContract(rawType, schema, size);
         }
-        if (requiresNonNull(annotations) && permitsNull(schema)) {
+        if (!optionalValue && requiresNonNull(annotations) && permitsNull(schema)) {
             throw new IllegalArgumentException("planning nullability constraint is absent from schema");
         }
         if (rawType.isEnum()) {
@@ -220,12 +233,12 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
         if (rawType.isRecord()) {
             verifyRecordContract(rawType, schema);
         }
-        if (Collection.class.isAssignableFrom(rawType) && type instanceof AnnotatedParameterizedType parameterized) {
-            AnnotatedType[] arguments = parameterized.getAnnotatedActualTypeArguments();
-            if (arguments.length != 1) {
-                throw new IllegalArgumentException("planning collection input must have exactly one element type");
-            }
-            AnnotatedType elementType = arguments[0];
+        if (Optional.class.equals(rawType)) {
+            AnnotatedType valueType = singleTypeArgument(type, "planning optional input");
+            verifyTypeContract(valueType, valueType.getAnnotations(), schema, true);
+        }
+        if (Collection.class.isAssignableFrom(rawType)) {
+            AnnotatedType elementType = singleTypeArgument(type, "planning collection input");
             verifyTypeContract(elementType, elementType.getAnnotations(),
                     object(schema.path("items"), "planning schema collection item"));
         }
@@ -346,6 +359,17 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
             return rawType;
         }
         throw new IllegalArgumentException("planning input type must have a concrete raw type");
+    }
+
+    private static AnnotatedType singleTypeArgument(AnnotatedType type, String description) {
+        if (!(type instanceof AnnotatedParameterizedType parameterized)) {
+            throw new IllegalArgumentException(description + " must declare exactly one value type");
+        }
+        AnnotatedType[] arguments = parameterized.getAnnotatedActualTypeArguments();
+        if (arguments.length != 1) {
+            throw new IllegalArgumentException(description + " must declare exactly one value type");
+        }
+        return arguments[0];
     }
 
     private static <A extends Annotation> A annotation(Annotation[] annotations, Class<A> type) {
