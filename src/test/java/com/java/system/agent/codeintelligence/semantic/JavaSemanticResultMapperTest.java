@@ -58,6 +58,34 @@ class JavaSemanticResultMapperTest {
                 REPOSITORY_ID, REPOSITORY_REVISION, response);
 
         assertThat(result.discoveredCandidates()).isEmpty();
+        assertThat(result.evidence()).isEmpty();
+        assertThat(result.observations()).extracting(CapabilityObservation::code)
+                .containsExactly(ObservationCode.UNSUPPORTED_CLAIM);
+    }
+
+    @Test
+    void preservesUnavailableFollowUpAsTheOnlyAuthorityForACompleteEmptyConceptSearch() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.DiscoverConceptsResponse response = new SemanticDtos.DiscoverConceptsResponse(
+                "orders",
+                REVISION,
+                List.of("buy now pay later"),
+                List.of("TYPE"),
+                List.of("TYPE"),
+                List.of(),
+                List.of(),
+                new SemanticDtos.PageResponse(0, 10, 0, 0, false),
+                new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0),
+                List.of(),
+                List.of(),
+                List.of(new SemanticDtos.UnavailableFollowUpResponse(
+                        "SEARCH_INCOMPLETE", "FIX_SOURCE_OR_RETRY")));
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded)
+                mapper.discoverConcepts(REPOSITORY_ID, REPOSITORY_REVISION, response);
+
+        assertThat(result.observations()).extracting(CapabilityObservation::code)
+                .containsExactly(ObservationCode.UNADDRESSED_PART);
     }
 
     @Test

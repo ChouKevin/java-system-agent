@@ -188,6 +188,12 @@ public final class JavaSemanticResultMapper {
         addLimitations(observations, required.limitations(), "concept limitation");
         addIssueSummaries(observations, required.issueSummaries(), "concept issue");
         addUnavailableFollowUps(observations, required.unavailableFollowUps(), "concept follow-up");
+        if (isCompleteEmptyConceptSearch(required)) {
+            observations.add(observation(
+                    ObservationCode.UNSUPPORTED_CLAIM,
+                    "complete structured concept search returned no candidates",
+                    List.of()));
+        }
         return succeeded(candidates, List.of(), List.copyOf(observations));
     }
 
@@ -576,6 +582,16 @@ public final class JavaSemanticResultMapper {
             observations.add(observation(ObservationCode.MISSING_SOURCE, "provider coverage is partial", List.of()));
         }
         return List.copyOf(observations);
+    }
+
+    private boolean isCompleteEmptyConceptSearch(SemanticDtos.DiscoverConceptsResponse response) {
+        return "COMPLETE".equals(response.coverage().status())
+                && response.candidates().isEmpty()
+                && response.availableFollowUps().isEmpty()
+                && response.unavailableFollowUps().isEmpty()
+                && response.page().returnedCount() == 0
+                && response.page().totalCount() == 0
+                && !response.page().hasMore();
     }
 
     private CapabilityExecutionResult callGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
