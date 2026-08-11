@@ -4,6 +4,9 @@ Current question:
 Concluded session turns:
 <sessionTurns>
 
+Question plan:
+<questionPlan>
+
 Currently callable planning tools are the only allowed names for the next action:
 <currentlyCallableTools>
 
@@ -18,9 +21,6 @@ Historical evidence provenance does not grant planning tool-call permission:
 
 Recorded observations:
 <observations>
-
-Question plan:
-<questionPlan>
 
 <latestAnswerFeedback>
 
