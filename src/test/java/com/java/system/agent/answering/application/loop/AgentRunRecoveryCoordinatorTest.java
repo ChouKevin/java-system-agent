@@ -8,6 +8,7 @@ import com.java.system.agent.answering.application.state.AgentTransitionCommitte
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
@@ -17,6 +18,9 @@ import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -142,6 +146,48 @@ class AgentRunRecoveryCoordinatorTest {
         assertThat(fixture.mutationCalls()).hasValue(0);
     }
 
+    @Test
+    void retry_closes_an_uncommitted_selected_plan_without_persisting_a_plan() {
+        Fixture fixture = fixture((mode, context) -> accepted());
+        AgentRunRecoveryOutcome.Active active = (AgentRunRecoveryOutcome.Active) fixture.coordinator().recover(
+                fixture.initialRequest());
+        PlanAction action = new PlanAction(plan());
+        AgentRunState selected = fixture.port().commit(new AgentStateReducer().reduce(active.execution().state(),
+                new AgentEvent.ActionSelected(
+                        active.execution().state().runId(), active.execution().state().currentAttempt().attemptId(),
+                        active.execution().state().stateRevision(), action)));
+
+        AgentRunRecoveryOutcome.Active recovered = (AgentRunRecoveryOutcome.Active) fixture.coordinator().recover(
+                fixture.request(AnswerExecutionMode.RETRY, 2));
+
+        assertThat(recovered.execution().state().questionPlan()).isEmpty();
+        assertThat(recovered.execution().state().unresolvedSelectedAction()).isEmpty();
+        assertThat(fixture.port().events()).contains(new AgentEvent.ActionResultRecorded(
+                selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(),
+                new com.java.system.agent.answering.domain.run.ActionResult.ActionInterrupted(
+                        "RECOVERY_INTERRUPTED", "Selected action outcome was not durably known when execution resumed")));
+    }
+
+    @Test
+    void retry_preserves_an_exact_committed_question_plan() {
+        Fixture fixture = fixture((mode, context) -> accepted());
+        AgentRunRecoveryOutcome.Active active = (AgentRunRecoveryOutcome.Active) fixture.coordinator().recover(
+                fixture.initialRequest());
+        QuestionPlan plan = plan();
+        PlanAction action = new PlanAction(plan);
+        AgentRunState selected = fixture.port().commit(new AgentStateReducer().reduce(active.execution().state(),
+                new AgentEvent.ActionSelected(
+                        active.execution().state().runId(), active.execution().state().currentAttempt().attemptId(),
+                        active.execution().state().stateRevision(), action)));
+        fixture.port().commit(new AgentStateReducer().reduce(selected, new AgentEvent.QuestionPlanCreated(
+                selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(), plan)));
+
+        AgentRunRecoveryOutcome.Active recovered = (AgentRunRecoveryOutcome.Active) fixture.coordinator().recover(
+                fixture.request(AnswerExecutionMode.RETRY, 2));
+
+        assertThat(recovered.execution().state().questionPlan()).contains(plan);
+    }
+
     private static Fixture fixture(AnswerVerificationPort verifier) {
         RecordingTransitionPort port = new RecordingTransitionPort();
         FakeSessionAdapter session = new FakeSessionAdapter();
@@ -206,6 +252,10 @@ class AgentRunRecoveryCoordinatorTest {
     private static AnswerAction answer() {
         return new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.QUESTION, "Verified answer", Optional.empty(), Set.of(), Set.of()))));
+    }
+
+    private static QuestionPlan plan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 
     private record Fixture(

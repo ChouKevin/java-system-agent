@@ -11,6 +11,7 @@ import com.java.system.agent.answering.application.validation.AgentActionValidat
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
@@ -20,10 +21,15 @@ import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentTransition;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
@@ -92,7 +98,10 @@ class ValidatedAgentLoopTest {
         AtomicInteger capabilityCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         AgentActionPort actionPort = context -> {
-            modelCalls.incrementAndGet();
+            int call = modelCalls.incrementAndGet();
+            if (call == 1) {
+                return new AgentActionProposal.Proposed(new PlanAction(plan()));
+            }
             return new AgentActionProposal.Proposed(new QueryAction(
                     context.issuedCapabilities().keySet().iterator().next(),
                     List.of(new CandidateHandleRef(context.issuedCandidates().keySet().iterator().next().value())),
@@ -105,7 +114,7 @@ class ValidatedAgentLoopTest {
         ValidatedAgentLoop loop = loop(transitions, actionPort, capabilityExecution);
         AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
                 new ParticipantRef("test", "participant"), "How does this flow work?",
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+                new AttemptBudget(3, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         AgentLoopResult result = loop.execute(request);
 
@@ -115,7 +124,39 @@ class ValidatedAgentLoopTest {
                 .satisfies(event -> assertThat(((AgentEvent.RunConcluded) event).runtimeNoticeReason())
                         .contains(RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED));
         assertThat(capabilityCalls).hasValue(1);
-        assertThat(modelCalls).hasValue(1);
+        assertThat(modelCalls).hasValue(2);
+    }
+
+    @Test
+    void commits_a_plan_as_one_agent_step_without_consuming_a_query_step() {
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        AtomicInteger modelCalls = new AtomicInteger();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                context -> {
+                    modelCalls.incrementAndGet();
+                    return new AgentActionProposal.Proposed(new PlanAction(plan()));
+                },
+                invocation -> {
+                    throw new AssertionError("PLAN must not execute a query");
+                });
+        AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
+                new ParticipantRef("test", "participant"), "How does this flow work?",
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+
+        loop.execute(request);
+
+        AgentRunState state = transitions.state(request.runId());
+        assertThat(state.questionPlan()).contains(plan());
+        assertThat(state.budget().usedAgentSteps()).isEqualTo(1);
+        assertThat(state.budget().usedQueryExecutions()).isZero();
+        assertThat(state.modelInteractions()).filteredOn(ModelInteraction.ActionResultRecorded.class::isInstance)
+                .extracting(ModelInteraction.ActionResultRecorded.class::cast)
+                .extracting(ModelInteraction.ActionResultRecorded::result)
+                .containsExactly(new ActionResult.QuestionPlanRecorded(plan()),
+                        new ActionResult.ValidationRejected("QUESTION_PLAN_ALREADY_EXISTS",
+                                "QUESTION_PLAN_ALREADY_EXISTS"));
+        assertThat(modelCalls).hasValue(2);
     }
 
     private static Stream<org.junit.jupiter.params.provider.Arguments> exhaustedBudgets() {
@@ -126,6 +167,10 @@ class ValidatedAgentLoopTest {
                         new AttemptBudget(1, 0, 1, 1, 1, 0, 1, 0, 1, 0), RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED),
                 org.junit.jupiter.params.provider.Arguments.of(
                         new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 1, 1, 0), RuntimeNoticeReason.ACTION_REJECTION_BUDGET_EXHAUSTED));
+    }
+
+    private static QuestionPlan plan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 
     private static ValidatedAgentLoop loop(RecordingTransitionPort transitions, AtomicInteger modelCalls) {
@@ -199,6 +244,10 @@ class ValidatedAgentLoopTest {
 
         private List<AgentEvent> events() {
             return List.copyOf(events);
+        }
+
+        private AgentRunState state(AnalysisRunId runId) {
+            return states.get(runId);
         }
     }
 }

@@ -36,6 +36,7 @@ import com.java.system.agent.answering.application.validation.AnswerDocumentVali
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
@@ -46,6 +47,9 @@ import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
@@ -151,7 +155,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThat(secondClaim.message().sourceMessageId()).isEqualTo(new SourceMessageId("message-planning-second"));
         assertThat(successfulProcessor.process(secondClaim, NOW.plusSeconds(1)))
                 .isEqualTo(InboxProcessingOutcome.COMPLETED);
-        assertThat(successfulActionCalls).hasValue(1);
+        assertThat(successfulActionCalls).hasValue(2);
         assertThat(inboxStatus(secondClaim.message().inboxMessageId())).isEqualTo(InboxMessageStatus.COMPLETED.name());
     }
 
@@ -195,7 +199,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThatThrownBy(() -> interruptedService.answer(command(firstClaim.message())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("simulated process interruption");
-        assertThat(actionCalls).hasValue(1);
+        assertThat(actionCalls).hasValue(2);
         assertThat(sessionTurns(firstClaim.message().sessionId())).containsExactly(new ConversationTurn(
                 firstClaim.message().runId(), firstClaim.message().participant(), firstClaim.message().questionText(),
                 "Which repository should I inspect?", ConversationTurnType.CLARIFICATION));
@@ -208,7 +212,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         inbox.completeWithFinal(recoveredClaim, new FinalInteractionResponse(
                 recovered.runId(), recovered.outcome(), recovered.responseKind(), recovered.responseText()), NOW.plusSeconds(2));
 
-        assertThat(actionCalls).hasValue(1);
+        assertThat(actionCalls).hasValue(2);
         assertThat(eventCount(firstClaim.message().runId(), "CLARIFICATION_ACCEPTED")).isEqualTo(1L);
         assertThat(eventCount(firstClaim.message().runId(), "RUN_CONCLUDED")).isEqualTo(1L);
         assertThat(sessionTurns(firstClaim.message().sessionId())).hasSize(1);
@@ -251,13 +255,13 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         assertThat(processor.process(firstClaim, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
         AgentRunState pendingVerification = transitions.findByRunId(firstClaim.message().runId()).orElseThrow();
         assertThat(pendingVerification.pendingAnswerVerification()).isPresent();
-        assertThat(actionCalls).hasValue(1);
+        assertThat(actionCalls).hasValue(2);
         assertThat(verifierCalls).hasValue(1);
 
         InboxClaim recoveredClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
         assertThat(processor.process(recoveredClaim, NOW.plusSeconds(1))).isEqualTo(InboxProcessingOutcome.COMPLETED);
 
-        assertThat(actionCalls).hasValue(1);
+        assertThat(actionCalls).hasValue(2);
         assertThat(verifierCalls).hasValue(2);
         assertThat(eventCount(firstClaim.message().runId(), "ANSWER_PROPOSED")).isEqualTo(1L);
         assertThat(sessionTurns(firstClaim.message().sessionId())).containsExactly(new ConversationTurn(
@@ -279,7 +283,10 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     private AnalysisApplicationService clarificationService(AtomicInteger actionCalls, SessionPort sessionPort) {
         ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
-                    actionCalls.incrementAndGet();
+                    int actionCall = actionCalls.incrementAndGet();
+                    if (actionCall == 1) {
+                        return new AgentActionProposal.Proposed(new PlanAction(plan()));
+                    }
                     return new AgentActionProposal.Proposed(
                             new ClarifyAction("Which repository should I inspect?", List.of(), "scope is ambiguous"));
                 },
@@ -340,7 +347,10 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
     private AnalysisApplicationService pendingVerificationService(AtomicInteger actionCalls, AtomicInteger verifierCalls) {
         ValidatedAgentLoop loop = ValidatedAgentLoop.compose(
                 context -> {
-                    actionCalls.incrementAndGet();
+                    int actionCall = actionCalls.incrementAndGet();
+                    if (actionCall == 1) {
+                        return new AgentActionProposal.Proposed(new PlanAction(plan()));
+                    }
                     return new AgentActionProposal.Proposed(new AnswerAction(new AnswerDocument(List.of(
                             new AnswerStatement(new StatementId("statement-1"), StatementType.QUESTION,
                                     "Which repository should I inspect?", Optional.empty(), Set.of(), Set.of())))));
@@ -384,6 +394,10 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
 
     private AttemptBudget budget() {
         return new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0);
+    }
+
+    private static QuestionPlan plan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 
     private List<ConversationTurn> sessionTurns(SessionId sessionId) {

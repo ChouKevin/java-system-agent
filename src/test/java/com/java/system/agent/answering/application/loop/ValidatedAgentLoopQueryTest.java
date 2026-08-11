@@ -11,6 +11,7 @@ import com.java.system.agent.answering.application.validation.AgentActionValidat
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
@@ -33,6 +34,9 @@ import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -80,6 +84,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -141,8 +146,14 @@ class ValidatedAgentLoopQueryTest {
                         AgentEvent.QueryBudgetConsumed.class,
                         AgentEvent.ContextIssued.class);
         String issuedEvidenceHandle = prompts.get(1).issuedEvidence().keySet().iterator().next().value();
-        assertThat(prompts.get(0).modelInteractions()).isEmpty();
+        assertThat(prompts.get(0).modelInteractions()).containsExactly(
+                new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), new PlanAction(questionPlan())),
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QuestionPlanRecorded(questionPlan())));
         assertThat(prompts.get(1).modelInteractions()).containsExactly(
+                new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), new PlanAction(questionPlan())),
+                new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                        new ActionResult.QuestionPlanRecorded(questionPlan())),
                 new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
                 new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
                         new ActionResult.QuerySucceeded(List.of(), List.of(issuedEvidenceHandle), List.of())));
@@ -224,11 +235,11 @@ class ValidatedAgentLoopQueryTest {
                 .filteredOn(event -> event instanceof AgentEvent.ActionSelected
                         || event instanceof AgentEvent.ActionResultRecorded)
                 .extracting(event -> event.getClass().getSimpleName())
-                .containsExactly("ActionSelected", "ActionResultRecorded", "ActionSelected");
+                .containsExactly("ActionSelected", "ActionResultRecorded", "ActionSelected", "ActionSelected");
         assertThat(transitions.state(RUN_ID).unresolvedSelectedAction()).isEmpty();
         assertThat(transitions.state(RUN_ID).modelInteractions())
                 .filteredOn(ModelInteraction.ActionResultRecorded.class::isInstance)
-                .hasSize(2);
+                .hasSize(3);
         assertThat(transitions.state(RUN_ID).modelInteractions()).contains(
                 new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
                         new ActionResult.ActionInterrupted(
@@ -559,7 +570,7 @@ class ValidatedAgentLoopQueryTest {
             AgentActionPort actionPort,
             AnswerVerificationPort answerVerificationPort) {
         return ValidatedAgentLoop.compose(
-                actionPort,
+                withQuestionPlan(actionPort),
                 capabilityExecution,
                 action -> new HttpMutationResult.NotImplemented(),
                 answerVerificationPort,
@@ -575,6 +586,17 @@ class ValidatedAgentLoopQueryTest {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
+    }
+
+    private AgentActionPort withQuestionPlan(AgentActionPort actions) {
+        AtomicBoolean planProposed = new AtomicBoolean();
+        return context -> planProposed.compareAndSet(false, true)
+                ? new AgentActionProposal.Proposed(new PlanAction(questionPlan()))
+                : actions.nextAction(context);
+    }
+
+    private QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 
     private AgentLoopRequest request() {

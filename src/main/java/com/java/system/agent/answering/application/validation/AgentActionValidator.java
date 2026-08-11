@@ -4,6 +4,7 @@ import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
@@ -36,11 +37,18 @@ public final class AgentActionValidator {
     public ActionValidation validate(AgentAction action, AgentValidationContext context) {
         Objects.requireNonNull(action, "agent action must not be null");
         Objects.requireNonNull(context, "agent validation context must not be null");
+        if (context.questionPlan().isEmpty() && !(action instanceof PlanAction)) {
+            return rejected(ActionRejectionCode.QUESTION_PLAN_REQUIRED, action);
+        }
+        if (context.questionPlan().isPresent() && action instanceof PlanAction) {
+            return rejected(ActionRejectionCode.QUESTION_PLAN_ALREADY_EXISTS, action);
+        }
         return switch (action) {
             case QueryAction query -> validateQuery(query, context);
             case AnswerAction answer -> validateAnswer(answer, context);
             case ClarifyAction clarify -> validateNonQuery(clarify, clarify.candidates(), context);
             case ExecuteAction execute -> validateExecute(execute, context);
+            case PlanAction plan -> acceptIfAgentStepAvailable(plan, List.of(), context);
         };
     }
 

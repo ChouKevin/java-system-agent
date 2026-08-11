@@ -1,6 +1,7 @@
 package com.java.system.agent.answering.domain.run;
 
 import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ public record AgentRunState(
         Optional<RunFailureReason> failureReason,
         Optional<PendingTerminalResponse> pendingTerminalResponse,
         Optional<PendingAnswerVerification> pendingAnswerVerification,
+        Optional<QuestionPlan> questionPlan,
         RunRequestIdentity requestIdentity,
         List<ModelInteraction> modelInteractions) {
 
@@ -40,6 +42,7 @@ public record AgentRunState(
         Objects.requireNonNull(failureReason, "run failure reason must not be null");
         Objects.requireNonNull(pendingTerminalResponse, "pending terminal response must not be null");
         Objects.requireNonNull(pendingAnswerVerification, "pending answer verification must not be null");
+        Objects.requireNonNull(questionPlan, "question plan must not be null");
         Objects.requireNonNull(requestIdentity, "run request identity must not be null");
         modelInteractions = immutableModelInteractions(modelInteractions);
         if (attemptSequence < 1) {
@@ -111,11 +114,34 @@ public record AgentRunState(
                     && currentAttempt.issuedCandidates().isEmpty()
                     && currentAttempt.issuedEvidence().isEmpty()
                     && currentAttempt.observations().isEmpty()
+                    && questionPlan.isEmpty()
                     && modelInteractions.isEmpty();
             if (!isBootstrapCoherent) {
                 throw new IllegalArgumentException("starting agent run must be bootstrap coherent");
             }
         }
+        validateQuestionPlanHistory(questionPlan, modelInteractions);
+    }
+
+    public AgentRunState(
+            AnalysisRunId runId,
+            AgentRunStatus status,
+            RunAttempt currentAttempt,
+            int attemptSequence,
+            AttemptBudget budget,
+            long acceptedActionCount,
+            long rejectedActionCount,
+            long stateRevision,
+            Optional<RunOutcome> finalOutcome,
+            Optional<RuntimeNoticeReason> runtimeNoticeReason,
+            Optional<RunFailureReason> failureReason,
+            Optional<PendingTerminalResponse> pendingTerminalResponse,
+            Optional<PendingAnswerVerification> pendingAnswerVerification,
+            RunRequestIdentity requestIdentity,
+            List<ModelInteraction> modelInteractions) {
+        this(runId, status, currentAttempt, attemptSequence, budget, acceptedActionCount, rejectedActionCount,
+                stateRevision, finalOutcome, runtimeNoticeReason, failureReason, pendingTerminalResponse,
+                pendingAnswerVerification, Optional.empty(), requestIdentity, modelInteractions);
     }
 
     public static AgentRunState initial(
@@ -126,7 +152,8 @@ public record AgentRunState(
             RunRequestIdentity requestIdentity) {
         return new AgentRunState(runId, AgentRunStatus.STARTING, RunAttempt.empty(firstAttemptId),
                 firstAttemptSequence, budget,
-                0, 0, 0, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), requestIdentity,
+                0, 0, 0, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), requestIdentity,
                 List.of());
     }
 
@@ -180,6 +207,26 @@ public record AgentRunState(
             copied.add(checkedInteraction);
         }
         return List.copyOf(copied);
+    }
+
+    private static void validateQuestionPlanHistory(
+            Optional<QuestionPlan> questionPlan,
+            List<ModelInteraction> interactions) {
+        List<QuestionPlan> recordedPlans = interactions.stream()
+                .filter(ModelInteraction.ActionResultRecorded.class::isInstance)
+                .map(ModelInteraction.ActionResultRecorded.class::cast)
+                .map(ModelInteraction.ActionResultRecorded::result)
+                .filter(ActionResult.QuestionPlanRecorded.class::isInstance)
+                .map(ActionResult.QuestionPlanRecorded.class::cast)
+                .map(ActionResult.QuestionPlanRecorded::plan)
+                .toList();
+        if (questionPlan.isEmpty() && !recordedPlans.isEmpty()) {
+            throw new IllegalArgumentException("empty question plan state cannot retain a recorded plan result");
+        }
+        if (questionPlan.isPresent()
+                && (recordedPlans.size() != 1 || !questionPlan.orElseThrow().equals(recordedPlans.getFirst()))) {
+            throw new IllegalArgumentException("question plan state must match exactly one recorded plan result");
+        }
     }
 
 }

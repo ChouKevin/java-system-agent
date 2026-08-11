@@ -8,6 +8,7 @@ import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentRunStatus;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
@@ -50,6 +51,7 @@ final class AgentPersistenceDocuments {
             Optional<RunFailureReason> failureReason,
             Optional<PendingTerminalResponse> pendingTerminalResponse,
             Optional<PendingAnswerVerification> pendingAnswerVerification,
+            Optional<QuestionPlan> questionPlan,
             RunRequestIdentity requestIdentity,
             List<ModelInteraction> modelInteractions) {
 
@@ -63,6 +65,7 @@ final class AgentPersistenceDocuments {
             Objects.requireNonNull(failureReason, "failure reason must not be null");
             Objects.requireNonNull(pendingTerminalResponse, "pending terminal response must not be null");
             Objects.requireNonNull(pendingAnswerVerification, "pending answer verification must not be null");
+            Objects.requireNonNull(questionPlan, "question plan must not be null");
             Objects.requireNonNull(requestIdentity, "request identity must not be null");
             modelInteractions = List.copyOf(modelInteractions);
         }

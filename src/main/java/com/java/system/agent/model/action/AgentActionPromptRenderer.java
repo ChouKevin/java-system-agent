@@ -5,6 +5,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
@@ -247,6 +248,8 @@ public final class AgentActionPromptRenderer {
                 case ClarifyAction clarify -> "CLARIFY: question=" + clarify.question()
                         + ", candidates=" + candidateHandles(clarify.candidates())
                         + ", reason=" + clarify.reason();
+                case PlanAction plan -> "PLAN: informationNeedIds=" + plan.plan().needs().stream()
+                        .map(need -> need.id().value()).toList();
             };
         }
 
@@ -268,6 +271,8 @@ public final class AgentActionPromptRenderer {
                 case ActionResult.AnswerRejected rejected -> "ANSWER_REJECTED: " + renderVerdict(rejected.verdict());
                 case ActionResult.AnswerAccepted ignored -> "ANSWER_ACCEPTED";
                 case ActionResult.ClarificationAccepted ignored -> "CLARIFICATION_ACCEPTED";
+                case ActionResult.QuestionPlanRecorded recorded -> "QUESTION_PLAN_RECORDED: informationNeedIds="
+                        + recorded.plan().needs().stream().map(need -> need.id().value()).toList();
             };
         }
 

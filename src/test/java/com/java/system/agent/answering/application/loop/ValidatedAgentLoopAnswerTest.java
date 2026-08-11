@@ -12,6 +12,7 @@ import com.java.system.agent.answering.application.validation.AnswerDocumentVali
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
@@ -23,6 +24,9 @@ import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -40,6 +44,7 @@ import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionPort;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AnalysisCancellationPort;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
@@ -693,7 +698,7 @@ class ValidatedAgentLoopAnswerTest {
                         || event instanceof AgentEvent.ActionResultRecorded
                         || event instanceof AgentEvent.RunConcluded)
                 .extracting(event -> event.getClass().getSimpleName())
-                .containsExactly("ActionSelected", "ActionResultRecorded", "RunConcluded");
+                .containsExactly("ActionSelected", "ActionSelected", "ActionResultRecorded", "RunConcluded");
         assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().unresolvedSelectedAction()).isEmpty();
         assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions()).contains(
                 new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
@@ -804,7 +809,7 @@ class ValidatedAgentLoopAnswerTest {
             AgentActionPort actionPort,
             AnalysisCancellationPort cancellationPort) {
         return ValidatedAgentLoop.compose(
-                actionPort,
+                withQuestionPlan(actionPort),
                 query -> {
                     throw new AssertionError("answer test must not execute a semantic query");
                 },
@@ -841,7 +846,7 @@ class ValidatedAgentLoopAnswerTest {
             AnalysisAttemptIdGenerator attemptIdGenerator,
             AgentActionPort actionPort) {
         return ValidatedAgentLoop.compose(
-                actionPort,
+                withQuestionPlan(actionPort),
                 query -> {
                     throw new AssertionError("bootstrap contract test must not execute a semantic query");
                 },
@@ -863,6 +868,30 @@ class ValidatedAgentLoopAnswerTest {
                 new ContextIssuer());
     }
 
+    private AgentActionPort withQuestionPlan(AgentActionPort actions) {
+        AtomicBoolean planProposed = new AtomicBoolean();
+        return context -> {
+            if (questionPlanWasRecorded(context) || !planProposed.compareAndSet(false, true)) {
+                return actions.nextAction(context);
+            }
+            return new AgentActionProposal.Proposed(new PlanAction(questionPlan()));
+        };
+    }
+
+    private boolean questionPlanWasRecorded(AgentPromptContext context) {
+        for (ModelInteraction interaction : context.modelInteractions()) {
+            if (interaction instanceof ModelInteraction.ActionResultRecorded recorded
+                    && recorded.result() instanceof ActionResult.QuestionPlanRecorded) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
+    }
+
     private AgentLoopRequest request() {
         return request(new SessionId("session-1"), "What is verified?");
     }
@@ -873,7 +902,7 @@ class ValidatedAgentLoopAnswerTest {
                 sessionId,
                 PARTICIPANT,
                 question,
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
+                new AttemptBudget(3, 0, 1, 0, 1, 0, 2, 0, 1, 0));
     }
 
     private AgentLoopRequest request(ParticipantRef participant, AnswerExecutionMode mode) {
@@ -940,6 +969,7 @@ class ValidatedAgentLoopAnswerTest {
                 state.failureReason(),
                 state.pendingTerminalResponse(),
                 Optional.empty(),
+                state.questionPlan(),
                 state.requestIdentity(),
                 state.modelInteractions());
     }

@@ -5,6 +5,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 
 import java.nio.ByteBuffer;
@@ -52,6 +53,7 @@ public record AgentActionFingerprint(String value) {
             case ExecuteAction execute -> execute(digest, execute);
             case AnswerAction answer -> answer(digest, answer);
             case ClarifyAction clarify -> clarify(digest, clarify);
+            case PlanAction plan -> plan(digest, plan);
         }
         return new AgentActionFingerprint(HexFormat.of().formatHex(digest.digest()));
     }
@@ -112,6 +114,12 @@ public record AgentActionFingerprint(String value) {
         frame(digest, "question", action.question());
         sequence(digest, "candidateHandle", action.candidates().stream()
                 .map(candidate -> candidate.value()).toList());
+    }
+
+    private static void plan(MessageDigest digest, PlanAction action) {
+        frame(digest, "actionType", "PLAN");
+        sequence(digest, "informationNeedId", action.plan().needs().stream()
+                .map(need -> need.id().value()).toList());
     }
 
     private static void sequence(MessageDigest digest, String fieldName, List<String> values) {

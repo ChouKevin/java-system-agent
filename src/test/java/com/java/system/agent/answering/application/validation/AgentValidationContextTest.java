@@ -15,6 +15,9 @@ import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
@@ -29,8 +32,21 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class AgentValidationContextTest {
+
+    @Test
+    void retains_the_optional_question_plan_as_part_of_the_validation_snapshot() {
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
+
+        AgentValidationContext context = new AgentValidationContext(
+                Map.of(), Map.of(), Map.of(), Map.of(), binding(),
+                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0), Optional.of(plan));
+
+        assertThat(context.questionPlan()).contains(plan);
+    }
 
     @Test
     void should_reject_snapshot_entries_whose_keys_do_not_match_the_issued_value() {
@@ -53,7 +69,8 @@ class AgentValidationContextTest {
     private static AgentValidationContext context(Map<CandidateHandle, IssuedCandidate> candidates,
             Map<EvidenceHandle, IssuedEvidence> evidence, Map<ObservationId, AgentObservation> observations) {
         return new AgentValidationContext(Map.of(), candidates, evidence, observations, binding(),
-                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0), Optional.of(new QuestionPlan(List.of(
+                        new InformationNeed(new InformationNeedId("need-1"), "Trace the route")))));
     }
 
     private static HandleBinding binding() {

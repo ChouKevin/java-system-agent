@@ -8,10 +8,14 @@ import com.java.system.agent.persistence.jdbc.PostgresAgentTransitionAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresAnalysisCancellationAdapter;
 import com.java.system.agent.answering.application.state.AgentStateReducer;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -211,6 +215,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
     @Test
     void readsDurableCancellationAndPreventsTerminalAcceptanceWithoutMutatingTheTraceOrSnapshot() {
         AgentRunState persisted = transitions.bootstrap(bootstrap("run-cancelled"));
+        AgentRunState planned = persistQuestionPlan(persisted);
+        AgentRunState selectedClarification = persistClarificationSelection(planned);
         jdbcClient.sql("""
                 UPDATE agent_run
                 SET cancellation_requested = TRUE
@@ -219,17 +225,17 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 .param("runId", persisted.runId().value())
                 .update();
         AgentTransition terminalAcceptance = reducer.reduce(
-                persisted,
+                selectedClarification,
                 new AgentEvent.ClarificationAccepted(
-                        persisted.runId(),
-                        persisted.currentAttempt().attemptId(),
-                        persisted.stateRevision(),
+                        selectedClarification.runId(),
+                        selectedClarification.currentAttempt().attemptId(),
+                        selectedClarification.stateRevision(),
                         new ClarifyAction("Which repository should be used?", List.of(), "scope is ambiguous"),
-                        new SessionId(persisted.requestIdentity().sessionIdValue()),
+                        new SessionId(selectedClarification.requestIdentity().sessionIdValue()),
                         new ConversationTurn(
-                                persisted.runId(),
+                                selectedClarification.runId(),
                                 PARTICIPANT,
-                                persisted.requestIdentity().questionText(),
+                                selectedClarification.requestIdentity().questionText(),
                                 "Which repository should be used?",
                                 ConversationTurnType.CLARIFICATION)));
 
@@ -237,8 +243,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         assertThat(cancellations.isCancellationRequested(new AnalysisRunId("missing-run"))).isFalse();
         assertThatThrownBy(() -> transitions.commitTerminalAcceptance(terminalAcceptance))
                 .isInstanceOf(TerminalAcceptanceCancelledException.class);
-        assertThat(eventRevisions("run-cancelled")).containsExactly(1L, 2L, 3L);
-        assertThat(transitions.findByRunId(new AnalysisRunId("run-cancelled"))).contains(persisted);
+        assertThat(eventRevisions("run-cancelled")).containsExactly(1L, 2L, 3L, 4L, 5L, 6L);
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-cancelled"))).contains(selectedClarification);
     }
 
     @Test
@@ -261,14 +267,17 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
     @Test
     void commitsTerminalAcceptanceWithItsExactCandidateSnapshotAndOneAcceptedEvent() {
         AgentRunState persisted = transitions.bootstrap(bootstrap("run-terminal-success"));
-        AgentTransition terminalAcceptance = clarificationAcceptance(persisted);
+        AgentRunState planned = persistQuestionPlan(persisted);
+        AgentRunState selectedClarification = persistClarificationSelection(planned);
+        AgentTransition terminalAcceptance = clarificationAcceptance(selectedClarification);
 
         AgentRunState published = transitions.commitTerminalAcceptance(terminalAcceptance);
 
         assertThat(published).isEqualTo(terminalAcceptance.candidateState());
-        assertThat(eventRevisions("run-terminal-success")).containsExactly(1L, 2L, 3L, 4L);
+        assertThat(eventRevisions("run-terminal-success")).containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L);
         assertThat(eventTypes("run-terminal-success"))
-                .containsExactly("RUN_STARTED", "ATTEMPT_STARTED", "CONTEXT_ISSUED", "CLARIFICATION_ACCEPTED");
+                .containsExactly("RUN_STARTED", "ATTEMPT_STARTED", "CONTEXT_ISSUED", "ACTION_SELECTED",
+                        "QUESTION_PLAN_CREATED", "ACTION_SELECTED", "CLARIFICATION_ACCEPTED");
         assertThat(transitions.findByRunId(persisted.runId())).contains(terminalAcceptance.candidateState());
     }
 
@@ -316,6 +325,27 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                                 persisted.requestIdentity().questionText(),
                                 "Which repository should be used?",
                                 ConversationTurnType.CLARIFICATION)));
+    }
+
+    private AgentRunState persistQuestionPlan(AgentRunState state) {
+        QuestionPlan plan = plan();
+        AgentTransition selected = reducer.reduce(state, new AgentEvent.ActionSelected(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), new PlanAction(plan)));
+        AgentRunState selectedState = transitions.commit(selected);
+        AgentTransition created = reducer.reduce(selectedState, new AgentEvent.QuestionPlanCreated(
+                selectedState.runId(), selectedState.currentAttempt().attemptId(), selectedState.stateRevision(), plan));
+        return transitions.commit(created);
+    }
+
+    private AgentRunState persistClarificationSelection(AgentRunState state) {
+        AgentTransition selected = reducer.reduce(state, new AgentEvent.ActionSelected(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
+                new ClarifyAction("Which repository should be used?", List.of(), "scope is ambiguous")));
+        return transitions.commit(selected);
+    }
+
+    private QuestionPlan plan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 
     private AgentRunState withRequestIdentity(AgentRunState state, RunRequestIdentity identity) {
