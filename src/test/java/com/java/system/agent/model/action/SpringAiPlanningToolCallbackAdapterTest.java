@@ -103,7 +103,10 @@ class SpringAiPlanningToolCallbackAdapterTest {
                 .containsExactlyElementsOf(issued.names());
         assertThat(issued.callbacks()).singleElement().satisfies(toolCallback -> {
             assertThat(toolCallback.getToolDefinition().description()).isNotBlank();
-            assertThat(toolCallback.getToolDefinition().inputSchema()).contains("questionToResolve");
+            String registeredSchema = toolCallback.getToolDefinition().inputSchema();
+            assertThat(registeredSchema).contains("questionToResolve");
+            assertThat(schemaFactory.created()).allSatisfy(created ->
+                    assertThat(registeredSchema).isEqualTo(created.schema()));
         });
         assertThat(issued.names()).doesNotContain("test_lookup_unissued");
         assertThat(adapter.issuedCallbacks(context(policy))).containsExactlyElementsOf(issued.callbacks());
