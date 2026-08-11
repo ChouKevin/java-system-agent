@@ -332,7 +332,7 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
-    void rejectsUnsafeTypeMemberFiltersBeforeTheAdapter() {
+    void rejectsDuplicateTypeMemberKindsBeforeTheAdapter() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
@@ -345,19 +345,38 @@ class CodeIntelligencePlanningToolProviderTest {
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
         CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS);
         IssuedCandidate direct = semanticTargetCandidate("candidate-method", binding, repositoryId, revision);
+        assertInvalidTypeMemberFilter(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-method"],"questionToResolve":"Inspect fields","rationale":"Read the owning type","initialFilter":{"memberKinds":["FIELD","FIELD"]}}
+                """, promptContext(policy, direct, binding)));
+
+        verify(adapter, times(0)).discoverTypeMembers(any(CapabilityExecutionContext.class), any());
+    }
+
+    @Test
+    void treatsBlankOptionalTypeMemberPrefixAsUnspecified() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS);
         DiscoverTypeMembersExecutionInput firstPage = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
                 List.of("METHOD"), Optional.of("find"), 0, 1);
         IssuedCandidate followUp = followUpCandidate("candidate-members-first", binding, repositoryId, revision,
                 policy, payloadCodec.encode(firstPage));
 
-        assertAll(
-                () -> assertInvalidTypeMemberFilter(registry.interpretToolCall(policy.name(), """
-                        {"candidateHandles":["candidate-method"],"questionToResolve":"Inspect fields","rationale":"Read the owning type","initialFilter":{"memberKinds":["FIELD","FIELD"]}}
-                        """, promptContext(policy, direct, binding))),
-                () -> assertInvalidTypeMemberFilter(registry.interpretToolCall(policy.name(), """
-                        {"candidateHandles":["candidate-members-first"],"questionToResolve":"Inspect fields","rationale":"Refine the first page","initialFilter":{"memberKinds":["FIELD"],"namePrefix":" "}}
-                        """, promptContext(policy, followUp, binding))));
+        QueryAction action = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-members-first"],"questionToResolve":"Inspect fields","rationale":"Refine the first page","initialFilter":{"memberKinds":["FIELD"],"namePrefix":" "}}
+                """, promptContext(policy, followUp, binding)));
 
+        assertThat(payloadCodec.decode(action.payload(), DiscoverTypeMembersExecutionInput.class))
+                .isEqualTo(new DiscoverTypeMembersExecutionInput(
+                        graphTarget().sourceType(), List.of("FIELD"), Optional.empty(), 0, 1));
         verify(adapter, times(0)).discoverTypeMembers(any(CapabilityExecutionContext.class), any());
     }
 
