@@ -81,11 +81,11 @@ class AgentRunTransitionsTest {
         AgentRunState state = runningState(transitions);
         AnswerDocument document = answerDocument();
         AgentRunState selected = transitions.apply(state, new AgentEvent.ActionSelected(
-                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), new AnswerAction(document)));
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), new AnswerAction(document, List.of())));
         AgentRunState proposed = transitions.apply(selected, new AgentEvent.AnswerProposed(
                 selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(),
                 new PendingAnswerVerification(state.currentAttempt().attemptId(), RevisionVector.empty(),
-                        document, AnswerVerificationMode.CONTRACT_ONLY)));
+                        new AnswerAction(document, List.of()), AnswerVerificationMode.CONTRACT_ONLY)));
         AgentEvent acceptance = answerAccepted(proposed);
 
         assertThatThrownBy(() -> transitions.applyTerminalAcceptance(proposed, acceptance))
@@ -135,7 +135,7 @@ class AgentRunTransitionsTest {
         ConversationTurn turn = new ConversationTurn(state.runId(), state.requestIdentity().participant(), "Question?",
                 "Answer", ConversationTurnType.ANSWER);
         return new AgentEvent.AnswerAccepted(state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
-                answerDocument(), AnswerAcceptance.contractOnly(), new SessionId("session-1"), turn);
+                new AnswerAction(answerDocument(), List.of()), AnswerAcceptance.contractOnly(), new SessionId("session-1"), turn);
     }
 
     private AnswerDocument answerDocument() {

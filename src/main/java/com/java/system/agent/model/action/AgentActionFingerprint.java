@@ -8,6 +8,7 @@ import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -95,6 +96,19 @@ public record AgentActionFingerprint(String value) {
         frame(digest, "actionType", "ANSWER");
         sequence(digest, "statement", action.document().statements().stream()
                 .map(AgentActionFingerprint::statementDigestMaterial).toList());
+        sequence(digest, "resolution", action.resolutions().stream()
+                .map(AgentActionFingerprint::resolutionDigestMaterial).toList());
+    }
+
+    private static String resolutionDigestMaterial(NeedResolution resolution) {
+        MessageDigest digest = messageDigest();
+        frame(digest, "needId", resolution.needId().value());
+        frame(digest, "status", resolution.status().name());
+        sequence(digest, "evidence", resolution.evidence().stream()
+                .map(reference -> reference.value()).sorted().toList());
+        sequence(digest, "observation", resolution.observations().stream()
+                .map(observation -> observation.value()).sorted().toList());
+        return HexFormat.of().formatHex(digest.digest());
     }
 
     private static String statementDigestMaterial(AnswerStatement statement) {

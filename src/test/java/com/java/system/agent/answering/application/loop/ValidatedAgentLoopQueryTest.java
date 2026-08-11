@@ -11,6 +11,7 @@ import com.java.system.agent.answering.application.validation.AgentActionValidat
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
@@ -36,6 +37,8 @@ import com.java.system.agent.answering.domain.observation.CapabilityObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
@@ -45,7 +48,6 @@ import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
-import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
 import com.java.system.agent.answering.domain.run.RunRequestIdentity;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.domain.run.RunAttempt;
@@ -135,10 +137,7 @@ class ValidatedAgentLoopQueryTest {
         assertThat(prompts.get(1).issuedEvidence().values())
                 .extracting(issuedEvidence -> issuedEvidence.evidence())
                 .containsExactly(evidence);
-        EvidenceCapabilityProvenance expectedProvenance = new EvidenceCapabilityProvenance(
-                prompts.get(1).issuedEvidence().keySet().iterator().next(), CAPABILITY);
-        assertThat(verificationContexts).singleElement().satisfies(context ->
-                assertThat(context.evidenceProvenance()).containsExactly(expectedProvenance));
+        assertThat(verificationContexts).isEmpty();
         List<Class<?>> eventTypes = eventTypes(transitions.events());
         assertThat(eventTypes)
                 .containsSubsequence(
@@ -182,7 +181,7 @@ class ValidatedAgentLoopQueryTest {
 
         AgentLoopResult result = loop.execute(capacityResumeRequest());
 
-        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
         assertThat(capabilityCalls).hasValue(0);
         List<Class<?>> eventTypes = eventTypes(transitions.events());
         assertThat(eventTypes)
@@ -215,7 +214,7 @@ class ValidatedAgentLoopQueryTest {
                 },
                 context -> {
                     modelCalls.incrementAndGet();
-                    return new AgentActionProposal.Proposed(answer(context, "Recovery status is recorded"));
+                    return new AgentActionProposal.Proposed(clarification());
                 });
         seedPinnedRun(transitions);
         AgentRunState running = transitions.state(RUN_ID);
@@ -228,7 +227,7 @@ class ValidatedAgentLoopQueryTest {
 
         AgentLoopResult result = loop.execute(capacityResumeRequest());
 
-        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
         assertThat(modelCalls).hasValue(1);
         assertThat(capabilityCalls).hasValue(0);
         assertThat(transitions.events())
@@ -285,11 +284,16 @@ class ValidatedAgentLoopQueryTest {
                 repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
                 invocation -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
-                context -> nextAction(prompts, context, "No capability result was returned"));
+                context -> {
+                    prompts.add(context);
+                    return prompts.size() == 1
+                            ? new AgentActionProposal.Proposed(query(context))
+                            : new AgentActionProposal.Proposed(clarification());
+                });
 
         AgentLoopResult result = loop.execute(request());
 
-        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
         assertThat(transitions.state(RUN_ID).modelInteractions()).containsSubsequence(
                 new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
                 new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
@@ -487,7 +491,7 @@ class ValidatedAgentLoopQueryTest {
         if (prompts.size() == 1) {
             return new AgentActionProposal.Proposed(query(context));
         }
-        return new AgentActionProposal.Proposed(answer(context, "Recovered after revision drift"));
+        return new AgentActionProposal.Proposed(clarification());
     }
 
     private AgentActionProposal nextFollowUpAction(
@@ -543,8 +547,18 @@ class ValidatedAgentLoopQueryTest {
         Set<EvidenceHandleRef> evidence = context.issuedEvidence().keySet().stream()
                 .map(handle -> new EvidenceHandleRef(handle.value()))
                 .collect(Collectors.toUnmodifiableSet());
+        NeedResolution resolution = evidence.isEmpty()
+                ? new NeedResolution(new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE, Set.of(),
+                context.observations().keySet())
+                : new NeedResolution(new InformationNeedId("need-1"), NeedResolutionStatus.SUPPORTED, evidence,
+                Set.of());
         return new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
-                new StatementId("statement-1"), StatementType.QUESTION, text, Optional.empty(), evidence, Set.of()))));
+                new StatementId("statement-1"), StatementType.QUESTION, text, Optional.empty(), evidence, Set.of()))),
+                List.of(resolution));
+    }
+
+    private ClarifyAction clarification() {
+        return new ClarifyAction("Which result should I inspect?", List.of(), "No answer evidence is available");
     }
 
     private ValidatedAgentLoop loop(

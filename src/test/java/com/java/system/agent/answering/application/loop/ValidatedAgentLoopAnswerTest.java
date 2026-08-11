@@ -13,6 +13,7 @@ import com.java.system.agent.answering.application.validation.AnswerVerdictValid
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
+import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
@@ -20,13 +21,22 @@ import com.java.system.agent.answering.domain.answer.AnswerVerdict;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.observation.AgentObservation;
+import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.observation.ObservationSource;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -53,6 +63,7 @@ import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationContractException;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.ExternalExecutionDeferredException;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
@@ -98,7 +109,7 @@ class ValidatedAgentLoopAnswerTest {
                 session,
                 transitions,
                 (mode, context) -> new AnswerVerificationResult.LlmVerdict(acceptedComplete()),
-                new AgentActionProposal.Proposed(new AnswerAction(document)));
+                new AgentActionProposal.Proposed(new AnswerAction(document, List.of())));
 
         AgentLoopResult result = loop.execute(request());
 
@@ -140,8 +151,8 @@ class ValidatedAgentLoopAnswerTest {
                 session,
                 transitions,
                 (mode, context) -> new AnswerVerificationResult.LlmVerdict(verdicts.removeFirst()),
-                new AgentActionProposal.Proposed(new AnswerAction(rejected)),
-                new AgentActionProposal.Proposed(new AnswerAction(accepted)));
+                new AgentActionProposal.Proposed(new AnswerAction(rejected, List.of())),
+                new AgentActionProposal.Proposed(new AnswerAction(accepted, List.of())));
 
         AgentLoopResult result = loop.execute(request());
 
@@ -178,7 +189,7 @@ class ValidatedAgentLoopAnswerTest {
                 context -> {
                     actionCalls.incrementAndGet();
                     return new AgentActionProposal.Proposed(new AnswerAction(
-                            document(actionCalls.get() == 1 ? "Recovered answer" : "Rewritten answer")));
+                            document(actionCalls.get() == 1 ? "Recovered answer" : "Rewritten answer"), List.of()));
                 });
 
         assertThatThrownBy(() -> loop.execute(request()))
@@ -193,7 +204,7 @@ class ValidatedAgentLoopAnswerTest {
         assertThat(actionCalls).hasValue(2);
         assertThat(verificationCalls).hasValue(3);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
-        assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(2);
     }
 
     @Test
@@ -212,7 +223,7 @@ class ValidatedAgentLoopAnswerTest {
                 },
                 context -> {
                     actionCalls.incrementAndGet();
-                    return new AgentActionProposal.Proposed(new AnswerAction(document("Capacity-resumed answer")));
+                    return new AgentActionProposal.Proposed(new AnswerAction(document("Capacity-resumed answer"), List.of()));
                 });
 
         assertThatThrownBy(() -> loop.execute(request()))
@@ -230,7 +241,10 @@ class ValidatedAgentLoopAnswerTest {
         assertThat(verificationCalls).hasValue(2);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptStarted.class::isInstance).hasSize(1);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
-        assertThat(transitions.events()).filteredOn(AgentEvent.ActionAccepted.class::isInstance).isEmpty();
+        assertThat(transitions.events())
+                .filteredOn(AgentEvent.ActionAccepted.class::isInstance)
+                .filteredOn(event -> ((AgentEvent.ActionAccepted) event).action() instanceof AnswerAction)
+                .isEmpty();
         assertThat(transitions.events()).filteredOn(AgentEvent.ActionRejected.class::isInstance).isEmpty();
         AgentRunState resumed = transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow();
         assertThat(resumed.pendingAnswerVerification()).isPresent();
@@ -258,7 +272,7 @@ class ValidatedAgentLoopAnswerTest {
         AgentActionPort actionPort = context -> {
             actionCalls.incrementAndGet();
             return new AgentActionProposal.Proposed(new AnswerAction(document(
-                    actionCalls.get() == 1 ? "Durable draft" : "Rewritten answer")));
+                    actionCalls.get() == 1 ? "Durable draft" : "Rewritten answer"), List.of()));
         };
         ValidatedAgentLoop initialLoop = loop(new FakeSessionAdapter(), transitions, verifier, actionPort);
 
@@ -273,7 +287,7 @@ class ValidatedAgentLoopAnswerTest {
         assertThat(actionCalls).hasValue(2);
         assertThat(verificationCalls).hasValue(3);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
-        assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(2);
     }
 
     @Test
@@ -300,7 +314,7 @@ class ValidatedAgentLoopAnswerTest {
                 context -> {
                     actionCalls.incrementAndGet();
                     return new AgentActionProposal.Proposed(new AnswerAction(document(
-                            actionCalls.get() == 1 ? "Durable draft" : "Rewritten answer")));
+                            actionCalls.get() == 1 ? "Durable draft" : "Rewritten answer"), List.of()));
                 });
 
         assertThatThrownBy(() -> loop.execute(request()))
@@ -316,7 +330,7 @@ class ValidatedAgentLoopAnswerTest {
         assertThat(verificationCalls).hasValue(3);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptStarted.class::isInstance).hasSize(1);
         assertThat(transitions.events()).filteredOn(AgentEvent.AttemptInvalidated.class::isInstance).isEmpty();
-        assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(1);
+        assertThat(transitions.events()).filteredOn(AgentEvent.ContextIssued.class::isInstance).hasSize(2);
     }
 
     @Test
@@ -410,7 +424,7 @@ class ValidatedAgentLoopAnswerTest {
                 session,
                 transitions,
                 (mode, context) -> new AnswerVerificationResult.LlmVerdict(acceptedComplete()),
-                new AgentActionProposal.Proposed(new AnswerAction(document("Draft"))));
+                new AgentActionProposal.Proposed(new AnswerAction(document("Draft"), List.of())));
 
         assertThatThrownBy(() -> loop.execute(request()))
                 .isInstanceOf(IllegalStateException.class)
@@ -484,7 +498,7 @@ class ValidatedAgentLoopAnswerTest {
                 },
                 context -> {
                     actionCalls.incrementAndGet();
-                    return new AgentActionProposal.Proposed(new AnswerAction(document("Unverified draft")));
+                    return new AgentActionProposal.Proposed(new AnswerAction(document("Unverified draft"), List.of()));
                 });
         transitions.rejectNextCommitAndKeepStateAfterAnswerProposal();
 
@@ -515,7 +529,7 @@ class ValidatedAgentLoopAnswerTest {
                 },
                 context -> {
                     actionCalls.incrementAndGet();
-                    return new AgentActionProposal.Proposed(new AnswerAction(document("Draft")));
+                    return new AgentActionProposal.Proposed(new AnswerAction(document("Draft"), List.of()));
                 });
 
         assertThatThrownBy(() -> loop.execute(request())).isInstanceOf(AnswerExecutionUnavailableException.class);
@@ -534,23 +548,28 @@ class ValidatedAgentLoopAnswerTest {
     }
 
     @Test
-    void abandonsAnIncompatibleVerificationResultAndConcludesFailed() {
+    void acceptsAContractOnlyAnswerWithoutCallingTheVerifierOrCreatingACheckpoint() {
         RecordingTransitionPort transitions = new RecordingTransitionPort();
+        AtomicInteger verificationCalls = new AtomicInteger();
         ValidatedAgentLoop loop = loop(
                 new FakeSessionAdapter(),
                 transitions,
                 AnswerVerificationMode.CONTRACT_ONLY,
-                (mode, context) -> new AnswerVerificationResult.LlmVerdict(acceptedComplete()),
-                context -> new AgentActionProposal.Proposed(new AnswerAction(document("Contract answer"))));
+                (mode, context) -> {
+                    verificationCalls.incrementAndGet();
+                    throw new AssertionError("contract-only answers must not call the verifier");
+                },
+                context -> new AgentActionProposal.Proposed(new AnswerAction(document("Contract answer"), List.of())));
 
         AgentLoopResult result = loop.execute(request());
 
-        assertThat(result.outcome()).isEqualTo(RunOutcome.FAILED);
-        assertThat(transitions.events()).filteredOn(AgentEvent.AnswerVerificationAbandoned.class::isInstance)
-                .hasSize(1);
-        assertThat(transitions.events()).filteredOn(AgentEvent.RunConcluded.class::isInstance)
+        assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
+        assertThat(verificationCalls).hasValue(0);
+        assertThat(transitions.events()).filteredOn(AgentEvent.AnswerProposed.class::isInstance).isEmpty();
+        assertThat(transitions.events()).filteredOn(AgentEvent.AnswerAccepted.class::isInstance)
                 .singleElement()
-                .satisfies(event -> assertThat(((AgentEvent.RunConcluded) event).outcome()).isEqualTo(RunOutcome.FAILED));
+                .satisfies(event -> assertThat(((AgentEvent.AnswerAccepted) event).acceptance().verificationBasis())
+                        .isEqualTo(com.java.system.agent.answering.domain.answer.AnswerVerificationBasis.CONTRACT_ONLY));
         assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow()
                 .pendingAnswerVerification()).isEmpty();
     }
@@ -572,7 +591,7 @@ class ValidatedAgentLoopAnswerTest {
                 failingSession,
                 new RecordingTransitionPort(),
                 (mode, context) -> new AnswerVerificationResult.LlmVerdict(acceptedComplete()),
-                new AgentActionProposal.Proposed(new AnswerAction(document("Draft"))));
+                new AgentActionProposal.Proposed(new AnswerAction(document("Draft"), List.of())));
 
         assertThatThrownBy(() -> loop.execute(request()))
                 .isInstanceOf(IllegalStateException.class)
@@ -595,7 +614,7 @@ class ValidatedAgentLoopAnswerTest {
                 },
                 context -> {
                     actionCalls.incrementAndGet();
-                    return new AgentActionProposal.Proposed(new AnswerAction(document));
+                    return new AgentActionProposal.Proposed(new AnswerAction(document, List.of()));
                 });
 
         assertThatThrownBy(() -> loop.execute(request()))
@@ -644,7 +663,7 @@ class ValidatedAgentLoopAnswerTest {
                     },
                     context -> {
                         actionCalls.incrementAndGet();
-                        return new AgentActionProposal.Proposed(new AnswerAction(document("Recovered answer")));
+                        return new AgentActionProposal.Proposed(new AnswerAction(document("Recovered answer"), List.of()));
                     });
 
             assertThatThrownBy(() -> loop.execute(request())).isInstanceOf(AgentLoopException.class);
@@ -674,7 +693,7 @@ class ValidatedAgentLoopAnswerTest {
                 },
                 context -> {
                     actionCalls.incrementAndGet();
-                    return new AgentActionProposal.Proposed(new AnswerAction(document("Cancelled answer")));
+                    return new AgentActionProposal.Proposed(new AnswerAction(document("Cancelled answer"), List.of()));
                 },
                 runId -> cancelled.get());
 
@@ -698,7 +717,8 @@ class ValidatedAgentLoopAnswerTest {
                         || event instanceof AgentEvent.ActionResultRecorded
                         || event instanceof AgentEvent.RunConcluded)
                 .extracting(event -> event.getClass().getSimpleName())
-                .containsExactly("ActionSelected", "ActionSelected", "ActionResultRecorded", "RunConcluded");
+                .containsExactly("ActionSelected", "ActionSelected", "ActionResultRecorded", "ActionSelected",
+                        "ActionResultRecorded", "RunConcluded");
         assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().unresolvedSelectedAction()).isEmpty();
         assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions()).contains(
                 new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
@@ -722,7 +742,7 @@ class ValidatedAgentLoopAnswerTest {
                 },
                 context -> {
                     actionCalls.incrementAndGet();
-                    return new AgentActionProposal.Proposed(new AnswerAction(document("Cancelled at commit")));
+                    return new AgentActionProposal.Proposed(new AnswerAction(document("Cancelled at commit"), List.of()));
                 });
 
         AgentLoopResult result = loop.execute(request());
@@ -810,15 +830,17 @@ class ValidatedAgentLoopAnswerTest {
             AnalysisCancellationPort cancellationPort) {
         return ValidatedAgentLoop.compose(
                 withQuestionPlan(actionPort),
-                query -> {
-                    throw new AssertionError("answer test must not execute a semantic query");
-                },
+                query -> new CapabilityExecutionResult.Succeeded(
+                        List.of(), List.of(), List.of(new com.java.system.agent.answering.domain.observation.CapabilityObservation(
+                                ObservationCode.EXECUTION_NOT_IMPLEMENTED,
+                                "required information is unavailable",
+                                List.of(), List.of(), "test"))),
                 action -> new HttpMutationResult.NotImplemented(),
                 verifier,
                 verificationMode,
                 session,
                 new FakeRepositoryCatalogAdapter(),
-                new FakeCapabilityCatalogAdapter(),
+                this::testCapabilities,
                 repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("unused")),
                 cancellationPort,
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
@@ -857,7 +879,7 @@ class ValidatedAgentLoopAnswerTest {
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
                 repositories,
-                new FakeCapabilityCatalogAdapter(),
+                this::testCapabilities,
                 repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("unused")),
                 new FakeCancellationAdapter(),
                 attemptIdGenerator,
@@ -871,11 +893,37 @@ class ValidatedAgentLoopAnswerTest {
     private AgentActionPort withQuestionPlan(AgentActionPort actions) {
         AtomicBoolean planProposed = new AtomicBoolean();
         return context -> {
-            if (questionPlanWasRecorded(context) || !planProposed.compareAndSet(false, true)) {
-                return actions.nextAction(context);
+            if (!questionPlanWasRecorded(context) && planProposed.compareAndSet(false, true)) {
+                return new AgentActionProposal.Proposed(new PlanAction(questionPlan()));
             }
-            return new AgentActionProposal.Proposed(new PlanAction(questionPlan()));
+            ObservationId availabilityObservationId = new ObservationId(context.attemptId().value() + ":O1");
+            if (!context.observations().containsKey(availabilityObservationId)) {
+                return new AgentActionProposal.Proposed(new QueryAction(
+                        context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
+                        List.of(),
+                        "Determine whether the planned need is available",
+                        new CapabilityInputPayload("test"),
+                        "Record availability"));
+            }
+            return resolvedAnswer(actions.nextAction(context), availabilityObservationId);
         };
+    }
+
+    private AgentActionProposal resolvedAnswer(AgentActionProposal proposal, ObservationId availabilityObservationId) {
+        if (proposal instanceof AgentActionProposal.Proposed proposed
+                && proposed.action() instanceof AnswerAction answer && answer.resolutions().isEmpty()) {
+            NeedResolution resolution = new NeedResolution(
+                    new InformationNeedId("need-1"),
+                    NeedResolutionStatus.UNAVAILABLE,
+                    Set.of(),
+                    Set.of(availabilityObservationId));
+            return new AgentActionProposal.Proposed(new AnswerAction(answer.document(), List.of(resolution)));
+        }
+        return proposal;
+    }
+
+    private List<CapabilityPolicy> testCapabilities() {
+        return List.of(new CapabilityPolicy("test-availability", "1", Set.of(CandidateKind.REPOSITORY), 0, 0));
     }
 
     private boolean questionPlanWasRecorded(AgentPromptContext context) {
@@ -902,7 +950,7 @@ class ValidatedAgentLoopAnswerTest {
                 sessionId,
                 PARTICIPANT,
                 question,
-                new AttemptBudget(3, 0, 1, 0, 1, 0, 2, 0, 1, 0));
+                new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 
     private AgentLoopRequest request(ParticipantRef participant, AnswerExecutionMode mode) {
@@ -912,26 +960,26 @@ class ValidatedAgentLoopAnswerTest {
                 new SessionId("session-1"),
                 participant,
                 "What is verified?",
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
+                new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 mode,
                 attemptCount);
     }
 
     private AgentLoopRequest terminalRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.TERMINAL_RECONCILIATION, 4);
     }
 
     private AgentLoopRequest retryRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.RETRY, 2);
     }
 
     private AgentLoopRequest capacityResumeRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.CAPACITY_RESUME, 2);
     }
 
@@ -939,7 +987,7 @@ class ValidatedAgentLoopAnswerTest {
         AgentRunState initial = AgentRunState.initial(
                 new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"),
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0),
+                new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 new com.java.system.agent.answering.domain.run.RunRequestIdentity(
                         "session-1", PARTICIPANT, "What is verified?"));
         AgentStateReducer reducer = new AgentStateReducer();

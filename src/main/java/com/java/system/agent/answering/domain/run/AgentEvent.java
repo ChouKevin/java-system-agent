@@ -3,6 +3,7 @@ package com.java.system.agent.answering.domain.run;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
@@ -193,16 +194,16 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
     }
 
     record AnswerAccepted(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
-                          AnswerDocument document, AnswerAcceptance acceptance,
+                          AnswerAction action, AnswerAcceptance acceptance,
                           SessionId sessionId, ConversationTurn turn) implements AgentEvent {
         public AnswerAccepted {
             validateEnvelope(runId, attemptId, expectedStateRevision);
-            Objects.requireNonNull(document, "accepted answer document must not be null");
+            Objects.requireNonNull(action, "accepted answer action must not be null");
             Objects.requireNonNull(acceptance, "accepted answer acceptance must not be null");
             Objects.requireNonNull(sessionId, "accepted answer session ID must not be null");
             Objects.requireNonNull(turn, "accepted answer conversation turn must not be null");
             if (!runId.equals(turn.runId()) || turn.type() != ConversationTurnType.ANSWER
-                    || !turn.assistantMessage().equals(document.renderParagraphs())) {
+                    || !turn.assistantMessage().equals(action.document().renderParagraphs())) {
                 throw new IllegalArgumentException("accepted answer turn must render the document for the same run");
             }
         }

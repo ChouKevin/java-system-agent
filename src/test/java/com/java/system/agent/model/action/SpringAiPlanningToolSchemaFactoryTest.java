@@ -63,7 +63,14 @@ class SpringAiPlanningToolSchemaFactoryTest {
         ObjectMapper mapper = new ObjectMapper();
         JsonNode schema = mapper.readTree(new SpringAiPlanningToolSchemaFactory().createSchema(SubmitAnswerPlanningInput.class));
         JsonNode statement = schema.path("properties").path("statements").path("items");
+        JsonNode resolution = schema.path("properties").path("resolutions").path("items");
 
+        assertThat(schema.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("statements", "resolutions");
+        assertThat(schema.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("statements", "resolutions");
+        assertThat(schema.path("properties").path("statements").path("minItems").asInt()).isEqualTo(1);
+        assertThat(schema.path("properties").path("resolutions").path("minItems").asInt()).isEqualTo(1);
         assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
         assertThat(statement.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
@@ -80,6 +87,18 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(statement.path("properties").fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("statementId", "type", "text", "claimId", "citationHandles", "observationIds");
         assertThat(statement.at("/properties/additionalProperties").isMissingNode()).isTrue();
+        assertThat(resolution.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(resolution.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
+        assertThat(resolution.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
+        assertThat(resolution.path("properties").path("needId").path("minLength").asInt()).isEqualTo(1);
+        assertThat(resolution.path("properties").path("needId").path("maxLength").asInt()).isEqualTo(32);
+        assertThat(resolution.path("properties").path("status").path("type").asText()).isEqualTo("string");
+        assertThat(resolution.path("properties").path("evidenceHandles").path("items").path("minLength").asInt())
+                .isEqualTo(1);
+        assertThat(resolution.path("properties").path("observationIds").path("items").path("minLength").asInt())
+                .isEqualTo(1);
     }
 
     @Test
@@ -215,7 +234,8 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 OutgoingCallGraphPlanningInput.class,
                 IncomingCallGraphPlanningInput.class,
                 ExecuteHttpPlanningInput.class,
-                PlanQuestionPlanningInput.class);
+                PlanQuestionPlanningInput.class,
+                SubmitAnswerPlanningInput.class);
     }
 
     /**

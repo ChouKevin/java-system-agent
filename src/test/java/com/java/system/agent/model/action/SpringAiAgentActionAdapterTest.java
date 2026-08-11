@@ -235,13 +235,13 @@ class SpringAiAgentActionAdapterTest {
                 Optional.of("{\"status\":\"rejected\"}"), "Original rationale");
         AnswerAction answer = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-b"),
                 new EvidenceHandleRef("evidence-a")), Set.of(new ObservationId("observation-b"),
-                new ObservationId("observation-a")), "Checkout calls the route"));
+                new ObservationId("observation-a")), "Checkout calls the route"), List.of());
         AnswerAction answerWithReorderedReferences = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-a"),
                 new EvidenceHandleRef("evidence-b")), Set.of(new ObservationId("observation-a"),
-                new ObservationId("observation-b")), "Checkout calls the route"));
+                new ObservationId("observation-b")), "Checkout calls the route"), List.of());
         AnswerAction answerWithChangedStatement = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-a"),
                 new EvidenceHandleRef("evidence-b")), Set.of(new ObservationId("observation-a"),
-                new ObservationId("observation-b")), "Checkout does not call the route"));
+                new ObservationId("observation-b")), "Checkout does not call the route"), List.of());
         ClarifyAction clarify = new ClarifyAction("Which repository?", List.of(new CandidateHandleRef("candidate-1")),
                 "Original reason");
         ClarifyAction clarifyWithChangedReason = new ClarifyAction("Which repository?",
@@ -310,7 +310,7 @@ class SpringAiAgentActionAdapterTest {
         CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
                 .content("")
                 .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "agent_submit_answer", """
-                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}]}
+                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-2","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-2"]},{"needId":"need-1","status":"SUPPORTED","evidenceHandles":["evidence-unknown"],"observationIds":[]}]}
                         """)))
                 .build());
 
@@ -320,6 +320,10 @@ class SpringAiAgentActionAdapterTest {
         AnswerAction action = (AnswerAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.document().statements().getFirst().citations())
                 .extracting(evidenceHandleReference -> evidenceHandleReference.value()).containsExactly("evidence-unknown");
+        assertThat(action.resolutions()).extracting(resolution -> resolution.needId().value())
+                .containsExactly("need-2", "need-1");
+        assertThat(action.resolutions().getFirst().observations())
+                .extracting(observationId -> observationId.value()).containsExactly("observation-2");
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -416,7 +420,7 @@ class SpringAiAgentActionAdapterTest {
     @Test
     void mapsTypeAndDeclarativeToolInputFailuresToInvalidToolInput() {
         CountingChatModel unknownEnum = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"UNKNOWN","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                {"statements":[{"statementId":"statement-1","type":"UNKNOWN","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel blankQuestion = new CountingChatModel(toolCall("agent_request_clarification", """
                 {"question":" ","candidateHandles":[],"reason":"The route scope is ambiguous"}
@@ -439,7 +443,7 @@ class SpringAiAgentActionAdapterTest {
         AtomicInteger mapperCalls = new AtomicInteger();
         CountingChatModel model = new CountingChatModel(toolCall("agent_submit_answer", """
                 {"statements":[{"statementId":"statement-1","type":"LIMITATION","text":"The source remains unresolved",\
-                "citationHandles":[],"observationIds":"SENSITIVE_VALUE"}]}
+                "citationHandles":[],"observationIds":"SENSITIVE_VALUE"}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
         AgentActionProposal proposal = adapter(model, input -> failIfAnswerMapperExecutes(mapperCalls))
@@ -457,11 +461,11 @@ class SpringAiAgentActionAdapterTest {
     void returnsActionableFeedbackWhenAnswerStatementFieldsViolateTheirCrossFieldContract() {
         CountingChatModel nonFactClaim = new CountingChatModel(toolCall("agent_submit_answer", """
                 {"statements":[{"statementId":"statement-1","type":"LIMITATION","text":"The source remains unresolved",\
-                "claimId":"SENSITIVE_CLAIM","citationHandles":[],"observationIds":["observation-1"]}]}
+                "claimId":"SENSITIVE_CLAIM","citationHandles":[],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel incompleteFact = new CountingChatModel(toolCall("agent_submit_answer", """
                 {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route",\
-                "citationHandles":[],"observationIds":["observation-1"]}]}
+                "citationHandles":[],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
         AgentActionProposal nonFactProposal = adapter(nonFactClaim).nextAction(answerContext());
@@ -484,13 +488,13 @@ class SpringAiAgentActionAdapterTest {
     void rejectsInvalidNestedAnswerStatementsBeforeExecutingAnswerMapper() {
         AtomicInteger mapperCalls = new AtomicInteger();
         CountingChatModel missingType = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                {"statements":[{"statementId":"statement-1","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel nullType = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":null,"text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                {"statements":[{"statementId":"statement-1","type":null,"text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel blankCitation = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":[" "],"observationIds":[]}]}
+                {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":[" "],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
         AgentActionProposal missingTypeProposal = adapter(missingType, input -> failIfAnswerMapperExecutes(mapperCalls))

@@ -37,11 +37,17 @@ import com.java.system.agent.answering.application.validation.AnswerVerdictValid
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
+import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
+import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.AnswerVerdict;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
+import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
@@ -49,7 +55,18 @@ import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.evidence.ArtifactRef;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
+import com.java.system.agent.answering.domain.observation.CapabilityObservation;
+import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
@@ -63,6 +80,8 @@ import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionContractException;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.AnswerVerificationUnavailableException;
+import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
+import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.SessionPort;
 import org.junit.jupiter.api.BeforeEach;
@@ -250,18 +269,23 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
         AtomicInteger actionCalls = new AtomicInteger();
         AtomicInteger verifierCalls = new AtomicInteger();
         SessionInboxProcessor processor = new SessionInboxProcessor(
-                inbox, pendingVerificationService(actionCalls, verifierCalls), budget(), InboxRetryPolicy.defaults());
+                inbox, pendingVerificationService(actionCalls, verifierCalls), verificationBudget(), InboxRetryPolicy.defaults());
 
         assertThat(processor.process(firstClaim, NOW)).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
         AgentRunState pendingVerification = transitions.findByRunId(firstClaim.message().runId()).orElseThrow();
         assertThat(pendingVerification.pendingAnswerVerification()).isPresent();
-        assertThat(actionCalls).hasValue(2);
+        AnswerAction persistedAction = pendingVerification.pendingAnswerVerification().orElseThrow().action();
+        assertThat(persistedAction.resolutions()).containsExactly(new NeedResolution(
+                new InformationNeedId("need-1"), NeedResolutionStatus.SUPPORTED,
+                Set.of(new EvidenceHandleRef(persistedAction.document().statements().getFirst().citations()
+                        .iterator().next().value())), Set.of()));
+        assertThat(actionCalls).hasValue(3);
         assertThat(verifierCalls).hasValue(1);
 
         InboxClaim recoveredClaim = inbox.claimNext(NOW.plusSeconds(1)).orElseThrow();
         assertThat(processor.process(recoveredClaim, NOW.plusSeconds(1))).isEqualTo(InboxProcessingOutcome.COMPLETED);
 
-        assertThat(actionCalls).hasValue(2);
+        assertThat(actionCalls).hasValue(3);
         assertThat(verifierCalls).hasValue(2);
         assertThat(eventCount(firstClaim.message().runId(), "ANSWER_PROPOSED")).isEqualTo(1L);
         assertThat(sessionTurns(firstClaim.message().sessionId())).containsExactly(new ConversationTurn(
@@ -351,27 +375,36 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                     if (actionCall == 1) {
                         return new AgentActionProposal.Proposed(new PlanAction(plan()));
                     }
+                    if (actionCall == 2) {
+                        return new AgentActionProposal.Proposed(new QueryAction(
+                                context.issuedCapabilities().keySet().iterator().next(), List.of(),
+                                "Find repository evidence", new CapabilityInputPayload("test"), "Need evidence"));
+                    }
+                    EvidenceHandleRef evidenceHandle = new EvidenceHandleRef(
+                            context.issuedEvidence().keySet().iterator().next().value());
                     return new AgentActionProposal.Proposed(new AnswerAction(new AnswerDocument(List.of(
                             new AnswerStatement(new StatementId("statement-1"), StatementType.QUESTION,
-                                    "Which repository should I inspect?", Optional.empty(), Set.of(), Set.of())))));
+                                    "Which repository should I inspect?", Optional.empty(), Set.of(evidenceHandle), Set.of()))),
+                            List.of(new NeedResolution(new InformationNeedId("need-1"), NeedResolutionStatus.SUPPORTED,
+                                    Set.of(evidenceHandle), Set.of()))));
                 },
-                query -> {
-                    throw new AssertionError("answer proposal must not execute a semantic query");
-                },
+                query -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(verificationEvidence()),
+                        List.of(new CapabilityObservation(ObservationCode.EXECUTION_NOT_IMPLEMENTED,
+                                "Evidence was found", List.of(), List.of(), "test"))),
                 action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> {
                     if (verifierCalls.incrementAndGet() == 1) {
                         throw new AnswerVerificationUnavailableException("temporary verifier outage", null); // cs-allow
                     }
-                    return new AnswerVerificationResult.ContractAccepted();
+                    return new AnswerVerificationResult.LlmVerdict(new AnswerVerdict(
+                            AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(), List.of(), List.of()));
                 },
-                AnswerVerificationMode.CONTRACT_ONLY,
+                AnswerVerificationMode.LLM,
                 sessions,
-                new FakeRepositoryCatalogAdapter(),
-                new FakeCapabilityCatalogAdapter(),
-                repositoryId -> {
-                    throw new AssertionError("answer proposal must not resolve a repository revision");
-                },
+                new FakeRepositoryCatalogAdapter(new com.java.system.agent.answering.port.out.RepositoryDescriptor(
+                        new RepositoryId("repo-1"), "Repository")),
+                new FakeCapabilityCatalogAdapter(new CapabilityPolicy("test", "1", Set.of(CandidateKind.REPOSITORY), 0, 0)),
+                repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-answer")),
                 new AgentActionValidator(),
@@ -394,6 +427,16 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
 
     private AttemptBudget budget() {
         return new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0);
+    }
+
+    private AttemptBudget verificationBudget() {
+        return new AttemptBudget(3, 0, 2, 0, 1, 0, 1, 0, 1, 0);
+    }
+
+    private static EvidenceRef verificationEvidence() {
+        return new EvidenceRef("test", new RepositoryId("repo-1"), new RepositoryRevision("rev-1"),
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Target", Optional.empty()), "Evidence content", List.of(),
+                new ArtifactRef("evidence"));
     }
 
     private static QuestionPlan plan() {

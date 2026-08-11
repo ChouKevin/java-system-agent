@@ -232,21 +232,23 @@ public final class AgentStateReducer {
         requireRunning(state);
         requireInitialAttemptStarted(state);
         validateTerminalIdentity(state, event.sessionId().value(), event.turn());
-        if (state.pendingTerminalResponse().isPresent() || state.pendingAnswerVerification().isEmpty()) {
-            throw new IllegalArgumentException("accepted answer requires the pending answer verification checkpoint");
+        if (state.pendingTerminalResponse().isPresent()) {
+            throw new IllegalArgumentException("accepted answer cannot replace a pending terminal response");
         }
-        PendingAnswerVerification pending = state.pendingAnswerVerification().orElseThrow();
-        if (!pending.document().equals(event.document())
-                || !verificationBasisMatches(pending, event.acceptance())) {
+        Optional<PendingAnswerVerification> pending = state.pendingAnswerVerification();
+        if (pending.isPresent() && (!pending.orElseThrow().action().equals(event.action())
+                || !verificationBasisMatches(pending.orElseThrow(), event.acceptance()))) {
             throw new IllegalArgumentException("accepted answer must match the pending answer verification checkpoint");
         }
+        if (pending.isEmpty() && event.acceptance().verificationBasis() != AnswerVerificationBasis.CONTRACT_ONLY) {
+            throw new IllegalArgumentException("LLM accepted answer requires the pending answer verification checkpoint");
+        }
         AttemptBudget budget = state.budget().consumeAgentStep();
-        requireSelectedAction(state, new AnswerAction(event.document()),
-                "accepted answer");
+        requireSelectedAction(state, event.action(), "accepted answer");
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), budget,
                 state.acceptedActionCount() + 1, state.rejectedActionCount(),
                 Optional.of(new PendingTerminalResponse.Answer(
-                        event.sessionId(), event.turn(), pending.document(), event.acceptance())), Optional.empty(),
+                        event.sessionId(), event.turn(), event.action().document(), event.acceptance())), Optional.empty(),
                 Optional.empty(), withInteraction(state, new ModelInteraction.ActionResultRecorded(event.attemptId(),
                         new ActionResult.AnswerAccepted())));
     }
@@ -268,6 +270,7 @@ public final class AgentStateReducer {
         if (state.pendingAnswerVerification().isPresent() || state.pendingTerminalResponse().isPresent()) {
             throw new IllegalArgumentException("agent run already has a pending terminal operation");
         }
+        requireSelectedAction(state, event.proposal().action(), "proposed answer");
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), state.budget(),
                 state.acceptedActionCount(), state.rejectedActionCount(), Optional.empty(), Optional.empty(),
                 Optional.of(event.proposal()));
@@ -281,7 +284,7 @@ public final class AgentStateReducer {
         }
         PendingAnswerVerification pending = state.pendingAnswerVerification().orElseThrow();
         AttemptBudget budget = state.budget().consumeActionRejection();
-        requireSelectedAction(state, new AnswerAction(pending.document()),
+        requireSelectedAction(state, pending.action(),
                 "rejected answer");
         return next(state, AgentRunStatus.RUNNING, state.currentAttempt(), budget,
                 state.acceptedActionCount(), state.rejectedActionCount() + 1, Optional.empty(), Optional.empty(),

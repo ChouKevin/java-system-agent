@@ -253,7 +253,15 @@ public final class AgentActionPromptRenderer {
                         .map(ModelInteractionRenderer::contentSummary)
                         .orElse("none")
                         + ", rationale=" + execute.rationale();
-                case AnswerAction answer -> "ANSWER: document.statements=" + renderDocument(answer.document());
+                case AnswerAction answer -> "ANSWER: document.statements=" + renderDocument(answer.document())
+                        + ", resolutions=" + answer.resolutions().stream()
+                        .map(resolution -> "{needId=" + resolution.needId().value()
+                                + ", status=" + resolution.status()
+                                + ", evidenceHandles=" + resolution.evidence().stream()
+                                .map(reference -> reference.value()).sorted().toList()
+                                + ", observationIds=" + resolution.observations().stream()
+                                .map(observation -> observation.value()).sorted().toList() + "}")
+                        .toList();
                 case ClarifyAction clarify -> "CLARIFY: question=" + clarify.question()
                         + ", candidates=" + candidateHandles(clarify.candidates())
                         + ", reason=" + clarify.reason();

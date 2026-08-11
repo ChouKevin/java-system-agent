@@ -251,7 +251,8 @@ class AgentRunRecoveryCoordinatorTest {
 
     private static AnswerAction answer() {
         return new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
-                new StatementId("statement-1"), StatementType.QUESTION, "Verified answer", Optional.empty(), Set.of(), Set.of()))));
+                new StatementId("statement-1"), StatementType.QUESTION, "Verified answer", Optional.empty(), Set.of(), Set.of()))),
+                List.of());
     }
 
     private static QuestionPlan plan() {

@@ -92,8 +92,12 @@ final class AnswerActionExecutor {
                 state.currentAttempt().issuedEvidence(),
                 state.currentAttempt().observations(),
                 binding);
+        if (answerVerificationMode == AnswerVerificationMode.CONTRACT_ONLY) {
+            return new ActionLaneOutcome.Terminal(
+                    terminalResponseCoordinator.acceptAnswer(request, state, action, AnswerAcceptance.contractOnly()));
+        }
         PendingAnswerVerification pendingVerification = new PendingAnswerVerification(
-                state.currentAttempt().attemptId(), state.currentAttempt().revisionVector(), action.document(),
+                state.currentAttempt().attemptId(), state.currentAttempt().revisionVector(), action,
                 answerVerificationMode);
         state = transitions.apply(state, new AgentEvent.AnswerProposed(state.runId(), state.currentAttempt().attemptId(),
                 state.stateRevision(), pendingVerification));
@@ -123,14 +127,14 @@ final class AnswerActionExecutor {
         }
         HandleBinding binding = transitions.currentBinding(state);
         AnswerDocumentValidation documentValidation = documentValidator.validate(
-                pending.document(),
+                pending.action().document(),
                 state.currentAttempt().issuedEvidence(),
                 state.currentAttempt().observations(),
                 binding);
         AnswerVerificationContext verificationContext = new AnswerVerificationContext(
                 request.question(),
                 sessionHistory,
-                pending.document(),
+                pending.action().document(),
                 List.copyOf(state.currentAttempt().issuedEvidence().values()),
                 List.copyOf(state.currentAttempt().observations().values()),
                 List.copyOf(documentValidation.citedEvidence().values()),
@@ -168,7 +172,7 @@ final class AnswerActionExecutor {
                 String rejection = rejectionDescription(verdict);
                 state = transitions.apply(state, new AgentEvent.AnswerRejected(
                         state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), verdict));
-                state = recordAnswerRejectionObservations(state, pending.document(), verdict);
+                state = recordAnswerRejectionObservations(state, pending.action().document(), verdict);
                 return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.of(rejection));
             }
             acceptance = AnswerAcceptance.llm(verdict);
@@ -181,7 +185,7 @@ final class AnswerActionExecutor {
                     new AnswerVerificationContractException("answer verification returned an incompatible result")));
         }
         return new ActionLaneOutcome.Terminal(
-                terminalResponseCoordinator.acceptAnswer(request, state, pending.document(), acceptance));
+                terminalResponseCoordinator.acceptAnswer(request, state, pending.action(), acceptance));
     }
 
     private AgentRunState recordAnswerRejectionObservations(

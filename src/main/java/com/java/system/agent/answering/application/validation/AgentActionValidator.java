@@ -29,9 +29,11 @@ import java.util.Set;
 public final class AgentActionValidator {
 
     private final AnswerDocumentValidator answerDocumentValidator;
+    private final NeedResolutionValidator needResolutionValidator;
 
     public AgentActionValidator() {
         answerDocumentValidator = new AnswerDocumentValidator();
+        needResolutionValidator = new NeedResolutionValidator();
     }
 
     public ActionValidation validate(AgentAction action, AgentValidationContext context) {
@@ -57,6 +59,13 @@ public final class AgentActionValidator {
             answerDocumentValidator.validate(
                     action.document(), context.evidence(), context.observations(), context.currentBinding());
         } catch (AnswerDocumentContractException exception) {
+            return rejected(exception.rejectionCode(), action);
+        }
+        try {
+            needResolutionValidator.validate(
+                    context.questionPlan().orElseThrow(), action.resolutions(), action.document(), context.evidence(),
+                    context.observations(), context.currentBinding());
+        } catch (NeedResolutionContractException exception) {
             return rejected(exception.rejectionCode(), action);
         }
         return acceptIfAgentStepAvailable(action, List.of(), context);
