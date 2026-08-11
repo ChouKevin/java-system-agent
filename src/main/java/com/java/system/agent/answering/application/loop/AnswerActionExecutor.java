@@ -1,8 +1,11 @@
 package com.java.system.agent.answering.application.loop;
 
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidation;
+import com.java.system.agent.answering.application.validation.AnswerDocumentContractException;
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
+import com.java.system.agent.answering.application.validation.NeedResolutionContractException;
+import com.java.system.agent.answering.application.validation.NeedResolutionValidator;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
@@ -17,6 +20,7 @@ import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
@@ -51,6 +55,7 @@ final class AnswerActionExecutor {
     private final AnalysisCancellationPort cancellationPort;
     private final AnswerVerificationMode answerVerificationMode;
     private final AnswerDocumentValidator documentValidator;
+    private final NeedResolutionValidator needResolutionValidator;
     private final AnswerVerdictValidator verdictValidator;
     private final AgentRunTransitions transitions;
     private final TerminalResponseCoordinator terminalResponseCoordinator;
@@ -68,6 +73,7 @@ final class AnswerActionExecutor {
         this.answerVerificationMode = Objects.requireNonNull(
                 answerVerificationMode, "answer verification mode must not be null");
         this.documentValidator = Objects.requireNonNull(documentValidator, "answer document validator must not be null");
+        this.needResolutionValidator = new NeedResolutionValidator();
         this.verdictValidator = Objects.requireNonNull(verdictValidator, "answer verdict validator must not be null");
         this.transitions = Objects.requireNonNull(transitions, "agent run transitions must not be null");
         this.terminalResponseCoordinator = Objects.requireNonNull(
@@ -92,8 +98,12 @@ final class AnswerActionExecutor {
                 state.currentAttempt().issuedEvidence(),
                 state.currentAttempt().observations(),
                 binding);
+        if (answerVerificationMode == AnswerVerificationMode.CONTRACT_ONLY) {
+            return new ActionLaneOutcome.Terminal(
+                    terminalResponseCoordinator.acceptAnswer(request, state, action, AnswerAcceptance.contractOnly()));
+        }
         PendingAnswerVerification pendingVerification = new PendingAnswerVerification(
-                state.currentAttempt().attemptId(), state.currentAttempt().revisionVector(), action.document(),
+                state.currentAttempt().attemptId(), state.currentAttempt().revisionVector(), action,
                 answerVerificationMode);
         state = transitions.apply(state, new AgentEvent.AnswerProposed(state.runId(), state.currentAttempt().attemptId(),
                 state.stateRevision(), pendingVerification));
@@ -121,27 +131,46 @@ final class AnswerActionExecutor {
                     state, RunOutcome.CANCELLED, TerminalResponseCoordinator.CANCELLED_RESPONSE,
                     Optional.empty(), Optional.empty()));
         }
-        HandleBinding binding = transitions.currentBinding(state);
-        AnswerDocumentValidation documentValidation = documentValidator.validate(
-                pending.document(),
-                state.currentAttempt().issuedEvidence(),
-                state.currentAttempt().observations(),
-                binding);
-        AnswerVerificationContext verificationContext = new AnswerVerificationContext(
-                request.question(),
-                sessionHistory,
-                pending.document(),
-                List.copyOf(state.currentAttempt().issuedEvidence().values()),
-                List.copyOf(state.currentAttempt().observations().values()),
-                List.copyOf(documentValidation.citedEvidence().values()),
-                List.copyOf(documentValidation.referencedObservations().values()),
-                EvidenceCapabilityProvenance.resolve(
-                        state.currentAttempt().issuedCapabilities(),
-                        state.currentAttempt().issuedEvidence(),
-                        state.modelInteractions()));
+        AnswerDocumentValidation documentValidation;
+        AnswerVerificationContext verificationContext;
+        try {
+            HandleBinding binding = transitions.currentBinding(state);
+            documentValidation = documentValidator.validate(
+                    pending.action().document(),
+                    state.currentAttempt().issuedEvidence(),
+                    state.currentAttempt().observations(),
+                    binding);
+            QuestionPlan questionPlan = state.questionPlan().orElseThrow(
+                    () -> new AnswerVerificationContractException(
+                            "LLM answer verification requires a question plan"));
+            needResolutionValidator.validate(
+                    questionPlan,
+                    pending.action().resolutions(),
+                    pending.action().document(),
+                    state.currentAttempt().issuedEvidence(),
+                    state.currentAttempt().observations(),
+                    binding);
+            verificationContext = new AnswerVerificationContext(
+                    request.question(),
+                    sessionHistory,
+                    pending.action().document(),
+                    List.copyOf(state.currentAttempt().issuedEvidence().values()),
+                    List.copyOf(state.currentAttempt().observations().values()),
+                    List.copyOf(documentValidation.citedEvidence().values()),
+                    List.copyOf(documentValidation.referencedObservations().values()),
+                    EvidenceCapabilityProvenance.resolve(
+                            state.currentAttempt().issuedCapabilities(),
+                            state.currentAttempt().issuedEvidence(),
+                            state.modelInteractions()),
+                    questionPlan,
+                    pending.action().resolutions());
+        } catch (AnswerDocumentContractException | NeedResolutionContractException
+                 | AnswerVerificationContractException exception) {
+            return new ActionLaneOutcome.Terminal(terminalResponseCoordinator.concludeIntegrationFailure(state, exception));
+        }
         AnswerVerificationResult verificationResult;
         try {
-            verificationResult = telemetry.verifyAnswer(state, pending.verificationMode(), verificationContext);
+            verificationResult = telemetry.verifyAnswer(state, AnswerVerificationMode.LLM, verificationContext);
         } catch (ExternalExecutionDeferredException exception) {
             throw terminalResponseCoordinator.deferredExecution(exception);
         } catch (AnswerVerificationUnavailableException exception) {
@@ -156,8 +185,7 @@ final class AnswerActionExecutor {
                     Optional.empty(), Optional.empty()));
         }
         AnswerAcceptance acceptance;
-        if (pending.verificationMode() == AnswerVerificationMode.LLM
-                && verificationResult instanceof AnswerVerificationResult.LlmVerdict llmVerdict) {
+        if (verificationResult instanceof AnswerVerificationResult.LlmVerdict llmVerdict) {
             AnswerVerdict verdict = llmVerdict.verdict();
             try {
                 verdictValidator.validate(documentValidation, verdict);
@@ -168,20 +196,17 @@ final class AnswerActionExecutor {
                 String rejection = rejectionDescription(verdict);
                 state = transitions.apply(state, new AgentEvent.AnswerRejected(
                         state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), verdict));
-                state = recordAnswerRejectionObservations(state, pending.document(), verdict);
+                state = recordAnswerRejectionObservations(state, pending.action().document(), verdict);
                 return new ActionLaneOutcome.Continue(state, attemptSequence, Optional.of(rejection));
             }
             acceptance = AnswerAcceptance.llm(verdict);
-        } else if (pending.verificationMode() == AnswerVerificationMode.CONTRACT_ONLY
-                && verificationResult instanceof AnswerVerificationResult.ContractAccepted) {
-            acceptance = AnswerAcceptance.contractOnly();
         } else {
             return new ActionLaneOutcome.Terminal(terminalResponseCoordinator.concludeIntegrationFailure(
                     state,
                     new AnswerVerificationContractException("answer verification returned an incompatible result")));
         }
         return new ActionLaneOutcome.Terminal(
-                terminalResponseCoordinator.acceptAnswer(request, state, pending.document(), acceptance));
+                terminalResponseCoordinator.acceptAnswer(request, state, pending.action(), acceptance));
     }
 
     private AgentRunState recordAnswerRejectionObservations(

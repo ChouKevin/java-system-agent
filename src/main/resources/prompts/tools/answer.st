@@ -1,1 +1,1 @@
-Use <toolName> to submit the answer document. Cite issued evidence handles for every explicitly requested evidence type and do not substitute one evidence type for another.
+Use <toolName> to submit the answer document. Resolve every planned need exactly once and in the planned order. Cite issued evidence handles for every explicitly requested evidence type and do not substitute one evidence type for another.

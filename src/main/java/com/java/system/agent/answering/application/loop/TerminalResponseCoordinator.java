@@ -1,6 +1,7 @@
 package com.java.system.agent.answering.application.loop;
 
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationBasis;
@@ -81,19 +82,21 @@ final class TerminalResponseCoordinator {
     AgentLoopResult acceptAnswer(
             AgentLoopRequest request,
             AgentRunState currentState,
-            AnswerDocument document,
+            AnswerAction action,
             AnswerAcceptance acceptance) {
+        AnswerDocument document = action.document();
         String rendered = document.renderParagraphs();
         ConversationTurn turn = new ConversationTurn(
                 request.runId(), request.participant(), request.question(), rendered, ConversationTurnType.ANSWER);
         AgentRunState state;
         try {
             state = transitions.applyTerminalAcceptance(currentState, new AgentEvent.AnswerAccepted(
-                    currentState.runId(), currentState.currentAttempt().attemptId(), currentState.stateRevision(), document,
+                    currentState.runId(), currentState.currentAttempt().attemptId(), currentState.stateRevision(), action,
                     acceptance, request.sessionId(), turn));
         } catch (TerminalAcceptanceCancelledException exception) {
-            AgentRunState abandoned = transitions.abandonAnswerVerification(
-                    currentState, AnswerVerificationAbandonReason.CANCELLED);
+            AgentRunState abandoned = currentState.pendingAnswerVerification().isPresent()
+                    ? transitions.abandonAnswerVerification(currentState, AnswerVerificationAbandonReason.CANCELLED)
+                    : currentState;
             return conclude(abandoned, RunOutcome.CANCELLED, CANCELLED_RESPONSE, Optional.empty(), Optional.empty());
         }
         sessionPort.append(request.sessionId(), turn);

@@ -6,8 +6,10 @@ import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 
 import java.util.List;
 import java.util.Objects;
@@ -25,12 +27,13 @@ import java.util.Objects;
         @JsonSubTypes.Type(value = ActionResult.ActionInterrupted.class, name = "ACTION_INTERRUPTED"),
         @JsonSubTypes.Type(value = ActionResult.AnswerRejected.class, name = "ANSWER_REJECTED"),
         @JsonSubTypes.Type(value = ActionResult.AnswerAccepted.class, name = "ANSWER_ACCEPTED"),
-        @JsonSubTypes.Type(value = ActionResult.ClarificationAccepted.class, name = "CLARIFICATION_ACCEPTED")
+        @JsonSubTypes.Type(value = ActionResult.ClarificationAccepted.class, name = "CLARIFICATION_ACCEPTED"),
+        @JsonSubTypes.Type(value = ActionResult.QuestionPlanRecorded.class, name = "QUESTION_PLAN_RECORDED")
 })
 public sealed interface ActionResult permits ActionResult.QuerySucceeded, ActionResult.QueryFailed,
         ActionResult.QueryInvalidated, ActionResult.ExecuteCompleted, ActionResult.ValidationRejected,
         ActionResult.ActionInterrupted, ActionResult.AnswerRejected, ActionResult.AnswerAccepted,
-        ActionResult.ClarificationAccepted {
+        ActionResult.ClarificationAccepted, ActionResult.QuestionPlanRecorded {
 
     /**
      * QUERY 動作成功後產生的穩定參考值
@@ -130,6 +133,16 @@ public sealed interface ActionResult permits ActionResult.QuerySucceeded, Action
     }
 
     /**
+     * 問題解析計畫已成為此 run 的 durable 事實
+     */
+    record QuestionPlanRecorded(QuestionPlan plan) implements ActionResult {
+
+        public QuestionPlanRecorded {
+            Objects.requireNonNull(plan, "recorded question plan must not be null");
+        }
+    }
+
+    /**
      * 判斷結果是否可關閉指定類型的模型動作
      */
     default boolean matches(AgentAction action) {
@@ -144,6 +157,8 @@ public sealed interface ActionResult permits ActionResult.QuerySucceeded, Action
             case ExecuteAction ignored -> this instanceof ExecuteCompleted;
             case AnswerAction ignored -> this instanceof AnswerRejected || this instanceof AnswerAccepted;
             case ClarifyAction ignored -> this instanceof ClarificationAccepted;
+            case PlanAction planAction -> this instanceof QuestionPlanRecorded recorded
+                    && recorded.plan().equals(planAction.plan());
         };
     }
 

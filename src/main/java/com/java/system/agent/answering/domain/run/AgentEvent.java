@@ -3,6 +3,7 @@ package com.java.system.agent.answering.domain.run;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.java.system.agent.answering.domain.action.AgentAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.answer.AnswerAcceptance;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
@@ -19,6 +20,7 @@ import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 
 import java.util.Collections;
@@ -36,6 +38,7 @@ import java.util.Optional;
         @JsonSubTypes.Type(value = AgentEvent.AttemptStarted.class, name = "ATTEMPT_STARTED"),
         @JsonSubTypes.Type(value = AgentEvent.ContextIssued.class, name = "CONTEXT_ISSUED"),
         @JsonSubTypes.Type(value = AgentEvent.ActionSelected.class, name = "ACTION_SELECTED"),
+        @JsonSubTypes.Type(value = AgentEvent.QuestionPlanCreated.class, name = "QUESTION_PLAN_CREATED"),
         @JsonSubTypes.Type(value = AgentEvent.ActionResultRecorded.class, name = "ACTION_RESULT_RECORDED"),
         @JsonSubTypes.Type(value = AgentEvent.ActionAccepted.class, name = "ACTION_ACCEPTED"),
         @JsonSubTypes.Type(value = AgentEvent.ActionRejected.class, name = "ACTION_REJECTED"),
@@ -53,7 +56,7 @@ import java.util.Optional;
         @JsonSubTypes.Type(value = AgentEvent.RunConcluded.class, name = "RUN_CONCLUDED")
 })
 public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.AttemptStarted,
-        AgentEvent.ContextIssued, AgentEvent.ActionSelected, AgentEvent.ActionResultRecorded,
+        AgentEvent.ContextIssued, AgentEvent.ActionSelected, AgentEvent.QuestionPlanCreated, AgentEvent.ActionResultRecorded,
         AgentEvent.ActionAccepted, AgentEvent.ActionRejected,
         AgentEvent.QueryBudgetConsumed, AgentEvent.ExecuteBudgetConsumed, AgentEvent.ObservationRecorded,
         AgentEvent.AttemptInvalidated,
@@ -102,6 +105,14 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
         public ActionSelected {
             validateEnvelope(runId, attemptId, expectedStateRevision);
             Objects.requireNonNull(action, "selected agent action must not be null");
+        }
+    }
+
+    record QuestionPlanCreated(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
+                               QuestionPlan plan) implements AgentEvent {
+        public QuestionPlanCreated {
+            validateEnvelope(runId, attemptId, expectedStateRevision);
+            Objects.requireNonNull(plan, "question plan must not be null");
         }
     }
 
@@ -183,16 +194,16 @@ public sealed interface AgentEvent permits AgentEvent.RunStarted, AgentEvent.Att
     }
 
     record AnswerAccepted(AnalysisRunId runId, AnalysisAttemptId attemptId, long expectedStateRevision,
-                          AnswerDocument document, AnswerAcceptance acceptance,
+                          AnswerAction action, AnswerAcceptance acceptance,
                           SessionId sessionId, ConversationTurn turn) implements AgentEvent {
         public AnswerAccepted {
             validateEnvelope(runId, attemptId, expectedStateRevision);
-            Objects.requireNonNull(document, "accepted answer document must not be null");
+            Objects.requireNonNull(action, "accepted answer action must not be null");
             Objects.requireNonNull(acceptance, "accepted answer acceptance must not be null");
             Objects.requireNonNull(sessionId, "accepted answer session ID must not be null");
             Objects.requireNonNull(turn, "accepted answer conversation turn must not be null");
             if (!runId.equals(turn.runId()) || turn.type() != ConversationTurnType.ANSWER
-                    || !turn.assistantMessage().equals(document.renderParagraphs())) {
+                    || !turn.assistantMessage().equals(action.document().renderParagraphs())) {
                 throw new IllegalArgumentException("accepted answer turn must render the document for the same run");
             }
         }

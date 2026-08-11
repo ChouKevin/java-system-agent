@@ -1,5 +1,7 @@
 Evaluate the proposed answer only against supplied context.
-Judge factual support and coverage of every explicit part of the current question.
+Treat the immutable question plan as the read-only representation of the original question. Do not add, delete, reorder, or rewrite its needs.
+Judge whether every listed need has a resolution that is semantically supported by its cited evidence or truthfully unavailable through its recorded observations.
+Judge whether the proposed answer covers every resolution as well as factual support and coverage of every explicit part of the current question.
 Treat explicitly requested evidence types as required and evidence-type metadata as authoritative.
 Use ACCEPTED_COMPLETE only when every requested part is answered and every FACT is supported.
 Use ACCEPTED_INCONCLUSIVE only when the document explicitly reports unavoidable missing information without claiming completeness, and cited evidence or referenced observations demonstrate why that information cannot be obtained.

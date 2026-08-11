@@ -32,12 +32,17 @@ import com.java.system.agent.answering.application.validation.AgentActionValidat
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -45,9 +50,11 @@ import com.java.system.agent.answering.domain.run.AgentTransition;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.RunOutcome;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionPort;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
@@ -194,7 +201,7 @@ class PlanningToolInboxIntegrationTest {
             PlanningToolRegistry registry,
             RecordingTransitions transitions) {
         return ValidatedAgentLoop.compose(
-                actionPort,
+                withQuestionPlan(actionPort),
                 executionPort,
                 action -> new HttpMutationResult.NotImplemented(),
                 (mode, context) -> { throw new AssertionError("planning contract test must not verify answers"); },
@@ -210,6 +217,26 @@ class PlanningToolInboxIntegrationTest {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
+    }
+
+    private static AgentActionPort withQuestionPlan(AgentActionPort actions) {
+        return context -> questionPlanWasRecorded(context)
+                ? actions.nextAction(context)
+                : new AgentActionProposal.Proposed(new PlanAction(questionPlan()));
+    }
+
+    private static boolean questionPlanWasRecorded(AgentPromptContext context) {
+        for (ModelInteraction interaction : context.modelInteractions()) {
+            if (interaction instanceof ModelInteraction.ActionResultRecorded recorded
+                    && recorded.result() instanceof ActionResult.QuestionPlanRecorded) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Resolve the request")));
     }
 
     private static PlanningToolRegistry registry(

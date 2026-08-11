@@ -21,6 +21,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.ClaimId;
@@ -56,6 +57,9 @@ import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionTransportException;
 import com.java.system.agent.answering.port.out.AgentActionContractException;
@@ -148,7 +152,7 @@ class SpringAiAgentActionAdapterTest {
             List<String> logMessages = formattedMessages(handler);
             assertThat(logMessages).hasSize(1);
             assertThat(logMessages.getFirst())
-                    .contains("promptCharacterCount=" + renderedPrompt.length(), "promptSha256=", "interactionCount=4")
+                    .contains("promptCharacterCount=" + renderedPrompt.length(), "promptSha256=", "interactionCount=6")
                     .contains("remainingAgentSteps=3", "remainingQueryExecutions=3", "remainingExecuteExecutions=1")
                     .contains("remainingActionRejections=3", "resultCategory=PROPOSED", "actionType=QUERY")
                     .contains("actionFingerprint=", "executionPayloadFingerprint=",
@@ -156,7 +160,7 @@ class SpringAiAgentActionAdapterTest {
                             "priorEquivalentCurrentAttemptPayloadSelectionCount=1", "elapsedMs=")
                     .doesNotContain("PROMPT_SECRET", "TOKEN_SECRET", "source=evidence secret", "Previous question secret",
                             "Previous rationale secret", "Prior attempt rationale secret", "Changed question secret",
-                            "Changed rationale secret", "candidate-1");
+                            "Changed rationale secret", "candidate-1", "確認業務範圍");
         } finally {
             releaseActionLogs(handler);
         }
@@ -231,19 +235,28 @@ class SpringAiAgentActionAdapterTest {
                 Optional.of("{\"status\":\"rejected\"}"), "Original rationale");
         AnswerAction answer = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-b"),
                 new EvidenceHandleRef("evidence-a")), Set.of(new ObservationId("observation-b"),
-                new ObservationId("observation-a")), "Checkout calls the route"));
+                new ObservationId("observation-a")), "Checkout calls the route"), List.of());
         AnswerAction answerWithReorderedReferences = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-a"),
                 new EvidenceHandleRef("evidence-b")), Set.of(new ObservationId("observation-a"),
-                new ObservationId("observation-b")), "Checkout calls the route"));
+                new ObservationId("observation-b")), "Checkout calls the route"), List.of());
         AnswerAction answerWithChangedStatement = new AnswerAction(answerDocument(Set.of(new EvidenceHandleRef("evidence-a"),
                 new EvidenceHandleRef("evidence-b")), Set.of(new ObservationId("observation-a"),
-                new ObservationId("observation-b")), "Checkout does not call the route"));
+                new ObservationId("observation-b")), "Checkout does not call the route"), List.of());
         ClarifyAction clarify = new ClarifyAction("Which repository?", List.of(new CandidateHandleRef("candidate-1")),
                 "Original reason");
         ClarifyAction clarifyWithChangedReason = new ClarifyAction("Which repository?",
                 List.of(new CandidateHandleRef("candidate-1")), "Changed reason");
         ClarifyAction clarifyWithChangedQuestion = new ClarifyAction("Which branch?",
                 List.of(new CandidateHandleRef("candidate-1")), "Original reason");
+        PlanAction plan = new PlanAction(new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-1"), "Trace the route"),
+                new InformationNeed(new InformationNeedId("need-2"), "Check the boundary"))));
+        PlanAction planWithChangedDescription = new PlanAction(new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-1"), "Trace a different route"),
+                new InformationNeed(new InformationNeedId("need-2"), "Check the boundary"))));
+        PlanAction planWithReorderedNeeds = new PlanAction(new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-2"), "Check the boundary"),
+                new InformationNeed(new InformationNeedId("need-1"), "Trace the route"))));
 
         assertThat(fingerprint(query)).isEqualTo(fingerprint(queryWithChangedRationale))
                 .isNotEqualTo(fingerprint(queryWithChangedProse))
@@ -257,6 +270,8 @@ class SpringAiAgentActionAdapterTest {
                 .isNotEqualTo(fingerprint(answerWithChangedStatement));
         assertThat(fingerprint(clarify)).isEqualTo(fingerprint(clarifyWithChangedReason))
                 .isNotEqualTo(fingerprint(clarifyWithChangedQuestion));
+        assertThat(fingerprint(plan)).isNotEqualTo(fingerprint(planWithChangedDescription))
+                .isNotEqualTo(fingerprint(planWithReorderedNeeds));
 
         HandleBinding originalBinding = binding("attempt-1", "rev-1");
         HandleBinding reissuedBinding = binding("attempt-1", "rev-2");
@@ -295,7 +310,7 @@ class SpringAiAgentActionAdapterTest {
         CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
                 .content("")
                 .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "agent_submit_answer", """
-                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}]}
+                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-2","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-2"]},{"needId":"need-1","status":"SUPPORTED","evidenceHandles":["evidence-unknown"],"observationIds":[]}]}
                         """)))
                 .build());
 
@@ -305,6 +320,10 @@ class SpringAiAgentActionAdapterTest {
         AnswerAction action = (AnswerAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.document().statements().getFirst().citations())
                 .extracting(evidenceHandleReference -> evidenceHandleReference.value()).containsExactly("evidence-unknown");
+        assertThat(action.resolutions()).extracting(resolution -> resolution.needId().value())
+                .containsExactly("need-2", "need-1");
+        assertThat(action.resolutions().getFirst().observations())
+                .extracting(observationId -> observationId.value()).containsExactly("observation-2");
         assertThat(model.calls()).isEqualTo(1);
     }
 
@@ -401,7 +420,7 @@ class SpringAiAgentActionAdapterTest {
     @Test
     void mapsTypeAndDeclarativeToolInputFailuresToInvalidToolInput() {
         CountingChatModel unknownEnum = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"UNKNOWN","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                {"statements":[{"statementId":"statement-1","type":"UNKNOWN","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel blankQuestion = new CountingChatModel(toolCall("agent_request_clarification", """
                 {"question":" ","candidateHandles":[],"reason":"The route scope is ambiguous"}
@@ -424,7 +443,7 @@ class SpringAiAgentActionAdapterTest {
         AtomicInteger mapperCalls = new AtomicInteger();
         CountingChatModel model = new CountingChatModel(toolCall("agent_submit_answer", """
                 {"statements":[{"statementId":"statement-1","type":"LIMITATION","text":"The source remains unresolved",\
-                "citationHandles":[],"observationIds":"SENSITIVE_VALUE"}]}
+                "citationHandles":[],"observationIds":"SENSITIVE_VALUE"}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
         AgentActionProposal proposal = adapter(model, input -> failIfAnswerMapperExecutes(mapperCalls))
@@ -442,11 +461,11 @@ class SpringAiAgentActionAdapterTest {
     void returnsActionableFeedbackWhenAnswerStatementFieldsViolateTheirCrossFieldContract() {
         CountingChatModel nonFactClaim = new CountingChatModel(toolCall("agent_submit_answer", """
                 {"statements":[{"statementId":"statement-1","type":"LIMITATION","text":"The source remains unresolved",\
-                "claimId":"SENSITIVE_CLAIM","citationHandles":[],"observationIds":["observation-1"]}]}
+                "claimId":"SENSITIVE_CLAIM","citationHandles":[],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel incompleteFact = new CountingChatModel(toolCall("agent_submit_answer", """
                 {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route",\
-                "citationHandles":[],"observationIds":["observation-1"]}]}
+                "citationHandles":[],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
         AgentActionProposal nonFactProposal = adapter(nonFactClaim).nextAction(answerContext());
@@ -469,13 +488,13 @@ class SpringAiAgentActionAdapterTest {
     void rejectsInvalidNestedAnswerStatementsBeforeExecutingAnswerMapper() {
         AtomicInteger mapperCalls = new AtomicInteger();
         CountingChatModel missingType = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                {"statements":[{"statementId":"statement-1","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel nullType = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":null,"text":"Checkout calls the route","citationHandles":[],"observationIds":[]}]}
+                {"statements":[{"statementId":"statement-1","type":null,"text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel blankCitation = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":[" "],"observationIds":[]}]}
+                {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":[" "],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
         AgentActionProposal missingTypeProposal = adapter(missingType, input -> failIfAnswerMapperExecutes(mapperCalls))
@@ -668,7 +687,7 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
-    void sends_one_nonblank_resource_backed_request_with_the_currently_issued_callback_schemas() {
+    void resumes_with_the_committed_question_plan_in_the_prompt_and_without_the_plan_callback() {
         CountingChatModel model = new CountingChatModel(toolCall("callers", """
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","rationale":"Trace callers"}
                 """));
@@ -686,7 +705,7 @@ class SpringAiAgentActionAdapterTest {
         assertThat(model.calls()).isEqualTo(1);
         Prompt prompt = model.lastPrompt().orElseThrow();
         assertThat(prompt.getSystemMessage().getText()).isNotBlank();
-        assertThat(prompt.getUserMessage().getText()).isNotBlank();
+        assertThat(prompt.getUserMessage().getText()).contains("- scope: 確認業務範圍");
         assertThat(issued.callbacks())
                 .extracting(callback -> callback.getToolDefinition().name())
                 .containsExactlyInAnyOrder("callers", "agent_submit_answer", "agent_request_clarification", "execute_http");
@@ -867,14 +886,15 @@ class SpringAiAgentActionAdapterTest {
                 Map.of(capability, descriptor),
                 Map.of(firstCandidate, new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")),
                         secondCandidate, new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second"))),
-                Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                Map.of(), Map.of(), questionPlanInteractions(attemptId), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private AgentPromptContext contextWithInteractions(List<ModelInteraction> interactions) {
         AgentPromptContext context = context();
         return new AgentPromptContext(context.originalQuestion(), context.sessionHistory(), context.runId(), context.attemptId(),
                 context.issuedCapabilities(), context.issuedCandidates(), context.issuedEvidence(), context.observations(),
-                interactions, context.latestRejection(), context.budget());
+                withQuestionPlan(interactions, context.attemptId()), context.latestRejection(), context.budget());
     }
 
     private CapabilityHandle capability() {
@@ -922,7 +942,24 @@ class SpringAiAgentActionAdapterTest {
                 ObservationCode.PARTIAL_GRAPH, "Graph is partial", Set.of(), Set.of(evidenceHandle), "runtime");
         return new AgentPromptContext("Where is it called?", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
                 Map.of(evidenceHandle, new IssuedEvidence(evidenceHandle, evidence)), Map.of(observationId, observation),
-                List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                questionPlanInteractions(attemptId), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static List<ModelInteraction> questionPlanInteractions(AnalysisAttemptId attemptId) {
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
+        return List.of(
+                new ModelInteraction.ActionSelected(attemptId, new PlanAction(plan)),
+                new ModelInteraction.ActionResultRecorded(attemptId, new ActionResult.QuestionPlanRecorded(plan)));
+    }
+
+    private static List<ModelInteraction> withQuestionPlan(
+            List<ModelInteraction> interactions,
+            AnalysisAttemptId attemptId) {
+        List<ModelInteraction> result = new ArrayList<>(questionPlanInteractions(attemptId));
+        result.addAll(interactions);
+        return List.copyOf(result);
     }
 
     private record ToolInput(

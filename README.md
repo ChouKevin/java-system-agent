@@ -19,11 +19,12 @@ That profile remains manually drivable: it starts no background work, so a calle
 Java inbound contracts. The `slack-agent` profile includes `agent-runtime` and adds mention-only
 Slack Socket Mode admission, one Agent inbox worker, and one Slack-delivery worker.
 
-The composed M3 flow provides:
+The composed Agent flow provides:
 
-- a framework-free validated loop whose model proposes exactly one `QUERY`, `ANSWER`, or `CLARIFY`
+- a framework-free validated loop whose first model turn can only propose one `PLAN`; the runtime
+  persists it immutably before the model may propose an issued `QUERY`, `ANSWER`, or `CLARIFY`
 - deterministic validation of issued handles, schemas, revisions, budgets, cancellation, evidence,
-  citations, and answer verdicts
+  citations, exact plan-need resolution coverage, and answer verdicts
 - durable-before-ACK Socket Mode admission that canonicalizes source identity, detects payload
   conflicts, maps a source thread to one opaque `SessionId`, and keeps a source message on one
   stable `AnalysisRunId`
@@ -58,6 +59,13 @@ model call, registrations are filtered by `PlanningToolRegistration.isIssued(con
 current snapshot: the model may call only names in that snapshot, and prompt names and callbacks
 come from that same snapshot.
 
+Before a run has a question plan, the snapshot contains only `agent_plan_question`. Persisting its
+`QuestionPlanCreated` event stores the ordered information needs, closes the planning phase, and
+consumes one unified Agent step atomically. Later prompts put that immutable plan before current
+evidence and append the action/result history. An `ANSWER` must resolve every plan need in order;
+supported resolutions use current issued evidence that the answer cites, while unavailable
+resolutions use current observations.
+
 Provider follow-up candidates carry a canonical payload and the analyzed revision scope. Historical
 evidence provenance remains context, not permission to repeat a tool. Semantic method navigation
 can reach fields on its owning type through a provider-issued type-member follow-up; a typed field
@@ -78,7 +86,7 @@ supported Slack app_mention
   -> ACK Socket Mode only after durable admission
   -> delivery worker sends receipt
   -> inbox worker globally claims an eligible session head
-  -> validated Agent loop: propose, validate, query/answer/clarify, reduce
+  -> validated Agent loop: plan once, then propose, validate, query/answer/clarify, reduce
   -> atomically append Agent event and replace current snapshot
   -> append participant-aware immutable accepted session turn
   -> complete inbox and create final-delivery outbox row
@@ -115,7 +123,9 @@ Agent does not claim distributed ownership, leases, or cross-machine coordinatio
 When an answer is accepted in `contract-only` mode, it is a `COMPLETED` answer and the inbound
 `AnswerQuestionResult` retains `responseKind=ANSWER` and
 `verificationBasis=CONTRACT_ONLY`. This is deliberately not a fabricated LLM verdict; callers can
-distinguish it from an LLM-verified answer through the typed result.
+distinguish it from an LLM-verified answer through the typed result. Contract-only acceptance makes
+no verifier call and creates no pending answer-verification checkpoint. In LLM mode, the verifier
+receives a read-only view of the immutable question plan and the proposed resolutions.
 
 ## Project Layout
 
@@ -123,7 +133,7 @@ distinguish it from an LLM-verified answer through the typed result.
 src/main/java/com/java/system/agent/
   Application.java
   answering/
-    domain/       immutable action-loop values
+    domain/       immutable action-loop values, including plan and need-resolution contracts
     application/
       loop/       framework-free lifecycle kernel and ValidatedAgentLoop
       state/      deterministic reduction and transition persistence
@@ -199,9 +209,9 @@ The default model is [`gemini-3.1-flash-lite`](https://ai.google.dev/gemini-api/
 Java Semantic capabilities are contributed through the planning registry as a read-only capability
 set. The action model receives only the registrations issued for its current context.
 
-A representative one-query answer performs three LLM calls and three HTTP calls: catalog HTTP →
-`QUERY` action LLM → revision HTTP → capability HTTP → `ANSWER` action LLM → verifier LLM. The
-model may make more than one `QUERY`, so actual calls can be higher.
+A representative one-query answer performs four LLM calls and three HTTP calls: catalog HTTP →
+`PLAN` action LLM → `QUERY` action LLM → revision HTTP → capability HTTP → `ANSWER` action LLM →
+verifier LLM. The model may make more than one `QUERY`, so actual calls can be higher.
 
 For planning only, one Gemini envelope is 15 RPM, 250,000 input TPM, and 500–1,500 RPD. These
 numbers are project/model/tier-specific, are not guaranteed, and active limits in AI Studio are
@@ -227,6 +237,17 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml test \
 The normal suite covers Socket Mode admission, source/inbox/delivery contracts through lightweight
 fakes, and `SmartLifecycle` worker recovery and shutdown without requiring Docker or a live Slack
 workspace. The PostgreSQL profile below verifies the real database boundaries.
+
+The standalone business-shaped acceptance fixtures can be compiled independently. For example:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -q \
+  -f src/test/resources/fixtures/payment-knowledge-query/pom.xml test
+```
+
+`PaymentKnowledgeLiveIT` uses the normal source-event and inbox path and is skipped unless the
+Starter supplies its dedicated live environment. Its fixture identity and payment rules remain
+test resources and must not appear in production code or prompt resources.
 
 Run PostgreSQL migrations and adapter integration tests through Testcontainers:
 

@@ -28,6 +28,26 @@ class AnsweringKernelArchitectureTest {
             .resideInAnyPackage("..answering.application..", "..answering.port..");
 
     @ArchTest
+    static final ArchRule QUESTION_PLAN_DOMAIN_DEPENDS_ONLY_ON_JAVA_AND_ANSWERING_DOMAIN = classes()
+            .that().resideInAPackage("..answering.domain.plan..")
+            .and().doNotHaveSimpleName("package-info")
+            .should().onlyDependOnClassesThat()
+            .resideInAnyPackage("java..", "..answering.domain..");
+
+    @ArchTest
+    static final ArchRule QUESTION_PLAN_DOMAIN_HAS_NO_ADAPTER_OR_INFRASTRUCTURE_DEPENDENCIES = noClasses()
+            .that().resideInAPackage("..answering.domain.plan..")
+            .and().doNotHaveSimpleName("package-info")
+            .should().dependOnClassesThat()
+            .resideInAnyPackage(
+                    "org.springframework..",
+                    "org.springframework.ai..",
+                    "com.java.system.agent.model..",
+                    "com.java.system.agent.codeintelligence..",
+                    "com.java.system.agent.persistence..",
+                    "com.java.system.agent.answering.port.out..");
+
+    @ArchTest
     static final ArchRule APPLICATION_DEPENDS_ONLY_ON_KERNEL = classes()
             .that().resideInAPackage("..answering.application..")
             .and().doNotHaveSimpleName("package-info")

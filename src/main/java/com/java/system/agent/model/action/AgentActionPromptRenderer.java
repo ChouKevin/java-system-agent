@@ -5,6 +5,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
@@ -75,6 +76,7 @@ public final class AgentActionPromptRenderer {
         projection.put("evidence", evidence(context));
         projection.put("evidenceCoverage", evidenceCoverage(context));
         projection.put("observations", observations(context));
+        projection.put("questionPlan", questionPlan(context));
         projection.put("latestAnswerFeedback", latestAnswerFeedback(context));
         projection.put("latestRejection", context.latestRejection().orElse("none"));
         projection.put("remainingBudget", remainingBudget(context));
@@ -148,6 +150,14 @@ public final class AgentActionPromptRenderer {
                     .append(entry.getValue().description()).append('\n');
         }
         return observations.toString();
+    }
+
+    private static String questionPlan(AgentPromptContext context) {
+        return context.questionPlan()
+                .map(plan -> plan.needs().stream()
+                        .map(need -> "- " + need.id().value() + ": " + need.description())
+                        .collect(java.util.stream.Collectors.joining("\n", "", "\n")))
+                .orElse("none");
     }
 
     private static String renderCandidate(AnalysisCandidate candidate, Set<String> currentToolNames) {
@@ -243,10 +253,20 @@ public final class AgentActionPromptRenderer {
                         .map(ModelInteractionRenderer::contentSummary)
                         .orElse("none")
                         + ", rationale=" + execute.rationale();
-                case AnswerAction answer -> "ANSWER: document.statements=" + renderDocument(answer.document());
+                case AnswerAction answer -> "ANSWER: document.statements=" + renderDocument(answer.document())
+                        + ", resolutions=" + answer.resolutions().stream()
+                        .map(resolution -> "{needId=" + resolution.needId().value()
+                                + ", status=" + resolution.status()
+                                + ", evidenceHandles=" + resolution.evidence().stream()
+                                .map(reference -> reference.value()).sorted().toList()
+                                + ", observationIds=" + resolution.observations().stream()
+                                .map(observation -> observation.value()).sorted().toList() + "}")
+                        .toList();
                 case ClarifyAction clarify -> "CLARIFY: question=" + clarify.question()
                         + ", candidates=" + candidateHandles(clarify.candidates())
                         + ", reason=" + clarify.reason();
+                case PlanAction plan -> "PLAN: informationNeedIds=" + plan.plan().needs().stream()
+                        .map(need -> need.id().value()).toList();
             };
         }
 
@@ -268,6 +288,8 @@ public final class AgentActionPromptRenderer {
                 case ActionResult.AnswerRejected rejected -> "ANSWER_REJECTED: " + renderVerdict(rejected.verdict());
                 case ActionResult.AnswerAccepted ignored -> "ANSWER_ACCEPTED";
                 case ActionResult.ClarificationAccepted ignored -> "CLARIFICATION_ACCEPTED";
+                case ActionResult.QuestionPlanRecorded recorded -> "QUESTION_PLAN_RECORDED: informationNeedIds="
+                        + recorded.plan().needs().stream().map(need -> need.id().value()).toList();
             };
         }
 

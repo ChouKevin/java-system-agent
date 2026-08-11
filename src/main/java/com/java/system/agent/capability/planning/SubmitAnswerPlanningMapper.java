@@ -8,6 +8,8 @@ import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
 
 import java.util.List;
 import java.util.Objects;
@@ -24,7 +26,21 @@ public final class SubmitAnswerPlanningMapper implements Function<SubmitAnswerPl
     @Override
     public AnswerAction apply(SubmitAnswerPlanningInput input) {
         List<AnswerStatement> statements = input.statements().stream().map(this::statement).toList();
-        return new AnswerAction(new AnswerDocument(statements));
+        List<NeedResolution> resolutions;
+        try {
+            resolutions = input.resolutions().stream().map(this::resolution).toList();
+        } catch (IllegalArgumentException exception) {
+            throw resolutionRejected(exception);
+        }
+        return new AnswerAction(new AnswerDocument(statements), resolutions);
+    }
+
+    private NeedResolution resolution(NeedResolutionPlanningInput input) {
+        Set<EvidenceHandleRef> evidence = input.evidenceHandles().stream().map(EvidenceHandleRef::new)
+                .collect(Collectors.toUnmodifiableSet());
+        Set<ObservationId> observations = input.observationIds().stream().map(ObservationId::new)
+                .collect(Collectors.toUnmodifiableSet());
+        return new NeedResolution(new InformationNeedId(input.needId()), input.status(), evidence, observations);
     }
 
     private AnswerStatement statement(AnswerStatementPlanningInput input) {
@@ -64,5 +80,9 @@ public final class SubmitAnswerPlanningMapper implements Function<SubmitAnswerPl
 
     private static PlanningToolInputException rejected(String diagnostic) {
         return new PlanningToolInputException("reason=ANSWER_CONTRACT; " + diagnostic, null);
+    }
+
+    private static PlanningToolInputException resolutionRejected(IllegalArgumentException exception) {
+        return new PlanningToolInputException("reason=ANSWER_RESOLUTION_CONTRACT", exception);
     }
 }

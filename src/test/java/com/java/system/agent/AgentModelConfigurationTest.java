@@ -86,6 +86,10 @@ class AgentModelConfigurationTest {
         contextRunner.run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBeansOfType(PromptResourceCatalog.class)).hasSize(1);
+            assertThat(context.getBean(PromptResourceCatalog.class).resourceDigests()).containsKey("tools/plan.st");
+            assertThat(context.getBean(PlanningToolRegistry.class).registrations())
+                    .extracting(registration -> registration.name())
+                    .containsOnlyOnce("agent_plan_question");
             assertThat(context.getBeansOfType(SpringAiPlanningToolCallbackAdapter.class)).hasSize(1);
             assertThat(context.getBean(AgentActionPort.class)).isInstanceOf(SpringAiAgentActionAdapter.class);
             assertThat(context.getBean(AnswerVerificationPort.class)).isInstanceOf(AnswerVerificationDispatcher.class);

@@ -36,6 +36,7 @@ final class AgentDocumentMapper {
                 state.failureReason(),
                 state.pendingTerminalResponse(),
                 state.pendingAnswerVerification(),
+                state.questionPlan(),
                 state.requestIdentity(),
                 state.modelInteractions());
     }
@@ -55,6 +56,7 @@ final class AgentDocumentMapper {
                 document.failureReason(),
                 document.pendingTerminalResponse(),
                 document.pendingAnswerVerification(),
+                document.questionPlan(),
                 document.requestIdentity(),
                 document.modelInteractions());
     }
@@ -134,6 +136,7 @@ final class AgentDocumentMapper {
             case AgentEvent.AttemptStarted ignored -> "ATTEMPT_STARTED";
             case AgentEvent.ContextIssued ignored -> "CONTEXT_ISSUED";
             case AgentEvent.ActionSelected ignored -> "ACTION_SELECTED";
+            case AgentEvent.QuestionPlanCreated ignored -> "QUESTION_PLAN_CREATED";
             case AgentEvent.ActionResultRecorded ignored -> "ACTION_RESULT_RECORDED";
             case AgentEvent.ActionAccepted ignored -> "ACTION_ACCEPTED";
             case AgentEvent.ActionRejected ignored -> "ACTION_REJECTED";

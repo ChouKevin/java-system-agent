@@ -7,6 +7,8 @@ import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
 import com.java.system.agent.model.prompt.PromptResourceCatalog;
 
@@ -48,6 +50,8 @@ public final class AnswerVerificationPromptRenderer {
         projection.put("evidenceTypeCoverage", evidenceTypeCoverage(context));
         projection.put("referencedObservations", observations(context.referencedObservations()));
         projection.put("requiredFactStatementVerdicts", requiredFactStatementVerdicts(context.document().statements()));
+        projection.put("questionPlan", questionPlan(context.questionPlan()));
+        projection.put("needResolutions", needResolutions(context.needResolutions()));
         projection.put("responseContract", responseContract);
         return Map.copyOf(projection);
     }
@@ -102,6 +106,25 @@ public final class AnswerVerificationPromptRenderer {
         }
         return factStatementIds.stream().map(statementId -> "- " + statementId + "\n")
                 .collect(Collectors.joining());
+    }
+
+    private static String questionPlan(QuestionPlan plan) {
+        StringBuilder content = new StringBuilder();
+        for (com.java.system.agent.answering.domain.plan.InformationNeed need : plan.needs()) {
+            content.append("- ").append(need.id().value()).append(": ").append(need.description()).append('\n');
+        }
+        return content.toString();
+    }
+
+    private static String needResolutions(List<NeedResolution> resolutions) {
+        StringBuilder content = new StringBuilder();
+        for (NeedResolution resolution : resolutions) {
+            content.append("- ").append(resolution.needId().value()).append(" [").append(resolution.status())
+                    .append("]\n");
+            content.append("  evidenceHandles: ").append(sortedNeedEvidenceHandles(resolution)).append('\n');
+            content.append("  observationIds: ").append(sortedNeedObservationIds(resolution)).append('\n');
+        }
+        return content.toString();
     }
 
     private static String evidenceTypeCoverage(AnswerVerificationContext context) {
@@ -161,6 +184,16 @@ public final class AnswerVerificationPromptRenderer {
 
     private static String sortedObservationIds(AnswerStatement statement) {
         return statement.observationIds().stream().map(observationId -> observationId.value()).sorted()
+                .collect(Collectors.joining(", "));
+    }
+
+    private static String sortedNeedEvidenceHandles(NeedResolution resolution) {
+        return resolution.evidence().stream().map(reference -> reference.value()).sorted()
+                .collect(Collectors.joining(", "));
+    }
+
+    private static String sortedNeedObservationIds(NeedResolution resolution) {
+        return resolution.observations().stream().map(observationId -> observationId.value()).sorted()
                 .collect(Collectors.joining(", "));
     }
 

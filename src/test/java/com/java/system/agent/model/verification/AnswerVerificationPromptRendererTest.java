@@ -19,6 +19,11 @@ import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
@@ -58,6 +63,15 @@ class AnswerVerificationPromptRendererTest {
                 RevisionVector.empty().pin(repositoryId, revision));
         EvidenceHandle factEvidenceB = new EvidenceHandle("evidence-b", binding);
         EvidenceHandle factEvidenceA = new EvidenceHandle("evidence-a", binding);
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-2"), "Resolve the boundary"),
+                new InformationNeed(new InformationNeedId("need-1"), "Trace the entry point")));
+        List<NeedResolution> resolutions = List.of(
+                new NeedResolution(new InformationNeedId("need-2"), NeedResolutionStatus.SUPPORTED,
+                        Set.of(new EvidenceHandleRef(factEvidenceB.value()), new EvidenceHandleRef(factEvidenceA.value())),
+                        Set.of()),
+                new NeedResolution(new InformationNeedId("need-1"), NeedResolutionStatus.SUPPORTED,
+                        Set.of(new EvidenceHandleRef(factEvidenceA.value())), Set.of()));
         AnswerDocument document = new AnswerDocument(List.of(
                 new AnswerStatement(new StatementId("FACT-B"), StatementType.FACT, "第二個事實",
                         Optional.of(new ClaimId("claim-b")), Set.of(new EvidenceHandleRef(factEvidenceB.value())), Set.of()),
@@ -70,17 +84,26 @@ class AnswerVerificationPromptRendererTest {
                 List.of(evidence(factEvidenceB, repositoryId, revision), evidence(factEvidenceA, repositoryId, revision)),
                 List.of(),
                 List.of(evidence(factEvidenceB, repositoryId, revision), evidence(factEvidenceA, repositoryId, revision)),
-                List.of());
+                List.of(), List.of(), plan, resolutions);
 
         Map<String, Object> projection = renderer().project(context, "response contract");
 
         assertThat(projection).containsOnlyKeys("currentQuestion", "sessionHistory", "proposedDocument",
                 "availableEvidence", "availableObservations", "citedEvidence", "evidenceTypeCoverage",
-                "referencedObservations", "requiredFactStatementVerdicts", "responseContract");
+                "referencedObservations", "requiredFactStatementVerdicts", "questionPlan", "needResolutions",
+                "responseContract");
         assertThat((String) projection.get("sessionHistory")).containsSubsequence("participant[slack:U123456]",
                 "assistant: 付款流程如下", "participant[slack:U789012]", "assistant: 退款流程如下");
         assertThat((String) projection.get("requiredFactStatementVerdicts"))
                 .isEqualTo("- FACT-B\n- FACT-A\n");
+        assertThat(projection.get("questionPlan")).isEqualTo("- need-2: Resolve the boundary\n"
+                + "- need-1: Trace the entry point\n");
+        assertThat(projection.get("needResolutions")).isEqualTo("- need-2 [SUPPORTED]\n"
+                + "  evidenceHandles: evidence-a, evidence-b\n"
+                + "  observationIds: \n"
+                + "- need-1 [SUPPORTED]\n"
+                + "  evidenceHandles: evidence-a\n"
+                + "  observationIds: \n");
     }
 
     @Test
@@ -103,7 +126,7 @@ class AnswerVerificationPromptRendererTest {
         AnswerVerificationContext context = new AnswerVerificationContext(
                 "Find internal references", SessionHistory.empty(), document,
                 List.of(evidence), List.of(), List.of(evidence), List.of(),
-                List.of(new EvidenceCapabilityProvenance(evidenceHandle, capability)));
+                List.of(new EvidenceCapabilityProvenance(evidenceHandle, capability)), defaultPlan(), List.of());
 
         Map<String, Object> projection = renderer().project(context, "response contract");
 
@@ -121,7 +144,7 @@ class AnswerVerificationPromptRendererTest {
         AnswerVerificationContext context = new AnswerVerificationContext("question", SessionHistory.empty(),
                 new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-question"),
                         StatementType.QUESTION, "question", Optional.empty(), Set.of(), Set.of()))),
-                List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), defaultPlan(), List.of());
         when(catalog.renderVerificationContext(anyMap())).thenReturn("resource-rendered-context");
 
         String rendered = renderer.render(context, "response contract");
@@ -135,7 +158,7 @@ class AnswerVerificationPromptRendererTest {
         AnswerVerificationContext context = new AnswerVerificationContext("question", SessionHistory.empty(),
                 new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-question"),
                         StatementType.QUESTION, "question", Optional.empty(), Set.of(), Set.of()))),
-                List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), defaultPlan(), List.of());
 
         Map<String, Object> projection = renderer().project(context, "response contract");
 
@@ -144,6 +167,10 @@ class AnswerVerificationPromptRendererTest {
 
     private static AnswerVerificationPromptRenderer renderer() {
         return new AnswerVerificationPromptRenderer(mock(PromptResourceCatalog.class));
+    }
+
+    private static QuestionPlan defaultPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Resolve the request")));
     }
 
     private static IssuedEvidence evidence(EvidenceHandle handle, RepositoryId repositoryId, RepositoryRevision revision) {

@@ -14,6 +14,7 @@ import com.java.system.agent.answering.application.validation.AnswerVerdictValid
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
@@ -23,6 +24,9 @@ import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
@@ -59,6 +63,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
@@ -150,7 +155,7 @@ class ValidatedAgentLoopExecuteTest {
         AtomicInteger mutationCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         AnalysisRunId runId = new AnalysisRunId("run-1");
-        FakeCancellationAdapter cancellation = new FakeCancellationAdapter().requestCancellationAfter(runId, 2);
+        FakeCancellationAdapter cancellation = new FakeCancellationAdapter().requestCancellationAfter(runId, 4);
         AgentActionPort actions = context -> new AgentActionProposal.Proposed(new ExecuteAction(
                 ExternalHttpMethod.POST,
                 "https://example.invalid/preview",
@@ -311,7 +316,7 @@ class ValidatedAgentLoopExecuteTest {
             FakeCancellationAdapter cancellation,
             RecordingTransitionPort transitions) {
         return ValidatedAgentLoop.compose(
-                actions,
+                withQuestionPlan(actions),
                 invocation -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
                 mutations,
                 (mode, context) -> new AnswerVerificationResult.LlmVerdict(new AnswerVerdict(
@@ -329,6 +334,17 @@ class ValidatedAgentLoopExecuteTest {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
+    }
+
+    private static AgentActionPort withQuestionPlan(AgentActionPort actions) {
+        AtomicBoolean planProposed = new AtomicBoolean();
+        return context -> planProposed.compareAndSet(false, true)
+                ? new AgentActionProposal.Proposed(new PlanAction(questionPlan()))
+                : actions.nextAction(context);
+    }
+
+    private static QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 
     private static AgentLoopRequest request(AnalysisRunId runId, AttemptBudget budget) {

@@ -81,16 +81,21 @@ class AgentRunTransitionsTest {
         AgentRunState state = runningState(transitions);
         AnswerDocument document = answerDocument();
         AgentRunState selected = transitions.apply(state, new AgentEvent.ActionSelected(
-                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), new AnswerAction(document)));
-        AgentRunState proposed = transitions.apply(selected, new AgentEvent.AnswerProposed(
-                selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(),
-                new PendingAnswerVerification(state.currentAttempt().attemptId(), RevisionVector.empty(),
-                        document, AnswerVerificationMode.CONTRACT_ONLY)));
-        AgentEvent acceptance = answerAccepted(proposed);
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), new AnswerAction(document, List.of())));
+        AgentEvent acceptance = answerAccepted(selected);
 
-        assertThatThrownBy(() -> transitions.applyTerminalAcceptance(proposed, acceptance))
+        assertThatThrownBy(() -> transitions.applyTerminalAcceptance(selected, acceptance))
                 .isInstanceOf(TerminalAcceptanceCancelledException.class)
                 .hasMessage("terminal acceptance cancelled");
+    }
+
+    @Test
+    void rejectsContractOnlyPendingVerificationCheckpoints() {
+        assertThatThrownBy(() -> new PendingAnswerVerification(
+                new AnalysisAttemptId("attempt-1"), RevisionVector.empty(),
+                new AnswerAction(answerDocument(), List.of()), AnswerVerificationMode.CONTRACT_ONLY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("pending answer verification requires LLM mode");
     }
 
     @Test
@@ -135,7 +140,7 @@ class AgentRunTransitionsTest {
         ConversationTurn turn = new ConversationTurn(state.runId(), state.requestIdentity().participant(), "Question?",
                 "Answer", ConversationTurnType.ANSWER);
         return new AgentEvent.AnswerAccepted(state.runId(), state.currentAttempt().attemptId(), state.stateRevision(),
-                answerDocument(), AnswerAcceptance.contractOnly(), new SessionId("session-1"), turn);
+                new AnswerAction(answerDocument(), List.of()), AnswerAcceptance.contractOnly(), new SessionId("session-1"), turn);
     }
 
     private AnswerDocument answerDocument() {

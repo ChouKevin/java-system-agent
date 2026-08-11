@@ -32,14 +32,14 @@ public final class PromptResourceCatalogLoader {
     private static final Logger LOGGER = Logger.getLogger(PromptResourceCatalogLoader.class.getName());
     private static final Set<String> ACTION_CONTEXT_VARIABLES = Set.of(
             "originalQuestion", "sessionTurns", "currentlyCallableTools", "candidates", "evidence", "evidenceCoverage",
-            "observations", "latestAnswerFeedback", "latestRejection", "remainingBudget", "modelInteractions");
+            "observations", "questionPlan", "latestAnswerFeedback", "latestRejection", "remainingBudget", "modelInteractions");
     private static final Set<String> LATEST_ANSWER_FEEDBACK_VARIABLES = Set.of(
             "disposition", "statementVerdicts", "unaddressedParts", "blockingUncertainties", "rejectionReasons",
             "subsequentResults");
     private static final Set<String> VERIFICATION_CONTEXT_VARIABLES = Set.of(
             "currentQuestion", "sessionHistory", "proposedDocument", "availableEvidence", "availableObservations",
             "citedEvidence", "evidenceTypeCoverage", "referencedObservations", "requiredFactStatementVerdicts",
-            "responseContract");
+            "questionPlan", "needResolutions", "responseContract");
     private static final Set<String> CORE_TOOL_VARIABLES = Set.of("toolName");
     private static final Set<String> QUERY_TOOL_VARIABLES = Set.of(
             "toolName", "capabilityName", "capabilityVersion", "guidance");
@@ -98,6 +98,7 @@ public final class PromptResourceCatalogLoader {
         Map<PlanningToolCategory, StrictPromptTemplate> templates = new EnumMap<>(PlanningToolCategory.class);
         for (PlanningToolCategory category : PlanningToolCategory.values()) {
             String filename = switch (category) {
+                case PLAN -> "plan.st";
                 case ANSWER -> "answer.st";
                 case CLARIFY -> "clarify.st";
                 case EXECUTE -> "execute.st";
@@ -106,7 +107,7 @@ public final class PromptResourceCatalogLoader {
             };
             LoadedResource template = read(resources, "tools/" + filename, childLocation(toolRoot, filename));
             Set<String> variables = switch (category) {
-                case ANSWER, CLARIFY, EXECUTE -> CORE_TOOL_VARIABLES;
+                case PLAN, ANSWER, CLARIFY, EXECUTE -> CORE_TOOL_VARIABLES;
                 case QUERY, FOLLOW_UP_QUERY -> QUERY_TOOL_VARIABLES;
             };
             templates.put(category, new StrictPromptTemplate(template.content(), variables));

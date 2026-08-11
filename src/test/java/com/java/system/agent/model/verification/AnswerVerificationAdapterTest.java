@@ -27,6 +27,9 @@ import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.ExecutionDeferral;
@@ -307,14 +310,14 @@ class AnswerVerificationAdapterTest {
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("statement-1"),
                 StatementType.UNCERTAINTY, "The implementation may differ", Optional.empty(), Set.of(), Set.of())));
         return new AnswerVerificationContext("What is known?", SessionHistory.empty(), document,
-                List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), questionPlan(), List.of());
     }
 
     private AnswerVerificationContext limitationContext() {
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(new StatementId("limitation-1"),
                 StatementType.LIMITATION, "The target remains unresolved", Optional.empty(), Set.of(), Set.of())));
         return new AnswerVerificationContext("What is known?", SessionHistory.empty(), document,
-                List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), questionPlan(), List.of());
     }
 
     private AnswerVerificationContext richContext() {
@@ -343,7 +346,8 @@ class AnswerVerificationAdapterTest {
                 ConversationTurnType.ANSWER)));
         return new AnswerVerificationContext("What is known?", history, document,
                 List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA),
-                List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA));
+                List.of(issuedEvidenceB, issuedEvidenceA), List.of(observationValueB, observationValueA),
+                List.of(), questionPlan(), List.of());
     }
 
     private AnswerVerificationContext sourceProofContext() {
@@ -361,7 +365,12 @@ class AnswerVerificationAdapterTest {
                 Optional.of(new ClaimId("claim-source-proof")), Set.of(new EvidenceHandleRef(evidenceHandle.value())),
                 Set.of())));
         return new AnswerVerificationContext("Request source proof", SessionHistory.empty(), document,
-                List.of(issuedEvidence), List.of(), List.of(issuedEvidence), List.of());
+                List.of(issuedEvidence), List.of(), List.of(issuedEvidence), List.of(),
+                List.of(), questionPlan(), List.of());
+    }
+
+    private QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Resolve the request")));
     }
 
     private EvidenceRef evidence(RepositoryId repositoryId, RepositoryRevision revision, String content, String digest) {

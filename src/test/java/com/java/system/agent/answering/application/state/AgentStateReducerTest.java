@@ -2,11 +2,15 @@ package com.java.system.agent.answering.application.state;
 
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentRunStatus;
@@ -196,6 +200,34 @@ class AgentStateReducerTest {
                 .hasMessageContaining("unresolved selected action");
     }
 
+    @Test
+    void atomically_records_a_question_plan_and_closes_its_selected_action() {
+        AgentRunState state = runningState();
+        QuestionPlan plan = plan();
+        PlanAction action = new PlanAction(plan);
+        AgentRunState selected = reduce(state, new AgentEvent.ActionSelected(
+                state.runId(), state.currentAttempt().attemptId(), state.stateRevision(), action));
+
+        AgentRunState recorded = reduce(selected, new AgentEvent.QuestionPlanCreated(
+                selected.runId(), selected.currentAttempt().attemptId(), selected.stateRevision(), plan));
+
+        assertThat(recorded.questionPlan()).contains(plan);
+        assertThat(recorded.budget().usedAgentSteps()).isEqualTo(selected.budget().usedAgentSteps() + 1);
+        assertThat(recorded.budget().usedQueryExecutions()).isEqualTo(selected.budget().usedQueryExecutions());
+        assertThat(recorded.acceptedActionCount()).isEqualTo(selected.acceptedActionCount() + 1);
+        assertThat(recorded.unresolvedSelectedAction()).isEmpty();
+        assertThat(recorded.modelInteractions()).last().isEqualTo(
+                new ModelInteraction.ActionResultRecorded(recorded.currentAttempt().attemptId(),
+                        new ActionResult.QuestionPlanRecorded(plan)));
+
+        assertThatThrownBy(() -> reduce(recorded, new AgentEvent.QuestionPlanCreated(
+                recorded.runId(), recorded.currentAttempt().attemptId(), recorded.stateRevision(), plan)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("question plan");
+        assertThat(recorded.questionPlan()).contains(plan);
+        assertThat(recorded.stateRevision()).isEqualTo(selected.stateRevision() + 1);
+    }
+
     private AgentRunState runningState() {
         AgentRunState initial = AgentRunState.initial(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0),
@@ -216,5 +248,9 @@ class AgentStateReducerTest {
                 state.runId(), state.currentAttempt().attemptId(), RevisionVector.empty()));
         return new QueryAction(capability, List.of(), "Find the route", new CapabilityInputPayload("{}"),
                 "Need the entry point");
+    }
+
+    private static QuestionPlan plan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 }

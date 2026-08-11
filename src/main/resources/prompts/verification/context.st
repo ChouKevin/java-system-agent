@@ -25,5 +25,11 @@ Referenced observations:
 Required FACT statement verdicts:
 <requiredFactStatementVerdicts>
 
+Immutable question plan:
+<questionPlan>
+
+Need resolutions:
+<needResolutions>
+
 Response contract:
 <responseContract>

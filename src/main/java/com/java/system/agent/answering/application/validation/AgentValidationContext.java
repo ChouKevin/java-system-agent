@@ -9,17 +9,20 @@ import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 動作驗證所需的 answering 已配發契約快照
  */
 public record AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> capabilities,
         Map<CandidateHandle, IssuedCandidate> candidates, Map<EvidenceHandle, IssuedEvidence> evidence,
-        Map<ObservationId, AgentObservation> observations, HandleBinding currentBinding, AttemptBudget budget) {
+        Map<ObservationId, AgentObservation> observations, HandleBinding currentBinding, AttemptBudget budget,
+        Optional<QuestionPlan> questionPlan) {
     public AgentValidationContext {
         Objects.requireNonNull(capabilities, "capabilities must not be null");
         Objects.requireNonNull(candidates, "candidates must not be null");
@@ -27,6 +30,7 @@ public record AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> cap
         Objects.requireNonNull(observations, "observations must not be null");
         Objects.requireNonNull(currentBinding, "current binding must not be null");
         Objects.requireNonNull(budget, "budget must not be null");
+        Objects.requireNonNull(questionPlan, "question plan must not be null");
         validateCandidateEntries(candidates);
         validateEvidenceEntries(evidence);
         validateObservationEntries(observations);

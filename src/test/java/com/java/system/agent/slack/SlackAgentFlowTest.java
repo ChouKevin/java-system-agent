@@ -41,14 +41,20 @@ import com.java.system.agent.answering.application.validation.AgentActionValidat
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentTransition;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
@@ -193,7 +199,7 @@ class SlackAgentFlowTest {
         AgentTransitionCommitter committer = new AgentTransitionCommitter(
                 new AgentStateReducer(), new InMemoryAgentTransitionPort());
         return ValidatedAgentLoop.compose(
-                actions,
+                withQuestionPlan(actions),
                 invocation -> {
                     throw new IllegalStateException("clarification flow must not execute a capability");
                 },
@@ -213,6 +219,26 @@ class SlackAgentFlowTest {
                 new AnswerVerdictValidator(),
                 committer,
                 new ContextIssuer());
+    }
+
+    private static AgentActionPort withQuestionPlan(AgentActionPort actions) {
+        return context -> questionPlanWasRecorded(context)
+                ? actions.nextAction(context)
+                : new AgentActionProposal.Proposed(new PlanAction(questionPlan()));
+    }
+
+    private static boolean questionPlanWasRecorded(AgentPromptContext context) {
+        for (ModelInteraction interaction : context.modelInteractions()) {
+            if (interaction instanceof ModelInteraction.ActionResultRecorded recorded
+                    && recorded.result() instanceof ActionResult.QuestionPlanRecorded) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Resolve the request")));
     }
 
     private static ChatPostMessageResponse successfulResponse(String timestamp) {

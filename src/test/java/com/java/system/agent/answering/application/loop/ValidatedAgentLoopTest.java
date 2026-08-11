@@ -10,7 +10,10 @@ import com.java.system.agent.answering.application.state.AgentTransitionCommitte
 import com.java.system.agent.answering.application.validation.AgentActionValidator;
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
+import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.answer.AnswerVerdict;
@@ -20,10 +23,15 @@ import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentTransition;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
@@ -34,6 +42,7 @@ import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
+import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
@@ -92,7 +101,10 @@ class ValidatedAgentLoopTest {
         AtomicInteger capabilityCalls = new AtomicInteger();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         AgentActionPort actionPort = context -> {
-            modelCalls.incrementAndGet();
+            int call = modelCalls.incrementAndGet();
+            if (call == 1) {
+                return new AgentActionProposal.Proposed(new PlanAction(plan()));
+            }
             return new AgentActionProposal.Proposed(new QueryAction(
                     context.issuedCapabilities().keySet().iterator().next(),
                     List.of(new CandidateHandleRef(context.issuedCandidates().keySet().iterator().next().value())),
@@ -105,7 +117,7 @@ class ValidatedAgentLoopTest {
         ValidatedAgentLoop loop = loop(transitions, actionPort, capabilityExecution);
         AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
                 new ParticipantRef("test", "participant"), "How does this flow work?",
-                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+                new AttemptBudget(3, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         AgentLoopResult result = loop.execute(request);
 
@@ -115,7 +127,52 @@ class ValidatedAgentLoopTest {
                 .satisfies(event -> assertThat(((AgentEvent.RunConcluded) event).runtimeNoticeReason())
                         .contains(RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED));
         assertThat(capabilityCalls).hasValue(1);
-        assertThat(modelCalls).hasValue(1);
+        assertThat(modelCalls).hasValue(2);
+    }
+
+    @Test
+    void commits_one_plan_before_a_later_clarification_without_consuming_a_query_step() {
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        AtomicInteger modelCalls = new AtomicInteger();
+        List<AgentPromptContext> issuedContexts = new ArrayList<>();
+        List<AgentAction> proposedActions = new ArrayList<>();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                context -> {
+                    issuedContexts.add(context);
+                    modelCalls.incrementAndGet();
+                    AgentAction action = context.questionPlan().isEmpty()
+                            ? new PlanAction(plan())
+                            : new ClarifyAction("Which repository should be analysed?", List.of(), "Scope is ambiguous");
+                    proposedActions.add(action);
+                    return new AgentActionProposal.Proposed(action);
+                },
+                invocation -> {
+                    throw new AssertionError("PLAN must not execute a query");
+                });
+        AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
+                new ParticipantRef("test", "participant"), "How does this flow work?",
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+
+        loop.execute(request);
+
+        AgentRunState state = transitions.state(request.runId());
+        assertThat(state.questionPlan()).contains(plan());
+        assertThat(issuedContexts).hasSize(2);
+        assertThat(issuedContexts.getFirst().questionPlan()).isEmpty();
+        assertThat(issuedContexts.get(1).questionPlan()).contains(plan());
+        assertThat(issuedContexts.get(1).budget().usedAgentSteps()).isEqualTo(1);
+        assertThat(issuedContexts.get(1).budget().usedQueryExecutions()).isZero();
+        assertThat(proposedActions).filteredOn(PlanAction.class::isInstance).singleElement()
+                .isEqualTo(new PlanAction(plan()));
+        assertThat(proposedActions).filteredOn(ClarifyAction.class::isInstance).singleElement()
+                .isEqualTo(new ClarifyAction("Which repository should be analysed?", List.of(), "Scope is ambiguous"));
+        assertThat(state.budget().usedQueryExecutions()).isZero();
+        assertThat(state.modelInteractions()).filteredOn(ModelInteraction.ActionResultRecorded.class::isInstance)
+                .extracting(ModelInteraction.ActionResultRecorded.class::cast)
+                .extracting(ModelInteraction.ActionResultRecorded::result)
+                .containsExactly(new ActionResult.QuestionPlanRecorded(plan()), new ActionResult.ClarificationAccepted());
+        assertThat(modelCalls).hasValue(2);
     }
 
     private static Stream<org.junit.jupiter.params.provider.Arguments> exhaustedBudgets() {
@@ -126,6 +183,10 @@ class ValidatedAgentLoopTest {
                         new AttemptBudget(1, 0, 1, 1, 1, 0, 1, 0, 1, 0), RuntimeNoticeReason.QUERY_EXECUTION_BUDGET_EXHAUSTED),
                 org.junit.jupiter.params.provider.Arguments.of(
                         new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 1, 1, 0), RuntimeNoticeReason.ACTION_REJECTION_BUDGET_EXHAUSTED));
+    }
+
+    private static QuestionPlan plan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 
     private static ValidatedAgentLoop loop(RecordingTransitionPort transitions, AtomicInteger modelCalls) {
@@ -199,6 +260,10 @@ class ValidatedAgentLoopTest {
 
         private List<AgentEvent> events() {
             return List.copyOf(events);
+        }
+
+        private AgentRunState state(AnalysisRunId runId) {
+            return states.get(runId);
         }
     }
 }

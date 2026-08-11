@@ -8,6 +8,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
@@ -156,6 +157,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             case AnswerAction ignored -> "ANSWER";
             case ClarifyAction ignored -> "CLARIFY";
             case ExecuteAction ignored -> "EXECUTE";
+            case PlanAction ignored -> "PLAN";
         };
     }
 

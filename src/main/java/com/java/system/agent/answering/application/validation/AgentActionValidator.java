@@ -4,6 +4,7 @@ import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
@@ -28,19 +29,28 @@ import java.util.Set;
 public final class AgentActionValidator {
 
     private final AnswerDocumentValidator answerDocumentValidator;
+    private final NeedResolutionValidator needResolutionValidator;
 
     public AgentActionValidator() {
         answerDocumentValidator = new AnswerDocumentValidator();
+        needResolutionValidator = new NeedResolutionValidator();
     }
 
     public ActionValidation validate(AgentAction action, AgentValidationContext context) {
         Objects.requireNonNull(action, "agent action must not be null");
         Objects.requireNonNull(context, "agent validation context must not be null");
+        if (context.questionPlan().isEmpty() && !(action instanceof PlanAction)) {
+            return rejected(ActionRejectionCode.QUESTION_PLAN_REQUIRED, action);
+        }
+        if (context.questionPlan().isPresent() && action instanceof PlanAction) {
+            return rejected(ActionRejectionCode.QUESTION_PLAN_ALREADY_EXISTS, action);
+        }
         return switch (action) {
             case QueryAction query -> validateQuery(query, context);
             case AnswerAction answer -> validateAnswer(answer, context);
             case ClarifyAction clarify -> validateNonQuery(clarify, clarify.candidates(), context);
             case ExecuteAction execute -> validateExecute(execute, context);
+            case PlanAction plan -> acceptIfAgentStepAvailable(plan, List.of(), context);
         };
     }
 
@@ -49,6 +59,13 @@ public final class AgentActionValidator {
             answerDocumentValidator.validate(
                     action.document(), context.evidence(), context.observations(), context.currentBinding());
         } catch (AnswerDocumentContractException exception) {
+            return rejected(exception.rejectionCode(), action);
+        }
+        try {
+            needResolutionValidator.validate(
+                    context.questionPlan().orElseThrow(), action.resolutions(), action.document(), context.evidence(),
+                    context.observations(), context.currentBinding());
+        } catch (NeedResolutionContractException exception) {
             return rejected(exception.rejectionCode(), action);
         }
         return acceptIfAgentStepAvailable(action, List.of(), context);

@@ -6,6 +6,7 @@ import com.java.system.agent.capability.planning.CandidateBoundExecutionPlanner;
 import com.java.system.agent.capability.planning.CandidateBoundPlanningInput;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration;
+import com.java.system.agent.capability.planning.CorePlanningToolProvider;
 import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
 import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
 import com.java.system.agent.capability.planning.PlanningToolCategory;
@@ -13,6 +14,9 @@ import com.java.system.agent.capability.planning.PlanningToolDescriptor;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
+import com.java.system.agent.capability.planning.PlanPlanningToolRegistration;
+import com.java.system.agent.capability.planning.PlanQuestionPlanningInput;
+import com.java.system.agent.capability.planning.PlanQuestionPlanningMapper;
 import com.java.system.agent.capability.planning.QueryPlanningToolRegistration;
 import com.java.system.agent.capability.planning.QueryPlanningMapper;
 import com.java.system.agent.capability.planning.QueryPlanningSelection;
@@ -30,7 +34,11 @@ import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
@@ -39,6 +47,8 @@ import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ActionResult;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -151,23 +161,62 @@ class PlanningToolRegistryTest {
     }
 
     @Test
-    void exposesFixedToolsOnEveryTurnAndExplainsUnknownOrUnissuedToolSelectionsSafely() {
+    void issuesOnlyQuestionPlanningBeforeTheDurablePlanAndRejectsToolsOutsideTheSnapshot() {
         PlanningToolRegistry registry = registry();
-        AgentPromptContext context = context();
+        AgentPromptContext withoutPlan = planningContext();
+        AgentPromptContext withPlan = context();
 
-        List<String> issuedNames = registry.issuedRegistrations(context).stream()
-                .map(planningToolRegistration -> planningToolRegistration.name()).toList();
-        AgentActionProposal unknown = registry.interpretToolCall("unknown_tool", "{}", context);
-        AgentActionProposal unissued = registry.interpretToolCall("query_tool", "{}", context);
+        AgentActionProposal forcedQuery = registry.interpretToolCall("query_tool", "{}", withoutPlan);
+        AgentActionProposal forcedPlan = registry.interpretToolCall("agent_plan_question", """
+                {"needs":[{"id":"scope","description":"確認業務範圍"}]}
+                """, withPlan);
 
-        assertThat(issuedNames).containsExactlyInAnyOrder("agent_submit_answer", "agent_request_clarification");
-        assertThat(issuedNames).doesNotContain("execute_http");
-        assertThat(unknown).isEqualTo(new AgentActionProposal.Malformed(
-                "MALFORMED_ACTION_RESPONSE: toolStatus=UNKNOWN; expected=currentlyIssuedTool"));
-        assertThat(unknown.toString()).doesNotContain("unknown_tool");
-        assertThat(unissued).isEqualTo(new AgentActionProposal.Malformed(
+        assertThat(registry.issuedRegistrations(withoutPlan))
+                .extracting(PlanningToolRegistration::name)
+                .containsExactly("agent_plan_question");
+        assertThat(registry.issuedRegistrations(withPlan))
+                .extracting(PlanningToolRegistration::name)
+                .doesNotContain("agent_plan_question")
+                .contains("agent_submit_answer", "agent_request_clarification");
+        assertThat(forcedQuery).isEqualTo(new AgentActionProposal.Malformed(
                 "MALFORMED_ACTION_RESPONSE: requestedTool=query_tool; toolStatus=NOT_CURRENTLY_ISSUED; "
                         + "expected=currentlyIssuedTool"));
+        assertThat(forcedPlan).isEqualTo(new AgentActionProposal.Malformed(
+                "MALFORMED_ACTION_RESPONSE: requestedTool=agent_plan_question; toolStatus=NOT_CURRENTLY_ISSUED; "
+                        + "expected=currentlyIssuedTool"));
+    }
+
+    @Test
+    void rejectsANoncanonicalQuestionPlanningRegistrationBeforeItCanBeIssued() {
+        assertThatThrownBy(() -> new PlanPlanningToolRegistration<>("agent_plan_question_copy",
+                PlanQuestionPlanningInput.class, new PlanQuestionPlanningMapper()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(PlanPlanningToolRegistration.NAME);
+    }
+
+    @Test
+    void preservesSubmittedQuestionPlanNeedOrderInTheProposedPlanAction() {
+        PlanningToolRegistry registry = registry();
+
+        AgentActionProposal proposal = registry.interpretToolCall("agent_plan_question", """
+                {"needs":[{"id":"scope","description":"確認業務範圍"},{"id":"boundary","description":"確認邊界條件"}]}
+                """, planningContext());
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Proposed(new PlanAction(new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍"),
+                new InformationNeed(new InformationNeedId("boundary"), "確認邊界條件"))))));
+    }
+
+    @Test
+    void mapsDuplicateQuestionPlanNeedIdentifiersToTheSafePlanContractDiagnostic() {
+        PlanningToolRegistry registry = registry();
+
+        AgentActionProposal proposal = registry.interpretToolCall("agent_plan_question", """
+                {"needs":[{"id":"scope","description":"確認業務範圍"},{"id":"scope","description":"重複的需求"}]}
+                """, planningContext());
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_plan_question; reason=QUESTION_PLAN_CONTRACT"));
     }
 
     @Test
@@ -439,22 +488,14 @@ class PlanningToolRegistryTest {
 
     private static PlanningToolRegistry registry() {
         CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
-        return registry(List.of(provider(List.of(
-                queryRegistration("query_tool", "v1", payloadCodec),
-                new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
-                        new SubmitAnswerPlanningMapper()),
-                new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
-                        new RequestClarificationPlanningMapper())))));
+        return registry(List.of(new CorePlanningToolProvider(), provider(List.of(
+                queryRegistration("query_tool", "v1", payloadCodec)))));
     }
 
     private static PlanningToolRegistry registryWithExecutePreview() {
         CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
-        return registry(List.of(provider(List.of(
+        return registry(List.of(new CorePlanningToolProvider(), provider(List.of(
                 queryRegistration("query_tool", "v1", payloadCodec),
-                new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
-                        new SubmitAnswerPlanningMapper()),
-                new ClarifyPlanningToolRegistration<>("agent_request_clarification", RequestClarificationPlanningInput.class,
-                        new RequestClarificationPlanningMapper()),
                 new ExecutePlanningToolRegistration()))));
     }
 
@@ -529,10 +570,22 @@ class PlanningToolRegistryTest {
     }
 
     private static AgentPromptContext context(int usedExecuteExecutions) {
+        return context(usedExecuteExecutions, questionPlanInteractions());
+    }
+
+    private static AgentPromptContext planningContext() {
+        return context(0, List.of());
+    }
+
+    private static AgentPromptContext context(int usedExecuteExecutions, List<ModelInteraction> modelInteractions) {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(), Map.of(),
-                Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, usedExecuteExecutions, 3, 0, 1, 0));
+                Map.of(), modelInteractions, Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, usedExecuteExecutions, 3, 0, 1, 0));
+    }
+
+    private static QuestionPlan questionPlan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
     }
 
     private static AgentPromptContext contextWithoutFollowUps() {
@@ -598,7 +651,7 @@ class PlanningToolRegistryTest {
         CapabilityHandle oldCapability = new CapabilityHandle("capability-source-segment-old", oldBinding);
         return new AgentPromptContext("Find routes", SessionHistory.empty(), new AnalysisRunId("run-1"),
                 new AnalysisAttemptId("attempt-1"), Map.of(oldCapability, sourceSegmentPolicy()), Map.of(oldHandle,
-                new IssuedCandidate(oldHandle, followUpCandidate())), Map.of(), Map.of(), List.of(), Optional.empty(),
+                new IssuedCandidate(oldHandle, followUpCandidate())), Map.of(), Map.of(), questionPlanInteractions(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
@@ -606,8 +659,16 @@ class PlanningToolRegistryTest {
             Map<CapabilityHandle, CapabilityPolicy> capabilities,
             Map<CandidateHandle, IssuedCandidate> candidates) {
         return new AgentPromptContext("Find routes", SessionHistory.empty(), new AnalysisRunId("run-1"),
-                new AnalysisAttemptId("attempt-1"), capabilities, candidates, Map.of(), Map.of(), List.of(), Optional.empty(),
+                new AnalysisAttemptId("attempt-1"), capabilities, candidates, Map.of(), Map.of(), questionPlanInteractions(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static List<ModelInteraction> questionPlanInteractions() {
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        QuestionPlan plan = questionPlan();
+        return List.of(
+                new ModelInteraction.ActionSelected(attemptId, new PlanAction(plan)),
+                new ModelInteraction.ActionResultRecorded(attemptId, new ActionResult.QuestionPlanRecorded(plan)));
     }
 
     private static CapabilityPolicy sourceSegmentPolicy() {

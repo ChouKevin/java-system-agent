@@ -11,6 +11,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationMode;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
@@ -63,6 +64,7 @@ public final class ValidatedAgentLoop {
     private final QueryActionExecutor queryActionExecutor;
     private final ExecuteActionExecutor executeActionExecutor;
     private final AnswerActionExecutor answerActionExecutor;
+    private final QuestionPlanActionExecutor questionPlanActionExecutor;
     private final TerminalResponseCoordinator terminalResponseCoordinator;
     private final AgentRunTransitions transitions;
 
@@ -74,6 +76,7 @@ public final class ValidatedAgentLoop {
             QueryActionExecutor queryActionExecutor,
             ExecuteActionExecutor executeActionExecutor,
             AnswerActionExecutor answerActionExecutor,
+            QuestionPlanActionExecutor questionPlanActionExecutor,
             TerminalResponseCoordinator terminalResponseCoordinator,
             AgentRunTransitions transitions) {
         this.actionPort = Objects.requireNonNull(actionPort, "agent action port must not be null");
@@ -87,6 +90,8 @@ public final class ValidatedAgentLoop {
                 executeActionExecutor, "execute action executor must not be null");
         this.answerActionExecutor = Objects.requireNonNull(
                 answerActionExecutor, "answer action executor must not be null");
+        this.questionPlanActionExecutor = Objects.requireNonNull(
+                questionPlanActionExecutor, "question plan action executor must not be null");
         this.terminalResponseCoordinator = Objects.requireNonNull(
                 terminalResponseCoordinator, "terminal response coordinator must not be null");
         this.transitions = Objects.requireNonNull(transitions, "agent run transitions must not be null");
@@ -126,6 +131,7 @@ public final class ValidatedAgentLoop {
                 verdictValidator,
                 transitions,
                 terminalResponseCoordinator);
+        QuestionPlanActionExecutor questionPlanActionExecutor = new QuestionPlanActionExecutor(transitions);
         QueryActionExecutor queryActionExecutor = new QueryActionExecutor(
                 telemetry,
                 cancellationPort,
@@ -154,6 +160,7 @@ public final class ValidatedAgentLoop {
                 queryActionExecutor,
                 executeActionExecutor,
                 answerActionExecutor,
+                questionPlanActionExecutor,
                 terminalResponseCoordinator,
                 transitions);
     }
@@ -238,6 +245,8 @@ public final class ValidatedAgentLoop {
                         terminalResponseCoordinator.acceptClarification(request, state, clarification));
                 case ExecuteAction executeAction -> executeActionExecutor.execute(
                         request, state, executeAction, attemptSequence);
+                case PlanAction planAction -> new ActionLaneOutcome.Continue(
+                        questionPlanActionExecutor.execute(state, planAction), attemptSequence, Optional.empty());
             };
             switch (outcome) {
                 case ActionLaneOutcome.Terminal terminal -> {
@@ -292,7 +301,8 @@ public final class ValidatedAgentLoop {
                 state.currentAttempt().issuedEvidence(),
                 state.currentAttempt().observations(),
                 transitions.currentBinding(state),
-                state.budget());
+                state.budget(),
+                state.questionPlan());
     }
 
     private Optional<RuntimeNoticeReason> exhaustedBudgetReason(AttemptBudget budget) {

@@ -43,7 +43,7 @@ class PromptResourceCatalogTest {
         }
         assertThat(catalog.renderActionContext(actionContextValues())).contains("currently-callable-tool");
         assertThat(catalog.resourceDigests()).containsKeys("action/system", "action/context",
-                "action/latest-answer-feedback", "verification/system", "verification/context");
+                "action/latest-answer-feedback", "verification/system", "verification/context", "tools/plan.st");
         assertThat(catalog.resourceDigests().values()).allMatch(digest -> SHA_256.matcher(digest).matches());
         assertThat(catalog.catalogDigest()).matches(SHA_256);
     }
@@ -143,6 +143,7 @@ class PromptResourceCatalogTest {
                 Map.entry("evidence", "evidence"),
                 Map.entry("evidenceCoverage", "evidence-coverage"),
                 Map.entry("observations", "observations"),
+                Map.entry("questionPlan", "question-plan"),
                 Map.entry("latestAnswerFeedback", "latest-answer-feedback"),
                 Map.entry("latestRejection", "latest-rejection"),
                 Map.entry("remainingBudget", "remaining-budget"),

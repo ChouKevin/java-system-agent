@@ -2,6 +2,7 @@ package com.java.system.agent.answering.application.validation;
 
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
@@ -12,6 +13,9 @@ import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
@@ -141,6 +145,30 @@ class AgentActionValidatorTest {
         assertThat(rejected.originalAction()).isSameAs(action);
     }
 
+    @Test
+    void accepts_plan_without_candidate_handles_before_a_plan_exists() {
+        Fixture fixture = fixture();
+        PlanAction action = new PlanAction(plan());
+
+        ActionValidation validation = validator.validate(action, fixture.contextWithoutPlan(Map.of()));
+
+        assertThat(validation).isEqualTo(new ActionValidation.Accepted(action, List.of()));
+    }
+
+    @Test
+    void rejects_non_plan_actions_before_a_plan_exists_and_plan_after_it_exists() {
+        Fixture fixture = fixture();
+        ExecuteAction execute = execute("https://service.example/orders");
+        PlanAction plan = new PlanAction(plan());
+
+        assertThat(validator.validate(execute, fixture.contextWithoutPlan(Map.of())))
+                .isEqualTo(new ActionValidation.Rejected(ActionRejectionCode.QUESTION_PLAN_REQUIRED,
+                        ActionRejectionCode.QUESTION_PLAN_REQUIRED.name(), execute));
+        assertThat(validator.validate(plan, fixture.context(Map.of())))
+                .isEqualTo(new ActionValidation.Rejected(ActionRejectionCode.QUESTION_PLAN_ALREADY_EXISTS,
+                        ActionRejectionCode.QUESTION_PLAN_ALREADY_EXISTS.name(), plan));
+    }
+
     private static ExecuteAction execute(String target) {
         return new ExecuteAction(ExternalHttpMethod.POST, target, Optional.empty(), "preview external request");
     }
@@ -168,15 +196,30 @@ class AgentActionValidatorTest {
 
     private record Fixture(HandleBinding binding, CapabilityHandle capability, CandidateHandle first) {
         private AgentValidationContext context(Map<CandidateHandle, IssuedCandidate> candidates) {
-            return context(candidates, new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0));
+            return context(candidates, new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.of(plan()));
         }
 
         private AgentValidationContext context(
                 Map<CandidateHandle, IssuedCandidate> candidates,
                 AttemptBudget budget) {
+            return context(candidates, budget, Optional.of(plan()));
+        }
+
+        private AgentValidationContext contextWithoutPlan(Map<CandidateHandle, IssuedCandidate> candidates) {
+            return context(candidates, new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.empty());
+        }
+
+        private AgentValidationContext context(
+                Map<CandidateHandle, IssuedCandidate> candidates,
+                AttemptBudget budget,
+                Optional<QuestionPlan> questionPlan) {
             CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.ROUTE), 1, 2);
             return new AgentValidationContext(Map.of(capability, policy), candidates, Map.of(), Map.of(), binding,
-                    budget);
+                    budget, questionPlan);
         }
+    }
+
+    private static QuestionPlan plan() {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
     }
 }

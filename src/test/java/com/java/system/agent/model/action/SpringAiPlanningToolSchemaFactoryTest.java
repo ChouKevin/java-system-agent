@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.java.system.agent.capability.planning.ExecuteHttpPlanningInput;
+import com.java.system.agent.capability.planning.PlanQuestionPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
 import com.java.system.agent.codeintelligence.planning.DiscoverConceptsPlanningInput;
 import com.java.system.agent.codeintelligence.planning.EntryPointType;
@@ -62,7 +63,14 @@ class SpringAiPlanningToolSchemaFactoryTest {
         ObjectMapper mapper = new ObjectMapper();
         JsonNode schema = mapper.readTree(new SpringAiPlanningToolSchemaFactory().createSchema(SubmitAnswerPlanningInput.class));
         JsonNode statement = schema.path("properties").path("statements").path("items");
+        JsonNode resolution = schema.path("properties").path("resolutions").path("items");
 
+        assertThat(schema.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("statements", "resolutions");
+        assertThat(schema.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("statements", "resolutions");
+        assertThat(schema.path("properties").path("statements").path("minItems").asInt()).isEqualTo(1);
+        assertThat(schema.path("properties").path("resolutions").path("minItems").asInt()).isEqualTo(1);
         assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
         assertThat(statement.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
@@ -79,6 +87,43 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(statement.path("properties").fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("statementId", "type", "text", "claimId", "citationHandles", "observationIds");
         assertThat(statement.at("/properties/additionalProperties").isMissingNode()).isTrue();
+        assertThat(resolution.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(resolution.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
+        assertThat(resolution.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
+        assertThat(resolution.path("properties").path("needId").path("minLength").asInt()).isEqualTo(1);
+        assertThat(resolution.path("properties").path("needId").path("maxLength").asInt()).isEqualTo(32);
+        assertThat(resolution.path("properties").path("status").path("type").asText()).isEqualTo("string");
+        assertThat(resolution.path("properties").path("evidenceHandles").path("items").path("minLength").asInt())
+                .isEqualTo(1);
+        assertThat(resolution.path("properties").path("observationIds").path("items").path("minLength").asInt())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void generates_only_ordered_information_need_fields_for_question_planning() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode schema = mapper.readTree(new SpringAiPlanningToolSchemaFactory().createSchema(PlanQuestionPlanningInput.class));
+        JsonNode needs = schema.path("properties").path("needs");
+        JsonNode informationNeed = needs.path("items");
+
+        assertThat(schema.path("properties").fieldNames()).toIterable().containsExactly("needs");
+        assertThat(schema.path("required")).extracting(JsonNode::asText).containsExactly("needs");
+        assertThat(needs.path("minItems").asInt()).isEqualTo(1);
+        assertThat(needs.path("maxItems").asInt()).isEqualTo(12);
+        assertThat(informationNeed.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(informationNeed.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("id", "description");
+        assertThat(informationNeed.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("id", "description");
+        assertThat(informationNeed.path("properties").path("id").path("minLength").asInt()).isEqualTo(1);
+        assertThat(informationNeed.path("properties").path("id").path("pattern").asText()).isEqualTo(".*\\S.*");
+        assertThat(informationNeed.path("properties").path("id").path("maxLength").asInt()).isEqualTo(32);
+        assertThat(informationNeed.path("properties").path("description").path("minLength").asInt()).isEqualTo(1);
+        assertThat(informationNeed.path("properties").path("description").path("pattern").asText())
+                .isEqualTo(".*\\S.*");
+        assertThat(informationNeed.path("properties").path("description").path("maxLength").asInt()).isEqualTo(500);
     }
 
     @Test
@@ -188,7 +233,9 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 SuggestApiRoutePlanningInput.class,
                 OutgoingCallGraphPlanningInput.class,
                 IncomingCallGraphPlanningInput.class,
-                ExecuteHttpPlanningInput.class);
+                ExecuteHttpPlanningInput.class,
+                PlanQuestionPlanningInput.class,
+                SubmitAnswerPlanningInput.class);
     }
 
     /**
