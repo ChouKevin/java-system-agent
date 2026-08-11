@@ -16,8 +16,12 @@ import com.java.system.agent.answering.domain.answer.StatementId;
 import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AgentBootstrap;
 import com.java.system.agent.answering.domain.run.AgentEvent;
@@ -157,19 +161,34 @@ class AnswerActionExecutorTest {
                 new com.java.system.agent.answering.domain.action.PlanAction(plan)));
         AgentRunState planRecorded = transitions.apply(planSelected, new AgentEvent.QuestionPlanCreated(
                 planSelected.runId(), planSelected.currentAttempt().attemptId(), planSelected.stateRevision(), plan));
-        AgentRunState state = transitions.apply(planRecorded, new AgentEvent.ActionSelected(
-                planRecorded.runId(), planRecorded.currentAttempt().attemptId(), planRecorded.stateRevision(), answer()));
+        AgentRunState firstObserved = transitions.recordRuntimeObservation(
+                planRecorded, ObservationCode.UNADDRESSED_PART, "The route could not be resolved",
+                Set.of(), Set.of(), "runtime");
+        AgentRunState observed = transitions.recordRuntimeObservation(
+                firstObserved, ObservationCode.UNADDRESSED_PART, "The limitation could not be resolved",
+                Set.of(), Set.of(), "runtime");
+        AgentRunState state = transitions.apply(observed, new AgentEvent.ActionSelected(
+                observed.runId(), observed.currentAttempt().attemptId(), observed.stateRevision(), answer()));
         return new Fixture(executor, transitions, session, request, state, port);
     }
 
     private static AnswerAction answer() {
         return new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.QUESTION, "Verified answer", Optional.empty(), Set.of(), Set.of()))),
-                List.of());
+                List.of(
+                        unavailable("need-1", "attempt-1:O1"),
+                        unavailable("need-2", "attempt-1:O2")));
     }
 
     private static QuestionPlan plan() {
-        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
+        return new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-1"), "Trace the route"),
+                new InformationNeed(new InformationNeedId("need-2"), "Identify the limitation")));
+    }
+
+    private static NeedResolution unavailable(String needId, String observationId) {
+        return new NeedResolution(new InformationNeedId(needId), NeedResolutionStatus.UNAVAILABLE,
+                Set.of(), Set.of(new ObservationId(observationId)));
     }
 
     private static AnswerVerdict accepted() {
