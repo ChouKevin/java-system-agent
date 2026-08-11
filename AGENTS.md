@@ -13,7 +13,7 @@ profile-gated root configuration:
 ```
 answering/
   domain/       action/ answer/ candidate/ capability/ conversation/ evidence/ handle/
-                observation/ run/ scope/
+                observation/ plan/ run/ scope/
   application/  AnalysisApplicationService request/result boundary
                 loop/ framework-free Agent lifecycle orchestration
                 state/ deterministic state reduction and transition persistence
@@ -44,7 +44,7 @@ through `answering.port.in` and `answering.port.out` contracts.
 Session history is read once and append-only, while the append-only Agent event trace and atomic
 current-state snapshot are persisted separately. `interaction` serializes work by opaque session;
 `persistence` implements infrastructure ports without becoming a named interface. `capability`
-depends on `answering :: domain` and `answering :: port-out`; it owns the core ANSWER/CLARIFY
+depends on `answering :: domain` and `answering :: port-out`; it owns the core PLAN/ANSWER/CLARIFY
 planning tools. `codeintelligence` contributes a registry-contributed read-only QUERY capability set and additionally
 consumes the capability executor SPI and planning contract. `model` owns the Spring AI schema,
 callback, and message adapters while consuming answering contracts and `capability :: planning`.
@@ -98,10 +98,18 @@ one Agent worker, and one Slack-delivery worker.
 - Capability execution is read-only. `codeintelligence` contributes its registry-defined QUERY
   capability set. Do not infer an external-state mutation contract.
 
-The validated action-loop cutover is current:
+The validated action-loop contract is current:
 
-- The model proposes exactly one `QUERY`, `ANSWER`, or `CLARIFY` action and chooses any subset and order of answering-issued capability and candidate handles.
-- Deterministic validation rejects unknown, stale, out-of-scope, schema-incompatible, over-budget, uncited, or unsupported output before execution or persistence.
+- Before a run has a question plan, the model can call only canonical `agent_plan_question`.
+  `QuestionPlanCreated` atomically persists one immutable ordered plan, closes PLAN, and consumes
+  one unified Agent step. Recovery before that commit replans; recovery afterward retains the plan.
+- After planning, the model proposes exactly one currently issued `QUERY`, `ANSWER`, or `CLARIFY`
+  action and chooses any allowed subset and order of issued capability and candidate handles.
+- Deterministic validation rejects unknown, stale, out-of-scope, schema-incompatible, over-budget,
+  uncited, unsupported, or incomplete plan-need resolutions before execution or persistence.
+- Every post-plan action prompt puts the immutable plan before current evidence and appends
+  model-selected actions and results. Prompt names and Spring AI callbacks come from one issued-tool
+  snapshot; historical candidates/evidence do not themselves grant permission.
 - Answering never adds, removes, replaces, or semantically ranks the model candidate list.
 - Session history is append-only and trace is separate; the runtime never truncates, summarizes,
   deletes, reorders, or rewrites conversation.
@@ -128,6 +136,8 @@ The durable session lifecycle is also current:
   or reconciliation failure.
 - A persisted pending answer-verification checkpoint resumes by calling only the verifier; it does
   not re-plan or re-execute a capability. Verifier unavailability is an inbox retry/backoff failure.
+- Contract-only answer acceptance calls no verifier and creates no pending verification state or
+  event. Enabled LLM verification receives a read-only plan/resolution view and cannot mutate it.
 - Typed model-capacity deferral returns a claimed inbox row to `PENDING` for a later capacity resume
   without consuming another external attempt. Receipt delivery precedes final delivery; interrupted
   inbox and delivery claims are recovered before workers begin polling, and shutdown stops new
@@ -141,8 +151,8 @@ The durable session lifecycle is also current:
 ## Working Documents
 
 - `docs/new-agent-model-draft.md` — the Agent V2 architecture document. It records the decisions and their reasoning, and its section numbers are cited throughout the specs.
-- `docs/superpowers/` — `specs/` for approved designs, `plans/` for implementation plans, `reviews/` for assessments. Reviews are dated artifacts: supersede them with a header, do not rewrite their findings.
-- `.superpowers/sdd/progress.md` — a durable ledger of executed milestones, including defects found and adjudications made. It survives context compaction; trust it and `git log` over recollection.
+- Implementation specs, plans, reviews, and checkpoints are kept in the external spec-vault rather
+  than committed under this repository.
 
 **Documentation that states a false invariant is a defect.** Several Javadoc claims here have been withdrawn after review disproved them. Verify a claim against the code before writing it, and if the code contradicts a brief, report rather than document the brief.
 
@@ -159,6 +169,17 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -f pom.xml -Ppostgres-it verify
 The normal root suite requires no Docker or external service. The `postgres-it` profile uses
 Testcontainers and requires Docker. `ApplicationModularityTests` exercises the Modulith contract;
 the answering, interaction, and persistence architecture tests enforce their detailed package boundaries.
+
+Compile the standalone payment business fixture with:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -q \
+  -f src/test/resources/fixtures/payment-knowledge-query/pom.xml test
+```
+
+The repository currently carries `m6-semantic-contract`, `m7-knowledge-query`, and
+`payment-knowledge-query` under `src/test/resources/fixtures/`. Fixture identities and business
+rules are test-only; do not branch production code or prompt resources on them.
 
 ## Architecture Rules
 
