@@ -167,6 +167,8 @@ class SpringAiPlanningToolSchemaFactoryTest {
         JsonNode namePrefix = initialFilter.path("properties").path("namePrefix");
 
         assertThat(initialFilter.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(initialFilter.path("type")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("object", "null");
         assertThat(memberKinds.path("minItems").asInt()).isEqualTo(1);
         assertThat(namePrefix.path("minLength").asInt()).isEqualTo(1);
         assertThat(namePrefix.path("pattern").asText()).isEqualTo(".*\\S.*");
