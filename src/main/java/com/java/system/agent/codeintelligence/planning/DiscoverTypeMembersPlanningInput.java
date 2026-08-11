@@ -13,6 +13,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** 型別成員探索時模型可安全調整的候選與篩選欄位 */
@@ -30,7 +31,12 @@ public record DiscoverTypeMembersPlanningInput(
     public record InitialFilter(
             @NotEmpty List<@NotNull MemberKind> memberKinds,
             @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP)
-            Optional<@NotBlank String> namePrefix) {
+            Optional<@Size(min = 1) String> namePrefix) {
+
+        public InitialFilter {
+            namePrefix = Objects.requireNonNull(namePrefix, "type member name prefix is required")
+                    .filter(value -> !value.isBlank());
+        }
     }
 
     /** provider 支援的型別成員種類 */
