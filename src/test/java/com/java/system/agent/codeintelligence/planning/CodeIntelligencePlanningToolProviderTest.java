@@ -7,14 +7,20 @@ import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
@@ -680,8 +686,13 @@ class CodeIntelligencePlanningToolProviderTest {
     private static AgentPromptContext promptContext(CapabilityPolicy policy, IssuedCandidate candidate,
                                                     HandleBinding binding) {
         CapabilityHandle capability = new CapabilityHandle("capability-" + policy.name(), binding);
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
         return new AgentPromptContext("Find order behavior", SessionHistory.empty(), binding.runId(), binding.attemptId(),
-                Map.of(capability, policy), Map.of(candidate.handle(), candidate), Map.of(), Map.of(), List.of(), Optional.empty(),
+                Map.of(capability, policy), Map.of(candidate.handle(), candidate), Map.of(), Map.of(), List.of(
+                new ModelInteraction.ActionSelected(binding.attemptId(), new PlanAction(plan)),
+                new ModelInteraction.ActionResultRecorded(
+                        binding.attemptId(), new ActionResult.QuestionPlanRecorded(plan))), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 

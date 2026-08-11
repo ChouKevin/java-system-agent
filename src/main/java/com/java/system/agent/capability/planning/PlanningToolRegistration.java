@@ -8,7 +8,7 @@ import com.java.system.agent.answering.port.out.AgentPromptContext;
  */
 public sealed interface PlanningToolRegistration<I>
         permits QueryPlanningToolRegistration, AnswerPlanningToolRegistration, ClarifyPlanningToolRegistration,
-        ExecutePlanningToolRegistration, FollowUpOnlyQueryRegistration {
+        ExecutePlanningToolRegistration, FollowUpOnlyQueryRegistration, PlanPlanningToolRegistration {
 
     String name();
 

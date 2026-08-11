@@ -98,6 +98,7 @@ public final class PromptResourceCatalogLoader {
         Map<PlanningToolCategory, StrictPromptTemplate> templates = new EnumMap<>(PlanningToolCategory.class);
         for (PlanningToolCategory category : PlanningToolCategory.values()) {
             String filename = switch (category) {
+                case PLAN -> "plan.st";
                 case ANSWER -> "answer.st";
                 case CLARIFY -> "clarify.st";
                 case EXECUTE -> "execute.st";
@@ -106,7 +107,7 @@ public final class PromptResourceCatalogLoader {
             };
             LoadedResource template = read(resources, "tools/" + filename, childLocation(toolRoot, filename));
             Set<String> variables = switch (category) {
-                case ANSWER, CLARIFY, EXECUTE -> CORE_TOOL_VARIABLES;
+                case PLAN, ANSWER, CLARIFY, EXECUTE -> CORE_TOOL_VARIABLES;
                 case QUERY, FOLLOW_UP_QUERY -> QUERY_TOOL_VARIABLES;
             };
             templates.put(category, new StrictPromptTemplate(template.content(), variables));

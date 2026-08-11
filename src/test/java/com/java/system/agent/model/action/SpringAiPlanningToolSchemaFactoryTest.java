@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.java.system.agent.capability.planning.ExecuteHttpPlanningInput;
+import com.java.system.agent.capability.planning.PlanQuestionPlanningInput;
 import com.java.system.agent.capability.planning.SubmitAnswerPlanningInput;
 import com.java.system.agent.codeintelligence.planning.DiscoverConceptsPlanningInput;
 import com.java.system.agent.codeintelligence.planning.EntryPointType;
@@ -79,6 +80,18 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(statement.path("properties").fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("statementId", "type", "text", "claimId", "citationHandles", "observationIds");
         assertThat(statement.at("/properties/additionalProperties").isMissingNode()).isTrue();
+    }
+
+    @Test
+    void generates_only_ordered_information_need_fields_for_question_planning() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode schema = mapper.readTree(new SpringAiPlanningToolSchemaFactory().createSchema(PlanQuestionPlanningInput.class));
+
+        assertThat(schema.path("properties").fieldNames()).toIterable().containsExactly("needs");
+        assertThat(schema.path("properties").path("needs").path("minItems").asInt()).isEqualTo(1);
+        assertThat(schema.path("properties").path("needs").path("maxItems").asInt()).isEqualTo(12);
+        assertThat(schema.path("properties").path("needs").path("items").path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("id", "description");
     }
 
     @Test
@@ -188,7 +201,8 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 SuggestApiRoutePlanningInput.class,
                 OutgoingCallGraphPlanningInput.class,
                 IncomingCallGraphPlanningInput.class,
-                ExecuteHttpPlanningInput.class);
+                ExecuteHttpPlanningInput.class,
+                PlanQuestionPlanningInput.class);
     }
 
     /**

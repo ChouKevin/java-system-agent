@@ -1,6 +1,7 @@
 package com.java.system.agent.model.action;
 
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.CorePlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
@@ -19,7 +20,12 @@ import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
@@ -52,6 +58,27 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Spring AI planning callback 在啟動時投影與驗證完整 catalog 的邊界測試
  */
 class SpringAiPlanningToolCallbackAdapterTest {
+
+    @Test
+    void projectsCallbackNamesFromTheRegistrySnapshotInBothQuestionPlanningPhases() {
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CorePlanningToolProvider()),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry,
+                new SpringAiPlanningToolSchemaFactory(), catalog(registry));
+
+        IssuedPlanningTools beforePlan = adapter.issuedTools(context(List.of()));
+        IssuedPlanningTools afterPlan = adapter.issuedTools(context(questionPlanInteractions()));
+
+        assertThat(beforePlan.names()).containsExactly("agent_plan_question");
+        assertThat(beforePlan.callbacks()).extracting(callback -> callback.getToolDefinition().name())
+                .containsExactlyElementsOf(beforePlan.names());
+        assertThat(afterPlan.names()).contains("agent_submit_answer", "agent_request_clarification")
+                .doesNotContain("agent_plan_question");
+        assertThat(afterPlan.callbacks()).extracting(callback -> callback.getToolDefinition().name())
+                .containsExactlyElementsOf(afterPlan.names());
+    }
 
     @Test
     void rendersGenericQueryCallbackDescriptionFromTheImmutableCatalog() {
@@ -187,7 +214,16 @@ class SpringAiPlanningToolCallbackAdapterTest {
         HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty());
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId,
                 Map.of(new CapabilityHandle("capability-1", binding), policy), Map.of(),
-                Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                Map.of(), Map.of(), questionPlanInteractions(), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext context(List<ModelInteraction> modelInteractions) {
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
+                Map.of(), Map.of(), modelInteractions, Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private static AgentPromptContext semanticContext(CapabilityPolicy policy,
@@ -205,7 +241,7 @@ class SpringAiPlanningToolCallbackAdapterTest {
         IssuedCandidate candidate = new IssuedCandidate(candidateHandle,
                 new SemanticTargetCandidate(repositoryId, revision, target, "Semantic candidate"));
         return new AgentPromptContext("Read source", SessionHistory.empty(), runId, attemptId,
-                Map.of(capabilityHandle, policy), Map.of(candidateHandle, candidate), Map.of(), Map.of(), List.of(),
+                Map.of(capabilityHandle, policy), Map.of(candidateHandle, candidate), Map.of(), Map.of(), questionPlanInteractions(),
                 Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
@@ -252,7 +288,14 @@ class SpringAiPlanningToolCallbackAdapterTest {
                 CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(), CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.version(),
                 new CapabilityInputPayload("{\"unrelated\":true}"), "Stale follow-up")));
         return new AgentPromptContext("Read source", SessionHistory.empty(), runId, attemptId, capabilities, candidates,
-                Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(4, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                Map.of(), Map.of(), questionPlanInteractions(), Optional.empty(),
+                new AttemptBudget(4, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static List<ModelInteraction> questionPlanInteractions() {
+        return List.of(new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
+                new ActionResult.QuestionPlanRecorded(new QuestionPlan(List.of(
+                        new InformationNeed(new InformationNeedId("scope"), "確認業務範圍"))))));
     }
 
     private static CapabilityPolicy policy(PlanningToolRegistry registry, CodeIntelligenceQuery query) {

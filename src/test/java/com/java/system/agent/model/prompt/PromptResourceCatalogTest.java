@@ -43,7 +43,7 @@ class PromptResourceCatalogTest {
         }
         assertThat(catalog.renderActionContext(actionContextValues())).contains("currently-callable-tool");
         assertThat(catalog.resourceDigests()).containsKeys("action/system", "action/context",
-                "action/latest-answer-feedback", "verification/system", "verification/context");
+                "action/latest-answer-feedback", "verification/system", "verification/context", "tools/plan.st");
         assertThat(catalog.resourceDigests().values()).allMatch(digest -> SHA_256.matcher(digest).matches());
         assertThat(catalog.catalogDigest()).matches(SHA_256);
     }

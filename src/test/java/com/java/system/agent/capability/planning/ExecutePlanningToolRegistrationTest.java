@@ -2,10 +2,16 @@ package com.java.system.agent.capability.planning;
 
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import jakarta.validation.Validation;
@@ -118,16 +124,22 @@ class ExecutePlanningToolRegistrationTest {
             int usedExecuteExecutions,
             int usedAgentSteps,
             int usedQueryExecutions) {
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
         return new AgentPromptContext(
                 "Preview an order update",
                 SessionHistory.empty(),
                 new AnalysisRunId("run-1"),
-                new AnalysisAttemptId("attempt-1"),
+                attemptId,
                 Map.of(),
                 Map.of(),
                 Map.of(),
                 Map.of(),
-                List.of(),
+                List.of(
+                        new ModelInteraction.ActionSelected(attemptId, new PlanAction(plan)),
+                        new ModelInteraction.ActionResultRecorded(
+                                attemptId, new ActionResult.QuestionPlanRecorded(plan))),
                 Optional.empty(),
                 new AttemptBudget(3, usedAgentSteps, 3, usedQueryExecutions, 1, usedExecuteExecutions, 3, 0, 1, 0));
     }

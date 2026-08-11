@@ -68,7 +68,7 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
     public List<PlanningToolRegistration<?>> issuedRegistrations(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
         return registrations.stream()
-                .filter(registration -> registration.isIssued(context))
+                .filter(registration -> isCurrentlyIssued(registration, context))
                 .toList();
     }
 
@@ -84,7 +84,7 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
                 return new AgentActionProposal.Malformed(
                         "MALFORMED_ACTION_RESPONSE: toolStatus=UNKNOWN; expected=currentlyIssuedTool");
             }
-            if (!registration.isIssued(context)) {
+            if (!isCurrentlyIssued(registration, context)) {
                 LOGGER.log(Level.WARNING,
                         "planning tool operation=INTERPRET toolName={0} inputType={1} rawUtf8Bytes={2} "
                                 + "resultCategory=TOOL_NOT_CURRENTLY_ISSUED",
@@ -231,6 +231,17 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
             AgentPromptContext context) {
         I planningInput = decoder.decode(rawInput, registration.planningInputType());
         return registration.toAction(planningInput, context);
+    }
+
+    private boolean isCurrentlyIssued(
+            PlanningToolRegistration<?> registration,
+            AgentPromptContext context) {
+        boolean planningPhase = context.questionPlan().isEmpty();
+        if (planningPhase) {
+            return registration.descriptor().category() == PlanningToolCategory.PLAN;
+        }
+        return registration.descriptor().category() != PlanningToolCategory.PLAN
+                && registration.isIssued(context);
     }
 
     private <E> CapabilityExecutionResult executeTyped(

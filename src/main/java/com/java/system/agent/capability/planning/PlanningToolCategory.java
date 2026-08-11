@@ -5,6 +5,7 @@ package com.java.system.agent.capability.planning;
  */
 public enum PlanningToolCategory {
 
+    PLAN,
     ANSWER,
     CLARIFY,
     EXECUTE,

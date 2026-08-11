@@ -13,7 +13,9 @@ import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.EvidenceCapabilityProvenance;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.ModelInteraction;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -84,5 +86,19 @@ public record AgentPromptContext(
 
     public List<EvidenceCapabilityProvenance> evidenceProvenance() {
         return EvidenceCapabilityProvenance.resolve(issuedCapabilities, issuedEvidence, modelInteractions);
+    }
+
+    /**
+     * 回傳已驗證模型互動中唯一已持久化的問題解析計畫
+     */
+    public Optional<QuestionPlan> questionPlan() {
+        return modelInteractions.stream()
+                .filter(ModelInteraction.ActionResultRecorded.class::isInstance)
+                .map(ModelInteraction.ActionResultRecorded.class::cast)
+                .map(ModelInteraction.ActionResultRecorded::result)
+                .filter(ActionResult.QuestionPlanRecorded.class::isInstance)
+                .map(ActionResult.QuestionPlanRecorded.class::cast)
+                .map(ActionResult.QuestionPlanRecorded::plan)
+                .findFirst();
     }
 }

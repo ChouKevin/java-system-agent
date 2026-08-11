@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.springframework.ai.util.json.schema.JsonSchemaGenerator;
 
 import java.lang.annotation.Annotation;
@@ -101,6 +102,10 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
         if (Objects.nonNull(max)) {
             schema.put("maximum", max.value());
         }
+        Size size = annotation(annotations, Size.class);
+        if (Objects.nonNull(size)) {
+            applySize(rawType, schema, size);
+        }
         if (Objects.nonNull(annotation(annotations, NotBlank.class))) {
             schema.put("minLength", 1);
             schema.put("pattern", NONBLANK_PATTERN);
@@ -135,6 +140,20 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
         } else {
             throw new IllegalArgumentException("planning @NotEmpty constraint requires a collection or string");
         }
+    }
+
+    private static void applySize(Class<?> rawType, ObjectNode schema, Size size) {
+        if (Collection.class.isAssignableFrom(rawType)) {
+            schema.put("minItems", size.min());
+            schema.put("maxItems", size.max());
+            return;
+        }
+        if (CharSequence.class.isAssignableFrom(rawType)) {
+            schema.put("minLength", size.min());
+            schema.put("maxLength", size.max());
+            return;
+        }
+        throw new IllegalArgumentException("planning @Size constraint requires a collection or string");
     }
 
     private void verifyContract(Class<?> inputType, JsonNode registeredSchema) throws Exception {
@@ -188,6 +207,10 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
         if (Objects.nonNull(annotation(annotations, NotEmpty.class))) {
             verifyNotEmptyContract(rawType, schema);
         }
+        Size size = annotation(annotations, Size.class);
+        if (Objects.nonNull(size)) {
+            verifySizeContract(rawType, schema, size);
+        }
         if (requiresNonNull(annotations) && permitsNull(schema)) {
             throw new IllegalArgumentException("planning nullability constraint is absent from schema");
         }
@@ -215,6 +238,24 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
         if (CharSequence.class.isAssignableFrom(rawType) && schema.path("minLength").asInt() < 1) {
             throw new IllegalArgumentException("planning string size constraint is absent from schema");
         }
+    }
+
+    private static void verifySizeContract(Class<?> rawType, ObjectNode schema, Size size) {
+        if (Collection.class.isAssignableFrom(rawType)) {
+            if (schema.path("minItems").asInt(Integer.MIN_VALUE) < size.min()
+                    || schema.path("maxItems").asInt(Integer.MIN_VALUE) != size.max()) {
+                throw new IllegalArgumentException("planning collection size constraint is absent from schema");
+            }
+            return;
+        }
+        if (CharSequence.class.isAssignableFrom(rawType)) {
+            if (schema.path("minLength").asInt(Integer.MIN_VALUE) < size.min()
+                    || schema.path("maxLength").asInt(Integer.MIN_VALUE) != size.max()) {
+                throw new IllegalArgumentException("planning string size constraint is absent from schema");
+            }
+            return;
+        }
+        throw new IllegalArgumentException("planning @Size constraint requires a collection or string");
     }
 
     private static boolean requiresNonNull(Annotation[] annotations) {

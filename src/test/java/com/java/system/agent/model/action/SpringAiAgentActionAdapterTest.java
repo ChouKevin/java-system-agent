@@ -152,7 +152,7 @@ class SpringAiAgentActionAdapterTest {
             List<String> logMessages = formattedMessages(handler);
             assertThat(logMessages).hasSize(1);
             assertThat(logMessages.getFirst())
-                    .contains("promptCharacterCount=" + renderedPrompt.length(), "promptSha256=", "interactionCount=4")
+                    .contains("promptCharacterCount=" + renderedPrompt.length(), "promptSha256=", "interactionCount=6")
                     .contains("remainingAgentSteps=3", "remainingQueryExecutions=3", "remainingExecuteExecutions=1")
                     .contains("remainingActionRejections=3", "resultCategory=PROPOSED", "actionType=QUERY")
                     .contains("actionFingerprint=", "executionPayloadFingerprint=",
@@ -882,14 +882,15 @@ class SpringAiAgentActionAdapterTest {
                 Map.of(capability, descriptor),
                 Map.of(firstCandidate, new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")),
                         secondCandidate, new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second"))),
-                Map.of(), Map.of(), List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                Map.of(), Map.of(), questionPlanInteractions(attemptId), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
     private AgentPromptContext contextWithInteractions(List<ModelInteraction> interactions) {
         AgentPromptContext context = context();
         return new AgentPromptContext(context.originalQuestion(), context.sessionHistory(), context.runId(), context.attemptId(),
                 context.issuedCapabilities(), context.issuedCandidates(), context.issuedEvidence(), context.observations(),
-                interactions, context.latestRejection(), context.budget());
+                withQuestionPlan(interactions, context.attemptId()), context.latestRejection(), context.budget());
     }
 
     private CapabilityHandle capability() {
@@ -937,7 +938,24 @@ class SpringAiAgentActionAdapterTest {
                 ObservationCode.PARTIAL_GRAPH, "Graph is partial", Set.of(), Set.of(evidenceHandle), "runtime");
         return new AgentPromptContext("Where is it called?", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
                 Map.of(evidenceHandle, new IssuedEvidence(evidenceHandle, evidence)), Map.of(observationId, observation),
-                List.of(), Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+                questionPlanInteractions(attemptId), Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static List<ModelInteraction> questionPlanInteractions(AnalysisAttemptId attemptId) {
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
+        return List.of(
+                new ModelInteraction.ActionSelected(attemptId, new PlanAction(plan)),
+                new ModelInteraction.ActionResultRecorded(attemptId, new ActionResult.QuestionPlanRecorded(plan)));
+    }
+
+    private static List<ModelInteraction> withQuestionPlan(
+            List<ModelInteraction> interactions,
+            AnalysisAttemptId attemptId) {
+        List<ModelInteraction> result = new ArrayList<>(questionPlanInteractions(attemptId));
+        result.addAll(interactions);
+        return List.copyOf(result);
     }
 
     private record ToolInput(

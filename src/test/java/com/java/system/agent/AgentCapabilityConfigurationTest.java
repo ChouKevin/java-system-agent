@@ -27,6 +27,10 @@ import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.action.PlanAction;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -36,6 +40,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import com.java.system.agent.answering.domain.run.ActionResult;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -208,8 +215,13 @@ class AgentCapabilityConfigurationTest {
             issuedCapabilities.put(new CapabilityHandle("capability-" + sequence, binding), policy);
             sequence++;
         }
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
         return new AgentPromptContext("Find routes", SessionHistory.empty(), binding.runId(), binding.attemptId(),
-                issuedCapabilities, Map.of(), Map.of(), Map.of(), List.of(), Optional.empty(),
+                issuedCapabilities, Map.of(), Map.of(), Map.of(), List.of(
+                new ModelInteraction.ActionSelected(binding.attemptId(), new PlanAction(plan)),
+                new ModelInteraction.ActionResultRecorded(
+                        binding.attemptId(), new ActionResult.QuestionPlanRecorded(plan))), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 
