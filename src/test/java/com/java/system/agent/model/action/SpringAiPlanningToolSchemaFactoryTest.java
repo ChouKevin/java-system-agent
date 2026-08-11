@@ -86,12 +86,25 @@ class SpringAiPlanningToolSchemaFactoryTest {
     void generates_only_ordered_information_need_fields_for_question_planning() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         JsonNode schema = mapper.readTree(new SpringAiPlanningToolSchemaFactory().createSchema(PlanQuestionPlanningInput.class));
+        JsonNode needs = schema.path("properties").path("needs");
+        JsonNode informationNeed = needs.path("items");
 
         assertThat(schema.path("properties").fieldNames()).toIterable().containsExactly("needs");
-        assertThat(schema.path("properties").path("needs").path("minItems").asInt()).isEqualTo(1);
-        assertThat(schema.path("properties").path("needs").path("maxItems").asInt()).isEqualTo(12);
-        assertThat(schema.path("properties").path("needs").path("items").path("properties").fieldNames()).toIterable()
+        assertThat(schema.path("required")).extracting(JsonNode::asText).containsExactly("needs");
+        assertThat(needs.path("minItems").asInt()).isEqualTo(1);
+        assertThat(needs.path("maxItems").asInt()).isEqualTo(12);
+        assertThat(informationNeed.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(informationNeed.path("required")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("id", "description");
+        assertThat(informationNeed.path("properties").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("id", "description");
+        assertThat(informationNeed.path("properties").path("id").path("minLength").asInt()).isEqualTo(1);
+        assertThat(informationNeed.path("properties").path("id").path("pattern").asText()).isEqualTo(".*\\S.*");
+        assertThat(informationNeed.path("properties").path("id").path("maxLength").asInt()).isEqualTo(32);
+        assertThat(informationNeed.path("properties").path("description").path("minLength").asInt()).isEqualTo(1);
+        assertThat(informationNeed.path("properties").path("description").path("pattern").asText())
+                .isEqualTo(".*\\S.*");
+        assertThat(informationNeed.path("properties").path("description").path("maxLength").asInt()).isEqualTo(500);
     }
 
     @Test

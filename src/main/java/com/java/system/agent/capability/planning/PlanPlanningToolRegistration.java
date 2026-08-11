@@ -12,6 +12,8 @@ import java.util.function.Function;
  */
 public final class PlanPlanningToolRegistration<I> implements PlanningToolRegistration<I> {
 
+    public static final String NAME = "agent_plan_question";
+
     private final String name;
     private final Class<I> planningInputType;
     private final Function<I, PlanAction> mapper;
@@ -22,6 +24,9 @@ public final class PlanPlanningToolRegistration<I> implements PlanningToolRegist
             Class<I> planningInputType,
             Function<I, PlanAction> mapper) {
         this.name = Objects.requireNonNull(name, "plan planning tool name must not be null");
+        if (!NAME.equals(this.name)) {
+            throw new IllegalArgumentException("plan planning tool name must be " + NAME);
+        }
         this.planningInputType = Objects.requireNonNull(planningInputType, "plan planning input type must not be null");
         this.mapper = Objects.requireNonNull(mapper, "plan planning mapper must not be null");
         this.descriptor = PlanningToolDescriptor.core(PlanningToolCategory.PLAN, this.name);

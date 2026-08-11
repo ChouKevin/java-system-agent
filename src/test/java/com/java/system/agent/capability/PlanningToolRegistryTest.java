@@ -14,6 +14,9 @@ import com.java.system.agent.capability.planning.PlanningToolDescriptor;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
+import com.java.system.agent.capability.planning.PlanPlanningToolRegistration;
+import com.java.system.agent.capability.planning.PlanQuestionPlanningInput;
+import com.java.system.agent.capability.planning.PlanQuestionPlanningMapper;
 import com.java.system.agent.capability.planning.QueryPlanningToolRegistration;
 import com.java.system.agent.capability.planning.QueryPlanningMapper;
 import com.java.system.agent.capability.planning.QueryPlanningSelection;
@@ -31,6 +34,7 @@ import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
@@ -180,6 +184,27 @@ class PlanningToolRegistryTest {
         assertThat(forcedPlan).isEqualTo(new AgentActionProposal.Malformed(
                 "MALFORMED_ACTION_RESPONSE: requestedTool=agent_plan_question; toolStatus=NOT_CURRENTLY_ISSUED; "
                         + "expected=currentlyIssuedTool"));
+    }
+
+    @Test
+    void rejectsANoncanonicalQuestionPlanningRegistrationBeforeItCanBeIssued() {
+        assertThatThrownBy(() -> new PlanPlanningToolRegistration<>("agent_plan_question_copy",
+                PlanQuestionPlanningInput.class, new PlanQuestionPlanningMapper()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(PlanPlanningToolRegistration.NAME);
+    }
+
+    @Test
+    void preservesSubmittedQuestionPlanNeedOrderInTheProposedPlanAction() {
+        PlanningToolRegistry registry = registry();
+
+        AgentActionProposal proposal = registry.interpretToolCall("agent_plan_question", """
+                {"needs":[{"id":"scope","description":"確認業務範圍"},{"id":"boundary","description":"確認邊界條件"}]}
+                """, planningContext());
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Proposed(new PlanAction(new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍"),
+                new InformationNeed(new InformationNeedId("boundary"), "確認邊界條件"))))));
     }
 
     @Test
@@ -545,8 +570,7 @@ class PlanningToolRegistryTest {
     }
 
     private static AgentPromptContext context(int usedExecuteExecutions) {
-        return context(usedExecuteExecutions, List.of(new ModelInteraction.ActionResultRecorded(
-                new AnalysisAttemptId("attempt-1"), new ActionResult.QuestionPlanRecorded(questionPlan()))));
+        return context(usedExecuteExecutions, questionPlanInteractions());
     }
 
     private static AgentPromptContext planningContext() {
@@ -640,8 +664,11 @@ class PlanningToolRegistryTest {
     }
 
     private static List<ModelInteraction> questionPlanInteractions() {
-        return List.of(new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
-                new ActionResult.QuestionPlanRecorded(questionPlan())));
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        QuestionPlan plan = questionPlan();
+        return List.of(
+                new ModelInteraction.ActionSelected(attemptId, new PlanAction(plan)),
+                new ModelInteraction.ActionResultRecorded(attemptId, new ActionResult.QuestionPlanRecorded(plan)));
     }
 
     private static CapabilityPolicy sourceSegmentPolicy() {

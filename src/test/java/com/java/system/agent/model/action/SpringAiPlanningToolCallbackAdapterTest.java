@@ -14,6 +14,7 @@ import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
@@ -293,9 +294,12 @@ class SpringAiPlanningToolCallbackAdapterTest {
     }
 
     private static List<ModelInteraction> questionPlanInteractions() {
-        return List.of(new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
-                new ActionResult.QuestionPlanRecorded(new QuestionPlan(List.of(
-                        new InformationNeed(new InformationNeedId("scope"), "確認業務範圍"))))));
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        QuestionPlan plan = new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
+        return List.of(
+                new ModelInteraction.ActionSelected(attemptId, new PlanAction(plan)),
+                new ModelInteraction.ActionResultRecorded(attemptId, new ActionResult.QuestionPlanRecorded(plan)));
     }
 
     private static CapabilityPolicy policy(PlanningToolRegistry registry, CodeIntelligenceQuery query) {

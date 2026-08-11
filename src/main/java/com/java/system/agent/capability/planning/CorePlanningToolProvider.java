@@ -11,7 +11,7 @@ public final class CorePlanningToolProvider implements PlanningToolProvider {
 
     public CorePlanningToolProvider() {
         this.registrations = List.of(
-                new PlanPlanningToolRegistration<>("agent_plan_question", PlanQuestionPlanningInput.class,
+                new PlanPlanningToolRegistration<>(PlanPlanningToolRegistration.NAME, PlanQuestionPlanningInput.class,
                         new PlanQuestionPlanningMapper()),
                 new AnswerPlanningToolRegistration<>("agent_submit_answer", SubmitAnswerPlanningInput.class,
                         new SubmitAnswerPlanningMapper()),
