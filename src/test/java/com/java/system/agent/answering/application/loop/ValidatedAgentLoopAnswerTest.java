@@ -28,6 +28,11 @@ import com.java.system.agent.answering.domain.conversation.ConversationTurn;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.conversation.SessionId;
+import com.java.system.agent.answering.domain.evidence.ArtifactRef;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
 import com.java.system.agent.answering.domain.plan.NeedResolution;
@@ -58,6 +63,7 @@ import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.answering.port.out.AnalysisCancellationPort;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
+import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.TerminalAcceptanceCancelledException;
 import com.java.system.agent.answering.port.out.AnswerVerificationPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationContractException;
@@ -73,9 +79,10 @@ import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.out.SessionPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
-import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.AnalysisAttemptIdGenerator;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.ArrayDeque;
 import java.time.Instant;
@@ -89,6 +96,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -97,6 +105,81 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * ValidatedAgentLoop verified answer 與 terminal persistence 邊界測試
  */
 class ValidatedAgentLoopAnswerTest {
+
+    private record InvalidNeedResolutionCase(String name, String rawNeedId, String rawEvidenceHandle) {
+        private QuestionPlan plan() {
+            if (name.equals("missing-need")) {
+                return new QuestionPlan(List.of(
+                        new InformationNeed(new InformationNeedId("need-1"), "Trace the route"),
+                        new InformationNeed(new InformationNeedId("need-2"), "Inspect the evidence")));
+            }
+            return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidNeedResolutionCases")
+    void rejectsInvalidNeedResolutionsBeforeCallingTheVerifierAndKeepsDiagnosticsOpaque(
+            InvalidNeedResolutionCase invalidCase) {
+        AtomicInteger verifierCalls = new AtomicInteger();
+        AtomicInteger proposedActions = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loopWithIssuedEvidence(
+                transitions,
+                (mode, context) -> {
+                    verifierCalls.incrementAndGet();
+                    throw new AssertionError("invalid need resolutions must not reach the verifier");
+                },
+                context -> invalidResolutionProposal(invalidCase, proposedActions, context));
+
+        AgentLoopResult result = loop.execute(request());
+
+        assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
+        assertThat(verifierCalls).hasValue(0);
+        List<String> descriptions = transitions.events().stream()
+                .filter(AgentEvent.ActionRejected.class::isInstance)
+                .map(AgentEvent.ActionRejected.class::cast)
+                .map(AgentEvent.ActionRejected::description)
+                .toList();
+        assertThat(descriptions).singleElement().satisfies(description -> assertThat(description)
+                .doesNotContain("need-1", invalidCase.rawNeedId(), invalidCase.rawEvidenceHandle()));
+        assertThat(transitions.findByRunId(new AnalysisRunId("run-1")).orElseThrow().modelInteractions().stream()
+                .filter(ModelInteraction.ActionResultRecorded.class::isInstance)
+                .map(ModelInteraction.ActionResultRecorded.class::cast)
+                .map(ModelInteraction.ActionResultRecorded::result)
+                .filter(ActionResult.ValidationRejected.class::isInstance)
+                .map(ActionResult.ValidationRejected.class::cast)
+                .map(ActionResult.ValidationRejected::description)
+                .toList())
+                .noneMatch(description -> description.contains(invalidCase.rawNeedId())
+                        || description.contains(invalidCase.rawEvidenceHandle()));
+    }
+
+    private static Stream<InvalidNeedResolutionCase> invalidNeedResolutionCases() {
+        return Stream.of(
+                new InvalidNeedResolutionCase("missing-need", "need-1", "evidence-secret"),
+                new InvalidNeedResolutionCase("foreign-need", "foreign-need-secret", "evidence-secret"),
+                new InvalidNeedResolutionCase("uncited-evidence", "need-1", "attempt-1:E1"));
+    }
+
+    private AgentActionProposal invalidResolutionProposal(
+            InvalidNeedResolutionCase invalidCase,
+            AtomicInteger proposedActions,
+            AgentPromptContext context) {
+        if (!questionPlanWasRecorded(context)) {
+            return new AgentActionProposal.Proposed(new PlanAction(invalidCase.plan()));
+        }
+        if (context.observations().isEmpty()) {
+            return new AgentActionProposal.Proposed(new QueryAction(
+                    context.issuedCapabilities().keySet().iterator().next(), List.of(),
+                    "Determine whether the planned need is available", new CapabilityInputPayload("test"),
+                    "Record availability"));
+        }
+        return proposedActions.getAndIncrement() == 0
+                ? new AgentActionProposal.Proposed(invalidResolutionAction(invalidCase, context))
+                : new AgentActionProposal.Proposed(new ClarifyAction(
+                        "Please clarify the requested evidence", List.of(), "answer contract was rejected"));
+    }
 
     private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
 
@@ -849,6 +932,52 @@ class ValidatedAgentLoopAnswerTest {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
+    }
+
+    private ValidatedAgentLoop loopWithIssuedEvidence(
+            AgentTransitionPort transitions,
+            AnswerVerificationPort verifier,
+            AgentActionPort actionPort) {
+        EvidenceRef evidence = new EvidenceRef(
+                "test", new RepositoryId("repo-1"), new RepositoryRevision("rev-1"),
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Target", Optional.empty()),
+                "evidence content", List.of(), new ArtifactRef("evidence"));
+        return ValidatedAgentLoop.compose(
+                actionPort,
+                query -> new CapabilityExecutionResult.Succeeded(
+                        List.of(), List.of(evidence), List.of(new com.java.system.agent.answering.domain.observation.CapabilityObservation(
+                                ObservationCode.EXECUTION_NOT_IMPLEMENTED, "evidence issued", List.of(), List.of(evidence), "test"))),
+                action -> new HttpMutationResult.NotImplemented(),
+                verifier,
+                AnswerVerificationMode.LLM,
+                new FakeSessionAdapter(),
+                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository")),
+                this::testCapabilities,
+                repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                new FakeCancellationAdapter(),
+                new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
+                new AgentActionValidator(),
+                new AnswerDocumentValidator(),
+                new AnswerVerdictValidator(),
+                new AgentTransitionCommitter(new AgentStateReducer(), transitions),
+                new ContextIssuer());
+    }
+
+    private AnswerAction invalidResolutionAction(InvalidNeedResolutionCase invalidCase, AgentPromptContext context) {
+        return switch (invalidCase.name()) {
+            case "missing-need" -> new AnswerAction(document("Missing need"), List.of(new NeedResolution(
+                    new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE, Set.of(),
+                    Set.of(context.observations().keySet().iterator().next()))));
+            case "foreign-need" -> new AnswerAction(document("Foreign need"), List.of(new NeedResolution(
+                    new InformationNeedId(invalidCase.rawNeedId()), NeedResolutionStatus.UNAVAILABLE, Set.of(),
+                    Set.of(context.observations().keySet().iterator().next()))));
+            case "uncited-evidence" -> {
+                EvidenceHandleRef evidence = new EvidenceHandleRef(context.issuedEvidence().keySet().iterator().next().value());
+                yield new AnswerAction(document("Uncited evidence"), List.of(new NeedResolution(
+                        new InformationNeedId(invalidCase.rawNeedId()), NeedResolutionStatus.SUPPORTED, Set.of(evidence), Set.of())));
+            }
+            default -> throw new IllegalArgumentException("unknown invalid resolution case");
+        };
     }
 
     private ValidatedAgentLoop loopWithRepositories(
