@@ -309,30 +309,27 @@ class PaymentKnowledgeLiveIT {
                     resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE);
             assertThat(answer.document().statements()).extracting(AnswerStatement::type)
                     .doesNotContain(StatementType.FACT);
-            assertAbsentBusinessObservationAuthority(state, resolutions);
         }
-        assertUnavailableObservationAuthority(state, resolutions);
+        Optional<ObservationCode> requiredObservationCode = expectation == ScenarioExpectation.ABSENT_BUSINESS
+                ? Optional.of(ObservationCode.UNSUPPORTED_CLAIM)
+                : Optional.empty();
+        assertUnavailableObservationAuthority(state, resolutions, requiredObservationCode);
     }
 
     private void assertUnavailableObservationAuthority(
             AgentRunState state,
-            List<NeedResolution> resolutions) {
+            List<NeedResolution> resolutions,
+            Optional<ObservationCode> requiredObservationCode) {
         Map<ObservationId, AgentObservation> observations = state.currentAttempt().observations();
-        List<ObservationCode> usedCodes = resolutions.stream()
+        List<NeedResolution> unavailableResolutions = resolutions.stream()
                 .filter(resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE)
-                .flatMap(resolution -> unavailableObservationCodes(observations, resolution).stream())
                 .toList();
-        assertThat(usedCodes).isNotEmpty();
-    }
-
-    private void assertAbsentBusinessObservationAuthority(
-            AgentRunState state,
-            List<NeedResolution> resolutions) {
-        Map<ObservationId, AgentObservation> observations = state.currentAttempt().observations();
-        resolutions.stream()
-                .filter(resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE)
-                .forEach(resolution -> assertThat(unavailableObservationCodes(observations, resolution))
-                        .contains(ObservationCode.UNSUPPORTED_CLAIM));
+        assertThat(unavailableResolutions).isNotEmpty();
+        unavailableResolutions.forEach(resolution -> {
+            List<ObservationCode> observationCodes = unavailableObservationCodes(observations, resolution);
+            assertThat(observationCodes).isNotEmpty();
+            requiredObservationCode.ifPresent(code -> assertThat(observationCodes).contains(code));
+        });
     }
 
     private List<ObservationCode> unavailableObservationCodes(
