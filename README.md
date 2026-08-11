@@ -249,8 +249,11 @@ JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -q \
 ```
 
 `PaymentKnowledgeLiveIT` uses the normal source-event and inbox path and is skipped unless the
-Starter supplies its dedicated live environment. Its fixture identity and payment rules remain
-test resources and must not appear in production code or prompt resources.
+Starter supplies its dedicated live environment. One test runs three isolated business-question
+classes: source-answerable payment rules, current values owned by a runtime source, and a capability
+absent from the repository. It asserts typed plans, resolutions, observations, citations,
+provenance, and terminal outcomes rather than answer prose. Its fixture identities and payment rules
+remain test resources and must not appear in production code or prompt resources.
 
 Run PostgreSQL migrations and adapter integration tests through Testcontainers:
 
