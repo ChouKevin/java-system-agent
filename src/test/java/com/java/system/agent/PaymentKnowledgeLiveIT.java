@@ -3,12 +3,17 @@ package com.java.system.agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationBasis;
+import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.observation.AgentObservation;
+import com.java.system.agent.answering.domain.observation.ObservationCode;
+import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.plan.NeedResolution;
 import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
@@ -57,6 +62,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -86,9 +92,22 @@ class PaymentKnowledgeLiveIT {
     private static final String LIVE_DATABASE_CATALOG = "agent_knowledge_live";
     private static final String SOURCE_TYPE = "payment-knowledge-live";
     private static final String FIXTURE_ID = "payment-knowledge-query";
-    private static final String SCENARIO_ID = "payment-options";
-    private static final String QUESTION =
-            "我們目前支援哪些付款方式？各自會收手續費嗎？如果費用會依條件不同，請一併說明。";
+    private static final PaymentScenario KNOWN_SOURCE_SCENARIO = new PaymentScenario(
+            "payment-options",
+            "我們目前支援哪些付款方式？各自會收手續費嗎？如果費用會依條件不同，請一併說明。",
+            ScenarioExpectation.KNOWN_SOURCE);
+    private static final PaymentScenario RUNTIME_ONLY_SCENARIO = new PaymentScenario(
+            "runtime-payment-options",
+            "現在實際開放哪些付款方式？各方式目前的手續費是多少？若有通路暫停也請說明。",
+            ScenarioExpectation.RUNTIME_ONLY);
+    private static final PaymentScenario ABSENT_BUSINESS_SCENARIO = new PaymentScenario(
+            "absent-buy-now-pay-later",
+            "我們是否支援先買後付？額度、分期與逾期費用規則是什麼？",
+            ScenarioExpectation.ABSENT_BUSINESS);
+    private static final List<PaymentScenario> SCENARIOS = List.of(
+            KNOWN_SOURCE_SCENARIO,
+            RUNTIME_ONLY_SCENARIO,
+            ABSENT_BUSINESS_SCENARIO);
     private static final RepositoryId REPOSITORY_ID = new RepositoryId(FIXTURE_ID);
     private static final RepositoryRevision REPOSITORY_REVISION = new RepositoryRevision("FIXTURE");
     private static final RevisionVector EXPECTED_REVISIONS = RevisionVector.fromEntries(
@@ -127,22 +146,39 @@ class PaymentKnowledgeLiveIT {
         assertConnectedLiveDatabaseCatalog();
         Optional<Path> reportDirectory = reportDirectoryIfRequested();
         SourceShas sourceShas = requiredSourceShas();
+        for (PaymentScenario scenario : SCENARIOS) {
+            ScenarioRun run = acceptAndProcess(scenario);
+            AcceptedState acceptedState = assertAcceptedRun(
+                    run.admission(), run.terminal().state(), scenario.expectation());
+            CitedEvidence citedEvidence = scenario.expectation() == ScenarioExpectation.KNOWN_SOURCE
+                    ? assertCitedEvidence(run.terminal().state(), acceptedState.answer())
+                    : assertOptionalCitedEvidence(run.terminal().state(), acceptedState.answer());
+            List<NeedResolution> resolutions = assertPlanAndResolutionAuthority(
+                    run.terminal().state(), acceptedState.plan(), acceptedState.answer(), citedEvidence);
+            assertScenarioExpectation(
+                    scenario.expectation(), run.terminal().state(), acceptedState.answer(), resolutions);
+            assertCitedCapabilityProvenance(run.terminal().state(), citedEvidence);
+            AcceptedRun acceptedRun = new AcceptedRun(
+                    acceptedState.plan(), acceptedState.answer(), resolutions);
+            writeReportIfRequested(
+                    reportDirectory,
+                    scenario,
+                    run.admission(),
+                    run.terminal(),
+                    acceptedRun,
+                    citedEvidence,
+                    sourceShas);
+        }
+    }
+
+    private ScenarioRun acceptAndProcess(PaymentScenario scenario) throws InterruptedException {
         assertNoEligibleInboxBeforeSubmission();
-
-        String identity = "payment-knowledge-" + UUID.randomUUID();
-        SourceAcceptance acceptance = sourceAcceptance.accept(sourceEvent(identity, Instant.now()));
+        String identity = "payment-knowledge-" + scenario.id() + "-" + UUID.randomUUID();
+        SourceAcceptance acceptance = sourceAcceptance.accept(sourceEvent(scenario, identity, Instant.now()));
         assertThat(acceptance.status()).isEqualTo(SourceAcceptanceStatus.ACCEPTED);
-        assertThat(acceptance.admission()).isPresent();
         SourceAdmission admission = acceptance.admission().orElseThrow();
-
         TerminalProcessing terminal = processUntilTerminal(admission, Instant.now().plus(TERMINAL_TIMEOUT));
-        AcceptedState acceptedState = assertAcceptedRun(admission, terminal.state());
-        CitedEvidence citedEvidence = assertCitedEvidence(terminal.state(), acceptedState.answer());
-        List<NeedResolution> resolutions = assertPlanAndResolutionAuthority(
-                terminal.state(), acceptedState.plan(), acceptedState.answer(), citedEvidence);
-        AcceptedRun acceptedRun = new AcceptedRun(acceptedState.plan(), acceptedState.answer(), resolutions);
-        assertCitedCapabilityProvenance(terminal.state(), citedEvidence);
-        writeReportIfRequested(reportDirectory, admission, terminal, acceptedRun, citedEvidence, sourceShas);
+        return new ScenarioRun(scenario, admission, terminal);
     }
 
     private void assertConnectedLiveDatabaseCatalog() throws SQLException {
@@ -189,12 +225,13 @@ class PaymentKnowledgeLiveIT {
         throw new AssertionError("payment knowledge run did not reach a terminal state before the bounded deadline");
     }
 
-    private AcceptedState assertAcceptedRun(SourceAdmission admission, AgentRunState state) {
+    private AcceptedState assertAcceptedRun(
+            SourceAdmission admission,
+            AgentRunState state,
+            ScenarioExpectation expectation) {
         assertThat(state.runId()).isEqualTo(admission.runId());
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.currentAttempt().revisionVector()).isEqualTo(EXPECTED_REVISIONS);
-        assertThat(state.finalOutcome()).hasValueSatisfying(outcome ->
-                assertThat(outcome).isIn(RunOutcome.COMPLETED, RunOutcome.INCONCLUSIVE));
         QuestionPlan plan = state.questionPlan()
                 .orElseThrow(() -> new AssertionError("accepted payment run did not persist a question plan"));
         PendingTerminalResponse response = state.pendingTerminalResponse()
@@ -207,15 +244,30 @@ class PaymentKnowledgeLiveIT {
         PendingTerminalResponse.Answer answer = (PendingTerminalResponse.Answer) response;
         assertThat(answer.acceptance().verificationBasis()).isEqualTo(AnswerVerificationBasis.LLM);
         assertThat(answer.acceptance().verdict()).hasValueSatisfying(verdict -> {
-            assertThat(verdict.disposition()).isIn(
-                    AnswerDisposition.ACCEPTED_COMPLETE,
-                    AnswerDisposition.ACCEPTED_INCONCLUSIVE);
-            assertThat(state.finalOutcome()).contains(answer.acceptance().expectedOutcome());
+            if (expectation == ScenarioExpectation.KNOWN_SOURCE) {
+                assertThat(verdict.disposition()).isIn(
+                        AnswerDisposition.ACCEPTED_COMPLETE,
+                        AnswerDisposition.ACCEPTED_INCONCLUSIVE);
+                assertThat(state.finalOutcome()).contains(answer.acceptance().expectedOutcome());
+            } else {
+                assertThat(verdict.disposition()).isEqualTo(AnswerDisposition.ACCEPTED_INCONCLUSIVE);
+                assertThat(state.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
+            }
         });
         return new AcceptedState(plan, answer);
     }
 
     private CitedEvidence assertCitedEvidence(AgentRunState state, PendingTerminalResponse.Answer answer) {
+        CitedEvidence citedEvidence = collectCitedEvidence(state, answer);
+        assertThat(citedEvidence.handles()).isNotEmpty();
+        return citedEvidence;
+    }
+
+    private CitedEvidence assertOptionalCitedEvidence(AgentRunState state, PendingTerminalResponse.Answer answer) {
+        return collectCitedEvidence(state, answer);
+    }
+
+    private CitedEvidence collectCitedEvidence(AgentRunState state, PendingTerminalResponse.Answer answer) {
         Map<String, IssuedEvidence> evidenceByHandle = new LinkedHashMap<>();
         state.currentAttempt().issuedEvidence().forEach((handle, issued) -> {
             assertCurrentBinding(state, handle);
@@ -224,7 +276,6 @@ class PaymentKnowledgeLiveIT {
         Set<String> citedHandleValues = new LinkedHashSet<>();
         answer.document().statements().forEach(statement ->
                 statement.citations().forEach(citation -> citedHandleValues.add(citation.value())));
-        assertThat(citedHandleValues).isNotEmpty();
         List<IssuedEvidence> citedEvidence = citedHandleValues.stream()
                 .map(handle -> Optional.ofNullable(evidenceByHandle.get(handle))
                         .orElseThrow(() -> new AssertionError("final answer citation was not issued in the current attempt")))
@@ -235,6 +286,44 @@ class PaymentKnowledgeLiveIT {
             assertThat(issued.evidence().repositoryRevision()).isEqualTo(REPOSITORY_REVISION);
         });
         return new CitedEvidence(Set.copyOf(citedHandleValues), citedEvidence);
+    }
+
+    private void assertScenarioExpectation(
+            ScenarioExpectation expectation,
+            AgentRunState state,
+            PendingTerminalResponse.Answer answer,
+            List<NeedResolution> resolutions) {
+        if (expectation == ScenarioExpectation.KNOWN_SOURCE) {
+            return;
+        }
+        assertThat(answer.document().statements()).extracting(AnswerStatement::type)
+                .containsAnyOf(StatementType.UNCERTAINTY, StatementType.LIMITATION);
+        if (expectation == ScenarioExpectation.RUNTIME_ONLY) {
+            assertThat(resolutions).anyMatch(
+                    resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE);
+        }
+        if (expectation == ScenarioExpectation.ABSENT_BUSINESS) {
+            assertThat(resolutions).allMatch(
+                    resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE);
+            assertThat(answer.document().statements()).extracting(AnswerStatement::type)
+                    .doesNotContain(StatementType.FACT);
+        }
+        assertUnavailableObservationAuthority(state, resolutions);
+    }
+
+    private void assertUnavailableObservationAuthority(
+            AgentRunState state,
+            List<NeedResolution> resolutions) {
+        Map<ObservationId, AgentObservation> observations = state.currentAttempt().observations();
+        List<ObservationCode> usedCodes = resolutions.stream()
+                .filter(resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE)
+                .flatMap(resolution -> resolution.observations().stream())
+                .map(observationId -> Optional.ofNullable(observations.get(observationId))
+                        .orElseThrow(() -> new AssertionError(
+                                "unavailable resolution did not use a current-attempt observation")))
+                .map(AgentObservation::code)
+                .toList();
+        assertThat(usedCodes).isNotEmpty();
     }
 
     private List<NeedResolution> assertPlanAndResolutionAuthority(
@@ -361,17 +450,22 @@ class PaymentKnowledgeLiveIT {
                 .optional();
     }
 
-    private NormalizedSourceEvent sourceEvent(String identity, Instant receivedAt) {
+    private NormalizedSourceEvent sourceEvent(PaymentScenario scenario, String identity, Instant receivedAt) {
         return new NormalizedSourceEvent(
                 SOURCE_TYPE,
                 new TransportEventId(identity),
                 new SourceMessageId(identity),
                 new SessionSourceRef(SOURCE_TYPE, identity),
                 new ParticipantRef(SOURCE_TYPE, identity + "-participant"),
-                QUESTION,
-                QUESTION,
+                scenario.question(),
+                scenario.question(),
                 SourcePayloadFingerprintV1.fromCanonicalFields(
-                        SOURCE_TYPE, identity + "-participant", identity, identity, identity, QUESTION),
+                        SOURCE_TYPE,
+                        identity + "-participant",
+                        identity,
+                        identity,
+                        identity,
+                        scenario.question()),
                 receivedAt);
     }
 
@@ -411,6 +505,7 @@ class PaymentKnowledgeLiveIT {
 
     private void writeReportIfRequested(
             Optional<Path> reportDirectory,
+            PaymentScenario scenario,
             SourceAdmission admission,
             TerminalProcessing terminal,
             AcceptedRun acceptedRun,
@@ -421,7 +516,7 @@ class PaymentKnowledgeLiveIT {
         }
         AgentRunState state = terminal.state();
         Map<String, Object> report = new LinkedHashMap<>();
-        report.put("scenario", SCENARIO_ID);
+        report.put("scenario", scenario.id());
         report.put("fixtureId", FIXTURE_ID);
         report.put("fixtureRevision", REPOSITORY_REVISION.value());
         report.put("sessionId", admission.sessionId().value());
@@ -430,6 +525,21 @@ class PaymentKnowledgeLiveIT {
         report.put("planNeedCount", acceptedRun.plan().needs().size());
         report.put("resolutionStatuses", acceptedRun.resolutions().stream()
                 .map(resolution -> resolution.status().name())
+                .toList());
+        report.put("terminalOutcome", state.finalOutcome().orElseThrow().name());
+        report.put("verifierDisposition", acceptedRun.answer().acceptance().verdict()
+                .orElseThrow()
+                .disposition()
+                .name());
+        report.put("unavailableObservationCodes", acceptedRun.resolutions().stream()
+                .filter(resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE)
+                .flatMap(resolution -> resolution.observations().stream())
+                .map(observationId -> state.currentAttempt().observations().get(observationId))
+                .filter(Objects::nonNull)
+                .map(AgentObservation::code)
+                .map(Enum::name)
+                .distinct()
+                .sorted()
                 .toList());
         List<Map<String, String>> citedProvenance = citedEvidence.evidence().stream()
                 .map(issued -> Map.of(
@@ -481,6 +591,21 @@ class PaymentKnowledgeLiveIT {
     }
 
     private record TerminalProcessing(AgentRunState state, int capacityDeferrals) {
+    }
+
+    private record PaymentScenario(String id, String question, ScenarioExpectation expectation) {
+    }
+
+    private record ScenarioRun(
+            PaymentScenario scenario,
+            SourceAdmission admission,
+            TerminalProcessing terminal) {
+    }
+
+    private enum ScenarioExpectation {
+        KNOWN_SOURCE,
+        RUNTIME_ONLY,
+        ABSENT_BUSINESS
     }
 
     private record CitedEvidence(Set<String> handles, List<IssuedEvidence> evidence) {
