@@ -15,10 +15,17 @@ import com.java.system.agent.persistence.jdbc.PostgresAgentTransitionAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionInboxAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionAdapter;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationBasis;
+import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
+import com.java.system.agent.answering.domain.observation.ObservationId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
+import com.java.system.agent.answering.domain.run.ActionResult;
 import com.java.system.agent.answering.domain.run.AgentRunState;
 import com.java.system.agent.answering.domain.run.AgentRunStatus;
+import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
 import com.java.system.agent.answering.domain.run.RunResponseKind;
 import com.java.system.agent.answering.domain.run.RunOutcome;
@@ -49,6 +56,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import javax.sql.DataSource;
 
@@ -192,11 +200,12 @@ class M2ProductionFlowIT {
                 "OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND",
                 PARTICIPANT.sourceType(),
                 PARTICIPANT.participantKey()));
-        assertThat(state.pendingTerminalResponse()).hasValueSatisfying(response -> {
-            assertThat(response).isInstanceOf(PendingTerminalResponse.Answer.class);
-            PendingTerminalResponse.Answer answer = (PendingTerminalResponse.Answer) response;
-            assertThat(answer.acceptance().verificationBasis()).isEqualTo(AnswerVerificationBasis.LLM);
-        });
+        PendingTerminalResponse response = state.pendingTerminalResponse()
+                .orElseThrow(() -> new AssertionError("completed run did not retain its accepted response"));
+        assertThat(response).isInstanceOf(PendingTerminalResponse.Answer.class);
+        PendingTerminalResponse.Answer acceptedAnswer = (PendingTerminalResponse.Answer) response;
+        assertThat(acceptedAnswer.acceptance().verificationBasis()).isEqualTo(AnswerVerificationBasis.LLM);
+        assertAcceptedAnswerPlanCoverage(state, acceptedAnswer);
         assertThat(eventTypes(enqueued)).containsSubsequence(
                 "ACTION_SELECTED", "QUESTION_PLAN_CREATED", "ACTION_SELECTED", "ACTION_ACCEPTED",
                 "QUERY_BUDGET_CONSUMED", "ACTION_SELECTED", "ANSWER_PROPOSED", "ANSWER_ACCEPTED", "RUN_CONCLUDED");
@@ -287,6 +296,41 @@ class M2ProductionFlowIT {
         assertThat(prompts).allSatisfy(prompt -> {
             assertThat(prompt.getSystemMessage().getText()).isNotBlank();
             assertThat(prompt.getUserMessage().getText()).isNotBlank();
+        });
+    }
+
+    private static void assertAcceptedAnswerPlanCoverage(
+            AgentRunState state,
+            PendingTerminalResponse.Answer acceptedAnswer) {
+        QuestionPlan plan = state.questionPlan().orElseThrow(
+                () -> new AssertionError("completed run did not retain its question plan"));
+        List<ModelInteraction> interactions = state.modelInteractions();
+        List<AnswerAction> acceptedActions = IntStream.range(0, interactions.size() - 1)
+                .filter(index -> interactions.get(index) instanceof ModelInteraction.ActionSelected selected
+                        && selected.action() instanceof AnswerAction action
+                        && action.document().equals(acceptedAnswer.document())
+                        && interactions.get(index + 1) instanceof ModelInteraction.ActionResultRecorded recorded
+                        && recorded.result() instanceof ActionResult.AnswerAccepted)
+                .mapToObj(index -> (ModelInteraction.ActionSelected) interactions.get(index))
+                .map(ModelInteraction.ActionSelected::action)
+                .map(AnswerAction.class::cast)
+                .toList();
+
+        assertThat(acceptedActions).singleElement().satisfies(acceptedAction -> {
+            assertThat(plan.needs()).extracting(need -> need.id().value())
+                    .containsExactlyElementsOf(acceptedAction.resolutions().stream()
+                            .map(NeedResolution::needId)
+                            .map(needId -> needId.value())
+                            .toList());
+            ObservationId unavailableObservation = new ObservationId(
+                    state.currentAttempt().attemptId().value() + ":O1");
+            assertThat(acceptedAction.resolutions()).singleElement().satisfies(resolution -> {
+                assertThat(resolution.status()).isEqualTo(NeedResolutionStatus.UNAVAILABLE);
+                assertThat(resolution.observations()).containsExactly(unavailableObservation);
+            });
+            assertThat(state.currentAttempt().observations()).containsKey(unavailableObservation);
+            assertThat(acceptedAnswer.document().statements()).singleElement().satisfies(statement ->
+                    assertThat(statement.observationIds()).containsExactly(unavailableObservation));
         });
     }
 

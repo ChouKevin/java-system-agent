@@ -84,6 +84,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -396,15 +397,35 @@ class M7KnowledgeQueryLiveIT {
                 .toList();
 
         assertThat(recordedPlans).containsExactly(new ActionResult.QuestionPlanRecorded(plan));
-        AnswerAction acceptedAction = state.modelInteractions().stream()
-                .filter(ModelInteraction.ActionSelected.class::isInstance)
-                .map(ModelInteraction.ActionSelected.class::cast)
-                .map(ModelInteraction.ActionSelected::action)
-                .filter(AnswerAction.class::isInstance)
-                .map(AnswerAction.class::cast)
-                .filter(action -> action.document().equals(acceptedAnswer.document()))
-                .reduce((previous, latest) -> latest)
-                .orElseThrow(() -> new AssertionError("accepted answer did not have a selected answer action"));
+        List<ModelInteraction> interactions = state.modelInteractions();
+        List<Integer> questionPlanRecordedIndexes = IntStream.range(0, interactions.size())
+                .filter(index -> interactions.get(index) instanceof ModelInteraction.ActionResultRecorded recorded
+                        && recorded.result() instanceof ActionResult.QuestionPlanRecorded)
+                .boxed()
+                .toList();
+        assertThat(questionPlanRecordedIndexes).singleElement();
+        int questionPlanRecordedIndex = questionPlanRecordedIndexes.getFirst();
+        List<Integer> selectedQueryIndexes = IntStream.range(0, interactions.size())
+                .filter(index -> interactions.get(index) instanceof ModelInteraction.ActionSelected selected
+                        && selected.action() instanceof QueryAction)
+                .boxed()
+                .toList();
+        assertThat(selectedQueryIndexes).allSatisfy(index -> assertThat(index)
+                .isGreaterThan(questionPlanRecordedIndex));
+
+        List<Integer> acceptedAnswerIndexes = IntStream.range(0, interactions.size() - 1)
+                .filter(index -> interactions.get(index) instanceof ModelInteraction.ActionSelected selected
+                        && selected.action() instanceof AnswerAction action
+                        && action.document().equals(acceptedAnswer.document())
+                        && interactions.get(index + 1) instanceof ModelInteraction.ActionResultRecorded recorded
+                        && recorded.result() instanceof ActionResult.AnswerAccepted)
+                .boxed()
+                .toList();
+        assertThat(acceptedAnswerIndexes).singleElement();
+        int acceptedAnswerIndex = acceptedAnswerIndexes.getFirst();
+        assertThat(acceptedAnswerIndex).isGreaterThan(questionPlanRecordedIndex);
+        AnswerAction acceptedAction = (AnswerAction) ((ModelInteraction.ActionSelected) interactions
+                .get(acceptedAnswerIndex)).action();
         assertThat(plan.needs()).extracting(need -> need.id().value())
                 .containsExactlyElementsOf(acceptedAction.resolutions().stream()
                         .map(NeedResolution::needId)
