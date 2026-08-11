@@ -123,27 +123,6 @@ public record AgentRunState(
         validateQuestionPlanHistory(questionPlan, modelInteractions);
     }
 
-    public AgentRunState(
-            AnalysisRunId runId,
-            AgentRunStatus status,
-            RunAttempt currentAttempt,
-            int attemptSequence,
-            AttemptBudget budget,
-            long acceptedActionCount,
-            long rejectedActionCount,
-            long stateRevision,
-            Optional<RunOutcome> finalOutcome,
-            Optional<RuntimeNoticeReason> runtimeNoticeReason,
-            Optional<RunFailureReason> failureReason,
-            Optional<PendingTerminalResponse> pendingTerminalResponse,
-            Optional<PendingAnswerVerification> pendingAnswerVerification,
-            RunRequestIdentity requestIdentity,
-            List<ModelInteraction> modelInteractions) {
-        this(runId, status, currentAttempt, attemptSequence, budget, acceptedActionCount, rejectedActionCount,
-                stateRevision, finalOutcome, runtimeNoticeReason, failureReason, pendingTerminalResponse,
-                pendingAnswerVerification, Optional.empty(), requestIdentity, modelInteractions);
-    }
-
     public static AgentRunState initial(
             AnalysisRunId runId,
             AnalysisAttemptId firstAttemptId,

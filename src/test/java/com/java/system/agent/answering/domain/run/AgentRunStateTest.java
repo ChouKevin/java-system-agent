@@ -32,12 +32,14 @@ class AgentRunStateTest {
         RunAttempt attempt = RunAttempt.empty(new AnalysisAttemptId("attempt-1"));
         AgentRunState state = new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.CONCLUDED, attempt,
                 1, budget(), 0, 0, 1, Optional.of(RunOutcome.INCONCLUSIVE),
-                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty(), Optional.empty(), Optional.empty(), identity(), List.of());
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), identity(), List.of());
 
         assertThat(state.runtimeNoticeReason()).contains(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED);
         assertThatIllegalArgumentException().isThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"),
                 AgentRunStatus.CONCLUDED, attempt, 1, budget(), 0, 0, 1, Optional.of(RunOutcome.FAILED),
-                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty(), Optional.empty(), Optional.empty(), identity(), List.of()));
+                Optional.of(RuntimeNoticeReason.AGENT_STEP_BUDGET_EXHAUSTED), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), identity(), List.of()));
     }
 
     @Test
@@ -45,12 +47,14 @@ class AgentRunStateTest {
         RunAttempt attempt = RunAttempt.empty(new AnalysisAttemptId("attempt-1"));
         AgentRunState state = new AgentRunState(new AnalysisRunId("run-1"), AgentRunStatus.CONCLUDED, attempt,
                 1, budget(), 0, 0, 1, Optional.of(RunOutcome.FAILED),
-                Optional.empty(), Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT), Optional.empty(), Optional.empty(), identity(), List.of());
+                Optional.empty(), Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT), Optional.empty(), Optional.empty(),
+                Optional.empty(), identity(), List.of());
 
         assertThat(state.failureReason()).contains(RunFailureReason.PLANNING_TOOL_CONTRACT);
         assertThatIllegalArgumentException().isThrownBy(() -> new AgentRunState(new AnalysisRunId("run-1"),
                 AgentRunStatus.CONCLUDED, attempt, 1, budget(), 0, 0, 1, Optional.of(RunOutcome.INCONCLUSIVE),
-                Optional.empty(), Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT), Optional.empty(), Optional.empty(), identity(), List.of()));
+                Optional.empty(), Optional.of(RunFailureReason.PLANNING_TOOL_CONTRACT), Optional.empty(), Optional.empty(),
+                Optional.empty(), identity(), List.of()));
     }
 
     @Test

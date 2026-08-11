@@ -40,16 +40,6 @@ public record AgentValidationContext(Map<CapabilityHandle, CapabilityPolicy> cap
         observations = Map.copyOf(observations);
     }
 
-    public AgentValidationContext(
-            Map<CapabilityHandle, CapabilityPolicy> capabilities,
-            Map<CandidateHandle, IssuedCandidate> candidates,
-            Map<EvidenceHandle, IssuedEvidence> evidence,
-            Map<ObservationId, AgentObservation> observations,
-            HandleBinding currentBinding,
-            AttemptBudget budget) {
-        this(capabilities, candidates, evidence, observations, currentBinding, budget, Optional.empty());
-    }
-
     private static void validateCandidateEntries(Map<CandidateHandle, IssuedCandidate> candidates) {
         for (Map.Entry<CandidateHandle, IssuedCandidate> entry : candidates.entrySet()) {
             CandidateHandle handle = Objects.requireNonNull(entry.getKey(), "candidate handle must not be null");

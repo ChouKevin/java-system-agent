@@ -363,6 +363,7 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 state.failureReason(),
                 state.pendingTerminalResponse(),
                 state.pendingAnswerVerification(),
+                state.questionPlan(),
                 identity,
                 state.modelInteractions());
     }

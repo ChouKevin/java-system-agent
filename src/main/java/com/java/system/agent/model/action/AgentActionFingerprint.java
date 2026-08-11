@@ -7,6 +7,7 @@ import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -118,8 +119,11 @@ public record AgentActionFingerprint(String value) {
 
     private static void plan(MessageDigest digest, PlanAction action) {
         frame(digest, "actionType", "PLAN");
-        sequence(digest, "informationNeedId", action.plan().needs().stream()
-                .map(need -> need.id().value()).toList());
+        frame(digest, "informationNeedCount", Integer.toString(action.plan().needs().size()));
+        for (InformationNeed need : action.plan().needs()) {
+            frame(digest, "informationNeedId", need.id().value());
+            frame(digest, "informationNeedDescription", need.description());
+        }
     }
 
     private static void sequence(MessageDigest digest, String fieldName, List<String> values) {

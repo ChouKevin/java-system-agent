@@ -21,6 +21,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
+import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.ClaimId;
@@ -56,6 +57,9 @@ import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationCode;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.observation.ObservationSource;
+import com.java.system.agent.answering.domain.plan.InformationNeed;
+import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentActionTransportException;
 import com.java.system.agent.answering.port.out.AgentActionContractException;
@@ -244,6 +248,15 @@ class SpringAiAgentActionAdapterTest {
                 List.of(new CandidateHandleRef("candidate-1")), "Changed reason");
         ClarifyAction clarifyWithChangedQuestion = new ClarifyAction("Which branch?",
                 List.of(new CandidateHandleRef("candidate-1")), "Original reason");
+        PlanAction plan = new PlanAction(new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-1"), "Trace the route"),
+                new InformationNeed(new InformationNeedId("need-2"), "Check the boundary"))));
+        PlanAction planWithChangedDescription = new PlanAction(new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-1"), "Trace a different route"),
+                new InformationNeed(new InformationNeedId("need-2"), "Check the boundary"))));
+        PlanAction planWithReorderedNeeds = new PlanAction(new QuestionPlan(List.of(
+                new InformationNeed(new InformationNeedId("need-2"), "Check the boundary"),
+                new InformationNeed(new InformationNeedId("need-1"), "Trace the route"))));
 
         assertThat(fingerprint(query)).isEqualTo(fingerprint(queryWithChangedRationale))
                 .isNotEqualTo(fingerprint(queryWithChangedProse))
@@ -257,6 +270,8 @@ class SpringAiAgentActionAdapterTest {
                 .isNotEqualTo(fingerprint(answerWithChangedStatement));
         assertThat(fingerprint(clarify)).isEqualTo(fingerprint(clarifyWithChangedReason))
                 .isNotEqualTo(fingerprint(clarifyWithChangedQuestion));
+        assertThat(fingerprint(plan)).isNotEqualTo(fingerprint(planWithChangedDescription))
+                .isNotEqualTo(fingerprint(planWithReorderedNeeds));
 
         HandleBinding originalBinding = binding("attempt-1", "rev-1");
         HandleBinding reissuedBinding = binding("attempt-1", "rev-2");
