@@ -141,7 +141,8 @@ public final class QueryPlanningToolRegistration<P, E>
         @Override
         public boolean isIssued(AgentPromptContext context) {
             Objects.requireNonNull(context, "agent prompt context must not be null");
-            return !allowedCandidateHandles(context).isEmpty();
+            return currentCapability(context, List.of()).isPresent()
+                    && (policy.minimumCandidates() == 0 || !allowedCandidateHandles(context).isEmpty());
         }
 
         @Override

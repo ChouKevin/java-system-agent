@@ -417,6 +417,37 @@ class PlanningToolRegistryTest {
     }
 
     @Test
+    void issuesAndExecutesZeroCandidateMapperRegistrationWhenPolicyPermitsIt() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        CapabilityPolicy policy = new CapabilityPolicy("zero_candidate_mapper_test", "v1",
+                Set.of(CandidateKind.REPOSITORY), 0, 1);
+        QueryPlanningMapper<TestInput, TestInput> mapper = input -> new QueryPlanningSelection<>(List.of(),
+                input.questionToResolve(), input.rationale(), input);
+        QueryPlanningToolRegistration<TestInput, TestInput> registration = PlanningToolRegistry.registration(policy,
+                TestInput.class, TestInput.class, mapper, (executionContext, input) -> {
+                    executorCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+                }, payloadCodec());
+        PlanningToolRegistry registry = registry(List.of(provider(List.of(registration))));
+        AgentPromptContext context = followUpContext(Map.of(
+                new CapabilityHandle("capability-zero-candidate-mapper", binding()), policy), Map.of());
+
+        assertThat(registry.issuedTools(context))
+                .containsExactly(new IssuedPlanningTool("zero_candidate_mapper_test", List.of()));
+        QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) registry.interpretToolCall(
+                "zero_candidate_mapper_test", """
+                        {"questionToResolve":"Inspect the repository metadata",
+                         "rationale":"This query does not need a candidate"}
+                        """, context)).action();
+        CapabilityExecutionResult result = registry.execute(new CapabilityInvocation(policy, List.of(),
+                action.questionToResolve(), action.payload(), binding().revisionVector()));
+
+        assertThat(action.candidates()).isEmpty();
+        assertThat(result).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
+        assertThat(executorCalls).hasValue(1);
+    }
+
+    @Test
     void executesFollowUpOnlyRegistrationThroughTheCommonQueryExecutionIndex() {
         AtomicInteger executorCalls = new AtomicInteger();
         PlanningToolRegistry registry = followUpRegistry(executorCalls);
