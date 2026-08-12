@@ -1,6 +1,7 @@
 package com.java.system.agent.codeintelligence.planning;
 
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
+import com.java.system.agent.capability.planning.CandidateBoundPlanningInput;
 import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import com.java.system.agent.capability.planning.PlanningToolInputException;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
@@ -43,15 +44,16 @@ class CodeIntelligencePlanningPayloadTest {
     }
 
     @Test
-    void keepsDirectSourceAndSymbolPlanningInputsIndependentFromFollowUpTuning() {
+    void keepsDirectSourceAndSymbolPlanningInputContractsIndependentFromFollowUpTuning() {
+        GetMethodSourcePlanningInput methodSource = new GetMethodSourcePlanningInput(
+                List.of("candidate-1"), "Read method", "Need source");
         ResolveSourceSymbolPlanningInput symbols = new ResolveSourceSymbolPlanningInput(
                 List.of("candidate-1"), "Resolve symbol", "Need source declaration", "order", Optional.empty());
 
-        assertThat(new GetMethodSourcePlanningMapper().map(
-                new GetMethodSourcePlanningInput(List.of("candidate-1"), "Read method", "Need source"))
-                .executionInput().boundTarget()).isEmpty();
-        assertThat(new ResolveSourceSymbolPlanningMapper().map(symbols).executionInput())
-                .isEqualTo(new ResolveSourceSymbolExecutionInput("order", Optional.empty(), Optional.empty()));
+        assertThat(methodSource).isInstanceOf(CandidateBoundPlanningInput.class);
+        assertThat(symbols).isInstanceOf(CandidateBoundPlanningInput.class);
+        assertThat(symbols.symbol()).isEqualTo("order");
+        assertThat(symbols.position()).isEmpty();
     }
 
     @Test

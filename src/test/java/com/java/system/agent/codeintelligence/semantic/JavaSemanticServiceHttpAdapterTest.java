@@ -424,6 +424,41 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
+    void rejectsMethodSourceAndSourceSymbolAuthorityMismatchesBeforeHttp() {
+        TestClient client = testClient();
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/discovery/method-source"));
+        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
+                requestTo("https://semantic.test/v1/discovery/source-symbols/resolve"));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        SemanticDtos.MethodTargetPayload providerTarget = graphTargetPayload();
+        SemanticDtos.SourceSymbolContextPayload context = new SemanticDtos.SourceSymbolContextPayload(
+                providerTarget.sourceType().javaType(), Optional.of(providerTarget.sourceType().sourceFile()),
+                Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(providerTarget.methodName(),
+                        providerTarget.parameterTypes())));
+        GetMethodSourceExecutionInput providerMethodSource = new GetMethodSourceExecutionInput(Optional.of(providerTarget));
+        ResolveSourceSymbolExecutionInput providerSourceSymbol = new ResolveSourceSymbolExecutionInput("order",
+                Optional.empty(), Optional.of(context));
+
+        assertThatThrownBy(() -> adapter.getMethodSource(targetContext("codebase_get_method_source"),
+                new GetMethodSourceExecutionInput(Optional.of(targetPayload()))))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.getMethodSource(
+                followUpContext("codebase_get_method_source", providerMethodSource),
+                new GetMethodSourceExecutionInput(Optional.of(targetPayload()))))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.resolveSourceSymbol(targetContext("codebase_resolve_source_symbol"),
+                new ResolveSourceSymbolExecutionInput("order", Optional.empty(), Optional.of(context))))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.resolveSourceSymbol(
+                followUpContext("codebase_resolve_source_symbol", providerSourceSymbol),
+                new ResolveSourceSymbolExecutionInput("other", Optional.empty(), Optional.of(context))))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+
+        client.server().verify();
+    }
+
+    @Test
     void rejectsCallGraphResponsesThatDoNotMatchThePinnedRevision() {
         TestClient client = testClient();
         client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))

@@ -12,6 +12,7 @@ import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
@@ -47,6 +48,8 @@ import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -420,6 +423,59 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
+    void bindsMethodSourceToExactMethodCandidatesAndMatchingProviderFollowUps() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy methodSourcePolicy = policy(registry, CodeIntelligenceQuery.GET_METHOD_SOURCE);
+        CapabilityPolicy typeMembersPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS);
+        IssuedCandidate method = semanticTargetCandidate("candidate-method", binding, repositoryId, revision);
+        IssuedCandidate sourceRange = sourceRangeCandidate("candidate-range", binding, repositoryId, revision,
+                new SemanticDtos.SourceRangePayload("src/Orders.java", new SemanticDtos.TextRangePayload(
+                        new SemanticDtos.Position(0, 1), new SemanticDtos.Position(2, 3))));
+        GetMethodSourceExecutionInput methodSourceInput = new GetMethodSourceExecutionInput(Optional.of(graphTarget()));
+        IssuedCandidate methodSourceFollowUp = followUpCandidate("candidate-method-source", binding, repositoryId, revision,
+                methodSourcePolicy, payloadCodec.encode(methodSourceInput));
+        DiscoverTypeMembersExecutionInput typeMembersInput = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
+                List.of("METHOD"), Optional.empty(), 0, 1);
+        IssuedCandidate typeMembersFollowUp = followUpCandidate("candidate-type-members", binding, repositoryId, revision,
+                typeMembersPolicy, payloadCodec.encode(typeMembersInput));
+        AgentPromptContext context = promptContext(methodSourcePolicy,
+                List.of(method, sourceRange, methodSourceFollowUp, typeMembersFollowUp), binding);
+        CapabilityExecutionResult expected = new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+        when(adapter.getMethodSource(any(CapabilityExecutionContext.class), eq(methodSourceInput))).thenReturn(expected);
+
+        PlanningToolRegistration<?> issuedMethodSourceTool = registry.issuedRegistrations(context).stream()
+                .filter(registration -> registration.name().equals(methodSourcePolicy.name()))
+                .findFirst().orElseThrow();
+        assertThat(issuedMethodSourceTool.allowedCandidateHandles(context))
+                .extracting(CandidateHandleRef::value)
+                .containsExactly("candidate-method", "candidate-method-source");
+
+        assertThat(registry.interpretToolCall(methodSourcePolicy.name(), """
+                {"candidateHandles":["candidate-type-members"],"questionToResolve":"Read method source","rationale":"Inspect the provider continuation"}
+                """, context))
+                .isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT: tool=codebase_get_method_source; "
+                        + "reason=CANDIDATE_SELECTION; invalidFields=[candidateHandles]; "
+                        + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
+        verify(adapter, times(0)).getMethodSource(any(CapabilityExecutionContext.class), any());
+
+        QueryAction followUpAction = queryAction(registry.interpretToolCall(methodSourcePolicy.name(), """
+                {"candidateHandles":["candidate-method-source"],"questionToResolve":"Read method source","rationale":"Inspect the provider continuation"}
+                """, context));
+        assertThat(followUpAction.payload()).isEqualTo(payloadCodec.encode(methodSourceInput));
+        assertThat(execute(registry, methodSourcePolicy, methodSourceFollowUp, followUpAction, revisions)).isSameAs(expected);
+        verify(adapter).getMethodSource(any(CapabilityExecutionContext.class), eq(methodSourceInput));
+    }
+
+    @Test
     void executesAFollowUpGraphThroughRegistryDecodingAndTheRegisteredExecutor() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
@@ -704,11 +760,20 @@ class CodeIntelligencePlanningToolProviderTest {
 
     private static AgentPromptContext promptContext(CapabilityPolicy policy, IssuedCandidate candidate,
                                                     HandleBinding binding) {
+        return promptContext(policy, List.of(candidate), binding);
+    }
+
+    private static AgentPromptContext promptContext(CapabilityPolicy policy, List<IssuedCandidate> candidates,
+                                                    HandleBinding binding) {
         CapabilityHandle capability = new CapabilityHandle("capability-" + policy.name(), binding);
         QuestionPlan plan = new QuestionPlan(List.of(
                 new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
+        Map<CandidateHandle, IssuedCandidate> issuedCandidates = new LinkedHashMap<>();
+        for (IssuedCandidate candidate : candidates) {
+            issuedCandidates.put(candidate.handle(), candidate);
+        }
         return new AgentPromptContext("Find order behavior", SessionHistory.empty(), binding.runId(), binding.attemptId(),
-                Map.of(capability, policy), Map.of(candidate.handle(), candidate), Map.of(), Map.of(), List.of(
+                Map.of(capability, policy), Collections.unmodifiableMap(issuedCandidates), Map.of(), Map.of(), List.of(
                 new ModelInteraction.ActionSelected(binding.attemptId(), new PlanAction(plan)),
                 new ModelInteraction.ActionResultRecorded(
                         binding.attemptId(), new ActionResult.QuestionPlanRecorded(plan))), Optional.empty(),
