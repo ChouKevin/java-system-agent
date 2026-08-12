@@ -81,8 +81,6 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.tool.DefaultToolCallingChatOptions;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.web.server.ResponseStatusException;
@@ -137,7 +135,9 @@ class SpringAiAgentActionAdapterTest {
                         new ActionResult.QuerySucceeded(List.of(), List.of(), List.of()))));
         AgentActionPromptRenderer renderer = mock(AgentActionPromptRenderer.class);
         String renderedPrompt = "PROMPT_SECRET apiKey=TOKEN_SECRET source=evidence secret";
-        when(renderer.render(promptContext, Map.of("callers", List.of("candidate-1")))).thenReturn(renderedPrompt);
+        Map<String, List<String>> candidateAuthority = Map.of(
+                "callers", List.of("candidate-1", "candidate-2"));
+        when(renderer.render(promptContext, candidateAuthority)).thenReturn(renderedPrompt);
         CountingChatModel model = new CountingChatModel(toolCall("callers", """
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Changed question secret","rationale":"Changed rationale secret"}
                 """));
@@ -150,7 +150,7 @@ class SpringAiAgentActionAdapterTest {
             assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
             assertThat(model.calls()).isEqualTo(1);
             assertThat(model.lastPrompt().orElseThrow().getUserMessage().getText()).isEqualTo(renderedPrompt);
-            verify(renderer, times(1)).render(promptContext, Map.of("callers", List.of("candidate-1")));
+            verify(renderer, times(1)).render(promptContext, candidateAuthority);
             List<String> logMessages = formattedMessages(handler);
             assertThat(logMessages).hasSize(1);
             assertThat(logMessages.getFirst())
@@ -181,11 +181,22 @@ class SpringAiAgentActionAdapterTest {
         IssuedPlanningTools issued = new IssuedPlanningTools(Map.of("issued_callers", List.of("candidate-method")),
                 List.of(callback));
         when(callbackAdapter.issuedTools(promptContext)).thenReturn(issued);
-        when(renderer.render(promptContext, issued.candidateAuthority())).thenReturn("snapshot-rendered-context");
+        String renderedPrompt = "snapshot-rendered-context";
+        when(renderer.render(promptContext, issued.candidateAuthority())).thenReturn(renderedPrompt);
         AgentActionProposal expected = new AgentActionProposal.Malformed("INVALID_TOOL_INPUT");
         when(registry.interpretToolCall("issued_callers", "{}", promptContext)).thenReturn(expected);
-        CountingChatModel model = new ToolCallingCountingChatModel(toolCall("issued_callers", "{}"));
-        ChatClient chatClient = ChatClient.builder(model).build();
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.CallResponseSpec responseSpec = mock(ChatClient.CallResponseSpec.class);
+        ChatClientResponse response = new ChatClientResponse(new ChatResponse(List.of(new Generation(
+                toolCall("issued_callers", "{}")))), Map.of());
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.advisors(any(Consumer.class))).thenReturn(requestSpec);
+        when(requestSpec.toolCallbacks(issued.callbacks())).thenReturn(requestSpec);
+        when(requestSpec.system("resource system")).thenReturn(requestSpec);
+        when(requestSpec.user(renderedPrompt)).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(responseSpec);
+        when(responseSpec.chatClientResponse()).thenReturn(response);
         PromptResourceCatalog catalog = stubPromptCatalog();
         SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(chatClient, registry,
                 callbackAdapter, renderer, catalog);
@@ -193,14 +204,14 @@ class SpringAiAgentActionAdapterTest {
         AgentActionProposal proposal = adapter.nextAction(promptContext);
 
         assertThat(proposal).isEqualTo(expected);
-        assertThat(model.calls()).isEqualTo(1);
-        assertThat(model.lastPrompt().orElseThrow().getUserMessage().getText()).isEqualTo("snapshot-rendered-context");
-        assertThat(model.lastPrompt().orElseThrow().getOptions())
-                .isInstanceOfSatisfying(ToolCallingChatOptions.class,
-                        options -> assertThat(options.getToolCallbacks()).containsExactlyElementsOf(issued.callbacks()));
+        verify(chatClient, times(1)).prompt();
         verify(callbackAdapter, times(1)).issuedTools(promptContext);
         verify(renderer, times(1)).render(promptContext, issued.candidateAuthority());
-        verify(registry).interpretToolCall("issued_callers", "{}", promptContext);
+        verify(requestSpec).toolCallbacks(issued.callbacks());
+        verify(requestSpec).user(renderedPrompt);
+        verify(requestSpec, times(1)).call();
+        verify(responseSpec, times(1)).chatClientResponse();
+        verify(registry, times(1)).interpretToolCall("issued_callers", "{}", promptContext);
     }
 
     @Test
@@ -1017,20 +1028,6 @@ class SpringAiAgentActionAdapterTest {
 
         private Optional<Prompt> lastPrompt() {
             return lastPrompt;
-        }
-    }
-
-    private static final class ToolCallingCountingChatModel extends CountingChatModel {
-
-        private final ToolCallingChatOptions defaultOptions = DefaultToolCallingChatOptions.builder().build();
-
-        private ToolCallingCountingChatModel(AssistantMessage assistantMessage) {
-            super(assistantMessage);
-        }
-
-        @Override
-        public ToolCallingChatOptions getDefaultOptions() {
-            return defaultOptions;
         }
     }
 
