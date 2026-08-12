@@ -2,7 +2,6 @@ package com.java.system.agent.model.action;
 
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.CorePlanningToolProvider;
-import com.java.system.agent.capability.planning.IssuedPlanningTool;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
@@ -13,13 +12,13 @@ import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
-import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
@@ -56,7 +55,6 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -73,22 +71,17 @@ class SpringAiPlanningToolCallbackAdapterTest {
                 Validation.buildDefaultValidatorFactory().getValidator());
         PlanningToolRegistry registry = spy(new PlanningToolRegistry(List.of(new CorePlanningToolProvider()),
                 new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec));
-        AgentPromptContext context = context(questionPlanInteractions());
-        doReturn(List.of(
-                new IssuedPlanningTool("agent_submit_answer", List.of(new CandidateHandleRef("candidate-method"))),
-                new IssuedPlanningTool("agent_request_clarification", List.of(
-                        new CandidateHandleRef("candidate-type")))))
-                .when(registry).issuedTools(context);
+        AgentPromptContext context = clarificationAuthorityContext();
         SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry,
                 new SpringAiPlanningToolSchemaFactory(), catalog(registry));
 
         IssuedPlanningTools issued = adapter.issuedTools(context);
 
         assertThat(issued.candidateAuthority()).containsExactly(
-                Map.entry("agent_submit_answer", List.of("candidate-method")),
-                Map.entry("agent_request_clarification", List.of("candidate-type")));
+                Map.entry("agent_request_clarification", List.of("candidate-first", "candidate-second")),
+                Map.entry("agent_submit_answer", List.of()));
         assertThat(issued.callbacks()).extracting(callback -> callback.getToolDefinition().name())
-                .containsExactly("agent_submit_answer", "agent_request_clarification");
+                .containsExactly("agent_request_clarification", "agent_submit_answer");
         verify(registry, times(1)).issuedTools(context);
         verify(registry, never()).issuedRegistrations(context);
     }
@@ -257,6 +250,22 @@ class SpringAiPlanningToolCallbackAdapterTest {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
                 Map.of(), Map.of(), modelInteractions, Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext clarificationAuthorityContext() {
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty());
+        CandidateHandle firstHandle = new CandidateHandle("candidate-first", binding, CandidateKind.REPOSITORY);
+        CandidateHandle secondHandle = new CandidateHandle("candidate-second", binding, CandidateKind.REPOSITORY);
+        Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
+        candidates.put(firstHandle, new IssuedCandidate(firstHandle,
+                new RepositoryCandidate(new RepositoryId("first"), "First repository candidate")));
+        candidates.put(secondHandle, new IssuedCandidate(secondHandle,
+                new RepositoryCandidate(new RepositoryId("second"), "Second repository candidate")));
+        return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), candidates,
+                Map.of(), Map.of(), questionPlanInteractions(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 

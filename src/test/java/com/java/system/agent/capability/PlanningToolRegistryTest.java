@@ -234,6 +234,33 @@ class PlanningToolRegistryTest {
     }
 
     @Test
+    void projectsAllCurrentCandidatesForClarificationAndRejectsSelectionsOutsideThatAuthority() {
+        PlanningToolRegistry registry = registry();
+        AgentPromptContext context = clarificationCandidateAuthorityContext();
+
+        assertThat(registry.issuedTools(context))
+                .filteredOn(issuedTool -> issuedTool.name().equals("agent_request_clarification"))
+                .singleElement()
+                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).containsExactly(
+                        new CandidateHandleRef("candidate-first"),
+                        new CandidateHandleRef("candidate-second")));
+        assertThat(registry.issuedTools(context))
+                .filteredOn(issuedTool -> issuedTool.name().equals("agent_submit_answer"))
+                .singleElement()
+                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).isEmpty());
+
+        AgentActionProposal proposal = registry.interpretToolCall("agent_request_clarification", """
+                {"question":"Which repository?","candidateHandles":["candidate-unknown"],"reason":"Scope is ambiguous"}
+                """, context);
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_request_clarification; reason=CANDIDATE_SELECTION; "
+                        + "invalidFields=[candidateHandles]; "
+                        + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
+        assertThat(proposal.toString()).doesNotContain("candidate-unknown");
+    }
+
+    @Test
     void keepsFixedAnswerAndClarificationToolsIssuedAfterExecuteBudgetIsConsumed() {
         PlanningToolRegistry registry = registryWithExecutePreview();
 
@@ -688,6 +715,17 @@ class PlanningToolRegistryTest {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(), Map.of(),
                 Map.of(), modelInteractions, Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, usedExecuteExecutions, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext clarificationCandidateAuthorityContext() {
+        CandidateHandle firstHandle = new CandidateHandle("candidate-first", binding(), CandidateKind.REPOSITORY);
+        CandidateHandle secondHandle = new CandidateHandle("candidate-second", binding(), CandidateKind.REPOSITORY);
+        Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
+        candidates.put(firstHandle, new IssuedCandidate(firstHandle,
+                new RepositoryCandidate(repositoryId(), "First repository candidate")));
+        candidates.put(secondHandle, new IssuedCandidate(secondHandle,
+                new RepositoryCandidate(repositoryId(), "Second repository candidate")));
+        return followUpContext(Map.of(), candidates);
     }
 
     private static QuestionPlan questionPlan() {
