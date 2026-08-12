@@ -88,6 +88,7 @@ import org.springframework.core.io.DefaultResourceLoader;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -135,7 +136,9 @@ class SpringAiAgentActionAdapterTest {
                         new ActionResult.QuerySucceeded(List.of(), List.of(), List.of()))));
         AgentActionPromptRenderer renderer = mock(AgentActionPromptRenderer.class);
         String renderedPrompt = "PROMPT_SECRET apiKey=TOKEN_SECRET source=evidence secret";
-        when(renderer.render(promptContext, List.of("callers"))).thenReturn(renderedPrompt);
+        Map<String, List<String>> candidateAuthority = Map.of(
+                "callers", List.of("candidate-1", "candidate-2"));
+        when(renderer.render(promptContext, candidateAuthority)).thenReturn(renderedPrompt);
         CountingChatModel model = new CountingChatModel(toolCall("callers", """
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Changed question secret","rationale":"Changed rationale secret"}
                 """));
@@ -148,7 +151,7 @@ class SpringAiAgentActionAdapterTest {
             assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
             assertThat(model.calls()).isEqualTo(1);
             assertThat(model.lastPrompt().orElseThrow().getUserMessage().getText()).isEqualTo(renderedPrompt);
-            verify(renderer, times(1)).render(promptContext, List.of("callers"));
+            verify(renderer, times(1)).render(promptContext, candidateAuthority);
             List<String> logMessages = formattedMessages(handler);
             assertThat(logMessages).hasSize(1);
             assertThat(logMessages.getFirst())
@@ -176,9 +179,11 @@ class SpringAiAgentActionAdapterTest {
         ToolDefinition definition = mock(ToolDefinition.class);
         when(callback.getToolDefinition()).thenReturn(definition);
         when(definition.name()).thenReturn("issued_callers");
-        IssuedPlanningTools issued = new IssuedPlanningTools(List.of("issued_callers"), List.of(callback));
+        IssuedPlanningTools issued = new IssuedPlanningTools(Map.of("issued_callers", List.of("candidate-method")),
+                List.of(callback));
         when(callbackAdapter.issuedTools(promptContext)).thenReturn(issued);
-        when(renderer.render(promptContext, issued.names())).thenReturn("snapshot-rendered-context");
+        String renderedPrompt = "snapshot-rendered-context";
+        when(renderer.render(promptContext, issued.candidateAuthority())).thenReturn(renderedPrompt);
         AgentActionProposal expected = new AgentActionProposal.Malformed("INVALID_TOOL_INPUT");
         when(registry.interpretToolCall("issued_callers", "{}", promptContext)).thenReturn(expected);
         ChatClient chatClient = mock(ChatClient.class);
@@ -190,7 +195,7 @@ class SpringAiAgentActionAdapterTest {
         when(requestSpec.advisors(any(Consumer.class))).thenReturn(requestSpec);
         when(requestSpec.toolCallbacks(issued.callbacks())).thenReturn(requestSpec);
         when(requestSpec.system("resource system")).thenReturn(requestSpec);
-        when(requestSpec.user("snapshot-rendered-context")).thenReturn(requestSpec);
+        when(requestSpec.user(renderedPrompt)).thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
         when(responseSpec.chatClientResponse()).thenReturn(response);
         PromptResourceCatalog catalog = stubPromptCatalog();
@@ -202,11 +207,12 @@ class SpringAiAgentActionAdapterTest {
         assertThat(proposal).isEqualTo(expected);
         verify(chatClient, times(1)).prompt();
         verify(callbackAdapter, times(1)).issuedTools(promptContext);
-        verify(renderer, times(1)).render(promptContext, issued.names());
+        verify(renderer, times(1)).render(promptContext, issued.candidateAuthority());
         verify(requestSpec).toolCallbacks(issued.callbacks());
+        verify(requestSpec).user(renderedPrompt);
         verify(requestSpec, times(1)).call();
         verify(responseSpec, times(1)).chatClientResponse();
-        verify(registry).interpretToolCall("issued_callers", "{}", promptContext);
+        verify(registry, times(1)).interpretToolCall("issued_callers", "{}", promptContext);
     }
 
     @Test
@@ -557,7 +563,7 @@ class SpringAiAgentActionAdapterTest {
         AgentPromptContext promptContext = context();
         PlanningToolRegistry registry = mock(PlanningToolRegistry.class);
         SpringAiPlanningToolCallbackAdapter callbacks = mock(SpringAiPlanningToolCallbackAdapter.class);
-        when(callbacks.issuedTools(promptContext)).thenReturn(new IssuedPlanningTools(List.of(), List.of()));
+        when(callbacks.issuedTools(promptContext)).thenReturn(new IssuedPlanningTools(Map.of(), List.of()));
         AgentActionProposal expected = new AgentActionProposal.Malformed("INVALID_TOOL_INPUT");
         when(registry.interpretToolCall("callers", rawArguments, promptContext)).thenReturn(expected);
         CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
@@ -579,7 +585,7 @@ class SpringAiAgentActionAdapterTest {
         AgentPromptContext promptContext = context();
         PlanningToolRegistry registry = mock(PlanningToolRegistry.class);
         SpringAiPlanningToolCallbackAdapter callbacks = mock(SpringAiPlanningToolCallbackAdapter.class);
-        when(callbacks.issuedTools(promptContext)).thenReturn(new IssuedPlanningTools(List.of(), List.of()));
+        when(callbacks.issuedTools(promptContext)).thenReturn(new IssuedPlanningTools(Map.of(), List.of()));
         CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
                 .content("I will query it")
                 .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "callers", "{}")))
@@ -876,16 +882,22 @@ class SpringAiAgentActionAdapterTest {
     private AgentPromptContext context() {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
-        RevisionVector revisions = RevisionVector.empty().pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1"));
+        RevisionVector revisions = RevisionVector.empty()
+                .pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1"))
+                .pin(new RepositoryId("repo-2"), new RepositoryRevision("rev-1"));
         HandleBinding binding = new HandleBinding(runId, attemptId, revisions);
         CapabilityHandle capability = new CapabilityHandle("cap-1", binding);
         CandidateHandle firstCandidate = new CandidateHandle("candidate-1", binding, CandidateKind.REPOSITORY);
         CandidateHandle secondCandidate = new CandidateHandle("candidate-2", binding, CandidateKind.REPOSITORY);
         CapabilityPolicy descriptor = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
+        Map<CandidateHandle, IssuedCandidate> issuedCandidates = new LinkedHashMap<>();
+        issuedCandidates.put(firstCandidate,
+                new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")));
+        issuedCandidates.put(secondCandidate,
+                new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second")));
         return new AgentPromptContext("Where is it called?", SessionHistory.empty(), runId, attemptId,
                 Map.of(capability, descriptor),
-                Map.of(firstCandidate, new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")),
-                        secondCandidate, new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second"))),
+                issuedCandidates,
                 Map.of(), Map.of(), questionPlanInteractions(attemptId), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
@@ -979,7 +991,7 @@ class SpringAiAgentActionAdapterTest {
                     input.questionToResolve(), input.rationale(), input);
         }
     }
-    private static final class CountingChatModel implements ChatModel {
+    private static class CountingChatModel implements ChatModel {
 
         private final String response;
         private final Optional<AssistantMessage> assistantMessage;

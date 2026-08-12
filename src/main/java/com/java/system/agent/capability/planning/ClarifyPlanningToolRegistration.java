@@ -2,8 +2,10 @@ package com.java.system.agent.capability.planning;
 
 import com.java.system.agent.answering.domain.action.AgentAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
+import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
 
@@ -11,6 +13,10 @@ import java.util.function.Function;
  * 將固定 CLARIFY planning tool 的 typed input 與 mapper 綁為單一 registration
  */
 public final class ClarifyPlanningToolRegistration<I> implements PlanningToolRegistration<I> {
+
+    private static final String INVALID_CANDIDATE_SELECTION = "reason=CANDIDATE_SELECTION; "
+            + "invalidFields=[candidateHandles]; "
+            + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]";
 
     private final String name;
     private final Class<I> planningInputType;
@@ -43,7 +49,21 @@ public final class ClarifyPlanningToolRegistration<I> implements PlanningToolReg
     }
 
     @Override
+    public List<CandidateHandleRef> allowedCandidateHandles(AgentPromptContext context) {
+        Objects.requireNonNull(context, "agent prompt context must not be null");
+        return context.issuedCandidates().keySet().stream()
+                .map(handle -> new CandidateHandleRef(handle.value()))
+                .toList();
+    }
+
+    @Override
     public AgentAction toAction(I input, AgentPromptContext context) {
-        return mapper.apply(input);
+        Objects.requireNonNull(input, "clarify planning input must not be null");
+        Objects.requireNonNull(context, "agent prompt context must not be null");
+        ClarifyAction action = mapper.apply(input);
+        if (!allowedCandidateHandles(context).containsAll(action.candidates())) {
+            throw PlanningToolInputException.safeDiagnostic(INVALID_CANDIDATE_SELECTION);
+        }
+        return action;
     }
 }

@@ -89,6 +89,16 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
         return new FindInternalReferencesPlanner();
     }
 
+    public static CandidateBoundExecutionPlanner<GetMethodSourcePlanningInput,
+            GetMethodSourceExecutionInput> getMethodSource() {
+        return new GetMethodSourcePlanner(new JavaSemanticCandidateTargetMapper());
+    }
+
+    public static CandidateBoundExecutionPlanner<ResolveSourceSymbolPlanningInput,
+            ResolveSourceSymbolExecutionInput> resolveSourceSymbol() {
+        return new ResolveSourceSymbolPlanner(new JavaSemanticCandidateTargetMapper());
+    }
+
     private static final class OutgoingCallGraphPlanner implements CandidateBoundExecutionPlanner<
             OutgoingCallGraphPlanningInput, OutgoingCallGraphExecutionInput> {
 
@@ -247,6 +257,64 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
                 FindInternalReferencesPlanningInput input, FindInternalReferencesExecutionInput providerInput) {
             return new FindInternalReferencesExecutionInput(providerInput.target(), providerInput.offset(),
                     limit(input.limit(), providerInput.limit()));
+        }
+    }
+
+    private static final class GetMethodSourcePlanner implements CandidateBoundExecutionPlanner<
+            GetMethodSourcePlanningInput, GetMethodSourceExecutionInput> {
+
+        private final JavaSemanticCandidateTargetMapper targetMapper;
+
+        private GetMethodSourcePlanner(JavaSemanticCandidateTargetMapper targetMapper) {
+            this.targetMapper = Objects.requireNonNull(targetMapper, "semantic candidate target mapper must not be null");
+        }
+
+        @Override
+        public boolean supportsDirectCandidate(AnalysisCandidate candidate) {
+            return candidate instanceof SemanticTargetCandidate semanticTarget
+                    && targetMapper.supportsMethodTarget(semanticTarget.semanticTarget());
+        }
+
+        @Override
+        public GetMethodSourceExecutionInput planDirect(GetMethodSourcePlanningInput input, AnalysisCandidate candidate) {
+            methodTarget(candidate, targetMapper);
+            return new GetMethodSourceExecutionInput(Optional.empty());
+        }
+
+        @Override
+        public GetMethodSourceExecutionInput planFollowUp(
+                GetMethodSourcePlanningInput input, GetMethodSourceExecutionInput providerInput) {
+            return providerInput;
+        }
+    }
+
+    private static final class ResolveSourceSymbolPlanner implements CandidateBoundExecutionPlanner<
+            ResolveSourceSymbolPlanningInput, ResolveSourceSymbolExecutionInput> {
+
+        private final JavaSemanticCandidateTargetMapper targetMapper;
+
+        private ResolveSourceSymbolPlanner(JavaSemanticCandidateTargetMapper targetMapper) {
+            this.targetMapper = Objects.requireNonNull(targetMapper, "semantic candidate target mapper must not be null");
+        }
+
+        @Override
+        public boolean supportsDirectCandidate(AnalysisCandidate candidate) {
+            return candidate instanceof SemanticTargetCandidate semanticTarget
+                    && targetMapper.supportsMethodTarget(semanticTarget.semanticTarget());
+        }
+
+        @Override
+        public ResolveSourceSymbolExecutionInput planDirect(
+                ResolveSourceSymbolPlanningInput input, AnalysisCandidate candidate) {
+            methodTarget(candidate, targetMapper);
+            Optional<SemanticDtos.Position> position = Optional.ofNullable(input.position()).orElse(Optional.empty());
+            return new ResolveSourceSymbolExecutionInput(input.symbol(), position, Optional.empty());
+        }
+
+        @Override
+        public ResolveSourceSymbolExecutionInput planFollowUp(
+                ResolveSourceSymbolPlanningInput input, ResolveSourceSymbolExecutionInput providerInput) {
+            return providerInput;
         }
     }
 

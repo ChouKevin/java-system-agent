@@ -65,9 +65,16 @@ public final class FollowUpOnlyQueryRegistration<E>
     @Override
     public boolean isIssued(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
+        return !allowedCandidateHandles(context).isEmpty();
+    }
+
+    @Override
+    public List<CandidateHandleRef> allowedCandidateHandles(AgentPromptContext context) {
+        Objects.requireNonNull(context, "agent prompt context must not be null");
         return context.issuedCandidates().entrySet().stream()
                 .map(candidate -> new CandidateHandleRef(candidate.getKey().value()))
-                .anyMatch(reference -> ProviderBoundFollowUp.selection(context, policy, reference).isPresent());
+                .filter(reference -> ProviderBoundFollowUp.selection(context, policy, reference).isPresent())
+                .toList();
     }
 
     @Override
@@ -75,6 +82,9 @@ public final class FollowUpOnlyQueryRegistration<E>
         Objects.requireNonNull(input, "follow-up planning input must not be null");
         Objects.requireNonNull(context, "agent prompt context must not be null");
         CandidateHandleRef reference = new CandidateHandleRef(input.followUpCandidateHandle());
+        if (!allowedCandidateHandles(context).contains(reference)) {
+            throw invalidFollowUpSelection();
+        }
         ProviderBoundFollowUp.Selection selection = ProviderBoundFollowUp.selection(context, policy, reference)
                 .orElseThrow(FollowUpOnlyQueryRegistration::invalidFollowUpSelection);
         return new QueryAction(selection.capability(), List.of(selection.candidateReference()), input.questionToResolve(),

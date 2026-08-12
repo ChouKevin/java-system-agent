@@ -12,6 +12,7 @@ import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.action.PlanAction;
@@ -54,11 +55,36 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * Spring AI planning callback 在啟動時投影與驗證完整 catalog 的邊界測試
  */
 class SpringAiPlanningToolCallbackAdapterTest {
+
+    @Test
+    void projects_each_issued_tool_with_only_its_registry_candidate_authority_once() {
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = spy(new PlanningToolRegistry(List.of(new CorePlanningToolProvider()),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec));
+        AgentPromptContext context = clarificationAuthorityContext();
+        SpringAiPlanningToolCallbackAdapter adapter = new SpringAiPlanningToolCallbackAdapter(registry,
+                new SpringAiPlanningToolSchemaFactory(), catalog(registry));
+
+        IssuedPlanningTools issued = adapter.issuedTools(context);
+
+        assertThat(issued.candidateAuthority()).containsExactly(
+                Map.entry("agent_request_clarification", List.of("candidate-first", "candidate-second")),
+                Map.entry("agent_submit_answer", List.of()));
+        assertThat(issued.callbacks()).extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("agent_request_clarification", "agent_submit_answer");
+        verify(registry, times(1)).issuedTools(context);
+        verify(registry, never()).issuedRegistrations(context);
+    }
 
     @Test
     void projectsCallbackNamesFromTheRegistrySnapshotInBothQuestionPlanningPhases() {
@@ -84,7 +110,7 @@ class SpringAiPlanningToolCallbackAdapterTest {
     @Test
     void rendersGenericQueryCallbackDescriptionFromTheImmutableCatalog() {
         TrackingSchemaFactory schemaFactory = new TrackingSchemaFactory();
-        CapabilityPolicy policy = new CapabilityPolicy("test_lookup_symbol", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+        CapabilityPolicy policy = new CapabilityPolicy("test_lookup_symbol", "v1", Set.of(CandidateKind.REPOSITORY), 0, 1);
         CapabilityPolicy unissuedPolicy = new CapabilityPolicy("test_lookup_unissued", "v1",
                 Set.of(CandidateKind.REPOSITORY), 1, 1);
         PlanningToolRegistry registry = registry(policy, unissuedPolicy);
@@ -175,11 +201,8 @@ class SpringAiPlanningToolCallbackAdapterTest {
                 CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
                 CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(),
                 CodeIntelligenceQuery.INCOMING_CALL_GRAPH.capabilityName(),
-                CodeIntelligenceQuery.LIST_ENTRY_POINTS.capabilityName(),
-                CodeIntelligenceQuery.LOOKUP_API_ROUTE.capabilityName(),
                 CodeIntelligenceQuery.OUTGOING_CALL_GRAPH.capabilityName(),
-                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName(),
-                CodeIntelligenceQuery.SUGGEST_API_ROUTE.capabilityName());
+                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
         assertThat(issued.names()).doesNotContain(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName());
         assertThat(issued.callbacks()).extracting(callback -> callback.getToolDefinition().name())
                 .containsExactlyElementsOf(issued.names());
@@ -227,6 +250,22 @@ class SpringAiPlanningToolCallbackAdapterTest {
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), Map.of(),
                 Map.of(), Map.of(), modelInteractions, Optional.empty(),
+                new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
+    }
+
+    private static AgentPromptContext clarificationAuthorityContext() {
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty());
+        CandidateHandle firstHandle = new CandidateHandle("candidate-first", binding, CandidateKind.REPOSITORY);
+        CandidateHandle secondHandle = new CandidateHandle("candidate-second", binding, CandidateKind.REPOSITORY);
+        Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
+        candidates.put(firstHandle, new IssuedCandidate(firstHandle,
+                new RepositoryCandidate(new RepositoryId("first"), "First repository candidate")));
+        candidates.put(secondHandle, new IssuedCandidate(secondHandle,
+                new RepositoryCandidate(new RepositoryId("second"), "Second repository candidate")));
+        return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId, Map.of(), candidates,
+                Map.of(), Map.of(), questionPlanInteractions(), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
 

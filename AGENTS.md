@@ -52,7 +52,8 @@ callback, and message adapters while consuming answering contracts and `capabili
 `issuedCapabilities` is answering's capability/handle catalog, not the current Spring AI callback
 list. Before each action-model turn, the registry filters contributed registrations through
 `PlanningToolRegistration.isIssued(context)` into one snapshot: the model may call only those
-names, and the prompt names and callbacks are projected from that same snapshot. Provider follow-up
+names with candidate handles authorized for each tool, and the prompt authority and callbacks are
+projected from that same snapshot. Provider follow-up
 candidates carry canonical payload and analyzed-revision scope; historical evidence provenance is
 context, not permission to repeat a tool. Follow-ups are trusted target/recommendation candidates,
 not universal prerequisites: current revision-pinned direct candidates can project safe method,

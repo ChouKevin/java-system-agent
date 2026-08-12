@@ -1,5 +1,6 @@
 package com.java.system.agent.model.action;
 
+import com.java.system.agent.capability.planning.IssuedPlanningTool;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
 import com.java.system.agent.capability.planning.PlanningToolSchemaFactory;
@@ -10,6 +11,7 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,14 +44,23 @@ public final class SpringAiPlanningToolCallbackAdapter {
 
     IssuedPlanningTools issuedTools(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        List<PlanningToolRegistration<?>> issuedRegistrations = registry.issuedRegistrations(context);
-        List<ToolCallback> callbacks = issuedRegistrations.stream()
-                .map(registration -> callback(registration.name()))
-                .toList();
-        List<String> names = callbacks.stream()
-                .map(callback -> callback.getToolDefinition().name())
-                .toList();
-        return new IssuedPlanningTools(names, callbacks);
+        List<IssuedPlanningTool> issuedTools = registry.issuedTools(context);
+        Map<String, List<String>> candidateAuthority = new LinkedHashMap<>();
+        List<ToolCallback> callbacks = new ArrayList<>();
+        for (IssuedPlanningTool issuedTool : issuedTools) {
+            IssuedPlanningTool requiredIssuedTool = Objects.requireNonNull(issuedTool,
+                    "issued planning tool must not be null");
+            String name = requiredIssuedTool.name();
+            List<String> handles = requiredIssuedTool.allowedCandidateHandles().stream()
+                    .map(candidateHandle -> candidateHandle.value())
+                    .toList();
+            if (Objects.nonNull(candidateAuthority.putIfAbsent(name, handles))) {
+                throw new AgentActionContractException("duplicate issued planning tool authority",
+                        new IllegalStateException("issued planning tool authority is duplicated"));
+            }
+            callbacks.add(callback(name));
+        }
+        return new IssuedPlanningTools(candidateAuthority, callbacks);
     }
 
     private ToolCallback callback(String name) {

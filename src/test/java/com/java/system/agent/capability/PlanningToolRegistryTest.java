@@ -9,6 +9,7 @@ import com.java.system.agent.capability.planning.ClarifyPlanningToolRegistration
 import com.java.system.agent.capability.planning.CorePlanningToolProvider;
 import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
 import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
+import com.java.system.agent.capability.planning.IssuedPlanningTool;
 import com.java.system.agent.capability.planning.PlanningToolCategory;
 import com.java.system.agent.capability.planning.PlanningToolDescriptor;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
@@ -34,6 +35,7 @@ import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
@@ -63,6 +65,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -232,6 +235,39 @@ class PlanningToolRegistryTest {
     }
 
     @Test
+    void projectsAllCurrentCandidatesForClarificationAndRejectsSelectionsOutsideThatAuthority() {
+        PlanningToolRegistry registry = registry();
+        AgentPromptContext context = clarificationCandidateAuthorityContext();
+
+        assertThat(registry.issuedTools(context))
+                .filteredOn(issuedTool -> issuedTool.name().equals("agent_request_clarification"))
+                .singleElement()
+                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).containsExactly(
+                        new CandidateHandleRef("candidate-first"),
+                        new CandidateHandleRef("candidate-second")));
+        assertThat(registry.issuedTools(context))
+                .filteredOn(issuedTool -> issuedTool.name().equals("agent_submit_answer"))
+                .singleElement()
+                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).isEmpty());
+
+        AgentActionProposal authorizedProposal = registry.interpretToolCall("agent_request_clarification", """
+                {"question":"Which repository?","candidateHandles":["candidate-first"],"reason":"Scope is ambiguous"}
+                """, context);
+        assertThat(authorizedProposal).isEqualTo(new AgentActionProposal.Proposed(new ClarifyAction(
+                "Which repository?", List.of(new CandidateHandleRef("candidate-first")), "Scope is ambiguous")));
+
+        AgentActionProposal proposal = registry.interpretToolCall("agent_request_clarification", """
+                {"question":"Which repository?","candidateHandles":["candidate-unknown"],"reason":"Scope is ambiguous"}
+                """, context);
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_request_clarification; reason=CANDIDATE_SELECTION; "
+                        + "invalidFields=[candidateHandles]; "
+                        + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
+        assertThat(proposal.toString()).doesNotContain("candidate-unknown");
+    }
+
+    @Test
     void keepsFixedAnswerAndClarificationToolsIssuedAfterExecuteBudgetIsConsumed() {
         PlanningToolRegistry registry = registryWithExecutePreview();
 
@@ -354,6 +390,95 @@ class PlanningToolRegistryTest {
                 "INVALID_TOOL_INPUT: tool=candidate_bound_test; reason=JSON_CONTRACT"));
         assertThat(followUpExecutorCalls).hasValue(0);
         assertThat(candidateBoundExecutorCalls).hasValue(0);
+    }
+
+    @Test
+    void projectsOnlyCurrentCandidateAuthorityForEachIssuedToolAndRejectsOtherToolFollowUps() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = candidateBoundRegistry(executorCalls);
+        AgentPromptContext context = contextWithCandidateBoundAuthorityProjection();
+
+        assertThat(registry.issuedTools(context))
+                .filteredOn(issuedTool -> issuedTool.name().equals("candidate_bound_test"))
+                .singleElement()
+                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).containsExactly(
+                        new CandidateHandleRef("candidate-bound-follow-up"),
+                        new CandidateHandleRef("candidate-method")));
+        assertThat(registry.interpretToolCall("candidate_bound_test",
+                candidateBoundInput("candidate-other-tool-follow-up", 2), context))
+                .isEqualTo(new AgentActionProposal.Malformed(
+                        "INVALID_TOOL_INPUT: tool=candidate_bound_test; reason=CANDIDATE_SELECTION; "
+                                + "invalidFields=[candidateHandles]; "
+                                + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    @Test
+    void projectsOnlyExactFollowUpAuthorityForFollowUpOnlyRegistrations() {
+        PlanningToolRegistry registry = followUpRegistry(new AtomicInteger());
+
+        assertThat(registry.issuedTools(contextWithFollowUpAndRepositoryCandidate()))
+                .filteredOn(issuedTool -> issuedTool.name().equals("codebase_get_source_segment"))
+                .singleElement()
+                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).containsExactly(
+                        new CandidateHandleRef("candidate-follow-up")));
+    }
+
+    @Test
+    void projectsCurrentRepositoryAuthorityForMapperRegistrationsAndRejectsOtherToolSelections() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        PlanningToolRegistry registry = repositoryMapperRegistry(executorCalls);
+        AgentPromptContext context = contextWithRepositoryMapperAuthority();
+
+        assertThat(registry.issuedTools(context))
+                .filteredOn(issuedTool -> issuedTool.name().equals("repository_mapper_test"))
+                .singleElement()
+                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).containsExactly(
+                        new CandidateHandleRef("candidate-repository")));
+        assertThat(registry.issuedRegistrations(contextWithoutRepositoryMapperCandidate()))
+                .extracting(PlanningToolRegistration::name)
+                .doesNotContain("repository_mapper_test");
+        assertThat(registry.interpretToolCall("repository_mapper_test",
+                candidateBoundInput("candidate-other-tool-follow-up", 2), context))
+                .isEqualTo(new AgentActionProposal.Malformed(
+                        "INVALID_TOOL_INPUT: tool=repository_mapper_test; reason=CANDIDATE_SELECTION; "
+                                + "invalidFields=[candidateHandles]; "
+                                + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
+        QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) registry.interpretToolCall(
+                "repository_mapper_test", candidateBoundInput("candidate-repository", 2), context)).action();
+        assertThat(action.candidates()).containsExactly(new CandidateHandleRef("candidate-repository"));
+        assertThat(executorCalls).hasValue(0);
+    }
+
+    @Test
+    void issuesAndExecutesZeroCandidateMapperRegistrationWhenPolicyPermitsIt() {
+        AtomicInteger executorCalls = new AtomicInteger();
+        CapabilityPolicy policy = new CapabilityPolicy("zero_candidate_mapper_test", "v1",
+                Set.of(CandidateKind.REPOSITORY), 0, 1);
+        QueryPlanningMapper<TestInput, TestInput> mapper = input -> new QueryPlanningSelection<>(List.of(),
+                input.questionToResolve(), input.rationale(), input);
+        QueryPlanningToolRegistration<TestInput, TestInput> registration = PlanningToolRegistry.registration(policy,
+                TestInput.class, TestInput.class, mapper, (executionContext, input) -> {
+                    executorCalls.incrementAndGet();
+                    return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+                }, payloadCodec());
+        PlanningToolRegistry registry = registry(List.of(provider(List.of(registration))));
+        AgentPromptContext context = followUpContext(Map.of(
+                new CapabilityHandle("capability-zero-candidate-mapper", binding()), policy), Map.of());
+
+        assertThat(registry.issuedTools(context))
+                .containsExactly(new IssuedPlanningTool("zero_candidate_mapper_test", List.of()));
+        QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) registry.interpretToolCall(
+                "zero_candidate_mapper_test", """
+                        {"questionToResolve":"Inspect the repository metadata",
+                         "rationale":"This query does not need a candidate"}
+                        """, context)).action();
+        CapabilityExecutionResult result = registry.execute(new CapabilityInvocation(policy, List.of(),
+                action.questionToResolve(), action.payload(), binding().revisionVector()));
+
+        assertThat(action.candidates()).isEmpty();
+        assertThat(result).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
+        assertThat(executorCalls).hasValue(1);
     }
 
     @Test
@@ -519,6 +644,21 @@ class PlanningToolRegistryTest {
                 }, payloadCodec())))));
     }
 
+    private static PlanningToolRegistry repositoryMapperRegistry(AtomicInteger executorCalls) {
+        CapabilityPolicy policy = new CapabilityPolicy("repository_mapper_test", "v1", Set.of(CandidateKind.REPOSITORY),
+                1, 1);
+        QueryPlanningMapper<TestCandidateBoundInput, TestExecutionInput> mapper = input -> new QueryPlanningSelection<>(
+                input.candidateHandles().stream().map(CandidateHandleRef::new).toList(), input.questionToResolve(),
+                input.rationale(), new TestExecutionInput("mapper-owned-target", input.option()));
+        QueryPlanningToolRegistration<TestCandidateBoundInput, TestExecutionInput> registration =
+                PlanningToolRegistry.registration(policy, TestCandidateBoundInput.class, TestExecutionInput.class, mapper,
+                        (executionContext, input) -> {
+                            executorCalls.incrementAndGet();
+                            return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
+                        }, payloadCodec());
+        return registry(List.of(provider(List.of(registration))));
+    }
+
     private static CandidateBoundExecutionPlanner<TestCandidateBoundInput, TestExecutionInput> candidateBoundPlanner() {
         return
                 new CandidateBoundExecutionPlanner<>() {
@@ -584,6 +724,17 @@ class PlanningToolRegistryTest {
                 Map.of(), modelInteractions, Optional.empty(), new AttemptBudget(3, 0, 3, 0, 1, usedExecuteExecutions, 3, 0, 1, 0));
     }
 
+    private static AgentPromptContext clarificationCandidateAuthorityContext() {
+        CandidateHandle firstHandle = new CandidateHandle("candidate-first", binding(), CandidateKind.REPOSITORY);
+        CandidateHandle secondHandle = new CandidateHandle("candidate-second", binding(), CandidateKind.REPOSITORY);
+        Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
+        candidates.put(firstHandle, new IssuedCandidate(firstHandle,
+                new RepositoryCandidate(repositoryId(), "First repository candidate")));
+        candidates.put(secondHandle, new IssuedCandidate(secondHandle,
+                new RepositoryCandidate(repositoryId(), "Second repository candidate")));
+        return followUpContext(Map.of(), candidates);
+    }
+
     private static QuestionPlan questionPlan() {
         return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("scope"), "確認業務範圍")));
     }
@@ -614,6 +765,49 @@ class PlanningToolRegistryTest {
         return followUpContext(Map.of(candidateBoundCapabilityHandle(), candidateBoundPolicy()), Map.of(
                 followUpHandle, new IssuedCandidate(followUpHandle, mismatchedCandidateBoundFollowUp()),
                 directHandle, new IssuedCandidate(directHandle, directSemanticCandidate())));
+    }
+
+    private static AgentPromptContext contextWithCandidateBoundAuthorityProjection() {
+        CandidateHandle matchingFollowUpHandle = candidateBoundFollowUpHandle();
+        CandidateHandle directHandle = directSemanticCandidateHandle();
+        CandidateHandle otherToolFollowUpHandle = new CandidateHandle("candidate-other-tool-follow-up", binding(),
+                CandidateKind.FOLLOW_UP);
+        CandidateHandle staleHandle = new CandidateHandle("candidate-stale", new HandleBinding(
+                new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-0"), binding().revisionVector()),
+                CandidateKind.SEMANTIC_TARGET);
+        Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
+        candidates.put(matchingFollowUpHandle, new IssuedCandidate(matchingFollowUpHandle, candidateBoundFollowUp()));
+        candidates.put(directHandle, new IssuedCandidate(directHandle, directSemanticCandidate()));
+        candidates.put(otherToolFollowUpHandle, new IssuedCandidate(otherToolFollowUpHandle,
+                mismatchedCandidateBoundFollowUp()));
+        candidates.put(staleHandle, new IssuedCandidate(staleHandle, directSemanticCandidate()));
+        return followUpContext(Map.of(candidateBoundCapabilityHandle(), candidateBoundPolicy()), candidates);
+    }
+
+    private static AgentPromptContext contextWithRepositoryMapperAuthority() {
+        CapabilityPolicy policy = new CapabilityPolicy("repository_mapper_test", "v1", Set.of(CandidateKind.REPOSITORY),
+                1, 1);
+        CapabilityHandle capability = new CapabilityHandle("capability-repository-mapper", binding());
+        CandidateHandle repositoryHandle = new CandidateHandle("candidate-repository", binding(), CandidateKind.REPOSITORY);
+        CandidateHandle semanticHandle = directSemanticCandidateHandle();
+        CandidateHandle otherToolFollowUpHandle = new CandidateHandle("candidate-other-tool-follow-up", binding(),
+                CandidateKind.FOLLOW_UP);
+        Map<CandidateHandle, IssuedCandidate> candidates = new LinkedHashMap<>();
+        candidates.put(repositoryHandle, new IssuedCandidate(repositoryHandle,
+                new RepositoryCandidate(repositoryId(), "Repository root")));
+        candidates.put(semanticHandle, new IssuedCandidate(semanticHandle, directSemanticCandidate()));
+        candidates.put(otherToolFollowUpHandle, new IssuedCandidate(otherToolFollowUpHandle,
+                mismatchedCandidateBoundFollowUp()));
+        return followUpContext(Map.of(capability, policy), candidates);
+    }
+
+    private static AgentPromptContext contextWithoutRepositoryMapperCandidate() {
+        CapabilityPolicy policy = new CapabilityPolicy("repository_mapper_test", "v1", Set.of(CandidateKind.REPOSITORY),
+                1, 1);
+        CapabilityHandle capability = new CapabilityHandle("capability-repository-mapper", binding());
+        CandidateHandle semanticHandle = directSemanticCandidateHandle();
+        return followUpContext(Map.of(capability, policy), Map.of(semanticHandle,
+                new IssuedCandidate(semanticHandle, directSemanticCandidate())));
     }
 
     private static AgentPromptContext contextWithStaleDirectSemanticCandidate() {

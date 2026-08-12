@@ -113,11 +113,13 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                 PlanningToolRegistry.followUpOnlyRegistration(
                         policy(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE, Set.of(CandidateKind.FOLLOW_UP)),
                         GetEvidenceSourceExecutionInput.class, new GetEvidenceSourceExecutor(requiredAdapter)),
-                PlanningToolRegistry.registration(
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
                         policy(CodeIntelligenceQuery.GET_METHOD_SOURCE,
                                 Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
                         GetMethodSourcePlanningInput.class, GetMethodSourceExecutionInput.class,
-                        new GetMethodSourcePlanningMapper(), new GetMethodSourceExecutor(requiredAdapter), requiredPayloadCodec),
+                        CodeIntelligenceCandidateExecutionPlanners.getMethodSource(),
+                        new GetMethodSourceExecutor(requiredAdapter), requiredPayloadCodec),
                 PlanningToolRegistry.candidateBoundRegistration(
                         PlanningToolCategory.QUERY,
                         policy(CodeIntelligenceQuery.GET_SOURCE_SEGMENT,
@@ -125,11 +127,13 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
                         GetSourceSegmentPlanningInput.class, GetSourceSegmentExecutionInput.class,
                         CodeIntelligenceCandidateExecutionPlanners.getSourceSegment(),
                         new GetSourceSegmentExecutor(requiredAdapter), requiredPayloadCodec),
-                PlanningToolRegistry.registration(
+                PlanningToolRegistry.candidateBoundRegistration(
+                        PlanningToolCategory.QUERY,
                         policy(CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL,
                                 Set.of(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP)),
                         ResolveSourceSymbolPlanningInput.class, ResolveSourceSymbolExecutionInput.class,
-                        new ResolveSourceSymbolPlanningMapper(), new ResolveSourceSymbolExecutor(requiredAdapter), requiredPayloadCodec));
+                        CodeIntelligenceCandidateExecutionPlanners.resolveSourceSymbol(),
+                        new ResolveSourceSymbolExecutor(requiredAdapter), requiredPayloadCodec));
     }
 
     @Override
