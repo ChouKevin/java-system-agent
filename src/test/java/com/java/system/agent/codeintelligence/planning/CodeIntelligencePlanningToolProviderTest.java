@@ -476,6 +476,48 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
+    void preservesModelSourceSymbolInputForMethodsAndProviderAuthorityForFollowUps() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL);
+        IssuedCandidate method = semanticTargetCandidate("candidate-method", binding, repositoryId, revision);
+        SemanticDtos.SourceSymbolContextPayload providerContext = new SemanticDtos.SourceSymbolContextPayload(
+                graphTarget().sourceType().javaType(), Optional.of(graphTarget().sourceType().sourceFile()),
+                Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(graphTarget().methodName(),
+                        graphTarget().parameterTypes())));
+        ResolveSourceSymbolExecutionInput providerInput = new ResolveSourceSymbolExecutionInput("providerSymbol",
+                Optional.of(new SemanticDtos.Position(7, 9)), Optional.of(providerContext));
+        IssuedCandidate followUp = followUpCandidate("candidate-source-symbol", binding, repositoryId, revision,
+                policy, payloadCodec.encode(providerInput));
+        AgentPromptContext context = promptContext(policy, List.of(method, followUp), binding);
+
+        PlanningToolRegistration<?> registration = registry.issuedRegistrations(context).stream()
+                .filter(candidate -> candidate.name().equals(policy.name())).findFirst().orElseThrow();
+        assertThat(registration.allowedCandidateHandles(context))
+                .extracting(CandidateHandleRef::value)
+                .containsExactly("candidate-method", "candidate-source-symbol");
+
+        QueryAction directAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-method"],"questionToResolve":"Resolve the typed method symbol","rationale":"Inspect the selected method","symbol":"modelSymbol","position":{"line":3,"character":5}}
+                """, context));
+        QueryAction followUpAction = queryAction(registry.interpretToolCall(policy.name(), """
+                {"candidateHandles":["candidate-source-symbol"],"questionToResolve":"Resolve the provider symbol","rationale":"Continue the provider result","symbol":"modelOverride","position":{"line":1,"character":2}}
+                """, context));
+
+        assertThat(directAction.payload()).isEqualTo(payloadCodec.encode(new ResolveSourceSymbolExecutionInput(
+                "modelSymbol", Optional.of(new SemanticDtos.Position(3, 5)), Optional.empty())));
+        assertThat(followUpAction.payload()).isEqualTo(payloadCodec.encode(providerInput));
+    }
+
+    @Test
     void executesAFollowUpGraphThroughRegistryDecodingAndTheRegisteredExecutor() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
