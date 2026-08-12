@@ -66,9 +66,23 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
     }
 
     public List<PlanningToolRegistration<?>> issuedRegistrations(AgentPromptContext context) {
+        return issuedTools(context).stream()
+                .map(IssuedPlanningTool::name)
+                .map(planningRegistrations::get)
+                .<PlanningToolRegistration<?>>map(registration -> Objects.requireNonNull(registration,
+                        "issued planning tool must have a registration"))
+                .toList();
+    }
+
+    /**
+     * 回傳依 registration 順序的目前 tool 與其不可變 candidate authority 投影
+     */
+    public List<IssuedPlanningTool> issuedTools(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
         return registrations.stream()
                 .filter(registration -> isCurrentlyIssued(registration, context))
+                .map(registration -> new IssuedPlanningTool(registration.name(),
+                        registration.allowedCandidateHandles(context)))
                 .toList();
     }
 

@@ -49,10 +49,16 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
     @Override
     public boolean isIssued(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        if (currentCapability(context).isEmpty()) {
-            return false;
-        }
-        return context.issuedCandidates().entrySet().stream().anyMatch(candidate -> isCompatible(context, candidate));
+        return currentCapability(context).isPresent() && !allowedCandidateHandles(context).isEmpty();
+    }
+
+    @Override
+    public List<CandidateHandleRef> allowedCandidateHandles(AgentPromptContext context) {
+        Objects.requireNonNull(context, "agent prompt context must not be null");
+        return context.issuedCandidates().entrySet().stream()
+                .filter(candidate -> isCompatible(context, candidate))
+                .map(candidate -> new CandidateHandleRef(candidate.getKey().value()))
+                .toList();
     }
 
     @Override
@@ -61,6 +67,9 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
         Objects.requireNonNull(context, "agent prompt context must not be null");
         validatePlanningText(input);
         CandidateHandleRef reference = selectedReference(input);
+        if (!allowedCandidateHandles(context).contains(reference)) {
+            throw invalidCandidateSelection();
+        }
         Map.Entry<CandidateHandle, IssuedCandidate> selected = selectedCandidate(context, reference);
         CapabilityHandle capability = currentCapability(context).orElseThrow(
                 CandidateBoundQueryPlanningStrategy::invalidCandidateSelection);
@@ -165,7 +174,7 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
                 && binding.attemptId().equals(context.attemptId());
     }
 
-    private static PlanningToolInputException invalidCandidateSelection() {
+    static PlanningToolInputException invalidCandidateSelection() {
         return PlanningToolInputException.safeDiagnostic(INVALID_CANDIDATE_SELECTION);
     }
 
@@ -180,6 +189,8 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
 interface QueryPlanningStrategy<P, E> {
 
     boolean isIssued(AgentPromptContext context);
+
+    List<CandidateHandleRef> allowedCandidateHandles(AgentPromptContext context);
 
     AgentAction toAction(P input, AgentPromptContext context);
 }
