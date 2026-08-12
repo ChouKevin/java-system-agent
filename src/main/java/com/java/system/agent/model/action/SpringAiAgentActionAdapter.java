@@ -81,7 +81,7 @@ public final class SpringAiAgentActionAdapter implements AgentActionPort {
             ChatClientResponse response;
             try {
                 IssuedPlanningTools issuedTools = callbackAdapter.issuedTools(context);
-                String renderedPrompt = promptRenderer.render(context, issuedTools.names());
+                String renderedPrompt = promptRenderer.render(context, issuedTools.candidateAuthority());
                 promptMetadata = PromptMetadata.rendered(renderedPrompt);
                 response = chatClient.prompt()
                         .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false))
