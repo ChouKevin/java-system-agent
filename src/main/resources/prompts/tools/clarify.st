@@ -1,1 +1,1 @@
-Use <toolName> only when a missing user decision makes the current request materially ambiguous.
+Use <toolName> only when a material decision or information must come from the user and cannot be obtained from currently callable query tools or issued candidates. If an available query can materially reduce the uncertainty, query first instead of asking the user.
