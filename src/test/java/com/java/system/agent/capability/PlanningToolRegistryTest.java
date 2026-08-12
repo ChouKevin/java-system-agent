@@ -35,6 +35,7 @@ import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.evidence.SemanticTarget;
 import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
+import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
@@ -248,6 +249,12 @@ class PlanningToolRegistryTest {
                 .filteredOn(issuedTool -> issuedTool.name().equals("agent_submit_answer"))
                 .singleElement()
                 .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).isEmpty());
+
+        AgentActionProposal authorizedProposal = registry.interpretToolCall("agent_request_clarification", """
+                {"question":"Which repository?","candidateHandles":["candidate-first"],"reason":"Scope is ambiguous"}
+                """, context);
+        assertThat(authorizedProposal).isEqualTo(new AgentActionProposal.Proposed(new ClarifyAction(
+                "Which repository?", List.of(new CandidateHandleRef("candidate-first")), "Scope is ambiguous")));
 
         AgentActionProposal proposal = registry.interpretToolCall("agent_request_clarification", """
                 {"question":"Which repository?","candidateHandles":["candidate-unknown"],"reason":"Scope is ambiguous"}
