@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
+import com.java.system.agent.capability.planning.PlanningToolRegistration;
 import com.java.system.agent.model.action.SpringAiPlanningToolCallbackAdapter;
 import com.java.system.agent.model.action.SpringAiPlanningToolSchemaFactory;
 import com.java.system.agent.model.prompt.AgentPromptResourceProperties;
@@ -16,12 +17,18 @@ import com.java.system.agent.model.prompt.PromptResourceCatalogLoader;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
 import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
+import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
+import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
@@ -55,30 +62,19 @@ import static org.mockito.Mockito.mock;
 class AgentCapabilityConfigurationTest {
 
     @Test
-    void advertisesRequiredArgumentsFromActualLookupAndSuggestToolDefinitions() throws Exception {
+    void generatesRequiredArgumentsFromStaticLookupAndSuggestToolSchemas() throws Exception {
         PlanningToolRegistry registry = registry();
-        Map<String, JsonNode> schemas = schemasByToolName(registry);
+        Map<String, JsonNode> schemas = registeredSchemasByToolName(registry);
 
         assertThat(required(schemas, "codebase_lookup_api_route")).contains("apiPath").doesNotContain("httpMethod");
         assertThat(required(schemas, "codebase_suggest_api_route")).contains("apiPath", "limit").doesNotContain("httpMethod");
         assertThat(required(schemas, "codebase_list_entry_points")).doesNotContain("type");
-        assertThat(schemas).hasSize(7).containsKeys("agent_submit_answer", "agent_request_clarification",
+        assertThat(schemas).containsKeys("agent_submit_answer", "agent_request_clarification",
                 CodeIntelligenceQuery.LIST_ENTRY_POINTS.capabilityName(),
                 CodeIntelligenceQuery.LOOKUP_API_ROUTE.capabilityName(),
                 CodeIntelligenceQuery.SUGGEST_API_ROUTE.capabilityName(),
                 CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
-                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName())
-                .doesNotContainKeys(
-                        CodeIntelligenceQuery.OUTGOING_CALL_GRAPH.capabilityName(),
-                        CodeIntelligenceQuery.INCOMING_CALL_GRAPH.capabilityName(),
-                        CodeIntelligenceQuery.DISCOVER_CONCEPTS.capabilityName(),
-                        CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS.capabilityName(),
-                        CodeIntelligenceQuery.RESOLVE_CONCEPT.capabilityName(),
-                        CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
-                        CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
-                        CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
-                        CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName(),
-                        CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
+                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
         assertThat(required(schemas, "agent_submit_answer")).containsExactly("resolutions", "statements");
         assertThat(required(schemas, "agent_request_clarification"))
                 .containsExactlyInAnyOrder("question", "candidateHandles", "reason");
@@ -87,9 +83,17 @@ class AgentCapabilityConfigurationTest {
                 continue;
             }
             JsonNode schema = entry.getValue();
-            assertThat(schema.path("required")).extracting(jsonNode -> jsonNode.asText()).contains("candidateHandles");
-            assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
-                    .isGreaterThanOrEqualTo(1);
+            if (schema.path("properties").has("candidateHandles")) {
+                assertThat(schema.path("required")).extracting(jsonNode -> jsonNode.asText())
+                        .contains("candidateHandles");
+                assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
+                        .isGreaterThanOrEqualTo(1);
+            } else {
+                assertThat(schema.path("required")).extracting(jsonNode -> jsonNode.asText())
+                        .contains("followUpCandidateHandle");
+                assertThat(schema.path("properties").path("followUpCandidateHandle").path("minLength").asInt())
+                        .isGreaterThanOrEqualTo(1);
+            }
         }
         assertThat(schemas.get(CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName())
                 .path("properties").has("boundTarget")).isFalse();
@@ -114,7 +118,7 @@ class AgentCapabilityConfigurationTest {
     @Test
     void startupRegistryVerifiesTheNestedAnswerStatementSchemaContract() throws Exception {
         PlanningToolRegistry registry = registry();
-        JsonNode answerSchema = schemasByToolName(registry).get("agent_submit_answer");
+        JsonNode answerSchema = registeredSchemasByToolName(registry).get("agent_submit_answer");
         JsonNode statement = answerSchema.path("properties").path("statements").path("items");
         JsonNode resolution = answerSchema.path("properties").path("resolutions").path("items");
 
@@ -143,7 +147,7 @@ class AgentCapabilityConfigurationTest {
                 .filter(value -> value.name().equals("codebase_lookup_api_route"))
                 .findFirst()
                 .orElseThrow();
-        AgentPromptContext context = contextFor(List.of(policy));
+        AgentPromptContext context = contextFor(List.of(policy), List.of("candidate-1"));
 
         AgentActionProposal proposal = registry.interpretToolCall(policy.name(), """
                         {"candidateHandles":[" "],"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
@@ -155,9 +159,9 @@ class AgentCapabilityConfigurationTest {
     }
 
     @Test
-    void mapsFixedPlanningToolsWithoutResolvingRawIssuedHandleReferences() {
+    void preservesRawAnswerReferencesWhileClarifySelectsCurrentIssuedCandidateHandles() {
         PlanningToolRegistry registry = registry();
-        AgentPromptContext context = contextFor(List.of());
+        AgentPromptContext context = contextFor(List.of(), List.of("candidate-1", "candidate-2"));
 
         AgentActionProposal answerProposal = registry.interpretToolCall("agent_submit_answer", """
                         {"statements":[{"statementId":"statement-1","type":"FACT","text":"The route is called by checkout","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-2","status":"SUPPORTED","evidenceHandles":["evidence-unknown"],"observationIds":[]},{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
@@ -204,10 +208,10 @@ class AgentCapabilityConfigurationTest {
                 .findFirst()
                 .orElseThrow();
 
-        JsonNode schema = schemasByToolName(registry, List.of(policy)).get(policy.name());
+        JsonNode schema = registeredSchemasByToolName(registry).get(policy.name());
         AgentActionProposal proposal = registry.interpretToolCall(policy.name(), """
                         {"candidateHandles":["candidate-1"],"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
-                        """, contextFor(List.of(policy)));
+                        """, contextFor(List.of(policy), List.of("candidate-1")));
 
         assertThat(hostMapper.getPropertyNamingStrategy()).isEqualTo(PropertyNamingStrategies.SNAKE_CASE);
         assertThat(schema.path("properties").has("apiPath")).isTrue();
@@ -237,12 +241,14 @@ class AgentCapabilityConfigurationTest {
                 .containsExactly("scope");
     }
 
-    private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry) throws Exception {
-        return schemasByToolName(registry, registry.availableCapabilities());
-    }
-
-    private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry, List<CapabilityPolicy> policies) throws Exception {
-        return schemasByToolName(registry, contextFor(policies));
+    private static Map<String, JsonNode> registeredSchemasByToolName(PlanningToolRegistry registry) throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        SpringAiPlanningToolSchemaFactory schemaFactory = new SpringAiPlanningToolSchemaFactory();
+        LinkedHashMap<String, JsonNode> schemas = new LinkedHashMap<>();
+        for (PlanningToolRegistration<?> registration : registry.registrations()) {
+            schemas.put(registration.name(), objectMapper.readTree(schemaFactory.createSchema(registration.planningInputType())));
+        }
+        return Map.copyOf(schemas);
     }
 
     private static Map<String, JsonNode> schemasByToolName(PlanningToolRegistry registry, AgentPromptContext context) throws Exception {
@@ -256,19 +262,35 @@ class AgentCapabilityConfigurationTest {
         return Map.copyOf(schemas);
     }
 
-    private static AgentPromptContext contextFor(List<CapabilityPolicy> policies) {
-        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), RevisionVector.empty());
+    private static AgentPromptContext contextFor(List<CapabilityPolicy> policies, List<String> candidateHandles) {
+        RevisionVector revisions = RevisionVector.empty();
+        int candidateSequence = 1;
+        for (String ignored : candidateHandles) {
+            revisions = revisions.pin(new RepositoryId("repo-" + candidateSequence),
+                    new RepositoryRevision("revision-" + candidateSequence));
+            candidateSequence++;
+        }
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
         LinkedHashMap<CapabilityHandle, CapabilityPolicy> issuedCapabilities = new LinkedHashMap<>();
         int sequence = 1;
         for (CapabilityPolicy policy : policies) {
             issuedCapabilities.put(new CapabilityHandle("capability-" + sequence, binding), policy);
             sequence++;
         }
+        LinkedHashMap<CandidateHandle, IssuedCandidate> issuedCandidates = new LinkedHashMap<>();
+        candidateSequence = 1;
+        for (String candidateHandleValue : candidateHandles) {
+            CandidateHandle candidateHandle = new CandidateHandle(candidateHandleValue, binding, CandidateKind.REPOSITORY);
+            issuedCandidates.put(candidateHandle, new IssuedCandidate(candidateHandle,
+                    new RepositoryCandidate(new RepositoryId("repo-" + candidateSequence),
+                            "repository-" + candidateSequence)));
+            candidateSequence++;
+        }
         QuestionPlan plan = new QuestionPlan(List.of(
                 new InformationNeed(new InformationNeedId("need-1"), "確認業務範圍"),
                 new InformationNeed(new InformationNeedId("need-2"), "確認路由證據")));
         return new AgentPromptContext("Find routes", SessionHistory.empty(), binding.runId(), binding.attemptId(),
-                issuedCapabilities, Map.of(), Map.of(), Map.of(), List.of(
+                issuedCapabilities, issuedCandidates, Map.of(), Map.of(), List.of(
                 new ModelInteraction.ActionSelected(binding.attemptId(), new PlanAction(plan)),
                 new ModelInteraction.ActionResultRecorded(
                         binding.attemptId(), new ActionResult.QuestionPlanRecorded(plan))), Optional.empty(),

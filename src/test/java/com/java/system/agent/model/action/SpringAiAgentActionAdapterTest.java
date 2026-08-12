@@ -88,6 +88,7 @@ import org.springframework.core.io.DefaultResourceLoader;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -889,10 +890,14 @@ class SpringAiAgentActionAdapterTest {
         CandidateHandle firstCandidate = new CandidateHandle("candidate-1", binding, CandidateKind.REPOSITORY);
         CandidateHandle secondCandidate = new CandidateHandle("candidate-2", binding, CandidateKind.REPOSITORY);
         CapabilityPolicy descriptor = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
+        Map<CandidateHandle, IssuedCandidate> issuedCandidates = new LinkedHashMap<>();
+        issuedCandidates.put(firstCandidate,
+                new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")));
+        issuedCandidates.put(secondCandidate,
+                new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second")));
         return new AgentPromptContext("Where is it called?", SessionHistory.empty(), runId, attemptId,
                 Map.of(capability, descriptor),
-                Map.of(firstCandidate, new IssuedCandidate(firstCandidate, new RepositoryCandidate(new RepositoryId("repo-1"), "first")),
-                        secondCandidate, new IssuedCandidate(secondCandidate, new RepositoryCandidate(new RepositoryId("repo-2"), "second"))),
+                issuedCandidates,
                 Map.of(), Map.of(), questionPlanInteractions(attemptId), Optional.empty(),
                 new AttemptBudget(3, 0, 3, 0, 1, 0, 3, 0, 1, 0));
     }
