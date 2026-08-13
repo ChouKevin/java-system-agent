@@ -909,18 +909,11 @@ class JavaSemanticResultMapperTest {
                 new SemanticDtos.RecordComponentTypeMemberResponse("RECORD_COMPONENT",
                         new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", sourceType, "reference"), " ",
                         Optional.empty(), textRange(1, 0, 1, 9), List.of(), List.of())), page, coverage, List.of());
-        SemanticDtos.DiscoverTypeMembersResponse reversedRange = new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
-                sourceType, "RECORD", List.of(), List.of(), List.of(), List.of(
-                new SemanticDtos.EnumConstantTypeMemberResponse("ENUM_CONSTANT",
-                        new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", sourceType, "CARD"),
-                        textRange(2, 4, 2, 3), List.of(), List.of())), page, coverage, List.of());
-
         assertThatThrownBy(() -> mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION, mismatchedOwner))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         assertThatThrownBy(() -> mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION, blankType))
                 .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION, reversedRange))
-                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> textRange(2, 4, 2, 3)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

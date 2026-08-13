@@ -8,6 +8,8 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.Valid;
 
 import java.util.List;
 import java.util.Objects;
@@ -177,8 +179,12 @@ public final class SemanticDtos {
     }
 
     public record Position(
-            @JsonPropertyDescription("Zero-based source line number") @Min(0) Integer line,
-            @JsonPropertyDescription("Zero-based UTF-16 code-unit character offset within line") @Min(0) Integer character) {
+            @JsonPropertyDescription("Zero-based source line number") @NotNull @Min(0) Integer line,
+            @JsonPropertyDescription("Zero-based UTF-16 code-unit character offset within line") @NotNull @Min(0) Integer character) {
+        public Position {
+            line = Objects.requireNonNull(line, "line is required");
+            character = Objects.requireNonNull(character, "character is required");
+        }
     }
 
     /** Java 型別的 HTTP 識別資料 */
@@ -221,12 +227,15 @@ public final class SemanticDtos {
 
     /** 零基 UTF-16 半開文字範圍 HTTP 資料 */
     public record TextRangePayload(
-            @JsonPropertyDescription("Inclusive zero-based UTF-16 start position") Position start,
-            @JsonPropertyDescription("Exclusive zero-based UTF-16 end position; ranges are half-open") Position end) {
+            @JsonPropertyDescription("Inclusive zero-based UTF-16 start position") @NotNull @Valid Position start,
+            @JsonPropertyDescription("Exclusive zero-based UTF-16 end position; ranges are half-open") @NotNull @Valid Position end) {
 
         public TextRangePayload {
             start = Objects.requireNonNull(start, "start is required");
             end = Objects.requireNonNull(end, "end is required");
+            if (comparePositions(start, end) > 0) {
+                throw new IllegalArgumentException("half-open range end must not precede start");
+            }
         }
     }
 
@@ -261,7 +270,7 @@ public final class SemanticDtos {
     /** 含有來源檔案的可導覽文字範圍 HTTP 資料 */
     public record SourceRangePayload(
             @JsonPropertyDescription("Repository-relative source file path") String sourceFile,
-            @JsonPropertyDescription("Zero-based UTF-16 half-open range in sourceFile") TextRangePayload range) {
+            @JsonPropertyDescription("Zero-based UTF-16 half-open range in sourceFile") @NotNull @Valid TextRangePayload range) {
 
         public SourceRangePayload {
             sourceFile = Objects.requireNonNull(sourceFile, "sourceFile is required");
@@ -435,18 +444,23 @@ public final class SemanticDtos {
     /** ten provider concept kinds 的單一 typed superset，validator 依 kind 收緊欄位組合 */
     @JsonIgnoreProperties(ignoreUnknown = false)
     @JsonInclude(JsonInclude.Include.NON_ABSENT)
-    public record ConceptFollowUpIdentity(String kind, Optional<SourceTypeIdentityPayload> sourceType,
-                                          Optional<MethodTargetPayload> target,
-                                          Optional<ConceptIdentityTargetPayload> identity,
-                                          Optional<DeclarationSubjectPayload> declaration,
-                                          Optional<AnnotationTypePayload> annotationType,
-                                          Optional<DeclarationSubjectPayload> owner,
-                                          Optional<TypeUsageLocationPayload> location,
-                                          Optional<List<TypeUsagePathPayload>> path,
-                                          Optional<ReferencedTypePayload> referencedType,
-                                          Optional<String> httpVerb, Optional<String> route,
-                                          Optional<String> broker, Optional<String> destination,
-                                          Optional<String> triggerKind, Optional<String> triggerValue)
+    public record ConceptFollowUpIdentity(
+                                          @JsonPropertyDescription("One of TYPE, METHOD, FIELD, ANNOTATION_USAGE, TYPE_USAGE, API_ROUTE, MQ_DESTINATION, SCHEDULE, MAPPER_STATEMENT, MAPPER_STATEMENT_VARIANT") String kind,
+                                          @JsonPropertyDescription("Required only for TYPE") Optional<SourceTypeIdentityPayload> sourceType,
+                                          @JsonPropertyDescription("Required only for METHOD, API_ROUTE, MQ_DESTINATION, and SCHEDULE") Optional<MethodTargetPayload> target,
+                                          @JsonPropertyDescription("Required only for FIELD, MAPPER_STATEMENT, and MAPPER_STATEMENT_VARIANT") Optional<ConceptIdentityTargetPayload> identity,
+                                          @JsonPropertyDescription("Required only for FIELD and ANNOTATION_USAGE") Optional<DeclarationSubjectPayload> declaration,
+                                          @JsonPropertyDescription("Required only for ANNOTATION_USAGE") Optional<AnnotationTypePayload> annotationType,
+                                          @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<DeclarationSubjectPayload> owner,
+                                          @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<TypeUsageLocationPayload> location,
+                                          @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<List<TypeUsagePathPayload>> path,
+                                          @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<ReferencedTypePayload> referencedType,
+                                          @JsonPropertyDescription("Required only for API_ROUTE") Optional<String> httpVerb,
+                                          @JsonPropertyDescription("Required only for API_ROUTE") Optional<String> route,
+                                          @JsonPropertyDescription("Required only for MQ_DESTINATION") Optional<String> broker,
+                                          @JsonPropertyDescription("Required only for MQ_DESTINATION") Optional<String> destination,
+                                          @JsonPropertyDescription("Required only for SCHEDULE") Optional<String> triggerKind,
+                                          @JsonPropertyDescription("Required only for SCHEDULE") Optional<String> triggerValue)
             implements FollowUpIdentity, ConceptIdentityPayload {
         public ConceptFollowUpIdentity {
             kind = Objects.requireNonNull(kind, "kind is required");
@@ -696,8 +710,10 @@ public final class SemanticDtos {
 
     @JsonIgnoreProperties(ignoreUnknown = false)
     @JsonInclude(JsonInclude.Include.NON_ABSENT)
-    public record EvidenceSourceFollowUpIdentity(String kind, Optional<MapperStatementIdentityPayload> statementIdentity,
-                                                 Optional<MapperFragmentIdentityPayload> fragmentIdentity)
+    public record EvidenceSourceFollowUpIdentity(
+                                                 @JsonPropertyDescription("One of ANNOTATION_SQL, MAPPER_STATEMENT, MAPPER_FRAGMENT") String kind,
+                                                 @JsonPropertyDescription("Required for ANNOTATION_SQL and MAPPER_STATEMENT only") Optional<MapperStatementIdentityPayload> statementIdentity,
+                                                 @JsonPropertyDescription("Required for MAPPER_FRAGMENT only") Optional<MapperFragmentIdentityPayload> fragmentIdentity)
             implements FollowUpIdentity, EvidenceSourceIdentityPayload {
         public EvidenceSourceFollowUpIdentity {
             kind = Objects.requireNonNull(kind, "kind is required");
@@ -720,6 +736,14 @@ public final class SemanticDtos {
             throw new IllegalArgumentException("unexpected discriminator");
         }
         return required;
+    }
+
+    private static int comparePositions(Position start, Position end) {
+        int lineComparison = Integer.compare(start.line(), end.line());
+        if (lineComparison != 0) {
+            return lineComparison;
+        }
+        return Integer.compare(start.character(), end.character());
     }
 
     private static <T> Optional<T> optional(Optional<T> value) {

@@ -59,6 +59,18 @@ class SpringAiPlanningToolSchemaFactoryTest {
         JsonNode segment = mapper.readTree(factory.createSchema(GetSourceSegmentPlanningInput.class));
         assertThat(segment.path("required")).extracting(JsonNode::asText)
                 .contains("location").doesNotContain("contextLines");
+        JsonNode concept = mapper.readTree(factory.createSchema(ResolveConceptPlanningInput.class));
+        JsonNode evidence = mapper.readTree(factory.createSchema(GetEvidenceSourcePlanningInput.class));
+        assertThat(concept.at("/properties/identity/description").asText()).contains("Exact concept identity");
+        assertThat(concept.at("/properties/identity/properties/kind/description").asText())
+                .contains("TYPE", "MAPPER_STATEMENT_VARIANT");
+        assertThat(concept.at("/properties/identity/properties/sourceType/description").asText())
+                .contains("TYPE");
+        assertThat(evidence.at("/properties/identity/description").asText()).contains("Exact evidence identity");
+        assertThat(evidence.at("/properties/identity/properties/kind/description").asText())
+                .contains("ANNOTATION_SQL", "MAPPER_FRAGMENT");
+        assertThat(evidence.at("/properties/identity/properties/fragmentIdentity/description").asText())
+                .contains("MAPPER_FRAGMENT");
     }
 
     @Test

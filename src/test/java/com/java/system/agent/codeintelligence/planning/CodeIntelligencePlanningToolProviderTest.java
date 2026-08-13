@@ -25,11 +25,15 @@ import com.java.system.agent.codeintelligence.CodeIntelligenceQuery;
 import com.java.system.agent.codeintelligence.semantic.JavaSemanticServiceHttpAdapter;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -121,8 +125,9 @@ class CodeIntelligencePlanningToolProviderTest {
     void rejects_invalid_typed_values_before_an_executor_is_selected() {
         CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
+        JavaSemanticServiceHttpAdapter adapter = org.mockito.Mockito.mock(JavaSemanticServiceHttpAdapter.class);
         PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(
-                org.mockito.Mockito.mock(JavaSemanticServiceHttpAdapter.class), codec)),
+                adapter, codec)),
                 new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), codec);
         AgentPromptContext context = plannedContext(registry);
 
@@ -141,6 +146,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 {"sourceFile":"src/Orders.java","range":{"start":{"line":0,"character":0},"end":{"line":1,"character":0}}},
                 "contextLines":21}
                 """, context)).isInstanceOf(AgentActionProposal.Malformed.class);
+        org.mockito.Mockito.verifyNoInteractions(adapter);
     }
 
     @Test
@@ -173,6 +179,20 @@ class CodeIntelligencePlanningToolProviderTest {
         assertThat(codec.decode(segmentAction.payload(), GetSourceSegmentExecutionInput.class).contextLines()).isZero();
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidSourceRanges")
+    void rejects_invalid_source_ranges_as_invalid_tool_input_without_adapter_invocation(String scenario, String input) {
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        JavaSemanticServiceHttpAdapter adapter = org.mockito.Mockito.mock(JavaSemanticServiceHttpAdapter.class);
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(adapter, codec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), codec);
+
+        assertThat(registry.interpretToolCall("codebase_get_source_segment", input, plannedContext(registry)))
+                .isInstanceOf(AgentActionProposal.Malformed.class);
+        org.mockito.Mockito.verifyNoInteractions(adapter);
+    }
+
     private static AgentPromptContext plannedContext(PlanningToolRegistry registry) {
         RevisionVector revisions = RevisionVector.empty().pin(new RepositoryId("orders"),
                 new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
@@ -194,6 +214,23 @@ class CodeIntelligencePlanningToolProviderTest {
             String input,
             AgentPromptContext context) {
         return (QueryAction) ((AgentActionProposal.Proposed) registry.interpretToolCall(name, input, context)).action();
+    }
+
+    private static Stream<Arguments> invalidSourceRanges() {
+        return Stream.of(
+                Arguments.of("negative coordinate", sourceSegmentInput("{\"line\":-1,\"character\":0}",
+                        "{\"line\":0,\"character\":0}")),
+                Arguments.of("missing coordinate", sourceSegmentInput("{\"line\":0}",
+                        "{\"line\":0,\"character\":0}")),
+                Arguments.of("reversed range", sourceSegmentInput("{\"line\":1,\"character\":0}",
+                        "{\"line\":0,\"character\":5}")));
+    }
+
+    private static String sourceSegmentInput(String start, String end) {
+        return """
+                {"questionToResolve":"Read","rationale":"Need evidence","location":{"sourceFile":"src/Orders.java",
+                "range":{"start":%s,"end":%s}}}
+                """.formatted(start, end);
     }
 
     private static String json(String name) {
