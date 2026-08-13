@@ -98,7 +98,7 @@ public final class JavaSemanticResultMapper {
                 }
             }
         }
-        return succeeded(new ArrayList<>(new LinkedHashSet<>(candidates)), evidence, observations);
+        return succeeded(candidates, evidence, observations);
     }
 
     public CapabilityExecutionResult apiRoutes(SemanticDtos.ApiRouteCandidatesResponse response) {
@@ -636,7 +636,7 @@ public final class JavaSemanticResultMapper {
             }
             addFollowUps(repositoryId, revision, edge.availableFollowUps(), edgeCandidates);
         }
-        candidates.addAll(new LinkedHashSet<>(edgeCandidates));
+        candidates.addAll(edgeCandidates);
         for (SemanticDtos.GraphWarning warning : requiredWarnings) {
             ObservationCode code = switch (warning.code()) {
                 case "DESCENDANT_CALL_AMBIGUOUS" -> ObservationCode.AMBIGUOUS_SEMANTIC_TARGET;
@@ -729,7 +729,8 @@ public final class JavaSemanticResultMapper {
 
     private CapabilityExecutionResult.Succeeded succeeded(List<AnalysisCandidate> candidates, List<EvidenceRef> evidence,
                                                            List<CapabilityObservation> observations) {
-        return new CapabilityExecutionResult.Succeeded(candidates, evidence, observations);
+        return new CapabilityExecutionResult.Succeeded(
+                new ArrayList<>(new LinkedHashSet<>(candidates)), evidence, observations);
     }
 
     private CapabilityObservation observation(ObservationCode code, String description,

@@ -268,6 +268,50 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void deduplicatesRepeatedTypeMemberFollowUpsBeforeStrictCapabilityIssuance() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Orders");
+        SemanticDtos.AvailableFollowUp fieldMembersFollowUp = new SemanticDtos.AvailableFollowUp(
+                "GET_TYPE_MEMBERS",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/type-members", "discoverTypeMembers"),
+                new SemanticDtos.TypeMembersFollowUpRequest("orders", REVISION, sourceType, List.of("FIELD"),
+                        Optional.empty(), 0, 50));
+        SemanticDtos.MethodTargetPayload firstTarget = new SemanticDtos.MethodTargetPayload(
+                sourceType, "create", List.of());
+        SemanticDtos.MethodTargetPayload secondTarget = new SemanticDtos.MethodTargetPayload(
+                sourceType, "find", List.of());
+        SemanticDtos.DiscoverTypeMembersResponse response = new SemanticDtos.DiscoverTypeMembersResponse(
+                "orders", REVISION, sourceType, "CLASS", List.of(), List.of(), List.of(),
+                List.of(
+                        new SemanticDtos.MethodTypeMemberResponse("METHOD", firstTarget,
+                                List.of(fieldMembersFollowUp)),
+                        new SemanticDtos.MethodTypeMemberResponse("METHOD", secondTarget,
+                                List.of(fieldMembersFollowUp))),
+                new SemanticDtos.PageResponse(0, 50, 2, 2, false),
+                new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0),
+                List.of());
+
+        CapabilityExecutionResult.Succeeded mapped = (CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(
+                REPOSITORY_ID, REPOSITORY_REVISION, response);
+        ContextIssuer issuer = new ContextIssuer();
+        ContextIssuer.CapabilityIssue issued = issuer.issueCapabilityResult(
+                new AnalysisRunId("run-duplicate-type-member-follow-ups"),
+                issuer.issueInitial(
+                        new AnalysisRunId("run-duplicate-type-member-follow-ups"),
+                        new AnalysisAttemptId("attempt-duplicate-type-member-follow-ups"),
+                        RevisionVector.empty().pin(REPOSITORY_ID, REPOSITORY_REVISION),
+                        List.of(new CapabilityPolicy("find", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 10)),
+                        List.of(new RepositoryDescriptor(REPOSITORY_ID, "Orders repository"))),
+                mapped,
+                Set.of(REPOSITORY_ID));
+
+        assertThat(mapped.discoveredCandidates()).extracting(AnalysisCandidate::kind)
+                .containsExactly(CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP,
+                        CandidateKind.SEMANTIC_TARGET);
+        assertThat(issued.resultCandidateHandleValues()).hasSize(3);
+    }
+
+    @Test
     void projectsGraphEdgeImplementationFollowUpsWithoutInferringThem() throws Exception {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.MethodTargetPayload abstractTarget = methodTargetPayload();
@@ -482,7 +526,7 @@ class JavaSemanticResultMapperTest {
         assertThat(internalReferencesInput.offset()).isZero();
         assertThat(internalReferencesInput.limit()).isEqualTo(20);
         assertThat(((CapabilityExecutionResult.Succeeded) mapper.findInternalReferences(REPOSITORY_ID,
-                REPOSITORY_REVISION, references)).discoveredCandidates()).hasSize(5);
+                REPOSITORY_REVISION, references)).discoveredCandidates()).hasSize(3);
         assertThat(((CapabilityExecutionResult.Succeeded) mapper.getEvidenceSource(REPOSITORY_ID, REPOSITORY_REVISION,
                 evidence)).evidence()).hasSize(1);
         assertThat(((CapabilityExecutionResult.Succeeded) mapper.getMethodSource(REPOSITORY_ID, REPOSITORY_REVISION,
@@ -490,7 +534,7 @@ class JavaSemanticResultMapperTest {
         assertThat(((CapabilityExecutionResult.Succeeded) mapper.getSourceSegment(REPOSITORY_ID, REPOSITORY_REVISION,
                 sourceSegment)).evidence()).hasSize(1);
         assertThat(((CapabilityExecutionResult.Succeeded) mapper.resolveSourceSymbol(REPOSITORY_ID, REPOSITORY_REVISION,
-                sourceSymbols)).discoveredCandidates()).hasSize(13);
+                sourceSymbols)).discoveredCandidates()).hasSize(8);
     }
 
     @Test
