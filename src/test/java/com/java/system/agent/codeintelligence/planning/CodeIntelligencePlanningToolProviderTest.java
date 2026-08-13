@@ -187,6 +187,20 @@ class CodeIntelligencePlanningToolProviderTest {
                 """, plannedContext(registry))).isInstanceOf(AgentActionProposal.Proposed.class);
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidMapperIdentities")
+    void rejects_invalid_mapper_identities_before_an_executor_is_selected(String scenario, String input) {
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        JavaSemanticServiceHttpAdapter adapter = org.mockito.Mockito.mock(JavaSemanticServiceHttpAdapter.class);
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(adapter, codec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), codec);
+
+        assertThat(registry.interpretToolCall("codebase_get_evidence_source", input, plannedContext(registry)))
+                .isInstanceOf(AgentActionProposal.Malformed.class);
+        org.mockito.Mockito.verifyNoInteractions(adapter);
+    }
+
     @Test
     void normalizes_omitted_paging_and_context_defaults_in_the_typed_mappers() {
         CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
@@ -269,11 +283,24 @@ class CodeIntelligencePlanningToolProviderTest {
                 Arguments.of("dot-dot source path", "codebase_outgoing_call_graph", outgoingTarget("../Orders.java", "Orders", "find", "[]")),
                 Arguments.of("absolute source path", "codebase_outgoing_call_graph", outgoingTarget("/src/Orders.java", "Orders", "find", "[]")),
                 Arguments.of("backslash source path", "codebase_outgoing_call_graph", outgoingTarget("src\\\\Orders.java", "Orders", "find", "[]")),
-                Arguments.of("drive source path", "codebase_outgoing_call_graph", outgoingTarget("C:/Orders.java", "Orders", "find", "[]")),
-                Arguments.of("whitespace source path", "codebase_outgoing_call_graph", outgoingTarget("src/Order Service.java", "Orders", "find", "[]")),
                 Arguments.of("blank class name", "codebase_outgoing_call_graph", outgoingTarget("src/Orders.java", " ", "find", "[]")),
                 Arguments.of("blank method name", "codebase_outgoing_call_graph", outgoingTarget("src/Orders.java", "Orders", " ", "[]")),
                 Arguments.of("blank parameter type", "codebase_outgoing_call_graph", outgoingTarget("src/Orders.java", "Orders", "find", "[\" \"]")));
+    }
+
+    private static Stream<Arguments> invalidMapperIdentities() {
+        return Stream.of(
+                Arguments.of("invalid fragment representation", evidenceFragment("XML", 0, "orders", "sql")),
+                Arguments.of("negative fragment ordinal", evidenceFragment("MAPPER_XML_ELEMENT", -1, "orders", "sql")),
+                Arguments.of("blank fragment identifier", evidenceFragment("MAPPER_XML_ELEMENT", 0, " ", "sql")));
+    }
+
+    private static String evidenceFragment(String representation, int documentOrdinal, String namespace, String fragmentId) {
+        return """
+                {"questionToResolve":"Read","rationale":"Need evidence","identity":{"kind":"MAPPER_FRAGMENT",
+                "fragmentIdentity":{"namespace":"%s","fragmentId":"%s","resourcePath":"Orders.xml",
+                "documentOrdinal":%d,"representation":"%s"}}}
+                """.formatted(namespace, fragmentId, documentOrdinal, representation);
     }
 
     private static String outgoingTarget(String sourceFile, String className, String methodName, String parameterTypes) {
@@ -305,7 +332,7 @@ class CodeIntelligencePlanningToolProviderTest {
             case "codebase_discover_method_implementations", "codebase_get_method_source" -> "{" + question + "\"target\":" + method + "}";
             case "codebase_discover_type_members" -> "{" + question + "\"sourceType\":" + type + ",\"memberKinds\":[\"METHOD\"],\"offset\":0,\"limit\":1}";
             case "codebase_find_internal_references" -> "{" + question + "\"target\":{\"kind\":\"METHOD\",\"identity\":" + method + "},\"offset\":0,\"limit\":1}";
-            case "codebase_get_evidence_source" -> "{" + question + "\"identity\":{\"kind\":\"MAPPER_FRAGMENT\",\"fragmentIdentity\":{\"namespace\":\"orders\",\"fragmentId\":\"sql\",\"resourcePath\":\"Orders.xml\",\"documentOrdinal\":0,\"representation\":\"XML\"}}}";
+            case "codebase_get_evidence_source" -> "{" + question + "\"identity\":{\"kind\":\"MAPPER_FRAGMENT\",\"fragmentIdentity\":{\"namespace\":\"orders\",\"fragmentId\":\"sql\",\"resourcePath\":\"Orders.xml\",\"documentOrdinal\":0,\"representation\":\"MAPPER_XML_ELEMENT\"}}}";
             case "codebase_get_source_segment" -> "{" + question + "\"location\":{\"sourceFile\":\"src/Orders.java\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":1,\"character\":0}}},\"contextLines\":0}";
             case "codebase_resolve_source_symbol" -> "{" + question + "\"context\":{\"javaType\":{\"packageName\":\"com.example\",\"className\":\"Orders\"}},\"symbol\":\"find\"}";
             default -> throw new IllegalArgumentException("unknown query");

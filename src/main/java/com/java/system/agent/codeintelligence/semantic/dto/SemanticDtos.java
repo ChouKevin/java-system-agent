@@ -15,6 +15,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Java Semantic Service v1 HTTP 文件使用的窄 DTO 集合
@@ -195,7 +196,7 @@ public final class SemanticDtos {
 
         public JavaTypeIdentityPayload {
             packageName = Objects.requireNonNull(packageName, "packageName is required");
-            className = requiredText(className, "className");
+            className = javaQualifiedIdentifier(className, true, "className");
         }
     }
 
@@ -220,7 +221,7 @@ public final class SemanticDtos {
 
         public MethodTargetPayload {
             sourceType = Objects.requireNonNull(sourceType, "sourceType is required");
-            methodName = requiredText(methodName, "methodName");
+            methodName = javaQualifiedIdentifier(methodName, false, "methodName");
             parameterTypes = List.copyOf(Objects.requireNonNull(
                     parameterTypes, "parameterTypes are required"));
             for (String parameterType : parameterTypes) {
@@ -251,22 +252,23 @@ public final class SemanticDtos {
     public sealed interface SourceMemberIdentityPayload extends InternalReferenceIdentity permits SourceMemberIdentityPayload.TypeMember,
             SourceMemberIdentityPayload.MethodScoped {
 
-        record TypeMember(String scope, SourceTypeIdentityPayload ownerType, String name)
+        record TypeMember(String scope, @NotNull @Valid SourceTypeIdentityPayload ownerType, @NotBlank String name)
                 implements SourceMemberIdentityPayload, ConceptIdentityTargetPayload {
             public TypeMember {
                 scope = requiredKind(scope, "TYPE");
                 ownerType = Objects.requireNonNull(ownerType, "ownerType is required");
-                name = Objects.requireNonNull(name, "name is required");
+                name = javaQualifiedIdentifier(name, false, "name");
             }
         }
 
-        record MethodScoped(String scope, MethodTargetPayload declaringMethod, TextRangePayload declarationRange, String name)
+        record MethodScoped(String scope, @NotNull @Valid MethodTargetPayload declaringMethod,
+                            @NotNull @Valid TextRangePayload declarationRange, @NotBlank String name)
                 implements SourceMemberIdentityPayload, ConceptIdentityTargetPayload {
             public MethodScoped {
                 scope = requiredKind(scope, "METHOD");
                 declaringMethod = Objects.requireNonNull(declaringMethod, "declaringMethod is required");
                 declarationRange = Objects.requireNonNull(declarationRange, "declarationRange is required");
-                name = Objects.requireNonNull(name, "name is required");
+                name = javaQualifiedIdentifier(name, false, "name");
             }
         }
     }
@@ -522,7 +524,7 @@ public final class SemanticDtos {
     /** 來源符號的可選方法 context */
     public record SourceSymbolMethodContextPayload(@NotBlank String name, @NotNull List<@NotBlank String> parameterTypes) {
         public SourceSymbolMethodContextPayload {
-            name = requiredText(name, "name");
+            name = javaQualifiedIdentifier(name, false, "name");
             parameterTypes = List.copyOf(Objects.requireNonNull(parameterTypes, "parameterTypes are required"));
             for (String parameterType : parameterTypes) {
                 requiredText(parameterType, "parameterType");
@@ -543,7 +545,7 @@ public final class SemanticDtos {
             FieldDeclarationSubjectPayload {
     }
 
-    public record TypeDeclarationSubjectPayload(String kind, SourceTypeIdentityPayload sourceType)
+    public record TypeDeclarationSubjectPayload(String kind, @NotNull @Valid SourceTypeIdentityPayload sourceType)
             implements DeclarationSubjectPayload {
         public TypeDeclarationSubjectPayload {
             kind = requiredKind(kind, "TYPE");
@@ -551,7 +553,7 @@ public final class SemanticDtos {
         }
     }
 
-    public record ResolvedMethodDeclarationSubjectPayload(String kind, MethodTargetPayload target)
+    public record ResolvedMethodDeclarationSubjectPayload(String kind, @NotNull @Valid MethodTargetPayload target)
             implements DeclarationSubjectPayload {
         public ResolvedMethodDeclarationSubjectPayload {
             kind = requiredKind(kind, "METHOD");
@@ -559,7 +561,7 @@ public final class SemanticDtos {
         }
     }
 
-    public record UnresolvedMethodDeclarationSubjectPayload(String kind, MethodTargetPayload target)
+    public record UnresolvedMethodDeclarationSubjectPayload(String kind, @NotNull @Valid MethodTargetPayload target)
             implements DeclarationSubjectPayload {
         public UnresolvedMethodDeclarationSubjectPayload {
             kind = requiredKind(kind, "METHOD_UNRESOLVED");
@@ -567,7 +569,7 @@ public final class SemanticDtos {
         }
     }
 
-    public record FieldDeclarationSubjectPayload(String kind, SourceMemberIdentityPayload identity)
+    public record FieldDeclarationSubjectPayload(String kind, @NotNull @Valid SourceMemberIdentityPayload identity)
             implements DeclarationSubjectPayload {
         public FieldDeclarationSubjectPayload {
             kind = requiredKind(kind, "FIELD");
@@ -585,7 +587,7 @@ public final class SemanticDtos {
             UnresolvedAnnotationTypePayload {
     }
 
-    public record ResolvedAnnotationTypePayload(String status, JavaTypeIdentityPayload javaType)
+    public record ResolvedAnnotationTypePayload(String status, @NotNull @Valid JavaTypeIdentityPayload javaType)
             implements AnnotationTypePayload {
         public ResolvedAnnotationTypePayload {
             status = requiredKind(status, "RESOLVED");
@@ -593,7 +595,7 @@ public final class SemanticDtos {
         }
     }
 
-    public record UnresolvedAnnotationTypePayload(String status, String writtenName)
+    public record UnresolvedAnnotationTypePayload(String status, @NotBlank String writtenName)
             implements AnnotationTypePayload {
         public UnresolvedAnnotationTypePayload {
             status = requiredKind(status, "UNRESOLVED");
@@ -601,10 +603,13 @@ public final class SemanticDtos {
         }
     }
 
-    public record TypeUsageLocationPayload(String slot, Integer index) {
+    public record TypeUsageLocationPayload(@NotBlank String slot, @NotNull @Min(0) Integer index) {
         public TypeUsageLocationPayload {
-            slot = Objects.requireNonNull(slot, "slot is required");
+            slot = requiredText(slot, "slot");
             index = Objects.requireNonNull(index, "index is required");
+            if (index < 0) {
+                throw new IllegalArgumentException("index must not be negative");
+            }
         }
     }
 
@@ -620,10 +625,13 @@ public final class SemanticDtos {
             WildcardExtendsBoundPathPayload, WildcardSuperBoundPathPayload, TypeVariableBoundPathPayload {
     }
 
-    public record TypeArgumentPathPayload(String kind, Integer index) implements TypeUsagePathPayload {
+    public record TypeArgumentPathPayload(String kind, @NotNull @Min(0) Integer index) implements TypeUsagePathPayload {
         public TypeArgumentPathPayload {
             kind = requiredKind(kind, "TYPE_ARGUMENT");
             index = Objects.requireNonNull(index, "index is required");
+            if (index < 0) {
+                throw new IllegalArgumentException("index must not be negative");
+            }
         }
     }
 
@@ -639,47 +647,73 @@ public final class SemanticDtos {
         }
     }
 
-    public record TypeVariableBoundPathPayload(String kind, Integer index) implements TypeUsagePathPayload {
+    public record TypeVariableBoundPathPayload(String kind, @NotNull @Min(0) Integer index) implements TypeUsagePathPayload {
         public TypeVariableBoundPathPayload {
             kind = requiredKind(kind, "TYPE_VARIABLE_BOUND");
             index = Objects.requireNonNull(index, "index is required");
+            if (index < 0) {
+                throw new IllegalArgumentException("index must not be negative");
+            }
         }
     }
 
-    public record ReferencedTypePayload(JavaTypeIdentityPayload javaType, Integer arrayDimensions) {
+    public record ReferencedTypePayload(@NotNull @Valid JavaTypeIdentityPayload javaType,
+                                        @NotNull @Min(0) Integer arrayDimensions) {
         public ReferencedTypePayload {
             javaType = Objects.requireNonNull(javaType, "javaType is required");
             arrayDimensions = Objects.requireNonNull(arrayDimensions, "arrayDimensions is required");
+            if (arrayDimensions < 0) {
+                throw new IllegalArgumentException("arrayDimensions must not be negative");
+            }
         }
     }
 
-    public record MapperStatementKeyPayload(String namespace, String statementId) implements ConceptIdentityTargetPayload {
+    public record MapperStatementKeyPayload(@NotBlank String namespace, @NotBlank String statementId)
+            implements ConceptIdentityTargetPayload {
         public MapperStatementKeyPayload {
-            namespace = Objects.requireNonNull(namespace, "namespace is required");
-            statementId = Objects.requireNonNull(statementId, "statementId is required");
+            namespace = requiredText(namespace, "namespace");
+            statementId = requiredText(statementId, "statementId");
         }
+    }
+
+    public enum MapperStatementRepresentation {
+        MAPPER_XML_ELEMENT,
+        ANNOTATION_SQL_TEXT
+    }
+
+    public enum MapperFragmentRepresentation {
+        MAPPER_XML_ELEMENT
     }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
     public record MapperStatementIdentityPayload(@NotNull @Valid MapperStatementKeyPayload statementKey, @NotBlank String resourcePath,
-                                                 Optional<String> databaseId, Integer documentOrdinal,
-                                                 String representation) implements ConceptIdentityTargetPayload {
+                                                 Optional<@NotBlank String> databaseId, @NotNull @Min(0) Integer documentOrdinal,
+                                                 @NotNull MapperStatementRepresentation representation)
+            implements ConceptIdentityTargetPayload {
         public MapperStatementIdentityPayload {
             statementKey = Objects.requireNonNull(statementKey, "statementKey is required");
             resourcePath = repositoryRelativePath(resourcePath, "resourcePath");
             databaseId = Optional.ofNullable(databaseId).orElse(Optional.empty());
+            databaseId = databaseId.map(value -> requiredText(value, "databaseId"));
             documentOrdinal = Objects.requireNonNull(documentOrdinal, "documentOrdinal is required");
+            if (documentOrdinal < 0) {
+                throw new IllegalArgumentException("documentOrdinal must not be negative");
+            }
             representation = Objects.requireNonNull(representation, "representation is required");
         }
     }
 
-    public record MapperFragmentIdentityPayload(String namespace, String fragmentId, @NotBlank String resourcePath,
-                                                Integer documentOrdinal, String representation) {
+    public record MapperFragmentIdentityPayload(@NotBlank String namespace, @NotBlank String fragmentId, @NotBlank String resourcePath,
+                                                @NotNull @Min(0) Integer documentOrdinal,
+                                                @NotNull MapperFragmentRepresentation representation) {
         public MapperFragmentIdentityPayload {
-            namespace = Objects.requireNonNull(namespace, "namespace is required");
-            fragmentId = Objects.requireNonNull(fragmentId, "fragmentId is required");
+            namespace = requiredText(namespace, "namespace");
+            fragmentId = requiredText(fragmentId, "fragmentId");
             resourcePath = repositoryRelativePath(resourcePath, "resourcePath");
             documentOrdinal = Objects.requireNonNull(documentOrdinal, "documentOrdinal is required");
+            if (documentOrdinal < 0) {
+                throw new IllegalArgumentException("documentOrdinal must not be negative");
+            }
             representation = Objects.requireNonNull(representation, "representation is required");
         }
     }
@@ -756,25 +790,25 @@ public final class SemanticDtos {
         List<Optional<?>> all = List.of(sourceType, target, identity, declaration, annotationType, owner, location,
                 path, referencedType, httpVerb, route, broker, destination, triggerKind, triggerValue);
         switch (kind) {
-            case "TYPE" -> exactConceptIdentityFields(all, List.of(sourceType), List.of());
-            case "METHOD" -> exactConceptIdentityFields(all, List.of(target), List.of());
+            case "TYPE" -> exactConceptIdentityFields(all, Set.of(0), Set.of());
+            case "METHOD" -> exactConceptIdentityFields(all, Set.of(1), Set.of());
             case "FIELD" -> {
-                exactConceptIdentityFields(all, List.of(identity), List.of());
+                exactConceptIdentityFields(all, Set.of(2), Set.of());
                 if (!(identity.orElseThrow() instanceof SourceMemberIdentityPayload)) {
                     throw new IllegalArgumentException("concept FIELD identity subtype does not match kind");
                 }
             }
-            case "ANNOTATION_USAGE" -> exactConceptIdentityFields(all, List.of(declaration, annotationType), List.of());
-            case "TYPE_USAGE" -> exactConceptIdentityFields(all, List.of(owner, location, path, referencedType), List.of());
-            case "API_ROUTE" -> exactConceptIdentityFields(all, List.of(target, httpVerb, route), List.of());
-            case "MQ_DESTINATION" -> exactConceptIdentityFields(all, List.of(target, broker, destination), List.of());
-            case "SCHEDULE" -> exactConceptIdentityFields(all, List.of(target, triggerKind), List.of(triggerValue));
+            case "ANNOTATION_USAGE" -> exactConceptIdentityFields(all, Set.of(3, 4), Set.of());
+            case "TYPE_USAGE" -> exactConceptIdentityFields(all, Set.of(5, 6, 7, 8), Set.of());
+            case "API_ROUTE" -> exactConceptIdentityFields(all, Set.of(1, 9, 10), Set.of());
+            case "MQ_DESTINATION" -> exactConceptIdentityFields(all, Set.of(1, 11, 12), Set.of());
+            case "SCHEDULE" -> exactConceptIdentityFields(all, Set.of(1, 13), Set.of(14));
             case "MAPPER_STATEMENT" -> {
-                exactConceptIdentityFields(all, List.of(identity), List.of());
+                exactConceptIdentityFields(all, Set.of(2), Set.of());
                 requiredIdentityType(identity, MapperStatementKeyPayload.class);
             }
             case "MAPPER_STATEMENT_VARIANT" -> {
-                exactConceptIdentityFields(all, List.of(identity), List.of());
+                exactConceptIdentityFields(all, Set.of(2), Set.of());
                 requiredIdentityType(identity, MapperStatementIdentityPayload.class);
             }
             default -> throw new IllegalArgumentException("unsupported concept identity kind");
@@ -782,11 +816,13 @@ public final class SemanticDtos {
     }
 
     private static void exactConceptIdentityFields(
-            List<Optional<?>> all, List<Optional<?>> required, List<Optional<?>> optional) {
-        if (required.stream().anyMatch(Optional::isEmpty)
-                || all.stream().filter(value -> !required.contains(value) && !optional.contains(value))
-                .anyMatch(Optional::isPresent)) {
-            throw new IllegalArgumentException("concept identity does not match kind");
+            List<Optional<?>> all, Set<Integer> requiredPositions, Set<Integer> optionalPositions) {
+        for (int index = 0; index < all.size(); index++) {
+            boolean present = all.get(index).isPresent();
+            if ((requiredPositions.contains(index) && !present)
+                    || (!requiredPositions.contains(index) && !optionalPositions.contains(index) && present)) {
+                throw new IllegalArgumentException("concept identity does not match kind");
+            }
         }
     }
 
@@ -816,11 +852,10 @@ public final class SemanticDtos {
         return required;
     }
 
-    private static String repositoryRelativePath(String value, String name) {
+    public static String repositoryRelativePath(String value, String name) {
         String path = requiredText(value, name);
-        if (path.startsWith("/") || path.contains("\\") || path.matches("^[A-Za-z]:.*")
-                || path.matches("^[A-Za-z][A-Za-z0-9+.-]*:.*") || path.chars().anyMatch(Character::isWhitespace)
-                || path.chars().anyMatch(Character::isISOControl)) {
+        if (path.length() > 1_024 || hasControlCharacter(path) || endsWithTerminalWhitespace(path)
+                || path.startsWith("/") || path.startsWith("\\") || path.contains("\\")) {
             throw new IllegalArgumentException(name + " must be a normalized repository-relative path");
         }
         String[] segments = path.split("/", -1);
@@ -830,6 +865,56 @@ public final class SemanticDtos {
             }
         }
         return path;
+    }
+
+    public static String javaQualifiedIdentifier(String value, boolean allowsDots, String name) {
+        String required = requiredText(value, name);
+        if (required.length() > 255 || (!allowsDots && required.indexOf('.') >= 0)) {
+            throw new IllegalArgumentException(name + " has an invalid format");
+        }
+        String[] parts = allowsDots ? required.split("\\.", -1) : new String[]{required};
+        for (String part : parts) {
+            if (part.isEmpty() || !isJavaIdentifier(part)) {
+                throw new IllegalArgumentException(name + " has an invalid format");
+            }
+        }
+        return required;
+    }
+
+    private static boolean hasControlCharacter(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character <= 0x1f || (character >= 0x7f && character <= 0x9f)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean endsWithTerminalWhitespace(String value) {
+        int codePoint = value.codePointBefore(value.length());
+        return Character.isWhitespace(codePoint) || codePoint == 0x00a0 || codePoint == 0x1680
+                || codePoint == 0x2007 || codePoint == 0x202f;
+    }
+
+    private static boolean isJavaIdentifier(String value) {
+        int first = value.codePointAt(0);
+        if (!(Character.isLetter(first) || Character.getType(first) == Character.LETTER_NUMBER
+                || Character.getType(first) == Character.CURRENCY_SYMBOL
+                || Character.getType(first) == Character.CONNECTOR_PUNCTUATION)) {
+            return false;
+        }
+        for (int index = Character.charCount(first); index < value.length();) {
+            int codePoint = value.codePointAt(index);
+            int type = Character.getType(codePoint);
+            if (!(Character.isLetter(codePoint) || type == Character.LETTER_NUMBER || type == Character.CURRENCY_SYMBOL
+                    || type == Character.CONNECTOR_PUNCTUATION || type == Character.NON_SPACING_MARK
+                    || type == Character.COMBINING_SPACING_MARK || Character.isDigit(codePoint))) {
+                return false;
+            }
+            index += Character.charCount(codePoint);
+        }
+        return true;
     }
 
     /** 結構化探索的固定頁面計數 */

@@ -67,7 +67,7 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 "sourceType");
         assertThat(evidence.at("/properties/identity/anyOf").size()).isEqualTo(3);
         assertThat(evidence.toString()).contains("ANNOTATION_SQL", "MAPPER_STATEMENT", "MAPPER_FRAGMENT",
-                "fragmentIdentity");
+                "fragmentIdentity", "MAPPER_XML_ELEMENT", "ANNOTATION_SQL_TEXT", "\"minimum\":0");
     }
 
     @Test

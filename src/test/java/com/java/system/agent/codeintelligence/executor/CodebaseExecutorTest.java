@@ -175,7 +175,7 @@ class CodebaseExecutorTest {
     private static SemanticDtos.EvidenceSourceFollowUpIdentity evidenceIdentity() {
         SemanticDtos.MapperStatementKeyPayload key = new SemanticDtos.MapperStatementKeyPayload("orders", "find");
         SemanticDtos.MapperStatementIdentityPayload statement = new SemanticDtos.MapperStatementIdentityPayload(key,
-                "src/OrdersMapper.xml", Optional.empty(), 0, "MAPPER_XML_ELEMENT");
+                "src/OrdersMapper.xml", Optional.empty(), 0, SemanticDtos.MapperStatementRepresentation.MAPPER_XML_ELEMENT);
         return new SemanticDtos.EvidenceSourceFollowUpIdentity("MAPPER_STATEMENT", Optional.of(statement), Optional.empty());
     }
 

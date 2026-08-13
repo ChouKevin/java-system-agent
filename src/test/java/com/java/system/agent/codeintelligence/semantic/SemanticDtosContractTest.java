@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** 驗證 call graph HTTP follow-up 契約會以完整 typed DTO 保留 */
@@ -23,6 +24,32 @@ class SemanticDtosContractTest {
                 Optional.of(target), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void preserves_provider_path_rules() {
+        assertThatCode(() -> new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "src/module: one/Orders.java"))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "a".repeat(1_025)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "src/Orders.java\u00a0"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+    }
+
+    @Test
+    void rejects_equal_valued_unexpected_concept_fields_by_field_presence() {
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "src/Orders.java");
+        SemanticDtos.MethodTargetPayload target = new SemanticDtos.MethodTargetPayload(sourceType, "find", List.of());
+        assertThatThrownBy(() -> new SemanticDtos.ConceptFollowUpIdentity("API_ROUTE", Optional.empty(),
+                Optional.of(target), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("GET"), Optional.of("/orders"),
+                Optional.of("GET"), Optional.empty(), Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

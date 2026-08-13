@@ -124,7 +124,7 @@ class JavaSemanticFollowUpMapperTest {
                 "TYPE", sourceType, "field");
         SemanticDtos.MapperStatementKeyPayload key = new SemanticDtos.MapperStatementKeyPayload("mapper", "find");
         SemanticDtos.MapperStatementIdentityPayload statement = new SemanticDtos.MapperStatementIdentityPayload(
-                key, "src/main/resources/Mapper.xml", Optional.empty(), 0, "MAPPER_XML_ELEMENT");
+                key, "src/main/resources/Mapper.xml", Optional.empty(), 0, SemanticDtos.MapperStatementRepresentation.MAPPER_XML_ELEMENT);
         SemanticDtos.DeclarationSubjectPayload declaration =
                 new SemanticDtos.TypeDeclarationSubjectPayload("TYPE", sourceType);
         SemanticDtos.JavaTypeIdentityPayload javaType = sourceType.javaType();
@@ -154,7 +154,7 @@ class JavaSemanticFollowUpMapperTest {
                 new SemanticDtos.EvidenceSourceFollowUpIdentity("MAPPER_STATEMENT", Optional.of(statement), Optional.empty()),
                 new SemanticDtos.EvidenceSourceFollowUpIdentity("MAPPER_FRAGMENT", Optional.empty(), Optional.of(
                         new SemanticDtos.MapperFragmentIdentityPayload("mapper", "fragment", "src/main/resources/Mapper.xml",
-                                0, "MAPPER_XML_ELEMENT"))));
+                                0, SemanticDtos.MapperFragmentRepresentation.MAPPER_XML_ELEMENT))));
         for (SemanticDtos.EvidenceSourceFollowUpIdentity identity : evidence) {
             SemanticDtos.AvailableFollowUp followUp = new SemanticDtos.AvailableFollowUp("GET_EVIDENCE_SOURCE",
                     new SemanticDtos.FollowUpApi("POST", "/v1/discovery/evidence-source", "getEvidenceSource"),
@@ -169,7 +169,7 @@ class JavaSemanticFollowUpMapperTest {
         SemanticDtos.MethodTargetPayload target = methodTarget();
         SemanticDtos.MapperStatementIdentityPayload statement = new SemanticDtos.MapperStatementIdentityPayload(
                 new SemanticDtos.MapperStatementKeyPayload("mapper", "find"), "src/main/resources/Mapper.xml",
-                Optional.empty(), 0, "MAPPER_XML_ELEMENT");
+                Optional.empty(), 0, SemanticDtos.MapperStatementRepresentation.MAPPER_XML_ELEMENT);
         SemanticDtos.EvidenceSourceFollowUpIdentity evidence = new SemanticDtos.EvidenceSourceFollowUpIdentity(
                 "MAPPER_STATEMENT", Optional.of(statement), Optional.empty());
         JavaSemanticFollowUpMapper mapper = new JavaSemanticFollowUpMapper();
@@ -311,7 +311,7 @@ class JavaSemanticFollowUpMapperTest {
 
     private static SemanticDtos.MapperStatementIdentityPayload mapperStatementIdentity() {
         return new SemanticDtos.MapperStatementIdentityPayload(new SemanticDtos.MapperStatementKeyPayload("mapper", "find"),
-                "src/main/resources/Mapper.xml", Optional.empty(), 0, "MAPPER_XML_ELEMENT");
+                "src/main/resources/Mapper.xml", Optional.empty(), 0, SemanticDtos.MapperStatementRepresentation.MAPPER_XML_ELEMENT);
     }
 
     private static SemanticDtos.ConceptFollowUpIdentity concept(String kind,
