@@ -45,6 +45,8 @@ public final class JavaSemanticErrorMapper {
                     description, operationSource);
             case "REPOSITORY_NOT_READY" -> failed(CapabilityExecutionFailureCode.DEPENDENCY_NOT_READY,
                     description, operationSource);
+            case "API_ROUTE_INDEX_NOT_READY" -> failed(CapabilityExecutionFailureCode.DEPENDENCY_NOT_READY,
+                    description, operationSource);
             case "SEMANTIC_REQUEST_TIMEOUT" -> failed(CapabilityExecutionFailureCode.TIMEOUT,
                     description, operationSource);
             case "SEMANTIC_UNAUTHORIZED", "SEMANTIC_AUTH_DISABLED" -> failed(CapabilityExecutionFailureCode.FORBIDDEN,
@@ -57,6 +59,9 @@ public final class JavaSemanticErrorMapper {
                     description, operationSource);
             case "CONCEPT_KIND_UNAVAILABLE" -> failed(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE,
                     conceptKindUnavailableDescription(error, description), operationSource);
+            case "EVIDENCE_SOURCE_NOT_FOUND", "SOURCE_DECLARATION_NOT_FOUND", "SOURCE_SEGMENT_NOT_FOUND",
+                    "TYPE_MEMBER_TYPE_NOT_FOUND", "CONCEPT_IDENTITY_NOT_FOUND" -> failed(
+                    CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE, description, operationSource);
             case "REQUEST_INVALID", "INTERNAL_ERROR" -> failed(CapabilityExecutionFailureCode.DEPENDENCY_FAILURE,
                     description, operationSource);
             case "SEMANTIC_BINDING_AMBIGUOUS" -> observationResult(ObservationCode.AMBIGUOUS_SEMANTIC_TARGET,

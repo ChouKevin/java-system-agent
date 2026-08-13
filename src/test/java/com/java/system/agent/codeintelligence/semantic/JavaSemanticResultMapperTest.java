@@ -1030,6 +1030,42 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void mapsProviderNotFoundErrorsToReplannableCapabilityFailures() {
+        JavaSemanticErrorMapper mapper = new JavaSemanticErrorMapper(new JavaSemanticResultMapper());
+        List<String> errorCodes = List.of(
+                "EVIDENCE_SOURCE_NOT_FOUND",
+                "SOURCE_DECLARATION_NOT_FOUND",
+                "SOURCE_SEGMENT_NOT_FOUND",
+                "TYPE_MEMBER_TYPE_NOT_FOUND",
+                "CONCEPT_IDENTITY_NOT_FOUND");
+
+        for (String errorCode : errorCodes) {
+            SemanticDtos.ApiErrorResponse error = new SemanticDtos.ApiErrorResponse(
+                    errorCode, "requested source was not found", "orders", REVISION, null,
+                    null, List.of(), List.of(), List.of(), "request-not-found");
+
+            CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed) mapper.capability(
+                    error, "java-semantic-service:POST /v1/discovery");
+
+            assertThat(result.failure().code()).isEqualTo(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE);
+            assertThat(result.failure().description()).isEqualTo("requested source was not found");
+        }
+    }
+
+    @Test
+    void mapsUnavailableApiRouteIndexToDependencyNotReady() {
+        JavaSemanticErrorMapper mapper = new JavaSemanticErrorMapper(new JavaSemanticResultMapper());
+        SemanticDtos.ApiErrorResponse error = new SemanticDtos.ApiErrorResponse(
+                "API_ROUTE_INDEX_NOT_READY", "API route index is not ready", "orders", REVISION, null,
+                null, List.of(), List.of(), List.of(), "request-index-not-ready");
+
+        CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed) mapper.capability(
+                error, "java-semantic-service:GET /v1/api-routes");
+
+        assertThat(result.failure().code()).isEqualTo(CapabilityExecutionFailureCode.DEPENDENCY_NOT_READY);
+    }
+
+    @Test
     void rejectsImpossibleSuccessfulDtoInsteadOfPublishingTrustedOutput() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.ApiRouteCandidatesResponse response = new SemanticDtos.ApiRouteCandidatesResponse(null, List.of());
