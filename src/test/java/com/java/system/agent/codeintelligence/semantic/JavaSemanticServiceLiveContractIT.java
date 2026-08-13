@@ -132,7 +132,7 @@ class JavaSemanticServiceLiveContractIT {
         assertThat(followUp.analyzedRevision()).isEqualTo(revision);
         assertThat(followUp.targetCapabilityName()).isEqualTo(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName());
         assertThat(followUp.targetCapabilityVersion()).isEqualTo(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.version());
-        assertThat(providerInput.boundTarget()).contains(abstractDeclaration);
+        assertThat(providerInput.target()).isEqualTo(abstractDeclaration);
 
         JavaSemanticServiceHttpAdapter offlineAdapter = mock(JavaSemanticServiceHttpAdapter.class);
         when(offlineAdapter.discoverMethodImplementations(any(), any())).thenReturn(
@@ -187,7 +187,7 @@ class JavaSemanticServiceLiveContractIT {
                 org.mockito.ArgumentCaptor.forClass(DiscoverMethodImplementationsExecutionInput.class);
         verify(offlineAdapter).discoverMethodImplementations(executorContext.capture(), executorInput.capture());
         assertThat(executorContext.getValue().expectedRevisions()).isEqualTo(revisions);
-        assertThat(executorInput.getValue().boundTarget()).contains(abstractDeclaration);
+        assertThat(executorInput.getValue().target()).isEqualTo(abstractDeclaration);
     }
 
     @Test
@@ -212,10 +212,10 @@ class JavaSemanticServiceLiveContractIT {
                 new SuggestApiRouteExecutionInput("/v1/repositories", null, 3)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph", revision),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(methodTargetPayload()))))
+                new OutgoingCallGraphExecutionInput(1, methodTargetPayload())))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph", revision),
-                new IncomingCallGraphExecutionInput(1, Optional.of(methodTargetPayload()))))
+                new IncomingCallGraphExecutionInput(1, methodTargetPayload())))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
 
         SemanticDtos.OutgoingCallGraphResponse response = rawOutgoingCallGraph(revision);
@@ -267,15 +267,16 @@ class JavaSemanticServiceLiveContractIT {
         SemanticTarget orderLookup = orderLookupTarget();
         executeDiscovery(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                 targetCandidate(repositoryId, revision, revisions, orderLookup, "order-lookup-interface"),
-                payloadCodec.encode(new DiscoverMethodImplementationsExecutionInput(Optional.of(
-                        new JavaSemanticCandidateTargetMapper().methodTarget(orderLookup)))),
+                payloadCodec.encode(new DiscoverMethodImplementationsExecutionInput(
+                        new JavaSemanticCandidateTargetMapper().methodTarget(orderLookup))),
                 revisions, executedCapabilities);
 
         CapabilityExecutionResult.Succeeded resolved = executeDiscovery(
                 CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName(),
                 targetCandidate(repositoryId, revision, revisions, defaultLookupTarget(), "default-order-lookup"),
                 payloadCodec.encode(new com.java.system.agent.codeintelligence.planning.ResolveSourceSymbolExecutionInput(
-                        "findById", Optional.of(new SemanticDtos.Position(11, 18)), Optional.empty())),
+                        "findById", Optional.of(new SemanticDtos.Position(11, 18)),
+                        sourceSymbolContext(defaultLookupTarget()))),
                 revisions, executedCapabilities);
         FollowUpCandidate methodSource = followUp(resolved, CodeIntelligenceQuery.GET_METHOD_SOURCE, revision);
         CapabilityInvocation methodSourceInvocation = invocation(
@@ -536,6 +537,10 @@ class JavaSemanticServiceLiveContractIT {
 
     private SemanticTarget defaultLookupTarget() {
         return fixtureTarget("src/main/java/com/example/m6/DefaultOrderLookup.java", "DefaultOrderLookup", "findById");
+    }
+
+    private SemanticDtos.SourceSymbolContextPayload sourceSymbolContext(SemanticTarget target) {
+        return new JavaSemanticCandidateTargetMapper().sourceSymbolContext(target);
     }
 
     private SemanticTarget fixtureTarget(String sourceFile, String className, String methodName) {

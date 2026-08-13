@@ -41,6 +41,6 @@ public final class AgentCodebaseConfiguration {
             CanonicalCapabilityPayloadCodec payloadCodec) {
         JavaSemanticFollowUpMapper followUpMapper = new JavaSemanticFollowUpMapper(payloadCodec);
         JavaSemanticResultMapper resultMapper = new JavaSemanticResultMapper(followUpMapper);
-        return new JavaSemanticServiceHttpAdapter(codebaseRestClient, resultMapper, payloadCodec);
+        return new JavaSemanticServiceHttpAdapter(codebaseRestClient, resultMapper);
     }
 }

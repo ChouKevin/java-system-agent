@@ -99,8 +99,7 @@ class JavaSemanticResultMapperTest {
                 List.of("/orders"), List.of(new SemanticDtos.ApiEntryPointMethodResponse("create", description, "API",
                 "/orders", List.of("POST"), List.of("Creates an order"), resolved(target))))));
 
-        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(response);
 
         assertThat(result.evidence()).singleElement().extracting(EvidenceRef::content)
                 .asString().contains("url=/orders", "httpMethods=POST", "swagger=Creates an order");
@@ -128,7 +127,7 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.TextRangePayload secondOccurrence = textRange(12, 6, 12, 12);
 
         CapabilityExecutionResult.Succeeded entryPoints = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), new SemanticDtos.EntryPointsResponse("orders",
+                new SemanticDtos.EntryPointsResponse("orders",
                 REVISION, List.of(new SemanticDtos.EntryPointClassResponse(sourceType("Orders"), "Order entry points",
                 List.of("/orders"), List.of(
                 new SemanticDtos.ApiEntryPointMethodResponse("create", "Create order", "API", "/orders",
@@ -195,8 +194,7 @@ class JavaSemanticResultMapperTest {
                                 new SemanticDtos.MethodTargetResolutionResponse("UNRESOLVED", null, List.of(),
                                         "SOURCE_BINDING_UNRESOLVED", List.of()))))));
 
-        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(response);
 
         assertThat(result.evidence()).isEmpty();
         assertThat(result.observations()).extracting(CapabilityObservation::code)
@@ -221,8 +219,7 @@ class JavaSemanticResultMapperTest {
                                 new SemanticDtos.MethodTargetResolutionResponse("RESOLVED", target, List.of(),
                                         "RESOLVED_TARGET", List.of(followUp)))))));
 
-        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(response);
 
         assertThat(result.discoveredCandidates()).extracting(AnalysisCandidate::kind)
                 .containsExactly(CandidateKind.ROUTE, CandidateKind.SEMANTIC_TARGET, CandidateKind.FOLLOW_UP);
@@ -242,8 +239,7 @@ class JavaSemanticResultMapperTest {
                         entryPointMethod(sourceType, "create", "/orders", typeMembersFollowUp),
                         entryPointMethod(sourceType, "find", "/orders/{id}", typeMembersFollowUp)))));
 
-        CapabilityExecutionResult.Succeeded mapped = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+        CapabilityExecutionResult.Succeeded mapped = (CapabilityExecutionResult.Succeeded) mapper.listEntryPoints(response);
         ContextIssuer issuer = new ContextIssuer();
         ContextIssuer.CapabilityIssue issued = issuer.issueCapabilityResult(
                 new AnalysisRunId("run-duplicate-entry-point-follow-ups"),
@@ -437,7 +433,7 @@ class JavaSemanticResultMapperTest {
         assertThat(followUps).extracting(FollowUpCandidate::repositoryId).containsExactly(REPOSITORY_ID);
         assertThat(followUps).extracting(FollowUpCandidate::analyzedRevision).containsExactly(REPOSITORY_REVISION);
         assertThat(codec.decode(followUps.getFirst().payload(), DiscoverMethodImplementationsExecutionInput.class))
-                .isEqualTo(new DiscoverMethodImplementationsExecutionInput(Optional.of(abstractTarget)));
+                .isEqualTo(new DiscoverMethodImplementationsExecutionInput(abstractTarget));
     }
 
     @Test
@@ -965,7 +961,7 @@ class JavaSemanticResultMapperTest {
                 "root", null, null, List.of(), List.of())), List.of());
 
         CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.outgoingCallGraph(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(), response);
+                REPOSITORY_ID, REPOSITORY_REVISION, methodTargetPayload(target), response);
 
         EvidenceRef evidence = result.evidence().getFirst();
         assertThat(evidence.content()).contains(
@@ -1070,7 +1066,7 @@ class JavaSemanticResultMapperTest {
                 new SemanticDtos.GraphWarning("NODE_BUDGET_REACHED", longMessage, "root", null, null, List.of(), List.of())), List.of(
                 new SemanticDtos.GraphError("CHILD_SEMANTIC_QUERY_FAILED", "tail error", "root")));
         assertThatThrownBy(() -> mapper.outgoingCallGraph(
-                JavaSemanticServiceHttpAdapterTestHelper.targetInvocation(requested), response))
+                REPOSITORY_ID, REPOSITORY_REVISION, methodTargetPayload(requested), response))
                 .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("root target");
     }
@@ -1155,6 +1151,14 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(javaType,
                 "src/Orders.java");
         return new SemanticDtos.MethodTargetPayload(sourceType, "find", List.of());
+    }
+
+    private static SemanticDtos.MethodTargetPayload methodTargetPayload(SemanticDtos.MethodTarget target) {
+        SemanticDtos.JavaTypeIdentityPayload javaType = new SemanticDtos.JavaTypeIdentityPayload(target.packageName(),
+                target.className());
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(javaType,
+                target.sourceFile());
+        return new SemanticDtos.MethodTargetPayload(sourceType, target.methodName(), target.parameterTypes());
     }
 
     private static SemanticDtos.ConceptCandidateResponse conceptCandidate() {

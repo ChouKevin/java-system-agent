@@ -55,6 +55,14 @@ public final class JavaSemanticCandidateTargetMapper {
         return methodTarget(target).sourceType();
     }
 
+    public SemanticDtos.SourceSymbolContextPayload sourceSymbolContext(SemanticTarget target) {
+        SemanticDtos.MethodTargetPayload methodTarget = methodTarget(target);
+        return new SemanticDtos.SourceSymbolContextPayload(methodTarget.sourceType().javaType(),
+                Optional.of(methodTarget.sourceType().sourceFile()),
+                Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(
+                        methodTarget.methodName(), methodTarget.parameterTypes())));
+    }
+
     public boolean supportsSourceRange(SemanticTarget target) {
         if (Objects.isNull(target) || target.kind() != SemanticTargetKind.SOURCE_RANGE) {
             return false;

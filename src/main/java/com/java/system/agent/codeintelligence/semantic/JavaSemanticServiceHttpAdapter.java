@@ -22,18 +22,13 @@ import com.java.system.agent.codeintelligence.planning.GetEvidenceSourceExecutio
 import com.java.system.agent.codeintelligence.planning.GetMethodSourceExecutionInput;
 import com.java.system.agent.codeintelligence.planning.GetSourceSegmentExecutionInput;
 import com.java.system.agent.codeintelligence.planning.ResolveSourceSymbolExecutionInput;
-import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
-import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
-import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
-import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
-import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailure;
 import com.java.system.agent.answering.port.out.CapabilityExecutionFailureCode;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
-import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionContractException;
@@ -85,8 +80,6 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final JavaSemanticResultMapper resultMapper;
-    private final JavaSemanticCandidateTargetMapper targetMapper = new JavaSemanticCandidateTargetMapper();
-    private final CanonicalCapabilityPayloadCodec payloadCodec;
     private final JavaSemanticErrorMapper errorMapper;
 
     public JavaSemanticServiceHttpAdapter(RestClient restClient) {
@@ -94,20 +87,18 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     }
 
     private JavaSemanticServiceHttpAdapter(RestClient restClient, DefaultDependencies dependencies) {
-        this(restClient, dependencies.resultMapper(), dependencies.payloadCodec());
+        this(restClient, dependencies.resultMapper());
     }
 
-    public JavaSemanticServiceHttpAdapter(RestClient restClient, JavaSemanticResultMapper resultMapper,
-                                          CanonicalCapabilityPayloadCodec payloadCodec) {
-        this(restClient, new ObjectMapper(), resultMapper, payloadCodec);
+    public JavaSemanticServiceHttpAdapter(RestClient restClient, JavaSemanticResultMapper resultMapper) {
+        this(restClient, new ObjectMapper(), resultMapper);
     }
 
     JavaSemanticServiceHttpAdapter(RestClient restClient, ObjectMapper objectMapper,
-                                   JavaSemanticResultMapper resultMapper, CanonicalCapabilityPayloadCodec payloadCodec) {
+                                   JavaSemanticResultMapper resultMapper) {
         this.restClient = Objects.requireNonNull(restClient, "Java Semantic Service RestClient must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper must not be null");
         this.resultMapper = Objects.requireNonNull(resultMapper, "result mapper must not be null");
-        this.payloadCodec = Objects.requireNonNull(payloadCodec, "canonical capability payload codec must not be null");
         this.errorMapper = new JavaSemanticErrorMapper(resultMapper);
     }
 
@@ -115,7 +106,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper(new JavaSemanticFollowUpMapper(codec));
-        return new DefaultDependencies(mapper, codec);
+        return new DefaultDependencies(mapper);
     }
 
     @Override
@@ -180,7 +171,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private CapabilityExecutionResult listEntryPointsInternal(
             CapabilityExecutionContext context,
             ListEntryPointsExecutionInput input) {
-        RepositoryQueryScope repository = selectedRepositoryQueryScope(context);
+        RepositoryQueryScope repository = runtimeRepositoryScope(context);
         try {
             EntryPointType type = input.type();
             SemanticDtos.EntryPointsResponse response = restClient.get()
@@ -189,7 +180,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                             .queryParamIfPresent("types", Optional.ofNullable(type).map(entryPointType -> entryPointType.name()))
                             .build(repository.repositoryId().value()))
                     .retrieve().body(SemanticDtos.EntryPointsResponse.class);
-            return resultMapper.listEntryPoints(resultInvocation(context), requiredResponse(response, "entry-points"));
+            return resultMapper.listEntryPoints(requiredResponse(response, "entry-points"));
         } catch (RestClientResponseException exception) {
             return errorMapper.capability(errorResponse(exception), ENTRY_POINTS_OPERATION);
         } catch (ResourceAccessException exception) {
@@ -216,9 +207,8 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private CapabilityExecutionResult outgoingCallGraphInternal(
             CapabilityExecutionContext context,
             OutgoingCallGraphExecutionInput input) {
-        DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH, input,
-                OutgoingCallGraphExecutionInput.class, SemanticTargetCandidate.class);
-        SemanticDtos.MethodTargetPayload target = callGraphTargetFor(scope, input.boundTarget(), "outgoing call graph");
+        DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH, input);
+        SemanticDtos.MethodTargetPayload target = input.target();
         try {
             SemanticDtos.AnalyzeOutgoingCallGraphRequest request = new SemanticDtos.AnalyzeOutgoingCallGraphRequest(
                     scope.repositoryId().value(), scope.expectedRevision().value(), input.depth(), target);
@@ -245,9 +235,8 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private CapabilityExecutionResult incomingCallGraphInternal(
             CapabilityExecutionContext context,
             IncomingCallGraphExecutionInput input) {
-        DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.INCOMING_CALL_GRAPH, input,
-                IncomingCallGraphExecutionInput.class, SemanticTargetCandidate.class);
-        SemanticDtos.MethodTargetPayload target = callGraphTargetFor(scope, input.boundTarget(), "incoming call graph");
+        DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.INCOMING_CALL_GRAPH, input);
+        SemanticDtos.MethodTargetPayload target = input.target();
         try {
             SemanticDtos.AnalyzeIncomingCallGraphRequest request = new SemanticDtos.AnalyzeIncomingCallGraphRequest(
                     scope.repositoryId().value(), scope.expectedRevision().value(), input.depth(), target);
@@ -282,7 +271,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
             Optional<Integer> limit,
             String operation) {
         try {
-            RepositoryQueryScope repository = selectedRepositoryQueryScope(context);
+            RepositoryQueryScope repository = runtimeRepositoryScope(context);
             SemanticDtos.ApiRouteCandidatesResponse response;
             if (limit.isPresent()) {
                 response = restClient.post().uri("/v1/api-routes/suggest")
@@ -313,8 +302,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     public CapabilityExecutionResult discoverConcepts(CapabilityExecutionContext context,
                                                       DiscoverConceptsExecutionInput input) {
         return observeCapabilityOperation(CONCEPTS_OPERATION, () -> discoveryRequest(CONCEPTS_OPERATION, () -> {
-            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_CONCEPTS, input,
-                    DiscoverConceptsExecutionInput.class, RepositoryCandidate.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_CONCEPTS, input);
             List<SemanticDtos.ConceptSearchTermPayload> terms = input.terms().stream()
                     .map(term -> new SemanticDtos.ConceptSearchTermPayload(term.value(), term.matchMode())).toList();
             SemanticDtos.DiscoverConceptsFollowUpRequest request = new SemanticDtos.DiscoverConceptsFollowUpRequest(
@@ -328,8 +316,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult resolveConcept(CapabilityExecutionContext context, ResolveConceptExecutionInput input) {
         return observeCapabilityOperation(RESOLVE_CONCEPT_OPERATION, () -> discoveryRequest(RESOLVE_CONCEPT_OPERATION, () -> {
-            DiscoveryScope scope = followUpScope(context, CodeIntelligenceQuery.RESOLVE_CONCEPT, input,
-                    ResolveConceptExecutionInput.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.RESOLVE_CONCEPT, input);
             SemanticDtos.IdentityFollowUpRequest request = new SemanticDtos.IdentityFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.identity());
             SemanticDtos.ResolveConceptResponse response = discoveryPost("/v1/discovery/concepts/resolve", request,
@@ -341,8 +328,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     public CapabilityExecutionResult discoverEventListeners(CapabilityExecutionContext context,
                                                             DiscoverEventListenersExecutionInput input) {
         return observeCapabilityOperation(LISTENERS_OPERATION, () -> discoveryRequest(LISTENERS_OPERATION, () -> {
-            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS, input,
-                    DiscoverEventListenersExecutionInput.class, RepositoryCandidate.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS, input);
             SemanticDtos.DiscoverEventListenersFollowUpRequest request = new SemanticDtos.DiscoverEventListenersFollowUpRequest(
                     scope.repositoryId().value(), scope.expectedRevision().value(), input.eventType(), input.offset(), input.limit());
             SemanticDtos.DiscoverEventListenersResponse response = discoveryPost("/v1/discovery/event-listeners", request,
@@ -354,9 +340,8 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     public CapabilityExecutionResult discoverMethodImplementations(CapabilityExecutionContext context,
                                                                     DiscoverMethodImplementationsExecutionInput input) {
         return observeCapabilityOperation(IMPLEMENTATIONS_OPERATION, () -> discoveryRequest(IMPLEMENTATIONS_OPERATION, () -> {
-            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS, input,
-                    DiscoverMethodImplementationsExecutionInput.class, SemanticTargetCandidate.class);
-            SemanticDtos.MethodTargetPayload target = methodImplementationTargetFor(scope, input.boundTarget());
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS, input);
+            SemanticDtos.MethodTargetPayload target = input.target();
             SemanticDtos.DiscoverMethodImplementationsFollowUpRequest request =
                     new SemanticDtos.DiscoverMethodImplementationsFollowUpRequest(scope.repositoryId().value(),
                             scope.expectedRevision().value(), target);
@@ -371,13 +356,14 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult discoverTypeMembers(CapabilityExecutionContext context, DiscoverTypeMembersExecutionInput input) {
         return observeCapabilityOperation(MEMBERS_OPERATION, () -> discoveryRequest(MEMBERS_OPERATION, () -> {
-            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, input,
-                    DiscoverTypeMembersExecutionInput.class, SemanticTargetCandidate.class);
-            typeMembersInputFor(scope, input);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS, input);
             SemanticDtos.TypeMembersFollowUpRequest request = new SemanticDtos.TypeMembersFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.sourceType(), input.memberKinds(), input.namePrefix(), input.offset(), input.limit());
             SemanticDtos.DiscoverTypeMembersResponse response = discoveryPost("/v1/discovery/type-members", request,
                     SemanticDtos.DiscoverTypeMembersResponse.class, "type member discovery");
+            if (!input.sourceType().equals(response.sourceType())) {
+                throw contract("type member response target does not match the requested source type");
+            }
             return resultMapper.discoverTypeMembers(scope.repositoryId(), scope.expectedRevision(), response);
         }));
     }
@@ -385,8 +371,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     public CapabilityExecutionResult findInternalReferences(CapabilityExecutionContext context,
                                                             FindInternalReferencesExecutionInput input) {
         return observeCapabilityOperation(REFERENCES_OPERATION, () -> discoveryRequest(REFERENCES_OPERATION, () -> {
-            DiscoveryScope scope = followUpScope(context, CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES, input,
-                    FindInternalReferencesExecutionInput.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES, input);
             SemanticDtos.TargetFollowUpRequest request = new SemanticDtos.TargetFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.target(), Optional.empty(), Optional.of(input.offset()), Optional.of(input.limit()));
             SemanticDtos.FindInternalReferencesResponse response = discoveryPost("/v1/discovery/internal-references", request,
@@ -397,8 +382,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult getEvidenceSource(CapabilityExecutionContext context, GetEvidenceSourceExecutionInput input) {
         return observeCapabilityOperation(EVIDENCE_OPERATION, () -> discoveryRequest(EVIDENCE_OPERATION, () -> {
-            DiscoveryScope scope = followUpScope(context, CodeIntelligenceQuery.GET_EVIDENCE_SOURCE, input,
-                    GetEvidenceSourceExecutionInput.class);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.GET_EVIDENCE_SOURCE, input);
             SemanticDtos.IdentityFollowUpRequest request = new SemanticDtos.IdentityFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.identity());
             SemanticDtos.EvidenceSourceResponse response = discoveryPost("/v1/discovery/evidence-source", request,
@@ -412,9 +396,8 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult getMethodSource(CapabilityExecutionContext context, GetMethodSourceExecutionInput input) {
         return observeCapabilityOperation(METHOD_SOURCE_OPERATION, () -> discoveryRequest(METHOD_SOURCE_OPERATION, () -> {
-            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.GET_METHOD_SOURCE, input,
-                    GetMethodSourceExecutionInput.class, SemanticTargetCandidate.class);
-            SemanticDtos.MethodTargetPayload target = targetFor(scope, input.boundTarget(), "method source");
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.GET_METHOD_SOURCE, input);
+            SemanticDtos.MethodTargetPayload target = input.target();
             SemanticDtos.TargetFollowUpRequest request = new SemanticDtos.TargetFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), target, Optional.empty(), Optional.empty(), Optional.empty());
             SemanticDtos.MethodSourceResponse response = discoveryPost("/v1/discovery/method-source", request,
@@ -425,9 +408,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult getSourceSegment(CapabilityExecutionContext context, GetSourceSegmentExecutionInput input) {
         return observeCapabilityOperation(SEGMENT_OPERATION, () -> discoveryRequest(SEGMENT_OPERATION, () -> {
-            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.GET_SOURCE_SEGMENT, input,
-                    GetSourceSegmentExecutionInput.class, SemanticTargetCandidate.class);
-            sourceSegmentInputFor(scope, input);
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.GET_SOURCE_SEGMENT, input);
             SemanticDtos.SourceSegmentFollowUpRequest request = new SemanticDtos.SourceSegmentFollowUpRequest(scope.repositoryId().value(),
                     scope.expectedRevision().value(), input.location(), input.contextLines());
             SemanticDtos.SourceSegmentResponse response = discoveryPost("/v1/discovery/source-segment", request,
@@ -441,9 +422,8 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
 
     public CapabilityExecutionResult resolveSourceSymbol(CapabilityExecutionContext context, ResolveSourceSymbolExecutionInput input) {
         return observeCapabilityOperation(SYMBOL_OPERATION, () -> discoveryRequest(SYMBOL_OPERATION, () -> {
-            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL, input,
-                    ResolveSourceSymbolExecutionInput.class, SemanticTargetCandidate.class);
-            SemanticDtos.SourceSymbolContextPayload sourceContext = sourceContextFor(scope, input.boundContext());
+            DiscoveryScope scope = discoveryScope(context, CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL, input);
+            SemanticDtos.SourceSymbolContextPayload sourceContext = input.context();
             SemanticDtos.ResolveSourceSymbolFollowUpRequest request = new SemanticDtos.ResolveSourceSymbolFollowUpRequest(
                     scope.repositoryId().value(), scope.expectedRevision().value(), sourceContext, input.symbol(), input.position());
             SemanticDtos.ResolveSourceSymbolResponse response = discoveryPost("/v1/discovery/source-symbols/resolve", request,
@@ -471,14 +451,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         return requiredResponse(response, description);
     }
 
-    private <T> DiscoveryScope followUpScope(CapabilityExecutionContext context, CodeIntelligenceQuery query,
-                                             T input, Class<T> inputType) {
-        return discoveryScope(context, query, input, inputType, FollowUpCandidate.class);
-    }
-
-    private <T> DiscoveryScope discoveryScope(CapabilityExecutionContext context, CodeIntelligenceQuery query,
-                                              T input, Class<T> inputType,
-                                              Class<? extends AnalysisCandidate> directCandidateType) {
+    private DiscoveryScope discoveryScope(CapabilityExecutionContext context, CodeIntelligenceQuery query, Object input) {
         Objects.requireNonNull(context, "capability execution context must not be null");
         Objects.requireNonNull(query, "discovery query must not be null");
         Objects.requireNonNull(input, "discovery input must not be null");
@@ -486,166 +459,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                 || !query.version().equals(context.capability().version())) {
             throw contract("discovery capability does not match the selected operation");
         }
-        if (context.candidates().size() != 1) {
-            throw contract("discovery capability requires exactly one candidate");
-        }
-        AnalysisCandidate selected = context.candidates().getFirst().candidate();
-        RepositoryId repositoryId = selected.repositoryId();
-        RepositoryRevision expectedRevision = context.expectedRevisions().revisionOf(repositoryId)
-                .orElseThrow(() -> contract("discovery repository revision is not pinned"));
-        if (selected instanceof FollowUpCandidate followUp) {
-            if (!query.capabilityName().equals(followUp.targetCapabilityName())
-                    || !query.version().equals(followUp.targetCapabilityVersion())
-                    || !expectedRevision.equals(followUp.analyzedRevision())) {
-                throw contract("discovery follow-up candidate does not match the requested capability scope");
-            }
-            T decoded = payloadCodec.decode(followUp.payload(), inputType);
-            if (!isCompatibleFollowUpInput(query, decoded, input)) {
-                throw contract("discovery input does not match the selected follow-up payload");
-            }
-            return new DiscoveryScope(repositoryId, expectedRevision, selected, true);
-        }
-        if (!directCandidateType.isInstance(selected)) {
-            throw contract("discovery capability candidate type is not supported");
-        }
-        if (selected instanceof SemanticTargetCandidate target && !expectedRevision.equals(target.analyzedRevision())) {
-            throw contract("discovery semantic target revision does not match the expected revision");
-        }
-        return new DiscoveryScope(repositoryId, expectedRevision, selected, false);
-    }
-
-    private <T> boolean isCompatibleFollowUpInput(CodeIntelligenceQuery query, T providerInput, T input) {
-        if (query == CodeIntelligenceQuery.OUTGOING_CALL_GRAPH
-                && providerInput instanceof OutgoingCallGraphExecutionInput provider
-                && input instanceof OutgoingCallGraphExecutionInput requested) {
-            return provider.boundTarget().equals(requested.boundTarget());
-        }
-        if (query == CodeIntelligenceQuery.INCOMING_CALL_GRAPH
-                && providerInput instanceof IncomingCallGraphExecutionInput provider
-                && input instanceof IncomingCallGraphExecutionInput requested) {
-            return provider.boundTarget().equals(requested.boundTarget());
-        }
-        if (query == CodeIntelligenceQuery.DISCOVER_CONCEPTS
-                && providerInput instanceof DiscoverConceptsExecutionInput provider
-                && input instanceof DiscoverConceptsExecutionInput requested) {
-            return provider.terms().equals(requested.terms())
-                    && provider.kinds().equals(requested.kinds())
-                    && provider.packagePrefix().equals(requested.packagePrefix())
-                    && provider.offset() == requested.offset();
-        }
-        if (query == CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS
-                && providerInput instanceof DiscoverEventListenersExecutionInput provider
-                && input instanceof DiscoverEventListenersExecutionInput requested) {
-            return provider.eventType().equals(requested.eventType()) && provider.offset() == requested.offset();
-        }
-        if (query == CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES
-                && providerInput instanceof FindInternalReferencesExecutionInput provider
-                && input instanceof FindInternalReferencesExecutionInput requested) {
-            return provider.target().equals(requested.target()) && provider.offset() == requested.offset();
-        }
-        if (query == CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS
-                && providerInput instanceof DiscoverTypeMembersExecutionInput provider
-                && input instanceof DiscoverTypeMembersExecutionInput requested) {
-            return provider.sourceType().equals(requested.sourceType())
-                    && provider.offset() == requested.offset()
-                    && (provider.offset() == 0 || (provider.memberKinds().equals(requested.memberKinds())
-                    && provider.namePrefix().equals(requested.namePrefix())));
-        }
-        if (query == CodeIntelligenceQuery.GET_SOURCE_SEGMENT
-                && providerInput instanceof GetSourceSegmentExecutionInput provider
-                && input instanceof GetSourceSegmentExecutionInput requested) {
-            return provider.location().equals(requested.location());
-        }
-        return providerInput.equals(input);
-    }
-
-    private void typeMembersInputFor(DiscoveryScope scope, DiscoverTypeMembersExecutionInput input) {
-        if (scope.followUp()) {
-            return;
-        }
-        if (!(scope.selected() instanceof SemanticTargetCandidate candidate)) {
-            throw contract("type member direct candidate must provide exactly one semantic target");
-        }
-        SemanticDtos.SourceTypeIdentityPayload expected = targetMapper.sourceType(candidate.semanticTarget());
-        if (!expected.equals(input.sourceType()) || input.offset() != 0) {
-            throw contract("type member direct input does not match the selected semantic target");
-        }
-    }
-
-    private void sourceSegmentInputFor(DiscoveryScope scope, GetSourceSegmentExecutionInput input) {
-        if (scope.followUp()) {
-            return;
-        }
-        if (!(scope.selected() instanceof SemanticTargetCandidate candidate)) {
-            throw contract("source segment direct candidate must provide exactly one semantic target");
-        }
-        SemanticDtos.SourceRangePayload expected = targetMapper.sourceRange(candidate.semanticTarget());
-        if (!expected.equals(input.location())) {
-            throw contract("source segment direct input does not match the selected semantic target");
-        }
-    }
-
-    private SemanticDtos.MethodTargetPayload targetFor(DiscoveryScope scope,
-                                                       Optional<SemanticDtos.MethodTargetPayload> boundTarget,
-                                                       String description) {
-        if (scope.followUp()) {
-            return boundTarget.orElseThrow(() -> contract(description + " follow-up target is required"));
-        }
-        if (boundTarget.isPresent() || !(scope.selected() instanceof SemanticTargetCandidate target)) {
-            throw contract(description + " direct candidate must provide exactly one unbound semantic target");
-        }
-        return resultMapper.methodTargetPayload(target.semanticTarget());
-    }
-
-    private SemanticDtos.MethodTargetPayload callGraphTargetFor(
-            DiscoveryScope scope,
-            Optional<SemanticDtos.MethodTargetPayload> boundTarget,
-            String description) {
-        if (scope.followUp()) {
-            return boundTarget.orElseThrow(() -> contract(description + " follow-up target is required"));
-        }
-        if (!(scope.selected() instanceof SemanticTargetCandidate selectedTarget)) {
-            throw contract(description + " direct candidate must provide exactly one semantic target");
-        }
-        SemanticDtos.MethodTargetPayload expectedTarget = targetMapper.methodTarget(selectedTarget.semanticTarget());
-        SemanticDtos.MethodTargetPayload requestedTarget = boundTarget.orElseThrow(
-                () -> contract(description + " direct target is required"));
-        if (!expectedTarget.equals(requestedTarget)) {
-            throw contract(description + " direct target does not match the selected semantic target");
-        }
-        return expectedTarget;
-    }
-
-    private SemanticDtos.MethodTargetPayload methodImplementationTargetFor(
-            DiscoveryScope scope,
-            Optional<SemanticDtos.MethodTargetPayload> boundTarget) {
-        if (scope.followUp()) {
-            return boundTarget.orElseThrow(() -> contract("method implementation follow-up target is required"));
-        }
-        if (!(scope.selected() instanceof SemanticTargetCandidate selectedTarget)) {
-            throw contract("method implementation direct candidate must provide exactly one semantic target");
-        }
-        SemanticDtos.MethodTargetPayload expectedTarget = targetMapper.methodTarget(selectedTarget.semanticTarget());
-        SemanticDtos.MethodTargetPayload requestedTarget = boundTarget.orElseThrow(
-                () -> contract("method implementation direct target is required"));
-        if (!expectedTarget.equals(requestedTarget)) {
-            throw contract("method implementation direct target does not match the selected semantic target");
-        }
-        return expectedTarget;
-    }
-
-    private SemanticDtos.SourceSymbolContextPayload sourceContextFor(DiscoveryScope scope,
-                                                                     Optional<SemanticDtos.SourceSymbolContextPayload> boundContext) {
-        if (scope.followUp()) {
-            return boundContext.orElseThrow(() -> contract("source symbol follow-up context is required"));
-        }
-        if (boundContext.isPresent() || !(scope.selected() instanceof SemanticTargetCandidate target)) {
-            throw contract("source symbol direct candidate must provide exactly one unbound semantic target");
-        }
-        SemanticDtos.MethodTargetPayload method = resultMapper.methodTargetPayload(target.semanticTarget());
-        return new SemanticDtos.SourceSymbolContextPayload(method.sourceType().javaType(),
-                Optional.of(method.sourceType().sourceFile()),
-                Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(method.methodName(), method.parameterTypes())));
+        return runtimeDiscoveryScope(context);
     }
 
     private boolean contains(SemanticDtos.SourceRangePayload requested, SemanticDtos.SourceRangePayload response) {
@@ -744,25 +558,19 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                 && StringUtils.hasText(cause.getMessage()) && cause.getMessage().toLowerCase().contains("timeout"));
     }
 
-    private RepositoryCandidate selectedRepository(CapabilityExecutionContext context) {
+    private DiscoveryScope runtimeDiscoveryScope(CapabilityExecutionContext context) {
+        RepositoryQueryScope scope = runtimeRepositoryScope(context);
+        return new DiscoveryScope(scope.repositoryId(), scope.expectedRevision());
+    }
+
+    private RepositoryQueryScope runtimeRepositoryScope(CapabilityExecutionContext context) {
         Objects.requireNonNull(context, "capability execution context must not be null");
-        if (context.candidates().size() != 1
-                || !(context.candidates().getFirst().candidate() instanceof RepositoryCandidate repository)) {
-            throw contract("capability requires exactly one repository candidate");
+        List<RevisionVector.Entry> entries = context.expectedRevisions().entries();
+        if (entries.size() != 1) {
+            throw contract("capability execution requires exactly one pinned repository revision");
         }
-        return repository;
-    }
-
-    private RepositoryQueryScope selectedRepositoryQueryScope(CapabilityExecutionContext context) {
-        RepositoryCandidate repository = selectedRepository(context);
-        RepositoryRevision expectedRevision = context.expectedRevisions().revisionOf(repository.repositoryId())
-                .orElseThrow(() -> contract("capability repository revision is not pinned"));
-        return new RepositoryQueryScope(repository.repositoryId(), expectedRevision);
-    }
-
-    private CapabilityInvocation resultInvocation(CapabilityExecutionContext context) {
-        return new CapabilityInvocation(context.capability(), context.candidates(), context.question(),
-                new CapabilityInputPayload("{}"), context.expectedRevisions());
+        RevisionVector.Entry entry = entries.getFirst();
+        return new RepositoryQueryScope(entry.repositoryId(), entry.revision());
     }
 
     private Optional<String> optionalText(String value) {
@@ -783,11 +591,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private record RepositoryQueryScope(RepositoryId repositoryId, RepositoryRevision expectedRevision) {
     }
 
-    private record DiscoveryScope(RepositoryId repositoryId, RepositoryRevision expectedRevision,
-                                  AnalysisCandidate selected, boolean followUp) {
+    private record DiscoveryScope(RepositoryId repositoryId, RepositoryRevision expectedRevision) {
     }
 
-    private record DefaultDependencies(JavaSemanticResultMapper resultMapper,
-                                       CanonicalCapabilityPayloadCodec payloadCodec) {
+    private record DefaultDependencies(JavaSemanticResultMapper resultMapper) {
     }
 }

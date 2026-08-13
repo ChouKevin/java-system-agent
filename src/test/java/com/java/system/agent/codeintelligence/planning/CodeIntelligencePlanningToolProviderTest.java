@@ -283,8 +283,7 @@ class CodeIntelligencePlanningToolProviderTest {
         RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
         CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS);
-        DiscoverMethodImplementationsExecutionInput input = new DiscoverMethodImplementationsExecutionInput(
-                Optional.of(graphTarget()));
+        DiscoverMethodImplementationsExecutionInput input = new DiscoverMethodImplementationsExecutionInput(graphTarget());
         IssuedCandidate followUp = followUpCandidate("candidate-implementations", binding, repositoryId, revision,
                 policy, payloadCodec.encode(input));
         IssuedCandidate direct = semanticTargetCandidate("candidate-implementation-target", binding, repositoryId, revision);
@@ -476,7 +475,7 @@ class CodeIntelligencePlanningToolProviderTest {
         IssuedCandidate sourceRange = sourceRangeCandidate("candidate-range", binding, repositoryId, revision,
                 new SemanticDtos.SourceRangePayload("src/Orders.java", new SemanticDtos.TextRangePayload(
                         new SemanticDtos.Position(0, 1), new SemanticDtos.Position(2, 3))));
-        GetMethodSourceExecutionInput methodSourceInput = new GetMethodSourceExecutionInput(Optional.of(graphTarget()));
+        GetMethodSourceExecutionInput methodSourceInput = new GetMethodSourceExecutionInput(graphTarget());
         IssuedCandidate methodSourceFollowUp = followUpCandidate("candidate-method-source", binding, repositoryId, revision,
                 methodSourcePolicy, payloadCodec.encode(methodSourceInput));
         DiscoverTypeMembersExecutionInput typeMembersInput = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
@@ -530,7 +529,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(graphTarget().methodName(),
                         graphTarget().parameterTypes())));
         ResolveSourceSymbolExecutionInput providerInput = new ResolveSourceSymbolExecutionInput("providerSymbol",
-                Optional.of(new SemanticDtos.Position(7, 9)), Optional.of(providerContext));
+                Optional.of(new SemanticDtos.Position(7, 9)), providerContext);
         IssuedCandidate followUp = followUpCandidate("candidate-source-symbol", binding, repositoryId, revision,
                 policy, payloadCodec.encode(providerInput));
         AgentPromptContext context = promptContext(policy, List.of(method, followUp), binding);
@@ -549,7 +548,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 """, context));
 
         assertThat(directAction.payload()).isEqualTo(payloadCodec.encode(new ResolveSourceSymbolExecutionInput(
-                "modelSymbol", Optional.of(new SemanticDtos.Position(3, 5)), Optional.empty())));
+                "modelSymbol", Optional.of(new SemanticDtos.Position(3, 5)), providerContext)));
         assertThat(followUpAction.payload()).isEqualTo(payloadCodec.encode(providerInput));
     }
 
@@ -565,7 +564,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 new SemanticDtos.SourceTypeIdentityPayload(
                         new SemanticDtos.JavaTypeIdentityPayload("com.example", "OrderService"),
                         "src/OrderService.java"), "find", List.of("java.lang.String"));
-        OutgoingCallGraphExecutionInput input = new OutgoingCallGraphExecutionInput(1, Optional.of(target));
+        OutgoingCallGraphExecutionInput input = new OutgoingCallGraphExecutionInput(1, target);
         RepositoryId repositoryId = new RepositoryId("orders");
         RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         RevisionVector revisions = RevisionVector.empty().pin(repositoryId, revision);
@@ -608,10 +607,8 @@ class CodeIntelligencePlanningToolProviderTest {
         CapabilityPolicy graphPolicy = policy(registry, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH);
         CapabilityPolicy conceptsPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_CONCEPTS);
         CapabilityPolicy listenersPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_EVENT_LISTENERS);
-        OutgoingCallGraphExecutionInput graphFollowUpInput = new OutgoingCallGraphExecutionInput(1,
-                Optional.of(graphTarget()));
-        OutgoingCallGraphExecutionInput graphTunedInput = new OutgoingCallGraphExecutionInput(2,
-                Optional.of(graphTarget()));
+        OutgoingCallGraphExecutionInput graphFollowUpInput = new OutgoingCallGraphExecutionInput(1, graphTarget());
+        OutgoingCallGraphExecutionInput graphTunedInput = new OutgoingCallGraphExecutionInput(2, graphTarget());
         DiscoverConceptsExecutionInput directConceptsInput = conceptsInput("orders");
         DiscoverEventListenersExecutionInput directListenersInput = new DiscoverEventListenersExecutionInput(
                 "com.example.OrderPlaced", 0, 50);
@@ -684,8 +681,7 @@ class CodeIntelligencePlanningToolProviderTest {
                 revisions);
         CapabilityPolicy graphPolicy = policy(registry, CodeIntelligenceQuery.OUTGOING_CALL_GRAPH);
         CapabilityPolicy incomingPolicy = policy(registry, CodeIntelligenceQuery.INCOMING_CALL_GRAPH);
-        CapabilityInputPayload payload = payloadCodec.encode(new OutgoingCallGraphExecutionInput(1,
-                Optional.of(graphTarget())));
+        CapabilityInputPayload payload = payloadCodec.encode(new OutgoingCallGraphExecutionInput(1, graphTarget()));
         IssuedCandidate mismatched = followUpCandidate("candidate-mismatched", currentBinding, repositoryId, revision,
                 incomingPolicy, payload);
         IssuedCandidate stale = followUpCandidate("candidate-stale", staleBinding, repositoryId, revision, graphPolicy,

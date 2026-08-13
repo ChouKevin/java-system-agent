@@ -5,18 +5,13 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * outgoing-call-graph executor 的 capability 專屬輸入
  */
 public record OutgoingCallGraphExecutionInput(@Min(1) @Max(2) int depth,
-                                              Optional<SemanticDtos.MethodTargetPayload> boundTarget) {
+                                              SemanticDtos.MethodTargetPayload target) {
     public OutgoingCallGraphExecutionInput {
-        boundTarget = Objects.requireNonNull(boundTarget, "bound target is required");
-    }
-
-    public OutgoingCallGraphExecutionInput(int depth) {
-        this(depth, Optional.empty());
+        target = Objects.requireNonNull(target, "target is required");
     }
 }

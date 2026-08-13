@@ -197,18 +197,38 @@ class JavaSemanticServiceHttpAdapterTest {
         assertSucceeded(() -> adapter.resolveConcept(followUpContext("codebase_resolve_concept", new ResolveConceptExecutionInput(concept)), new ResolveConceptExecutionInput(concept)));
         assertSucceeded(() -> adapter.discoverEventListeners(repositoryContext("codebase_discover_event_listeners"), new DiscoverEventListenersExecutionInput("com.example.Event", 0, 1)));
         assertSucceeded(() -> adapter.discoverMethodImplementations(targetContext("codebase_discover_method_implementations"),
-                new DiscoverMethodImplementationsExecutionInput(Optional.of(graphTargetPayload()))));
+                new DiscoverMethodImplementationsExecutionInput(graphTargetPayload())));
         DiscoverTypeMembersExecutionInput members = new DiscoverTypeMembersExecutionInput(target.sourceType(), List.of("METHOD"), Optional.empty(), 0, 1);
         assertSucceeded(() -> adapter.discoverTypeMembers(followUpContext("codebase_discover_type_members", members), members));
         FindInternalReferencesExecutionInput references = new FindInternalReferencesExecutionInput(new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", target), 0, 1);
         assertSucceeded(() -> adapter.findInternalReferences(followUpContext("codebase_find_internal_references", references), references));
         GetEvidenceSourceExecutionInput evidenceInput = new GetEvidenceSourceExecutionInput(evidence);
         assertSucceeded(() -> adapter.getEvidenceSource(followUpContext("codebase_get_evidence_source", evidenceInput), evidenceInput));
-        assertSucceeded(() -> adapter.getMethodSource(targetContext("codebase_get_method_source"), new GetMethodSourceExecutionInput(Optional.empty())));
+        assertSucceeded(() -> adapter.getMethodSource(targetContext("codebase_get_method_source"),
+                new GetMethodSourceExecutionInput(graphTargetPayload())));
         GetSourceSegmentExecutionInput segment = new GetSourceSegmentExecutionInput(range, 0);
         assertSucceeded(() -> adapter.getSourceSegment(followUpContext("codebase_get_source_segment", segment), segment));
-        ResolveSourceSymbolExecutionInput symbol = new ResolveSourceSymbolExecutionInput("order", Optional.empty(), Optional.empty());
+        ResolveSourceSymbolExecutionInput symbol = new ResolveSourceSymbolExecutionInput("order", Optional.empty(),
+                sourceSymbolContext(graphTargetPayload()));
         assertSucceeded(() -> adapter.resolveSourceSymbol(targetContext("codebase_resolve_source_symbol"), symbol));
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsTypeMemberResponseForDifferentPayloadTarget() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+        DiscoverTypeMembersExecutionInput input = new DiscoverTypeMembersExecutionInput(target.sourceType(),
+                List.of("METHOD"), Optional.empty(), 0, 1);
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/type-members"))
+                .andRespond(withSuccess(membersSuccess(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.discoverTypeMembers(
+                candidateFreeContext("codebase_discover_type_members"), input))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageContaining("target does not match");
+
         client.server().verify();
     }
 
@@ -236,11 +256,53 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
+    void executesMethodSourceAndTypeMembersFromPayloadWithNoCandidateHandles() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+        DiscoverTypeMembersExecutionInput members = new DiscoverTypeMembersExecutionInput(target.sourceType(),
+                List.of("METHOD"), Optional.of("find"), 0, 1);
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/method-source"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":{"sourceType":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java"},"methodName":"find","parameterTypes":["java.lang.String"]}}
+                        """, JsonCompareMode.STRICT))
+                .andRespond(withSuccess(methodSourceSuccess(), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/type-members"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceType":{"javaType":{"packageName":"com.example","className":"OrderService"},"sourceFile":"src/OrderService.java"},"memberKinds":["METHOD"],"namePrefix":"find","offset":0,"limit":1}
+                        """, JsonCompareMode.STRICT))
+                .andRespond(withSuccess(membersSuccessFor(target.sourceType()), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertSucceeded(() -> adapter.getMethodSource(candidateFreeContext("codebase_get_method_source"),
+                new GetMethodSourceExecutionInput(target)));
+        assertSucceeded(() -> adapter.discoverTypeMembers(candidateFreeContext("codebase_discover_type_members"), members));
+
+        client.server().verify();
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidRuntimeRevisionVectors")
+    void rejectsEmptyOrMultipleRuntimeRevisionsBeforeHttp(RevisionVector revisions) {
+        TestClient client = testClient();
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
+
+        assertThatThrownBy(() -> adapter.getMethodSource(candidateFreeContext("codebase_get_method_source", revisions),
+                new GetMethodSourceExecutionInput(target)))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageContaining("exactly one pinned repository revision");
+
+        client.server().verify();
+    }
+
+    @Test
     void executesBothCallGraphsForAFollowUpCandidateWithItsBoundTargetAndPinnedScope() {
         TestClient client = testClient();
         SemanticDtos.MethodTargetPayload target = graphTargetPayload();
-        OutgoingCallGraphExecutionInput outgoing = new OutgoingCallGraphExecutionInput(1, Optional.of(target));
-        IncomingCallGraphExecutionInput incoming = new IncomingCallGraphExecutionInput(1, Optional.of(target));
+        OutgoingCallGraphExecutionInput outgoing = new OutgoingCallGraphExecutionInput(1, target);
+        IncomingCallGraphExecutionInput incoming = new IncomingCallGraphExecutionInput(1, target);
         client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
                 .andExpect(method(POST))
                 .andExpect(content().json(graphRequest(target)))
@@ -263,8 +325,8 @@ class JavaSemanticServiceHttpAdapterTest {
     void permitsOnlyBoundedFollowUpTuningAcrossSemanticQueryFamilies() {
         TestClient client = testClient();
         SemanticDtos.MethodTargetPayload target = graphTargetPayload();
-        OutgoingCallGraphExecutionInput graphProvider = new OutgoingCallGraphExecutionInput(1, Optional.of(target));
-        OutgoingCallGraphExecutionInput graphTuned = new OutgoingCallGraphExecutionInput(2, Optional.of(target));
+        OutgoingCallGraphExecutionInput graphProvider = new OutgoingCallGraphExecutionInput(1, target);
+        OutgoingCallGraphExecutionInput graphTuned = new OutgoingCallGraphExecutionInput(2, target);
         DiscoverConceptsExecutionInput conceptsProvider = new DiscoverConceptsExecutionInput(
                 List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")), List.of("TYPE"),
                 Optional.of("com.example"), 20, 1);
@@ -302,58 +364,10 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
-    void rejectsProtectedFollowUpMutationsBeforeAnySemanticHttpRequest() {
-        TestClient client = testClient();
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"));
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/discovery/concepts"));
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/discovery/event-listeners"));
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/discovery/internal-references"));
-        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
-        OutgoingCallGraphExecutionInput graphProvider = new OutgoingCallGraphExecutionInput(1,
-                Optional.of(graphTargetPayload()));
-        DiscoverConceptsExecutionInput conceptsProvider = new DiscoverConceptsExecutionInput(
-                List.of(new DiscoverConceptsExecutionInput.Term("payments", "TOKEN_EXACT")), List.of("TYPE"),
-                Optional.empty(), 10, 1);
-        DiscoverEventListenersExecutionInput listenersProvider = new DiscoverEventListenersExecutionInput(
-                "com.example.PaymentCreated", 10, 1);
-        FindInternalReferencesExecutionInput referencesProvider = new FindInternalReferencesExecutionInput(
-                new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", graphTargetPayload()), 10, 1);
-
-        assertThatThrownBy(() -> adapter.outgoingCallGraph(
-                followUpContext("codebase_outgoing_call_graph", graphProvider),
-                new OutgoingCallGraphExecutionInput(2, Optional.of(targetPayload()))))
-                .isInstanceOf(CapabilityExecutionContractException.class)
-                .hasMessageNotContaining("Orders");
-        assertThatThrownBy(() -> adapter.discoverConcepts(
-                followUpContext("codebase_discover_concepts", conceptsProvider),
-                new DiscoverConceptsExecutionInput(List.of(new DiscoverConceptsExecutionInput.Term(
-                        "secrettarget", "TOKEN_EXACT")), List.of("TYPE"), Optional.empty(), 10, 2)))
-                .isInstanceOf(CapabilityExecutionContractException.class)
-                .hasMessageNotContaining("secrettarget");
-        assertThatThrownBy(() -> adapter.discoverEventListeners(
-                followUpContext("codebase_discover_event_listeners", listenersProvider),
-                new DiscoverEventListenersExecutionInput("secret.event.Type", 10, 2)))
-                .isInstanceOf(CapabilityExecutionContractException.class)
-                .hasMessageNotContaining("secret.event.Type");
-        assertThatThrownBy(() -> adapter.findInternalReferences(
-                followUpContext("codebase_find_internal_references", referencesProvider),
-                new FindInternalReferencesExecutionInput(new SemanticDtos.InternalReferenceFollowUpTarget(
-                        "METHOD", targetPayload()), 10, 2)))
-                .isInstanceOf(CapabilityExecutionContractException.class)
-                .hasMessageNotContaining("Orders");
-
-        client.server().verify();
-    }
-
-    @Test
     void postsTheExactMethodImplementationTargetFromEitherCandidateBoundAuthority() {
         TestClient client = testClient();
         SemanticDtos.MethodTargetPayload target = graphTargetPayload();
-        DiscoverMethodImplementationsExecutionInput input = new DiscoverMethodImplementationsExecutionInput(Optional.of(target));
+        DiscoverMethodImplementationsExecutionInput input = new DiscoverMethodImplementationsExecutionInput(target);
         client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/method-implementations"))
                 .andExpect(method(POST))
                 .andExpect(content().json(methodImplementationsRequest(target)))
@@ -385,7 +399,7 @@ class JavaSemanticServiceHttpAdapterTest {
 
         CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed)
                 adapter.discoverMethodImplementations(targetContext("codebase_discover_method_implementations"),
-                        new DiscoverMethodImplementationsExecutionInput(Optional.of(target)));
+                        new DiscoverMethodImplementationsExecutionInput(target));
 
         assertThat(result.failure().code()).isEqualTo(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE);
         client.server().verify();
@@ -406,102 +420,19 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         assertSucceeded(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(target))));
+                new OutgoingCallGraphExecutionInput(1, target)));
         assertSucceeded(() -> adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"),
-                new IncomingCallGraphExecutionInput(1, Optional.of(target))));
+                new IncomingCallGraphExecutionInput(1, target)));
 
         client.server().verify();
     }
 
     @Test
-    void rejectsMismatchedDirectCallGraphTargetsBeforeHttp() {
-        TestClient client = testClient();
-        SemanticDtos.MethodTargetPayload mismatchedTarget = targetPayload();
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"));
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/analyses/call-graphs/incoming"));
-        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
-
-        assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(mismatchedTarget))))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"),
-                new IncomingCallGraphExecutionInput(1, Optional.of(mismatchedTarget))))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-
-        client.server().verify();
-    }
-
-    @Test
-    void rejectsProtectedTypeMemberAndSourceSegmentMutationsBeforeHttp() {
-        TestClient client = testClient();
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/discovery/type-members"));
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/discovery/source-segment"));
-        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
-        DiscoverTypeMembersExecutionInput directTypeMismatch = new DiscoverTypeMembersExecutionInput(
-                targetPayload().sourceType(), List.of("METHOD"), Optional.empty(), 0, 1);
-        DiscoverTypeMembersExecutionInput providerContinuation = new DiscoverTypeMembersExecutionInput(
-                graphTargetPayload().sourceType(), List.of("METHOD"), Optional.of("find"), 5, 1);
-        DiscoverTypeMembersExecutionInput mutatedContinuation = new DiscoverTypeMembersExecutionInput(
-                graphTargetPayload().sourceType(), List.of("FIELD"), Optional.of("find"), 5, 2);
-        SemanticDtos.SourceRangePayload providerLocation = sourceRange();
-        SemanticDtos.SourceRangePayload differentLocation = new SemanticDtos.SourceRangePayload("src/Other.java",
-                providerLocation.range());
-
-        assertThatThrownBy(() -> adapter.discoverTypeMembers(
-                targetContext("codebase_discover_type_members"), directTypeMismatch))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.discoverTypeMembers(
-                followUpContext("codebase_discover_type_members", providerContinuation), mutatedContinuation))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.getSourceSegment(
-                sourceRangeContext("codebase_get_source_segment", providerLocation),
-                new GetSourceSegmentExecutionInput(differentLocation, 0)))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.getSourceSegment(
-                followUpContext("codebase_get_source_segment", new GetSourceSegmentExecutionInput(providerLocation, 2)),
-                new GetSourceSegmentExecutionInput(differentLocation, 3)))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-
-        client.server().verify();
-    }
-
-    @Test
-    void rejectsMethodSourceAndSourceSymbolAuthorityMismatchesBeforeHttp() {
-        TestClient client = testClient();
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/discovery/method-source"));
-        client.server().expect(org.springframework.test.web.client.ExpectedCount.never(),
-                requestTo("https://semantic.test/v1/discovery/source-symbols/resolve"));
-        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
-        SemanticDtos.MethodTargetPayload providerTarget = graphTargetPayload();
-        SemanticDtos.SourceSymbolContextPayload context = new SemanticDtos.SourceSymbolContextPayload(
-                providerTarget.sourceType().javaType(), Optional.of(providerTarget.sourceType().sourceFile()),
-                Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(providerTarget.methodName(),
-                        providerTarget.parameterTypes())));
-        GetMethodSourceExecutionInput providerMethodSource = new GetMethodSourceExecutionInput(Optional.of(providerTarget));
-        ResolveSourceSymbolExecutionInput providerSourceSymbol = new ResolveSourceSymbolExecutionInput("order",
-                Optional.empty(), Optional.of(context));
-
-        assertThatThrownBy(() -> adapter.getMethodSource(targetContext("codebase_get_method_source"),
-                new GetMethodSourceExecutionInput(Optional.of(targetPayload()))))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.getMethodSource(
-                followUpContext("codebase_get_method_source", providerMethodSource),
-                new GetMethodSourceExecutionInput(Optional.of(targetPayload()))))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.resolveSourceSymbol(targetContext("codebase_resolve_source_symbol"),
-                new ResolveSourceSymbolExecutionInput("order", Optional.empty(), Optional.of(context))))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.resolveSourceSymbol(
-                followUpContext("codebase_resolve_source_symbol", providerSourceSymbol),
-                new ResolveSourceSymbolExecutionInput("other", Optional.empty(), Optional.of(context))))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-
-        client.server().verify();
+    void rejectsMissingPayloadTargetOrContextAtInputConstruction() {
+        assertThatThrownBy(() -> new GetMethodSourceExecutionInput(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new ResolveSourceSymbolExecutionInput("order", Optional.empty(), null))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test
@@ -515,31 +446,10 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
+                new OutgoingCallGraphExecutionInput(1, graphTargetPayload())))
                 .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("revision");
 
-        client.server().verify();
-    }
-
-    @Test
-    void rejectsDiscoveryFollowUpsWithWrongCapabilityOrCanonicalPayloadBeforeHttp() {
-        TestClient client = testClient();
-        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
-        ResolveConceptExecutionInput input = new ResolveConceptExecutionInput(conceptIdentity());
-        CapabilityExecutionContext wrongCapability = followUpContext("codebase_get_evidence_source", input);
-        CapabilityExecutionContext wrongPayload = followUpContext("codebase_resolve_concept",
-                new ResolveConceptExecutionInput(new SemanticDtos.ConceptFollowUpIdentity("TYPE",
-                        Optional.of(new SemanticDtos.SourceTypeIdentityPayload(
-                                new SemanticDtos.JavaTypeIdentityPayload("com.example", "Other"), "src/Other.java")),
-                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())));
-
-        assertThatThrownBy(() -> adapter.resolveConcept(wrongCapability, input))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> adapter.resolveConcept(wrongPayload, input))
-                .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
 
@@ -582,26 +492,10 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         assertThatThrownBy(() -> adapter.resolveSourceSymbol(targetContext("codebase_resolve_source_symbol"),
-                new ResolveSourceSymbolExecutionInput("order", Optional.empty(), Optional.empty())))
+                new ResolveSourceSymbolExecutionInput("order", Optional.empty(),
+                        sourceSymbolContext(graphTargetPayload()))))
                 .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageContaining("unsupported source symbol issue code")
-                .hasMessageNotContaining("secret source body");
-        client.server().verify();
-    }
-
-    @Test
-    void rejectsMissingOrMalformedDiscoveryFollowUpPayloadBeforeHttp() {
-        TestClient client = testClient();
-        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
-        ResolveConceptExecutionInput input = new ResolveConceptExecutionInput(conceptIdentity());
-
-        assertThatThrownBy(() -> adapter.resolveConcept(
-                followUpContextWithPayload("codebase_resolve_concept", "{}"), input))
-                .isInstanceOf(CapabilityExecutionContractException.class)
-                .hasMessageNotContaining("secret source body");
-        assertThatThrownBy(() -> adapter.resolveConcept(
-                followUpContextWithPayload("codebase_resolve_concept", "{"), input))
-                .isInstanceOf(CapabilityExecutionContractException.class)
                 .hasMessageNotContaining("secret source body");
         client.server().verify();
     }
@@ -615,7 +509,7 @@ class JavaSemanticServiceHttpAdapterTest {
 
         assertThatThrownBy(() -> adapter.discoverMethodImplementations(
                 targetContext("codebase_discover_method_implementations"),
-                new DiscoverMethodImplementationsExecutionInput(Optional.of(graphTargetPayload()))))
+                new DiscoverMethodImplementationsExecutionInput(graphTargetPayload())))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
@@ -736,10 +630,10 @@ class JavaSemanticServiceHttpAdapterTest {
         assertThat(adapter.suggestApiRoute(repositoryContext("codebase_suggest_api_route"), new SuggestApiRouteExecutionInput("/orders", null, 3)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
+                new OutgoingCallGraphExecutionInput(1, graphTargetPayload())))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph"),
-                new IncomingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
+                new IncomingCallGraphExecutionInput(1, graphTargetPayload())))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         client.server().verify();
     }
@@ -840,7 +734,7 @@ class JavaSemanticServiceHttpAdapterTest {
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
 
         assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
+                new OutgoingCallGraphExecutionInput(1, graphTargetPayload())))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
@@ -860,7 +754,7 @@ class JavaSemanticServiceHttpAdapterTest {
 
         assertThatThrownBy(adapter::availableRepositories).isInstanceOf(CapabilityExecutionContractException.class);
         assertThatThrownBy(() -> adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph"),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(graphTargetPayload()))))
+                new OutgoingCallGraphExecutionInput(1, graphTargetPayload())))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
@@ -902,6 +796,14 @@ class JavaSemanticServiceHttpAdapterTest {
                 .map(failure -> Arguments.of(endpoint, failure)));
     }
 
+    private static Stream<RevisionVector> invalidRuntimeRevisionVectors() {
+        RepositoryId orders = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        RepositoryId payments = new RepositoryId("payments");
+        RepositoryRevision otherRevision = new RepositoryRevision("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        return Stream.of(RevisionVector.empty(), RevisionVector.empty().pin(orders, revision).pin(payments, otherRevision));
+    }
+
     private static Stream<DiscoveryEndpoint> discoveryEndpoints() {
         SemanticDtos.MethodTargetPayload target = targetPayload();
         SemanticDtos.ConceptFollowUpIdentity concept = conceptIdentity();
@@ -914,16 +816,16 @@ class JavaSemanticServiceHttpAdapterTest {
         DiscoverEventListenersExecutionInput listeners = new DiscoverEventListenersExecutionInput("com.example.Event", 0,
                 1);
         DiscoverMethodImplementationsExecutionInput implementations = new DiscoverMethodImplementationsExecutionInput(
-                Optional.of(graphTargetPayload()));
+                graphTargetPayload());
         DiscoverTypeMembersExecutionInput members = new DiscoverTypeMembersExecutionInput(target.sourceType(),
                 List.of("METHOD"), Optional.empty(), 0, 1);
         FindInternalReferencesExecutionInput references = new FindInternalReferencesExecutionInput(
                 new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", target), 0, 1);
         GetEvidenceSourceExecutionInput evidenceInput = new GetEvidenceSourceExecutionInput(evidence);
         GetSourceSegmentExecutionInput segment = new GetSourceSegmentExecutionInput(range, 0);
-        GetMethodSourceExecutionInput methodSource = new GetMethodSourceExecutionInput(Optional.empty());
+        GetMethodSourceExecutionInput methodSource = new GetMethodSourceExecutionInput(graphTargetPayload());
         ResolveSourceSymbolExecutionInput sourceSymbol = new ResolveSourceSymbolExecutionInput("order",
-                Optional.empty(), Optional.empty());
+                Optional.empty(), sourceSymbolContext(graphTargetPayload()));
         return Stream.of(
                 endpoint("/v1/discovery/concepts", adapter -> adapter.discoverConcepts(
                         repositoryContext("codebase_discover_concepts"), concepts)),
@@ -1010,6 +912,16 @@ class JavaSemanticServiceHttpAdapterTest {
         return followUpContext(name, revisions, repositoryId, revision, codec.encode(input));
     }
 
+    private static CapabilityExecutionContext candidateFreeContext(String name) {
+        RepositoryId repositoryId = new RepositoryId("orders");
+        RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        return candidateFreeContext(name, RevisionVector.empty().pin(repositoryId, revision));
+    }
+
+    private static CapabilityExecutionContext candidateFreeContext(String name, RevisionVector revisions) {
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(), "Find orders", revisions);
+    }
+
     private static CapabilityExecutionContext followUpContextWithPayload(String name, String payload) {
         RepositoryId repositoryId = new RepositoryId("orders");
         RepositoryRevision revision = new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -1090,6 +1002,12 @@ class JavaSemanticServiceHttpAdapterTest {
                 """;
     }
 
+    private static String membersSuccessFor(SemanticDtos.SourceTypeIdentityPayload sourceType) {
+        return membersSuccess().replace("\"className\":\"Orders\"",
+                        "\"className\":\"%s\"".formatted(sourceType.javaType().className()))
+                .replace("src/Orders.java", sourceType.sourceFile());
+    }
+
     private static String valueMembersSuccess() {
         return """
                 {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"typeKind":"RECORD","annotations":[],"implementedTypes":[],"extendedTypes":[],"members":[{"kind":"ENUM_CONSTANT","identity":{"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"name":"CARD"},"declarationRange":{"start":{"line":2,"character":4},"end":{"line":2,"character":8}},"annotations":[],"availableFollowUps":[{"operation":"FIND_INTERNAL_REFERENCES","api":{"method":"POST","path":"/v1/discovery/internal-references","operationId":"findInternalReferences"},"request":{"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":{"kind":"MEMBER","identity":{"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"name":"CARD"}},"offset":0,"limit":50}}]},{"kind":"RECORD_COMPONENT","identity":{"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"name":"reference"},"writtenType":"String","resolvedType":"java.lang.String","declarationRange":{"start":{"line":4,"character":13},"end":{"line":4,"character":22}},"annotations":[],"availableFollowUps":[{"operation":"FIND_INTERNAL_REFERENCES","api":{"method":"POST","path":"/v1/discovery/internal-references","operationId":"findInternalReferences"},"request":{"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":{"kind":"MEMBER","identity":{"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"name":"reference"}},"offset":0,"limit":50}}]}],"page":{"offset":0,"limit":10,"returnedCount":2,"totalCount":2,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":1,"extractedFileCount":1,"syntaxFailedFileCount":0},"availableFollowUps":[]}
@@ -1145,6 +1063,13 @@ class JavaSemanticServiceHttpAdapterTest {
         return new SemanticDtos.MethodTargetPayload(new SemanticDtos.SourceTypeIdentityPayload(
                 new SemanticDtos.JavaTypeIdentityPayload("com.example", "OrderService"), "src/OrderService.java"),
                 "find", List.of("java.lang.String"));
+    }
+
+    private static SemanticDtos.SourceSymbolContextPayload sourceSymbolContext(
+            SemanticDtos.MethodTargetPayload target) {
+        return new SemanticDtos.SourceSymbolContextPayload(target.sourceType().javaType(),
+                Optional.of(target.sourceType().sourceFile()),
+                Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(target.methodName(), target.parameterTypes())));
     }
 
     private static SemanticDtos.ConceptFollowUpIdentity conceptIdentity() {

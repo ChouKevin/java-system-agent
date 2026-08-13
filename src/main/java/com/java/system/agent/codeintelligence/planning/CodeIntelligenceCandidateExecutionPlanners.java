@@ -116,14 +116,14 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
 
         @Override
         public OutgoingCallGraphExecutionInput planDirect(OutgoingCallGraphPlanningInput input, AnalysisCandidate candidate) {
-            return new OutgoingCallGraphExecutionInput(depth(input.depth()), Optional.of(methodTarget(candidate, targetMapper)));
+            return new OutgoingCallGraphExecutionInput(depth(input.depth()), methodTarget(candidate, targetMapper));
         }
 
         @Override
         public OutgoingCallGraphExecutionInput planFollowUp(
                 OutgoingCallGraphPlanningInput input, OutgoingCallGraphExecutionInput providerInput) {
             return new OutgoingCallGraphExecutionInput(followUpDepth(input.depth(), providerInput.depth()),
-                    requiredBoundTarget(providerInput.boundTarget()));
+                    providerInput.target());
         }
     }
 
@@ -144,14 +144,14 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
 
         @Override
         public IncomingCallGraphExecutionInput planDirect(IncomingCallGraphPlanningInput input, AnalysisCandidate candidate) {
-            return new IncomingCallGraphExecutionInput(depth(input.depth()), Optional.of(methodTarget(candidate, targetMapper)));
+            return new IncomingCallGraphExecutionInput(depth(input.depth()), methodTarget(candidate, targetMapper));
         }
 
         @Override
         public IncomingCallGraphExecutionInput planFollowUp(
                 IncomingCallGraphPlanningInput input, IncomingCallGraphExecutionInput providerInput) {
             return new IncomingCallGraphExecutionInput(followUpDepth(input.depth(), providerInput.depth()),
-                    requiredBoundTarget(providerInput.boundTarget()));
+                    providerInput.target());
         }
     }
 
@@ -277,8 +277,7 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
 
         @Override
         public GetMethodSourceExecutionInput planDirect(GetMethodSourcePlanningInput input, AnalysisCandidate candidate) {
-            methodTarget(candidate, targetMapper);
-            return new GetMethodSourceExecutionInput(Optional.empty());
+            return new GetMethodSourceExecutionInput(methodTarget(candidate, targetMapper));
         }
 
         @Override
@@ -306,9 +305,12 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
         @Override
         public ResolveSourceSymbolExecutionInput planDirect(
                 ResolveSourceSymbolPlanningInput input, AnalysisCandidate candidate) {
-            methodTarget(candidate, targetMapper);
+            if (!(candidate instanceof SemanticTargetCandidate semanticTarget)) {
+                throw invalidMethodTarget();
+            }
             Optional<SemanticDtos.Position> position = Optional.ofNullable(input.position()).orElse(Optional.empty());
-            return new ResolveSourceSymbolExecutionInput(input.symbol(), position, Optional.empty());
+            return new ResolveSourceSymbolExecutionInput(
+                    input.symbol(), position, targetMapper.sourceSymbolContext(semanticTarget.semanticTarget()));
         }
 
         @Override
@@ -341,17 +343,13 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
                     || !targetMapper.supportsMethodTarget(semanticTarget.semanticTarget())) {
                 throw invalidMethodTarget();
             }
-            return new DiscoverMethodImplementationsExecutionInput(Optional.of(targetMapper.methodTarget(
-                    semanticTarget.semanticTarget())));
+            return new DiscoverMethodImplementationsExecutionInput(targetMapper.methodTarget(semanticTarget.semanticTarget()));
         }
 
         @Override
         public DiscoverMethodImplementationsExecutionInput planFollowUp(
                 DiscoverMethodImplementationsPlanningInput input,
                 DiscoverMethodImplementationsExecutionInput providerInput) {
-            if (providerInput.boundTarget().isEmpty()) {
-                throw invalidMethodTarget();
-            }
             return providerInput;
         }
     }
@@ -466,14 +464,6 @@ public final class CodeIntelligenceCandidateExecutionPlanners {
             throw invalidMethodTarget();
         }
         return targetMapper.methodTarget(semanticTarget.semanticTarget());
-    }
-
-    private static Optional<SemanticDtos.MethodTargetPayload> requiredBoundTarget(
-            Optional<SemanticDtos.MethodTargetPayload> boundTarget) {
-        if (boundTarget.isEmpty()) {
-            throw invalidMethodTarget();
-        }
-        return boundTarget;
     }
 
     private static int depth(Integer configuredDepth) {

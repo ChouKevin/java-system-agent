@@ -5,7 +5,6 @@ import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec
 import jakarta.validation.Validation;
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
-import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RouteCandidate;
 import com.java.system.agent.answering.domain.candidate.SemanticTargetCandidate;
 import com.java.system.agent.answering.domain.evidence.EvidenceRef;
@@ -17,7 +16,6 @@ import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
-import com.java.system.agent.answering.port.out.CapabilityInvocation;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import org.springframework.util.StringUtils;
 
@@ -72,9 +70,7 @@ public final class JavaSemanticResultMapper {
         return schemaValidator.repository(response);
     }
 
-    public CapabilityExecutionResult listEntryPoints(CapabilityInvocation invocation,
-                                                      SemanticDtos.EntryPointsResponse response) {
-        requireProviderObject(invocation, "capability invocation");
+    public CapabilityExecutionResult listEntryPoints(SemanticDtos.EntryPointsResponse response) {
         SemanticDtos.EntryPointsResponse requiredResponse = schemaValidator.entryPoints(response);
         RepositoryId repositoryId = new RepositoryId(requiredResponse.repoId());
         RepositoryRevision revision = new RepositoryRevision(requiredResponse.analyzedRevision());
@@ -124,13 +120,6 @@ public final class JavaSemanticResultMapper {
         return succeeded(candidates, List.of(), observations);
     }
 
-    public CapabilityExecutionResult outgoingCallGraph(CapabilityInvocation invocation,
-                                                        SemanticDtos.OutgoingCallGraphResponse response) {
-        SemanticTargetCandidate target = selectedTarget(invocation);
-        return outgoingCallGraph(target.repositoryId(), target.analyzedRevision(),
-                methodTargetPayload(target.semanticTarget()), response);
-    }
-
     CapabilityExecutionResult outgoingCallGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
                                                 SemanticDtos.MethodTargetPayload requestedTarget,
                                                 SemanticDtos.OutgoingCallGraphResponse response) {
@@ -138,13 +127,6 @@ public final class JavaSemanticResultMapper {
         return callGraph(repositoryId, expectedRevision, requestedTarget, required.status(), required.analyzedRevision(),
                 required.rootNodeId(),
                 required.traversal(), required.nodes(), required.edges(), required.warnings(), required.errors());
-    }
-
-    public CapabilityExecutionResult incomingCallGraph(CapabilityInvocation invocation,
-                                                        SemanticDtos.IncomingCallGraphResponse response) {
-        SemanticTargetCandidate target = selectedTarget(invocation);
-        return incomingCallGraph(target.repositoryId(), target.analyzedRevision(),
-                methodTargetPayload(target.semanticTarget()), response);
     }
 
     CapabilityExecutionResult incomingCallGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,
@@ -743,14 +725,6 @@ public final class JavaSemanticResultMapper {
         if ("TARGET_ONLY".equals(contentState) || "BUDGET_CUTOFF".equals(traversalState)) {
             observations.add(observation(ObservationCode.MISSING_SOURCE, "graph node " + node.nodeId(), List.of()));
         }
-    }
-
-    private SemanticTargetCandidate selectedTarget(CapabilityInvocation invocation) {
-        List<IssuedCandidate> selected = invocation.candidates();
-        if (selected.size() != 1 || !(selected.getFirst().candidate() instanceof SemanticTargetCandidate candidate)) {
-            throw contract("call graph requires exactly one semantic target candidate");
-        }
-        return candidate;
     }
 
     private CapabilityExecutionResult.Succeeded succeeded(List<AnalysisCandidate> candidates, List<EvidenceRef> evidence,
