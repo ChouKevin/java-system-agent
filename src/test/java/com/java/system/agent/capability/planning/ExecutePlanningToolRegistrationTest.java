@@ -80,7 +80,8 @@ class ExecutePlanningToolRegistrationTest {
                 """, context(0));
 
         assertThat(unsupportedMethod).isEqualTo(new AgentActionProposal.Malformed(
-                "INVALID_TOOL_INPUT: tool=execute_http; reason=JSON_CONTRACT"));
+                "INVALID_TOOL_INPUT: tool=execute_http; reason=JSON_CONTRACT; "
+                        + "invalidField=method; expectedJsonType=string"));
         assertThat(malformedBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(emptyBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));
         assertThat(whitespaceBody).isEqualTo(new AgentActionProposal.Malformed("INVALID_TOOL_INPUT"));

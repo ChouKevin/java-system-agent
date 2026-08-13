@@ -158,6 +158,20 @@ class StrictPlanningToolDecoderTest {
     }
 
     @Test
+    void exposes_declared_field_and_json_string_type_without_submitted_value() {
+        assertThatThrownBy(() -> decoder.decode("""
+                {"nested":{"required":["SENSITIVE_VALUE"]}}
+                """, NestedInput.class))
+                .isInstanceOfSatisfying(PlanningToolInputException.class, exception -> {
+                    String diagnostic = exception.safeDiagnostic().orElseThrow();
+                    assertThat(diagnostic)
+                            .isEqualTo("reason=JSON_CONTRACT; invalidField=nested.required; expectedJsonType=string")
+                            .doesNotContain("SENSITIVE_VALUE")
+                            .doesNotContain("String");
+                });
+    }
+
+    @Test
     void exposes_bounded_safe_feedback_without_input_values() {
         assertThatThrownBy(() -> decoder.decode(
                 "{\"candidateHandles\":[\"SENSITIVE_ONE\",\"SENSITIVE_TWO\"]}", BoundedInput.class))

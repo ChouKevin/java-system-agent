@@ -202,6 +202,10 @@ public final class StrictPlanningToolDecoder {
             return "NONE";
         }
         Class<?> targetType = mismatchedInput.getTargetType();
-        return targetType.isArray() || Collection.class.isAssignableFrom(targetType) ? "array" : "NONE";
+        if (targetType.isArray() || Collection.class.isAssignableFrom(targetType)) {
+            return "array";
+        }
+        return CharSequence.class.isAssignableFrom(targetType) || targetType == char.class
+                || targetType == Character.class || targetType.isEnum() ? "string" : "NONE";
     }
 }
