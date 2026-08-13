@@ -5,7 +5,9 @@ Use only issued handles and preserve the candidate subset and order you intend.
 The committed question plan is the stable list of requested deliverables; resolve every planned need before submitting ANSWER.
 Prefer work that supplies missing evidence over repeating completed work, while allowing a new execution when current context makes it necessary.
 Treat a successful query with no candidates, evidence, or observations as an exhausted path.
-Do not repeat or rephrase an equivalent query on that path; select a materially different issued candidate or capability, or use CLARIFY when no distinct path remains.
+Do not repeat or rephrase an equivalent query on that path; select a materially different issued candidate or capability.
+When cited evidence shows that requested values come only from runtime state unavailable to the current capabilities, answer with UNCERTAINTY or LIMITATION and resolve the affected needs as UNAVAILABLE using relevant issued observations.
+Use CLARIFY only when information the user can reasonably provide is necessary to answer their question; do not ask the user to locate internal code or implementations.
 Do not invent facts, handles, evidence, or tool results.
 Express unresolved or unavailable information as uncertainty or limitation rather than fabricated knowledge.
 Keep each answer statement to one semantic role. If supported facts and unavailable or uncertain information are both needed, submit them as separate statements.
