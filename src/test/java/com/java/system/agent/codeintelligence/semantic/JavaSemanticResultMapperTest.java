@@ -856,9 +856,9 @@ class JavaSemanticResultMapperTest {
     void mapsWellFormedExternalErrorsAndSeparatesProtocolContractViolation() {
         JavaSemanticErrorMapper mapper = new JavaSemanticErrorMapper(new JavaSemanticResultMapper());
         SemanticDtos.ApiErrorResponse timeout = new SemanticDtos.ApiErrorResponse("SEMANTIC_REQUEST_TIMEOUT",
-                "service\ntimeout", "orders", REVISION, null, null, List.of(), "request-1");
+                "service\ntimeout", "orders", REVISION, null, null, List.of(), List.of(), List.of(), "request-1");
         SemanticDtos.ApiErrorResponse protocol = new SemanticDtos.ApiErrorResponse("SEMANTIC_PROTOCOL_ERROR",
-                "bad schema", "orders", REVISION, null, null, List.of(), "request-2");
+                "bad schema", "orders", REVISION, null, null, List.of(), List.of(), List.of(), "request-2");
 
         CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed) mapper.capability(timeout,
                 "java-semantic-service:POST /v1/api-routes/lookup");
@@ -879,6 +879,8 @@ class JavaSemanticResultMapperTest {
                 REVISION,
                 null,
                 methodTarget("DefaultOrderWorkflow", "processOrder"),
+                List.of(),
+                List.of(),
                 List.of(),
                 "request-unsupported");
 
@@ -921,7 +923,7 @@ class JavaSemanticResultMapperTest {
                         List.of(), "resolved", List.of()), List.of("TEMPLATE_MATCH"))), List.of());
         JavaSemanticErrorMapper errorMapper = new JavaSemanticErrorMapper(mapper);
         SemanticDtos.ApiErrorResponse malformedError = new SemanticDtos.ApiErrorResponse("SEMANTIC_REQUEST_TIMEOUT",
-                "timeout", "orders", REVISION, null, null, null, "request");
+                "timeout", "orders", REVISION, null, null, null, List.of(), List.of(), "request");
 
         assertThatThrownBy(() -> mapper.apiRoutes(response))
                 .isInstanceOf(CapabilityExecutionContractException.class);
@@ -979,7 +981,7 @@ class JavaSemanticResultMapperTest {
     void mapsLongWellFormedFailureDescriptionsWithinRuntimeBound() {
         JavaSemanticErrorMapper mapper = new JavaSemanticErrorMapper(new JavaSemanticResultMapper());
         SemanticDtos.ApiErrorResponse timeout = new SemanticDtos.ApiErrorResponse("SEMANTIC_REQUEST_TIMEOUT",
-                "x".repeat(501), "orders", REVISION, null, null, List.of(), "request");
+                "x".repeat(501), "orders", REVISION, null, null, List.of(), List.of(), List.of(), "request");
 
         CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed) mapper.capability(timeout, "operation");
 

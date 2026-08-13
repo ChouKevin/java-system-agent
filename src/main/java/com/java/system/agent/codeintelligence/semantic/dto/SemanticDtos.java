@@ -1363,6 +1363,6 @@ public final class SemanticDtos {
 
     public record ApiErrorResponse(String errorCode, String message, String repoId, String expectedRevision,
                                    String currentRevision, MethodTarget target, List<MethodTarget> candidates,
-                                   String requestId) {
+                                   List<String> unavailableKinds, List<String> supportedKinds, String requestId) {
     }
 }

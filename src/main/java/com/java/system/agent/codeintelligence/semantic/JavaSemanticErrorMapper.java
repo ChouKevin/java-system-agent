@@ -55,6 +55,8 @@ public final class JavaSemanticErrorMapper {
                     description, operationSource);
             case "IMPLEMENTATION_TARGET_UNSUPPORTED" -> failed(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE,
                     description, operationSource);
+            case "CONCEPT_KIND_UNAVAILABLE" -> failed(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE,
+                    conceptKindUnavailableDescription(error, description), operationSource);
             case "REQUEST_INVALID", "INTERNAL_ERROR" -> failed(CapabilityExecutionFailureCode.DEPENDENCY_FAILURE,
                     description, operationSource);
             case "SEMANTIC_BINDING_AMBIGUOUS" -> observationResult(ObservationCode.AMBIGUOUS_SEMANTIC_TARGET,
@@ -146,6 +148,12 @@ public final class JavaSemanticErrorMapper {
     private String failureDescription(String value, String code) {
         String sanitized = JavaSemanticResultMapper.failureDescription(value);
         return StringUtils.hasText(sanitized) ? sanitized : "Java Semantic Service reported " + code;
+    }
+
+    private String conceptKindUnavailableDescription(SemanticDtos.ApiErrorResponse error, String description) {
+        return JavaSemanticResultMapper.failureDescription(description
+                + "; unavailable kinds=" + String.join(",", error.unavailableKinds())
+                + "; supported kinds=" + String.join(",", error.supportedKinds()));
     }
 
     private static String required(String value, String description) {

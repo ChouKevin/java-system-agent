@@ -40,7 +40,7 @@ final class JavaSemanticProviderSchemaValidator {
             "REPOSITORY_NOT_FOUND", "REPOSITORY_NOT_READY", "REPOSITORY_REVISION_MISMATCH", "SEMANTIC_BINDING_AMBIGUOUS",
             "SEMANTIC_TARGET_NOT_FOUND", "SEMANTIC_BINDING_UNRESOLVED", "SEMANTIC_PROTOCOL_ERROR",
             "SEMANTIC_ENGINE_START_FAILED", "SEMANTIC_REQUEST_TIMEOUT", "IMPLEMENTATION_TARGET_UNSUPPORTED",
-            "INTERNAL_ERROR", "SEMANTIC_AUTH_DISABLED");
+            "CONCEPT_KIND_UNAVAILABLE", "INTERNAL_ERROR", "SEMANTIC_AUTH_DISABLED");
     private static final Set<String> CONCEPT_KINDS = Set.of("TYPE", "METHOD", "FIELD", "ANNOTATION_USAGE",
             "TYPE_USAGE", "API_ROUTE", "MQ_DESTINATION", "SCHEDULE", "MAPPER_STATEMENT", "SQL_IDENTIFIER",
             "CONFIGURATION_KEY", "OUTBOUND_API", "MQ_PUBLISHER", "ERROR_CONTRACT", "ENUM_CONSTANT");
@@ -131,7 +131,12 @@ final class JavaSemanticProviderSchemaValidator {
         if (Objects.nonNull(required.target())) {
             methodTarget(required.target());
         }
-        requiredMethodTargets(required.candidates(), "API error candidate");
+        if ("CONCEPT_KIND_UNAVAILABLE".equals(required.errorCode())) {
+            conceptKinds(required.unavailableKinds());
+            conceptKinds(required.supportedKinds());
+        } else {
+            requiredMethodTargets(required.candidates(), "API error candidate");
+        }
     }
 
     SemanticDtos.DiscoverConceptsResponse discoverConcepts(SemanticDtos.DiscoverConceptsResponse response) {

@@ -122,6 +122,29 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
+    void reportsUnavailableConceptKindsAsAReplannableCapabilityFailure() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/concepts"))
+                .andRespond(withStatus(HttpStatus.UNPROCESSABLE_CONTENT).contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"errorCode":"CONCEPT_KIND_UNAVAILABLE","message":"requested concept kind is not active","unavailableKinds":["CONFIGURATION_KEY"],"supportedKinds":["TYPE","METHOD","FIELD","ANNOTATION_USAGE","TYPE_USAGE","API_ROUTE","MQ_DESTINATION","SCHEDULE","MAPPER_STATEMENT"],"requestId":"request-kind-unavailable"}
+                                """));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+        DiscoverConceptsExecutionInput input = new DiscoverConceptsExecutionInput(
+                List.of(new DiscoverConceptsExecutionInput.Term("payment", "TOKEN_PREFIX")),
+                List.of("TYPE", "CONFIGURATION_KEY"), Optional.empty(), 0, 50);
+
+        CapabilityExecutionResult.Failed result = (CapabilityExecutionResult.Failed) adapter.discoverConcepts(
+                repositoryContext("codebase_discover_concepts"), input);
+
+        assertThat(result.failure().code()).isEqualTo(CapabilityExecutionFailureCode.CAPABILITY_UNAVAILABLE);
+        assertThat(result.failure().description())
+                .contains("unavailable kinds=CONFIGURATION_KEY")
+                .contains("supported kinds=TYPE,METHOD,FIELD");
+        client.server().verify();
+    }
+
+    @Test
     void postsEveryOtherDiscoveryOperationToItsFixedPathAndProjectsTypedSuccess() {
         TestClient client = testClient();
         SemanticDtos.MethodTargetPayload target = targetPayload();
