@@ -167,6 +167,11 @@ class M2ProductionFlowIT {
                 .andExpect(header("X-Api-Token", "m2-token"))
                 .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_REVISION))
                 .andRespond(withSuccess(repositoryStatusJson(), APPLICATION_JSON));
+        server.expect(requestTo("http://semantic.test/v1/repositories/demo"))
+                .andExpect(method(GET))
+                .andExpect(header("X-Api-Token", "m2-token"))
+                .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_REVISION))
+                .andRespond(withSuccess(repositoryStatusJson(), APPLICATION_JSON));
         server.expect(requestTo("http://semantic.test/v1/repositories/demo/entry-points?expectedRevision=FIXTURE&types=API"))
                 .andExpect(method(GET))
                 .andExpect(header("X-Api-Token", "m2-token"))
@@ -233,6 +238,7 @@ class M2ProductionFlowIT {
                 CallTimeline.HTTP_REPOSITORY_REVISION,
                 "LLM plan action",
                 CallTimeline.LLM_QUERY_ACTION,
+                CallTimeline.HTTP_REPOSITORY_REVISION,
                 CallTimeline.HTTP_LIST_ENTRY_POINTS,
                 CallTimeline.LLM_ANSWER_ACTION,
                 CallTimeline.LLM_VERIFIER);
