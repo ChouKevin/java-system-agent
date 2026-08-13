@@ -219,9 +219,9 @@ class M7KnowledgeQueryLiveIT {
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
         assertThat(state.currentAttempt().revisionVector()).isEqualTo(EXPECTED_REVISIONS);
-        assertThat(state.budget().maxAgentSteps()).isEqualTo(12);
-        assertThat(state.budget().maxQueryExecutions()).isEqualTo(12);
-        assertThat(state.budget().usedQueryExecutions()).isLessThanOrEqualTo(12);
+        assertThat(state.budget().maxAgentSteps()).isEqualTo(16);
+        assertThat(state.budget().maxQueryExecutions()).isEqualTo(16);
+        assertThat(state.budget().usedQueryExecutions()).isLessThanOrEqualTo(16);
         assertThat(state.currentAttempt().issuedCandidates()).isNotEmpty();
         assertThat(state.currentAttempt().issuedEvidence()).isNotEmpty();
         state.currentAttempt().issuedCandidates().forEach((handle, issued) -> {

@@ -196,7 +196,7 @@ public final class AgentRuntimeConfiguration {
 
     @Bean
     AttemptBudget initialAttemptBudget() {
-        return new AttemptBudget(12, 0, 12, 0, 1, 0, 6, 0, 1, 0);
+        return new AttemptBudget(16, 0, 16, 0, 1, 0, 6, 0, 1, 0);
     }
 
     @Bean
