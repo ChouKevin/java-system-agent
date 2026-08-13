@@ -307,7 +307,10 @@ class SpringAiAgentActionAdapterTest {
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.capability().value()).isEqualTo("cap-1");
-        assertThat(action.payload().value()).isNotBlank();
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        assertThat(payloadCodec.decode(action.payload(), ToolInput.class)).isEqualTo(new ToolInput(
+                List.of("candidate-2", "candidate-1"), "Which route calls it?", "Trace callers"));
         assertThat(model.calls()).isEqualTo(1);
     }
 

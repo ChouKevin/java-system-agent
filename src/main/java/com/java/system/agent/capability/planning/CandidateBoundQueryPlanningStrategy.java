@@ -118,11 +118,11 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
     }
 
     /**
-     * Repository 初次探索交由 QUERY executor 解析 revision，其餘候選必須已與 binding 的 revision 一致
+     * Repository 候選必須屬於 binding 已固定的 repository scope，其餘帶 revision 的候選必須與 binding 一致
      */
     static boolean isRevisionAuthorized(HandleBinding binding, AnalysisCandidate candidate) {
         if (candidate instanceof RepositoryCandidate) {
-            return true;
+            return binding.revisionVector().revisionOf(candidate.repositoryId()).isPresent();
         }
         return binding.revisionVector().revisionOf(candidate.repositoryId())
                 .map(pinnedRevision -> candidate.repositoryRevision().map(pinnedRevision::equals).orElse(false))

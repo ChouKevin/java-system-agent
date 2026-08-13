@@ -234,36 +234,54 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
-    void issuesInitialRepositoryQueriesBeforeRuntimePinsTheSelectedRevision() {
+    void issuesRepositoryQueriesOnlyForThePinnedRepository() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
         PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
                 new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
                 new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
-        RepositoryId repositoryId = new RepositoryId("payments");
-        RevisionVector revisions = RevisionVector.empty();
+        RepositoryId repositoryA = new RepositoryId("repo-a");
+        RepositoryId repositoryB = new RepositoryId("repo-b");
+        RevisionVector revisions = RevisionVector.empty().pin(
+                repositoryA, new RepositoryRevision("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
-        IssuedCandidate repository = repositoryCandidate("candidate-repository", binding, repositoryId);
+        IssuedCandidate selectedRepository = repositoryCandidate("candidate-repository-a", binding, repositoryA);
+        IssuedCandidate foreignRepository = repositoryCandidate("candidate-repository-b", binding, repositoryB);
         CapabilityPolicy entryPointsPolicy = policy(registry, CodeIntelligenceQuery.LIST_ENTRY_POINTS);
         CapabilityPolicy conceptsPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_CONCEPTS);
-        AgentPromptContext entryPointsContext = promptContext(entryPointsPolicy, repository, binding);
-        AgentPromptContext conceptsContext = promptContext(conceptsPolicy, repository, binding);
+        AgentPromptContext selectedEntryPointsContext = promptContext(entryPointsPolicy, selectedRepository, binding);
+        AgentPromptContext selectedConceptsContext = promptContext(conceptsPolicy, selectedRepository, binding);
+        AgentPromptContext foreignEntryPointsContext = promptContext(entryPointsPolicy, foreignRepository, binding);
+        AgentPromptContext foreignConceptsContext = promptContext(conceptsPolicy, foreignRepository, binding);
 
         assertAll(
-                () -> assertThat(registry.issuedRegistrations(entryPointsContext))
+                () -> assertThat(registry.issuedRegistrations(selectedEntryPointsContext))
                         .extracting(PlanningToolRegistration::name)
                         .contains(entryPointsPolicy.name()),
-                () -> assertThat(registry.issuedRegistrations(conceptsContext))
+                () -> assertThat(registry.issuedRegistrations(selectedConceptsContext))
                         .extracting(PlanningToolRegistration::name)
-                        .contains(conceptsPolicy.name()));
+                        .contains(conceptsPolicy.name()),
+                () -> assertThat(registry.issuedRegistrations(foreignEntryPointsContext))
+                        .extracting(PlanningToolRegistration::name)
+                        .doesNotContain(entryPointsPolicy.name()),
+                () -> assertThat(registry.issuedRegistrations(foreignConceptsContext))
+                        .extracting(PlanningToolRegistration::name)
+                        .doesNotContain(conceptsPolicy.name()));
 
         QueryAction entryPointsAction = queryAction(registry.interpretToolCall(entryPointsPolicy.name(), """
-                {"candidateHandles":["candidate-repository"],"questionToResolve":"Find payment entry points","rationale":"Locate payment behavior","type":"API"}
-                """, entryPointsContext));
+                {"candidateHandles":["candidate-repository-a"],"questionToResolve":"Find payment entry points","rationale":"Locate payment behavior","type":"API"}
+                """, selectedEntryPointsContext));
         QueryAction conceptsAction = queryAction(registry.interpretToolCall(conceptsPolicy.name(), """
-                {"candidateHandles":["candidate-repository"],"questionToResolve":"Find payment concepts","rationale":"Locate payment rules","searchCriteria":{"terms":[{"value":"payment","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}}
-                """, conceptsContext));
+                {"candidateHandles":["candidate-repository-a"],"questionToResolve":"Find payment concepts","rationale":"Locate payment rules","searchCriteria":{"terms":[{"value":"payment","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}}
+                """, selectedConceptsContext));
+
+        assertThat(registry.interpretToolCall(conceptsPolicy.name(), """
+                {"candidateHandles":["candidate-repository-b"],"questionToResolve":"Find foreign concepts","rationale":"Must not create a foreign payload","searchCriteria":{"terms":[{"value":"payment","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}}
+                """, foreignConceptsContext))
+                .isEqualTo(new AgentActionProposal.Malformed("MALFORMED_ACTION_RESPONSE: "
+                        + "requestedTool=codebase_discover_concepts; toolStatus=NOT_CURRENTLY_ISSUED; "
+                        + "expected=currentlyIssuedTool"));
 
         assertThat(entryPointsAction.payload().value()).isNotBlank();
         assertThat(conceptsAction.payload().value()).isNotBlank();
