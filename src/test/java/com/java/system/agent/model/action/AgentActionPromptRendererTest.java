@@ -110,9 +110,9 @@ class AgentActionPromptRendererTest {
         AgentActionPromptRenderer renderer = new AgentActionPromptRenderer(catalog);
         when(catalog.renderLatestAnswerFeedback(anyMap())).thenReturn("typed-feedback-fragment");
 
-        Map<String, List<String>> currentToolAuthority = authority("agent_submit_answer", "agent_request_clarification");
+        List<String> currentToolNames = authority("agent_submit_answer", "agent_request_clarification");
 
-        Map<String, Object> projection = renderer.project(context, currentToolAuthority);
+        Map<String, Object> projection = renderer.project(context, currentToolNames);
 
         assertThat(projection).containsOnlyKeys("originalQuestion", "sessionTurns", "currentlyCallableTools", "candidates",
                 "evidence", "evidenceCoverage", "observations", "questionPlan", "latestAnswerFeedback", "latestRejection",
@@ -200,11 +200,9 @@ class AgentActionPromptRendererTest {
         HandleBinding binding = new HandleBinding(runId, attemptId,
                 RevisionVector.empty().pin(repositoryId, repositoryRevision));
         CapabilityHandle issuedButUnused = new CapabilityHandle("capability-1", binding);
-        CapabilityPolicy historicalCapability = new CapabilityPolicy("codebase_find_internal_references", "v1",
-                Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        CapabilityPolicy historicalCapability = new CapabilityPolicy("codebase_find_internal_references", "v1");
         CapabilityHandle producedCapability = new CapabilityHandle("capability-2", binding);
-        CapabilityPolicy producingCapability = new CapabilityPolicy("codebase_get_method_source", "v1",
-                Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        CapabilityPolicy producingCapability = new CapabilityPolicy("codebase_get_method_source", "v1");
         EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-1", binding);
         EvidenceRef evidence = new EvidenceRef("semantic", repositoryId, repositoryRevision,
                 new SemanticTarget(SemanticTargetKind.SYMBOL, "Type#method",
@@ -228,7 +226,7 @@ class AgentActionPromptRendererTest {
     }
 
     @Test
-    void projects_per_tool_candidate_authority_without_repeating_candidate_descriptions() {
+    void projects_current_tools_without_candidate_authority() {
         RepositoryId repositoryId = new RepositoryId("repository-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
@@ -246,16 +244,13 @@ class AgentActionPromptRendererTest {
                         "codebase_get_source_segment", "v1", new CapabilityInputPayload("{}"), "Unissued candidate"))),
                 Map.of(), Map.of(), List.of(), Optional.empty(),
                 new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0));
-        Map<String, List<String>> authority = new LinkedHashMap<>();
-        authority.put("codebase_get_method_source", List.of("candidate-method"));
-        authority.put("codebase_discover_type_members", List.of("candidate-members"));
-        authority.put("agent_submit_answer", List.of());
+        List<String> authority = List.of("codebase_get_method_source", "codebase_discover_type_members",
+                "agent_submit_answer");
 
         Map<String, Object> projection = renderer().project(context, authority);
 
-        assertThat(projection.get("currentlyCallableTools")).isEqualTo("- codebase_get_method_source; "
-                + "allowedCandidateHandles=[candidate-method]\n- codebase_discover_type_members; "
-                + "allowedCandidateHandles=[candidate-members]\n- agent_submit_answer\n");
+        assertThat(projection.get("currentlyCallableTools")).isEqualTo("- codebase_get_method_source\n"
+                + "- codebase_discover_type_members\n- agent_submit_answer\n");
         assertThat((String) projection.get("candidates")).contains(
                 "candidate-method", "candidate-members", "candidate-unissued",
                 "Method source candidate", "Type members candidate", "Unissued candidate",
@@ -274,12 +269,12 @@ class AgentActionPromptRendererTest {
         AgentPromptContext context = minimalContext();
         when(catalog.renderActionContext(anyMap())).thenReturn("resource-rendered-context");
 
-        Map<String, List<String>> currentToolAuthority = authority("agent_submit_answer");
+        List<String> currentToolNames = authority("agent_submit_answer");
 
-        String rendered = renderer.render(context, currentToolAuthority);
+        String rendered = renderer.render(context, currentToolNames);
 
         assertThat(rendered).isEqualTo("resource-rendered-context");
-        verify(catalog).renderActionContext(renderer.project(context, currentToolAuthority));
+        verify(catalog).renderActionContext(renderer.project(context, currentToolNames));
     }
 
     @Test
@@ -297,12 +292,8 @@ class AgentActionPromptRendererTest {
         return new AgentActionPromptRenderer(mock(PromptResourceCatalog.class));
     }
 
-    private static Map<String, List<String>> authority(String... toolNames) {
-        Map<String, List<String>> authority = new LinkedHashMap<>();
-        for (String toolName : toolNames) {
-            authority.put(toolName, List.of());
-        }
-        return java.util.Collections.unmodifiableMap(authority);
+    private static List<String> authority(String... toolNames) {
+        return List.of(toolNames);
     }
 
     private static AgentPromptContext minimalContext() {

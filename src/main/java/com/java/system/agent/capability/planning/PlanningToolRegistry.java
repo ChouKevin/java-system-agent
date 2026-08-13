@@ -74,15 +74,12 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
                 .toList();
     }
 
-    /**
-     * 回傳依 registration 順序的目前 tool 與其不可變 candidate authority 投影
-     */
+    /** 回傳依 registration 順序的目前 tool。 */
     public List<IssuedPlanningTool> issuedTools(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
         return registrations.stream()
                 .filter(registration -> isCurrentlyIssued(registration, context))
-                .map(registration -> new IssuedPlanningTool(registration.name(),
-                        registration.allowedCandidateHandles(context)))
+                .map(registration -> new IssuedPlanningTool(registration.name()))
                 .toList();
     }
 
@@ -160,83 +157,6 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
             String guidanceId) {
         return new QueryPlanningToolRegistration<>(
                 policy, planningInputType, executionInputType, mapper, executor, payloadCodec, Optional.of(guidanceId));
-    }
-
-    public static <E> FollowUpOnlyQueryRegistration<E> followUpOnlyRegistration(
-            CapabilityPolicy policy,
-            Class<E> executionInputType,
-            CapabilityExecutor<E> executor) {
-        return new FollowUpOnlyQueryRegistration<>(policy, executionInputType, executor);
-    }
-
-    public static <E> FollowUpOnlyQueryRegistration<E> followUpOnlyRegistration(
-            CapabilityPolicy policy,
-            Class<E> executionInputType,
-            CapabilityExecutor<E> executor,
-            String guidanceId) {
-        return new FollowUpOnlyQueryRegistration<>(policy, executionInputType, executor, Optional.of(guidanceId));
-    }
-
-    public static <P extends CandidateBoundPlanningInput, E> QueryPlanningToolRegistration<P, E>
-    candidateBoundRegistration(
-            PlanningToolCategory category,
-            CapabilityPolicy policy,
-            Class<P> planningInputType,
-            Class<E> executionInputType,
-            CandidateBoundExecutionPlanner<P, E> planner,
-            CapabilityExecutor<E> executor,
-            CanonicalCapabilityPayloadCodec payloadCodec) {
-        return candidateBoundRegistration(category, policy, planningInputType, executionInputType, planner, executor,
-                payloadCodec, Optional.empty());
-    }
-
-    public static <P extends CandidateBoundPlanningInput, E> QueryPlanningToolRegistration<P, E>
-    candidateBoundRegistration(
-            PlanningToolCategory category,
-            CapabilityPolicy policy,
-            Class<P> planningInputType,
-            Class<E> executionInputType,
-            CandidateBoundExecutionPlanner<P, E> planner,
-            CapabilityExecutor<E> executor,
-            CanonicalCapabilityPayloadCodec payloadCodec,
-            String guidanceId) {
-        return candidateBoundRegistration(category, policy, planningInputType, executionInputType, planner, executor,
-                payloadCodec, Optional.of(guidanceId));
-    }
-
-    private static <P extends CandidateBoundPlanningInput, E> QueryPlanningToolRegistration<P, E>
-    candidateBoundRegistration(
-            PlanningToolCategory category,
-            CapabilityPolicy policy,
-            Class<P> planningInputType,
-            Class<E> executionInputType,
-            CandidateBoundExecutionPlanner<P, E> planner,
-            CapabilityExecutor<E> executor,
-            CanonicalCapabilityPayloadCodec payloadCodec,
-            Optional<String> guidanceId) {
-        PlanningToolCategory requiredCategory = Objects.requireNonNull(category,
-                "candidate-bound planning tool category must not be null");
-        if (requiredCategory != PlanningToolCategory.QUERY && requiredCategory != PlanningToolCategory.FOLLOW_UP_QUERY) {
-            throw new IllegalArgumentException("candidate-bound planning tools must be QUERY categories");
-        }
-        CapabilityPolicy requiredPolicy = Objects.requireNonNull(policy, "candidate-bound policy must not be null");
-        if (requiredPolicy.minimumCandidates() > 1 || requiredPolicy.maximumCandidates() < 1) {
-            throw new IllegalArgumentException("candidate-bound capability must permit exactly one candidate");
-        }
-        Class<P> requiredPlanningInputType = Objects.requireNonNull(planningInputType,
-                "candidate-bound planning input type must not be null");
-        Class<E> requiredExecutionInputType = Objects.requireNonNull(executionInputType,
-                "candidate-bound execution input type must not be null");
-        CandidateBoundExecutionPlanner<P, E> requiredPlanner = Objects.requireNonNull(planner,
-                "candidate-bound execution planner must not be null");
-        CanonicalCapabilityPayloadCodec requiredPayloadCodec = Objects.requireNonNull(payloadCodec,
-                "candidate-bound payload codec must not be null");
-        Optional<String> requiredGuidanceId = Objects.requireNonNull(guidanceId,
-                "candidate-bound guidance ID must not be null");
-        return new QueryPlanningToolRegistration<>(requiredCategory, requiredPolicy, requiredPlanningInputType,
-                requiredExecutionInputType, executor, requiredGuidanceId,
-                new CandidateBoundQueryPlanningStrategy<>(requiredPolicy, requiredExecutionInputType, requiredPlanner,
-                        requiredPayloadCodec));
     }
 
     private <I> AgentAction interpret(

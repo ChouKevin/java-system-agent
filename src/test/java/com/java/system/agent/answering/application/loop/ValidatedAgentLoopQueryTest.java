@@ -99,8 +99,7 @@ class ValidatedAgentLoopQueryTest {
     private static final AnalysisRunId RUN_ID = new AnalysisRunId("run-1");
     private static final RepositoryId REPOSITORY_ID = new RepositoryId("repo-1");
     private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
-    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy(
-            "trace", "v1", Set.of(CandidateKind.REPOSITORY, CandidateKind.FOLLOW_UP), 1, 1);
+    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy("trace", "v1");
 
     @Test
     void executesOneQueryAndIssuesItsEvidenceToTheNextModelPrompt() {

@@ -583,7 +583,7 @@ class JavaSemanticServiceLiveContractIT {
     }
 
     private CapabilityPolicy descriptor(String name, CandidateKind candidateKind) {
-        return new CapabilityPolicy(name, "v1", Set.of(candidateKind), 0, 1);
+        return new CapabilityPolicy(name, "v1");
     }
 
     private void initializeLiveContract() {

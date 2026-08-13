@@ -1072,7 +1072,7 @@ class ValidatedAgentLoopAnswerTest {
     }
 
     private List<CapabilityPolicy> testCapabilities() {
-        return List.of(new CapabilityPolicy("test-availability", "1", Set.of(CandidateKind.REPOSITORY), 0, 0));
+        return List.of(new CapabilityPolicy("test-availability", "1"));
     }
 
     private boolean questionPlanWasRecorded(AgentPromptContext context) {

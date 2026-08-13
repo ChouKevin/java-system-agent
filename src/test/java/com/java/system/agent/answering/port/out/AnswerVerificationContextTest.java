@@ -111,8 +111,7 @@ class AnswerVerificationContextTest {
         IssuedEvidence cited = evidence("evidence-1", "cited");
         IssuedEvidence foreign = evidence("evidence-2", "foreign");
         AgentObservation referenced = observation("observation-1", "referenced");
-        CapabilityPolicy capability = new CapabilityPolicy(
-                "codebase_find_internal_references", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        CapabilityPolicy capability = new CapabilityPolicy("codebase_find_internal_references", "v1");
 
         assertThatThrownBy(() -> new AnswerVerificationContext(
                 "question", SessionHistory.empty(), document(cited, referenced),

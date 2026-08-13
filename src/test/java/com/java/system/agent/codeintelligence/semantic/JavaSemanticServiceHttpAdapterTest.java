@@ -365,7 +365,7 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
-    void postsTheExactMethodImplementationTargetFromEitherCandidateBoundAuthority() {
+    void posts_the_exact_method_implementation_target_from_typed_query_input() {
         TestClient client = testClient();
         SemanticDtos.MethodTargetPayload target = graphTargetPayload();
         DiscoverMethodImplementationsExecutionInput input = new DiscoverMethodImplementationsExecutionInput(target);
@@ -1179,7 +1179,7 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     private static CapabilityPolicy descriptor(String name, CandidateKind candidateKind) {
-        return new CapabilityPolicy(name, "v1", Set.of(candidateKind), 0, 1);
+        return new CapabilityPolicy(name, "v1");
     }
 
     private static TestClient testClient() {

@@ -48,8 +48,7 @@ public final class ClarifyPlanningToolRegistration<I> implements PlanningToolReg
         return planningInputType;
     }
 
-    @Override
-    public List<CandidateHandleRef> allowedCandidateHandles(AgentPromptContext context) {
+    private List<CandidateHandleRef> availableCandidateHandles(AgentPromptContext context) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
         return context.issuedCandidates().keySet().stream()
                 .map(handle -> new CandidateHandleRef(handle.value()))
@@ -61,7 +60,7 @@ public final class ClarifyPlanningToolRegistration<I> implements PlanningToolReg
         Objects.requireNonNull(input, "clarify planning input must not be null");
         Objects.requireNonNull(context, "agent prompt context must not be null");
         ClarifyAction action = mapper.apply(input);
-        if (!allowedCandidateHandles(context).containsAll(action.candidates())) {
+        if (!availableCandidateHandles(context).containsAll(action.candidates())) {
             throw PlanningToolInputException.safeDiagnostic(INVALID_CANDIDATE_SELECTION);
         }
         return action;

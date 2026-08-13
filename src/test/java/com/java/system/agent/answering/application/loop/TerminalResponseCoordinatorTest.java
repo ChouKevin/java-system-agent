@@ -45,8 +45,7 @@ class TerminalResponseCoordinatorTest {
     private static final SessionId SESSION_ID = new SessionId("session-1");
     private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
     private static final RepositoryId REPOSITORY_ID = new RepositoryId("repo-1");
-    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy(
-            "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy("trace", "v1");
 
     @Test
     void concludesCancelledWithoutAppendingATurnWhenClarificationAcceptanceIsCancelled() {

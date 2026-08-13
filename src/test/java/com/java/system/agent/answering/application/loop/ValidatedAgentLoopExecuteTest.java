@@ -324,8 +324,7 @@ class ValidatedAgentLoopExecuteTest {
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
                 new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
-                new FakeCapabilityCatalogAdapter(new CapabilityPolicy(
-                        "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1)),
+                new FakeCapabilityCatalogAdapter(new CapabilityPolicy("trace", "v1")),
                 repository -> RepositoryRevisionResult.ready(new RepositoryRevision("revision-1")),
                 cancellation,
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),

@@ -292,7 +292,7 @@ class ValidatedAgentLoopTest {
             CapabilityExecutionPort capabilityExecution,
             FakeRepositoryCatalogAdapter repositoryCatalog,
             RepositoryRevisionPort repositoryRevisionPort) {
-        CapabilityPolicy policy = new CapabilityPolicy("trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
+        CapabilityPolicy policy = new CapabilityPolicy("trace", "v1");
         return ValidatedAgentLoop.compose(
                 actionPort,
                 capabilityExecution,

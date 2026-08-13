@@ -96,6 +96,6 @@ public final class CodeIntelligencePlanningToolProvider implements PlanningToolP
     }
 
     private static CapabilityPolicy policy(CodeIntelligenceQuery query) {
-        return new CapabilityPolicy(query.capabilityName(), query.version(), Set.of(CandidateKind.REPOSITORY), 0, 0);
+        return new CapabilityPolicy(query.capabilityName(), query.version());
     }
 }

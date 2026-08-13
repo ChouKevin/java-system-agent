@@ -243,7 +243,7 @@ class PlanningToolInboxIntegrationTest {
     private static PlanningToolRegistry registry(
             QueryPlanningMapper<PlanningInput, ExecutionInput> mapper,
             AtomicInteger executorInvocations) {
-        CapabilityPolicy policy = new CapabilityPolicy("query_tool", "v1", Set.of(CandidateKind.REPOSITORY), 0, 0);
+        CapabilityPolicy policy = new CapabilityPolicy("query_tool", "v1");
         CapabilityExecutor<ExecutionInput> executor = (context, input) -> {
             executorInvocations.incrementAndGet();
             return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());

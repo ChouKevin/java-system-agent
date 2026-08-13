@@ -58,8 +58,7 @@ class FakeCapabilityExecutionAdapterTest {
         CandidateHandle handle = new CandidateHandle("candidate-1", binding, CandidateKind.REPOSITORY);
         IssuedCandidate candidate = new IssuedCandidate(handle,
                 new RepositoryCandidate(repositoryId, "repository candidate"));
-        CapabilityPolicy capability = new CapabilityPolicy("lookup", "v1", Set.of(CandidateKind.REPOSITORY),
-                1, 1);
+        CapabilityPolicy capability = new CapabilityPolicy("lookup", "v1");
         return new CapabilityInvocation(capability, "question", new CapabilityInputPayload("{}"), revisions);
     }
 }

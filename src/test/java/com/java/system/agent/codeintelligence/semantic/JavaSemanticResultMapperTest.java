@@ -252,7 +252,7 @@ class JavaSemanticResultMapperTest {
                         new AnalysisRunId("run-duplicate-entry-point-follow-ups"),
                         new AnalysisAttemptId("attempt-duplicate-entry-point-follow-ups"),
                         RevisionVector.empty().pin(REPOSITORY_ID, REPOSITORY_REVISION),
-                        List.of(new CapabilityPolicy("find", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 10)),
+                        List.of(new CapabilityPolicy("find", "v1")),
                         List.of(new RepositoryDescriptor(REPOSITORY_ID, "Orders repository"))),
                 mapped,
                 Set.of(REPOSITORY_ID));
@@ -301,7 +301,7 @@ class JavaSemanticResultMapperTest {
                         new AnalysisRunId("run-duplicate-type-member-follow-ups"),
                         new AnalysisAttemptId("attempt-duplicate-type-member-follow-ups"),
                         RevisionVector.empty().pin(REPOSITORY_ID, REPOSITORY_REVISION),
-                        List.of(new CapabilityPolicy("find", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 10)),
+                        List.of(new CapabilityPolicy("find", "v1")),
                         List.of(new RepositoryDescriptor(REPOSITORY_ID, "Orders repository"))),
                 mapped,
                 Set.of(REPOSITORY_ID));
@@ -480,7 +480,7 @@ class JavaSemanticResultMapperTest {
                         new AnalysisRunId("run-duplicate-follow-ups"),
                         new AnalysisAttemptId("attempt-duplicate-follow-ups"),
                         RevisionVector.empty().pin(REPOSITORY_ID, REPOSITORY_REVISION),
-                        List.of(new CapabilityPolicy("find", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 10)),
+                        List.of(new CapabilityPolicy("find", "v1")),
                         List.of(new RepositoryDescriptor(REPOSITORY_ID, "Orders repository"))),
                 mapped,
                 Set.of(REPOSITORY_ID));

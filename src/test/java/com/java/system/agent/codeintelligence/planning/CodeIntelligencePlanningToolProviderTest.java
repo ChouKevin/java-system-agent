@@ -62,7 +62,6 @@ class CodeIntelligencePlanningToolProviderTest {
         assertThat(registry.issuedRegistrations(context)).extracting(registration -> registration.name())
                 .containsExactlyInAnyOrder(java.util.Arrays.stream(CodeIntelligenceQuery.values())
                         .map(CodeIntelligenceQuery::capabilityName).toArray(String[]::new));
-        assertThat(registry.issuedTools(context)).allSatisfy(tool -> assertThat(tool.allowedCandidateHandles()).isEmpty());
     }
 
     @Test

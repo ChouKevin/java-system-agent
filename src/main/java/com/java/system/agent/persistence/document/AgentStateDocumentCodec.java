@@ -13,7 +13,7 @@ import java.util.Objects;
  */
 public final class AgentStateDocumentCodec {
 
-    private static final int SCHEMA_VERSION = 15;
+    private static final int SCHEMA_VERSION = 16;
 
     private final ObjectMapper objectMapper;
     private final AgentDocumentMapper mapper;

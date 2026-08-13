@@ -35,7 +35,6 @@ import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Collections;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,18 +59,20 @@ public final class AgentActionPromptRenderer {
     /**
      * 依 answering collection 的既有順序輸出明確 action context
      */
-    public String render(AgentPromptContext context, Map<String, List<String>> currentToolAuthority) {
-        return promptCatalog.renderActionContext(project(context, currentToolAuthority));
+    public String render(AgentPromptContext context, List<String> currentToolNames) {
+        return promptCatalog.renderActionContext(project(context, currentToolNames));
     }
 
-    Map<String, Object> project(AgentPromptContext context, Map<String, List<String>> currentToolAuthority) {
+    Map<String, Object> project(AgentPromptContext context, List<String> currentToolNames) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        Map<String, List<String>> requiredCurrentToolAuthority = copyCandidateAuthority(currentToolAuthority);
-        Set<String> currentToolNameSet = Set.copyOf(requiredCurrentToolAuthority.keySet());
+        List<String> requiredCurrentToolNames = currentToolNames.stream()
+                .map(name -> Objects.requireNonNull(name, "current planning tool name must not be null"))
+                .toList();
+        Set<String> currentToolNameSet = Set.copyOf(requiredCurrentToolNames);
         Map<String, Object> projection = new LinkedHashMap<>();
         projection.put("originalQuestion", context.originalQuestion());
         projection.put("sessionTurns", sessionTurns(context));
-        projection.put("currentlyCallableTools", currentlyCallableTools(requiredCurrentToolAuthority));
+        projection.put("currentlyCallableTools", currentlyCallableTools(requiredCurrentToolNames));
         projection.put("candidates", candidates(context, currentToolNameSet));
         projection.put("evidence", evidence(context));
         projection.put("evidenceCoverage", evidenceCoverage(context));
@@ -115,34 +116,12 @@ public final class AgentActionPromptRenderer {
         return turns.toString();
     }
 
-    private static String currentlyCallableTools(Map<String, List<String>> currentToolAuthority) {
+    private static String currentlyCallableTools(List<String> currentToolNames) {
         StringBuilder tools = new StringBuilder();
-        for (Map.Entry<String, List<String>> entry : currentToolAuthority.entrySet()) {
-            tools.append("- ").append(entry.getKey());
-            if (!entry.getValue().isEmpty()) {
-                tools.append("; allowedCandidateHandles=").append(entry.getValue());
-            }
-            tools.append('\n');
+        for (String name : currentToolNames) {
+            tools.append("- ").append(name).append('\n');
         }
         return tools.toString();
-    }
-
-    private static Map<String, List<String>> copyCandidateAuthority(Map<String, List<String>> candidateAuthority) {
-        Objects.requireNonNull(candidateAuthority, "current planning tool candidate authority must not be null");
-        Map<String, List<String>> copiedAuthority = new LinkedHashMap<>();
-        for (Map.Entry<String, List<String>> entry : candidateAuthority.entrySet()) {
-            String name = Objects.requireNonNull(entry.getKey(), "current planning tool name must not be null");
-            if (name.isBlank()) {
-                throw new IllegalArgumentException("current planning tool name must not be blank");
-            }
-            List<String> handles = Objects.requireNonNull(entry.getValue(),
-                    "current planning tool candidate handles must not be null");
-            copiedAuthority.put(name, handles.stream()
-                    .map(handle -> Objects.requireNonNull(handle,
-                            "current planning tool candidate handle must not be null"))
-                    .toList());
-        }
-        return Collections.unmodifiableMap(copiedAuthority);
     }
 
     private static String candidates(AgentPromptContext context, Set<String> currentToolNames) {

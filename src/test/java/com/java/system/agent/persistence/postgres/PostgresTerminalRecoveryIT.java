@@ -398,7 +398,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 AnswerVerificationMode.LLM,
                 sessions,
                 repositoryCatalog(),
-                new FakeCapabilityCatalogAdapter(new CapabilityPolicy("test", "1", Set.of(CandidateKind.REPOSITORY), 0, 0)),
+                new FakeCapabilityCatalogAdapter(new CapabilityPolicy("test", "1")),
                 repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-answer")),

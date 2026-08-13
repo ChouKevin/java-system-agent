@@ -233,7 +233,7 @@ class AgentActionValidatorTest {
                 List<ModelInteraction> modelInteractions,
                 AttemptBudget budget,
                 Optional<QuestionPlan> questionPlan) {
-            CapabilityPolicy policy = new CapabilityPolicy("callers", "v1", Set.of(CandidateKind.ROUTE), 1, 2);
+            CapabilityPolicy policy = new CapabilityPolicy("callers", "v1");
             return new AgentValidationContext(
                     Map.of(capability, policy), candidates, Map.of(), Map.of(), modelInteractions, binding,
                     budget, questionPlan);

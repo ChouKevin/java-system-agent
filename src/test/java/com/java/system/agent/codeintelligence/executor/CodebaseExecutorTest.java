@@ -186,7 +186,7 @@ class CodebaseExecutorTest {
 
     private static CapabilityExecutionContext context(String capabilityName) {
         return new CapabilityExecutionContext(
-                new CapabilityPolicy(capabilityName, "v1", Set.of(CandidateKind.REPOSITORY), 0, 1),
+                new CapabilityPolicy(capabilityName, "v1"),
                 "question", RevisionVector.empty());
     }
 }

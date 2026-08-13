@@ -117,8 +117,7 @@ class AnswerVerificationPromptRendererTest {
                 "semantic", repositoryId, revision,
                 new SemanticTarget(SemanticTargetKind.SYMBOL, "Orders#create", Optional.empty()),
                 "internalReference; target=Orders#create", List.of(), new ArtifactRef("digest-1")));
-        CapabilityPolicy capability = new CapabilityPolicy(
-                "codebase_find_internal_references", "v1", Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        CapabilityPolicy capability = new CapabilityPolicy("codebase_find_internal_references", "v1");
         AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
                 new StatementId("statement-1"), StatementType.FACT, "Orders#create is referenced",
                 Optional.of(new ClaimId("claim-1")),

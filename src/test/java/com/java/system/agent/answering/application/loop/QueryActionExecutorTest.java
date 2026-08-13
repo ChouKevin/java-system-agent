@@ -58,8 +58,7 @@ class QueryActionExecutorTest {
     private static final RepositoryId REPOSITORY_ID = new RepositoryId("repo-1");
     private static final RepositoryRevision REPOSITORY_REVISION = new RepositoryRevision("rev-1");
     private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
-    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy(
-            "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy("trace", "v1");
 
     @Test
     void concludesDurablyBeforeSurfacingACapabilityContractFailure() {

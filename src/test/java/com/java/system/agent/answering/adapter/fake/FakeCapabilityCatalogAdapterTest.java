@@ -20,6 +20,6 @@ class FakeCapabilityCatalogAdapterTest {
     }
 
     private CapabilityPolicy capability(String name) {
-        return new CapabilityPolicy(name, "v1", Set.of(CandidateKind.REPOSITORY), 0, 1);
+        return new CapabilityPolicy(name, "v1");
     }
 }

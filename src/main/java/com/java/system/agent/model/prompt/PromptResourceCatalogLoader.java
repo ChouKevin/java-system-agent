@@ -1,7 +1,6 @@
 package com.java.system.agent.model.prompt;
 
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
-import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.capability.planning.PlanningToolCategory;
 import com.java.system.agent.capability.planning.PlanningToolDescriptor;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
@@ -43,11 +42,6 @@ public final class PromptResourceCatalogLoader {
     private static final Set<String> CORE_TOOL_VARIABLES = Set.of("toolName");
     private static final Set<String> QUERY_TOOL_VARIABLES = Set.of(
             "toolName", "capabilityName", "capabilityVersion", "guidance");
-    private static final Set<String> EXACT_CARDINALITY_VARIABLES = Set.of(
-            "candidateMinimum", "acceptedCandidateKinds");
-    private static final Set<String> RANGE_CARDINALITY_VARIABLES = Set.of(
-            "candidateMinimum", "candidateMaximum", "acceptedCandidateKinds");
-    private static final Set<String> FOLLOW_UP_VARIABLES = Set.of("capabilityName", "capabilityVersion");
 
     private final ResourceLoader resourceLoader;
 
@@ -103,35 +97,15 @@ public final class PromptResourceCatalogLoader {
                 case CLARIFY -> "clarify.st";
                 case EXECUTE -> "execute.st";
                 case QUERY -> "query.st";
-                case FOLLOW_UP_QUERY -> "follow-up-query.st";
             };
             LoadedResource template = read(resources, "tools/" + filename, childLocation(toolRoot, filename));
             Set<String> variables = switch (category) {
                 case PLAN, ANSWER, CLARIFY, EXECUTE -> CORE_TOOL_VARIABLES;
-                case QUERY, FOLLOW_UP_QUERY -> QUERY_TOOL_VARIABLES;
+                case QUERY -> QUERY_TOOL_VARIABLES;
             };
             templates.put(category, new StrictPromptTemplate(template.content(), variables));
         }
-        StrictPromptTemplate exactCardinality = loadTemplate(resources, "tools/cardinality/exact.st", toolRoot,
-                "cardinality/exact.st", EXACT_CARDINALITY_VARIABLES);
-        StrictPromptTemplate rangeCardinality = loadTemplate(resources, "tools/cardinality/range.st", toolRoot,
-                "cardinality/range.st", RANGE_CARDINALITY_VARIABLES);
-        StrictPromptTemplate followUpAllowed = loadTemplate(resources, "tools/follow-up/allowed.st", toolRoot,
-                "follow-up/allowed.st", FOLLOW_UP_VARIABLES);
-        StrictPromptTemplate followUpDisallowed = loadTemplate(resources, "tools/follow-up/disallowed.st", toolRoot,
-                "follow-up/disallowed.st", Set.of());
-        return new ToolPromptTemplates(Map.copyOf(templates), exactCardinality, rangeCardinality,
-                followUpAllowed, followUpDisallowed);
-    }
-
-    private StrictPromptTemplate loadTemplate(
-            Map<String, LoadedResource> resources,
-            String logicalId,
-            String toolRoot,
-            String filename,
-            Set<String> variables) {
-        LoadedResource template = read(resources, logicalId, childLocation(toolRoot, filename));
-        return new StrictPromptTemplate(template.content(), variables);
+        return new ToolPromptTemplates(Map.copyOf(templates));
     }
 
     private Map<PlanningToolDescriptor, String> renderToolDescriptions(
@@ -146,7 +120,7 @@ public final class PromptResourceCatalogLoader {
             String guidanceText = guidance(descriptor, guidance, resources, toolRoot);
             StrictPromptTemplate template = Objects.requireNonNull(toolTemplates.templates().get(descriptor.category()),
                     "planning tool category template must be present");
-            String description = renderDescription(template, toolTemplates, descriptor, guidanceText);
+            String description = template.render(templateValues(descriptor, guidanceText));
             if (description.isBlank()) {
                 throw new IllegalArgumentException("planning tool prompt description must not be blank: "
                         + descriptor.toolName());
@@ -154,38 +128,6 @@ public final class PromptResourceCatalogLoader {
             descriptions.put(descriptor, description);
         }
         return Map.copyOf(descriptions);
-    }
-
-    private static String renderDescription(
-            StrictPromptTemplate template,
-            ToolPromptTemplates toolTemplates,
-            PlanningToolDescriptor descriptor,
-            String guidance) {
-        String baseDescription = template.render(templateValues(descriptor, guidance));
-        if (descriptor.category() != PlanningToolCategory.QUERY
-                && descriptor.category() != PlanningToolCategory.FOLLOW_UP_QUERY) {
-            return baseDescription;
-        }
-        CapabilityPolicy policy = descriptor.capability().orElseThrow(
-                () -> new IllegalArgumentException("QUERY planning tool descriptor must declare capability"));
-        String acceptedCandidateKinds = policy.acceptedCandidateKinds().stream()
-                .map(CandidateKind::name)
-                .sorted()
-                .collect(java.util.stream.Collectors.joining(", "));
-        StrictPromptTemplate cardinalityTemplate = toolTemplates.cardinality(policy);
-        Map<String, Object> cardinalityValues = policy.minimumCandidates() == policy.maximumCandidates()
-                ? Map.of("candidateMinimum", policy.minimumCandidates(), "acceptedCandidateKinds", acceptedCandidateKinds)
-                : Map.of(
-                        "candidateMinimum", policy.minimumCandidates(),
-                        "candidateMaximum", policy.maximumCandidates(),
-                        "acceptedCandidateKinds", acceptedCandidateKinds);
-        String cardinalityInstruction = cardinalityTemplate.render(cardinalityValues);
-        StrictPromptTemplate followUpTemplate = toolTemplates.followUp(policy);
-        Map<String, Object> followUpValues = policy.acceptedCandidateKinds().contains(CandidateKind.FOLLOW_UP)
-                ? Map.of("capabilityName", policy.name(), "capabilityVersion", policy.version())
-                : Map.of();
-        String followUpInstruction = followUpTemplate.render(followUpValues);
-        return baseDescription + " " + cardinalityInstruction + " " + followUpInstruction;
     }
 
     private String guidance(
@@ -203,8 +145,7 @@ public final class PromptResourceCatalogLoader {
     private static Map<String, Object> templateValues(PlanningToolDescriptor descriptor, String guidance) {
         Map<String, Object> values = new HashMap<>();
         values.put("toolName", descriptor.toolName());
-        if (descriptor.category() == PlanningToolCategory.QUERY
-                || descriptor.category() == PlanningToolCategory.FOLLOW_UP_QUERY) {
+        if (descriptor.category() == PlanningToolCategory.QUERY) {
             CapabilityPolicy policy = descriptor.capability().orElseThrow(
                     () -> new IllegalArgumentException("QUERY planning tool descriptor must declare capability"));
             values.put("capabilityName", policy.name());
@@ -293,24 +234,7 @@ public final class PromptResourceCatalogLoader {
     private record LoadedResource(String location, String content, String digest) {
     }
 
-    private record ToolPromptTemplates(
-            Map<PlanningToolCategory, StrictPromptTemplate> templates,
-            StrictPromptTemplate exactCardinality,
-            StrictPromptTemplate rangeCardinality,
-            StrictPromptTemplate followUpAllowed,
-            StrictPromptTemplate followUpDisallowed) {
-
-        private StrictPromptTemplate cardinality(CapabilityPolicy policy) {
-            return policy.minimumCandidates() == policy.maximumCandidates()
-                    ? exactCardinality
-                    : rangeCardinality;
-        }
-
-        private StrictPromptTemplate followUp(CapabilityPolicy policy) {
-            return policy.acceptedCandidateKinds().contains(CandidateKind.FOLLOW_UP)
-                    ? followUpAllowed
-                    : followUpDisallowed;
-        }
+    private record ToolPromptTemplates(Map<PlanningToolCategory, StrictPromptTemplate> templates) {
     }
 
 }
