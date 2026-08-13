@@ -74,6 +74,9 @@ import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import jakarta.validation.Validation;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -101,6 +104,7 @@ import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.text.MessageFormat;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -721,8 +725,13 @@ class SpringAiAgentActionAdapterTest {
                 .allSatisfy(callback -> assertThat(callback.getToolDefinition().inputSchema()).isNotBlank());
     }
 
-    @Test
-    void renders_a_current_follow_up_as_a_typed_hint_without_candidate_authority() {
+    @ParameterizedTest
+    @MethodSource("followUpSuggestionCapabilityStates")
+    void renders_follow_up_suggestions_only_when_the_issued_callback_and_capability_are_current(
+            String scenario,
+            CapabilityPolicy issuedCapability,
+            HandleBinding capabilityBinding,
+            boolean suggestionExpected) {
         CountingChatModel model = new CountingChatModel(toolCall("callers", """
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","rationale":"Trace callers"}
                 """));
@@ -732,14 +741,19 @@ class SpringAiAgentActionAdapterTest {
                 new SpringAiPlanningToolSchemaFactory(), catalog);
         SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry,
                 callbacks, new AgentActionPromptRenderer(catalog), catalog);
-        AgentPromptContext context = contextWithCurrentFollowUp();
+        AgentPromptContext context = contextWithFollowUp(issuedCapability, capabilityBinding);
 
         AgentActionProposal proposal = adapter.nextAction(context);
 
-        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         String prompt = model.lastPrompt().orElseThrow().getUserMessage().getText();
-        assertThat(prompt).contains("targetTool=callers@v1, suggestedArguments={\"target\":\"Member\"}")
+        assertThat(prompt).as(scenario).contains("Inspect member callers")
                 .doesNotContain("allowedCandidateHandles", "repoId", "expectedRevision");
+        if (suggestionExpected) {
+            assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
+            assertThat(prompt).contains("targetTool=callers@v1, suggestedArguments={\"target\":\"Member\"}");
+        } else {
+            assertThat(prompt).doesNotContain("targetTool=", "suggestedArguments=");
+        }
     }
 
     @Test
@@ -930,7 +944,7 @@ class SpringAiAgentActionAdapterTest {
                 withQuestionPlan(interactions, context.attemptId()), context.latestRejection(), context.budget());
     }
 
-    private AgentPromptContext contextWithCurrentFollowUp() {
+    private AgentPromptContext contextWithFollowUp(CapabilityPolicy issuedCapability, HandleBinding capabilityBinding) {
         AgentPromptContext context = context();
         HandleBinding binding = new HandleBinding(context.runId(), context.attemptId(), RevisionVector.empty()
                 .pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1")));
@@ -938,9 +952,23 @@ class SpringAiAgentActionAdapterTest {
         FollowUpCandidate followUp = new FollowUpCandidate(new RepositoryId("repo-1"), new RepositoryRevision("rev-1"),
                 "callers", "v1", new CapabilityInputPayload("{\"target\":\"Member\"}"), "Inspect member callers");
         return new AgentPromptContext(context.originalQuestion(), context.sessionHistory(), context.runId(), context.attemptId(),
-                context.issuedCapabilities(), Map.of(candidateHandle, new IssuedCandidate(candidateHandle, followUp)),
+                Map.of(new CapabilityHandle("capability-callers", capabilityBinding), issuedCapability),
+                Map.of(candidateHandle, new IssuedCandidate(candidateHandle, followUp)),
                 context.issuedEvidence(), context.observations(), context.modelInteractions(), context.latestRejection(),
                 context.budget());
+    }
+
+    private static Stream<Arguments> followUpSuggestionCapabilityStates() {
+        return Stream.of(
+                Arguments.of("exact current policy", new CapabilityPolicy("callers", "v1"),
+                        new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
+                                RevisionVector.empty().pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1"))), true),
+                Arguments.of("version mismatch", new CapabilityPolicy("callers", "v2"),
+                        new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
+                                RevisionVector.empty().pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1"))), false),
+                Arguments.of("stale attempt binding", new CapabilityPolicy("callers", "v1"),
+                        new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-0"),
+                                RevisionVector.empty().pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1"))), false));
     }
 
     private CapabilityHandle capability() {

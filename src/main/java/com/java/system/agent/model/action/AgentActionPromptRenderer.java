@@ -24,6 +24,7 @@ import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.run.ActionResult;
@@ -128,7 +129,7 @@ public final class AgentActionPromptRenderer {
         StringBuilder candidates = new StringBuilder();
         for (Map.Entry<CandidateHandle, IssuedCandidate> entry : context.issuedCandidates().entrySet()) {
             candidates.append("- ").append(entry.getKey().value()).append(": ")
-                    .append(renderCandidate(entry.getValue().candidate(), currentToolNames)).append('\n');
+                    .append(renderCandidate(entry.getValue().candidate(), context, currentToolNames)).append('\n');
         }
         return candidates.toString();
     }
@@ -161,12 +162,15 @@ public final class AgentActionPromptRenderer {
                 .orElse("none");
     }
 
-    private static String renderCandidate(AnalysisCandidate candidate, Set<String> currentToolNames) {
+    private static String renderCandidate(
+            AnalysisCandidate candidate,
+            AgentPromptContext context,
+            Set<String> currentToolNames) {
         String repository = candidate.repositoryId().value() + candidate.repositoryRevision()
                 .map(revision -> "@" + revision.value())
                 .orElse("");
         String selectionMetadata = switch (candidate) {
-            case FollowUpCandidate followUp -> currentToolNames.contains(followUp.targetCapabilityName())
+            case FollowUpCandidate followUp -> hasCurrentExactCapability(context, currentToolNames, followUp)
                     ? ", targetTool=" + followUp.targetCapabilityName() + "@" + followUp.targetCapabilityVersion()
                     + ", suggestedArguments=" + followUp.payload().value()
                     : "";
@@ -177,6 +181,25 @@ public final class AgentActionPromptRenderer {
         };
         return "kind=" + candidate.kind() + ", repository=" + repository
                 + ", description=" + candidate.description() + selectionMetadata;
+    }
+
+    private static boolean hasCurrentExactCapability(
+            AgentPromptContext context,
+            Set<String> currentToolNames,
+            FollowUpCandidate followUp) {
+        if (!currentToolNames.contains(followUp.targetCapabilityName())) {
+            return false;
+        }
+        CapabilityPolicy target = new CapabilityPolicy(followUp.targetCapabilityName(), followUp.targetCapabilityVersion());
+        return context.issuedCapabilities().entrySet().stream()
+                .filter(entry -> hasCurrentBinding(entry.getKey().binding(), context))
+                .map(Map.Entry::getValue)
+                .anyMatch(target::equals);
+    }
+
+    private static boolean hasCurrentBinding(HandleBinding binding, AgentPromptContext context) {
+        return binding.runId().equals(context.runId())
+                && binding.attemptId().equals(context.attemptId());
     }
 
     private static String remainingBudget(AgentPromptContext context) {
