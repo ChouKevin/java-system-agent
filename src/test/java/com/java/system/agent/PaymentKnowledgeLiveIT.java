@@ -84,7 +84,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * database precondition is guarded by its connected catalog and foreign eligible rows still fail
  * fast before every production inbox processor call.
  */
-@SpringBootTest
+@SpringBootTest(properties = "agent.repository-scope.repository-id=${KNOWLEDGE_FIXTURE_ID}")
 @ActiveProfiles("agent-runtime")
 @EnabledIfEnvironmentVariable(named = "PAYMENT_KNOWLEDGE_LIVE", matches = "true")
 class PaymentKnowledgeLiveIT {

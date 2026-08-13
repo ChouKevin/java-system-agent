@@ -7,7 +7,6 @@ import com.java.system.agent.answering.domain.answer.AnswerDisposition;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
 import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
-import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
@@ -91,7 +90,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 以真實 runtime 與外部 live infrastructure 驗證 M7 repository 知識查詢
  */
-@SpringBootTest(properties = "spring.profiles.include=m7-knowledge-live")
+@SpringBootTest(properties = {
+        "spring.profiles.include=m7-knowledge-live",
+        "agent.repository-scope.repository-id=${KNOWLEDGE_FIXTURE_ID}"
+})
 @ActiveProfiles("agent-runtime")
 @Import(M7KnowledgeQueryLiveIT.DeliveryTestConfiguration.class)
 @EnabledIfEnvironmentVariable(named = "M7_KNOWLEDGE_LIVE", matches = "true")

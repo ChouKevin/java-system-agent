@@ -16,6 +16,7 @@ import com.java.system.agent.persistence.jdbc.PostgresSessionInboxAdapter;
 import com.java.system.agent.persistence.jdbc.PostgresSessionAdapter;
 import com.java.system.agent.answering.domain.answer.AnswerVerificationBasis;
 import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.action.QueryAction;
 import com.java.system.agent.answering.domain.conversation.ConversationTurnType;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.observation.ObservationId;
@@ -29,6 +30,9 @@ import com.java.system.agent.answering.domain.run.ModelInteraction;
 import com.java.system.agent.answering.domain.run.PendingTerminalResponse;
 import com.java.system.agent.answering.domain.run.RunResponseKind;
 import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.in.AnswerQuestionCommand;
 import com.java.system.agent.answering.port.in.AnswerQuestionResult;
 import com.java.system.agent.answering.port.in.AnswerQuestionUseCase;
@@ -88,6 +92,10 @@ class M2ProductionFlowIT {
 
     private static final Instant NOW = Instant.parse("2030-07-27T10:00:00Z");
     private static final ParticipantRef PARTICIPANT = new ParticipantRef("slack", "U123456");
+    private static final RepositoryId REPOSITORY_ID = new RepositoryId("demo");
+    private static final RepositoryRevision REPOSITORY_REVISION = new RepositoryRevision("FIXTURE");
+    private static final RevisionVector EXPECTED_REVISIONS = RevisionVector.fromEntries(
+            List.of(new RevisionVector.Entry(REPOSITORY_ID, REPOSITORY_REVISION)));
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17.5-alpine");
@@ -167,11 +175,6 @@ class M2ProductionFlowIT {
                 .andExpect(header("X-Api-Token", "m2-token"))
                 .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_REVISION))
                 .andRespond(withSuccess(repositoryStatusJson(), APPLICATION_JSON));
-        server.expect(requestTo("http://semantic.test/v1/repositories/demo"))
-                .andExpect(method(GET))
-                .andExpect(header("X-Api-Token", "m2-token"))
-                .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_REVISION))
-                .andRespond(withSuccess(repositoryStatusJson(), APPLICATION_JSON));
         server.expect(requestTo("http://semantic.test/v1/repositories/demo/entry-points?expectedRevision=FIXTURE&types=API"))
                 .andExpect(method(GET))
                 .andExpect(header("X-Api-Token", "m2-token"))
@@ -182,7 +185,7 @@ class M2ProductionFlowIT {
         InboxMessage enqueued = claim.message();
         String attemptId = enqueued.runId().value() + ":A1";
         chatModel.enqueue("LLM plan action", planToolCall("unresolved-entry-point"));
-        chatModel.enqueue(CallTimeline.LLM_QUERY_ACTION, queryToolCall(attemptId));
+        chatModel.enqueue(CallTimeline.LLM_QUERY_ACTION, queryToolCall());
         chatModel.enqueue(CallTimeline.LLM_ANSWER_ACTION, answerToolCall(attemptId));
         chatModel.enqueue(CallTimeline.LLM_VERIFIER, verdictJson());
         InboxProcessingOutcome outcome = processor.process(claim, NOW);
@@ -192,11 +195,13 @@ class M2ProductionFlowIT {
         AgentRunState state = transitions.findByRunId(enqueued.runId()).orElseThrow();
         assertThat(state.status()).isEqualTo(AgentRunStatus.CONCLUDED);
         assertThat(state.finalOutcome()).contains(RunOutcome.COMPLETED);
+        assertThat(state.requestIdentity().repositoryId()).isEqualTo(REPOSITORY_ID);
+        assertThat(state.currentAttempt().revisionVector()).isEqualTo(EXPECTED_REVISIONS);
         assertThat(state.questionPlan()).hasValueSatisfying(plan ->
                 assertThat(plan.needs()).extracting(need -> need.id().value())
                         .containsExactly("unresolved-entry-point"));
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(14);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(12);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(16);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(14);
         assertThat(deliveryStatuses(enqueued)).containsExactly(
                 "FINAL_RESPONSE:WAITING_FOR_RECEIPT", "RECEIPT:PENDING");
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
@@ -219,6 +224,7 @@ class M2ProductionFlowIT {
         assertThat(eventTypes(enqueued)).filteredOn("ACTION_SELECTED"::equals).hasSize(3);
         assertThat(eventTypes(enqueued)).filteredOn("ACTION_ACCEPTED"::equals).hasSize(1);
         assertThat(eventTypes(enqueued)).filteredOn("QUERY_BUDGET_CONSUMED"::equals).hasSize(1);
+        assertCandidateFreeAcceptedQuery(state, enqueued);
         assertThat(sessionAnswerCount(enqueued)).isEqualTo(1L);
         assertThat(sessions.read(enqueued.sessionId()).turns()).singleElement().satisfies(turn -> {
             assertThat(turn.type()).isEqualTo(ConversationTurnType.ANSWER);
@@ -232,13 +238,13 @@ class M2ProductionFlowIT {
                 enqueued.runId(), enqueued.sessionId(), enqueued.participant(), enqueued.questionText(), state.budget()));
         assertThat(reconciled.responseKind()).isEqualTo(RunResponseKind.ANSWER);
         assertThat(reconciled.verificationBasis()).contains(AnswerVerificationBasis.LLM);
+        assertThat(reconciled.finalRevisions()).isEqualTo(EXPECTED_REVISIONS);
         assertThat(chatModel.prompts()).hasSize(4);
         assertThat(callTimeline.calls()).containsExactly(
                 CallTimeline.HTTP_REPOSITORY_CATALOG,
                 CallTimeline.HTTP_REPOSITORY_REVISION,
                 "LLM plan action",
                 CallTimeline.LLM_QUERY_ACTION,
-                CallTimeline.HTTP_REPOSITORY_REVISION,
                 CallTimeline.HTTP_LIST_ENTRY_POINTS,
                 CallTimeline.LLM_ANSWER_ACTION,
                 CallTimeline.LLM_VERIFIER);
@@ -274,8 +280,8 @@ class M2ProductionFlowIT {
         assertThat(state.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
         assertThat(state.questionPlan()).hasValueSatisfying(plan ->
                 assertThat(plan.needs()).extracting(need -> need.id().value()).containsExactly("repository-scope"));
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(14);
-        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(12);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(16);
+        assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(14);
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
                 "WAITING_FOR_RECEIPT",
                 "CLARIFICATION",
@@ -347,6 +353,20 @@ class M2ProductionFlowIT {
         });
     }
 
+    private void assertCandidateFreeAcceptedQuery(AgentRunState state, InboxMessage message) {
+        List<QueryAction> selectedQueries = state.modelInteractions().stream()
+                .filter(ModelInteraction.ActionSelected.class::isInstance)
+                .map(ModelInteraction.ActionSelected.class::cast)
+                .map(ModelInteraction.ActionSelected::action)
+                .filter(QueryAction.class::isInstance)
+                .map(QueryAction.class::cast)
+                .toList();
+        assertThat(selectedQueries).singleElement().satisfies(action ->
+                assertThat(action.payload().value()).doesNotContain("candidateHandles", "candidates"));
+        assertThat(acceptedQueryEventPayloads(message)).singleElement().satisfies(payload ->
+                assertThat(payload).doesNotContain("candidateHandles", "candidates"));
+    }
+
     private String inboxStatus(InboxMessage message) {
         return jdbcClient.sql("""
                 SELECT status
@@ -390,6 +410,19 @@ class M2ProductionFlowIT {
                 """)
                 .param("runId", message.runId().value())
                 .query(Integer.class)
+                .list();
+    }
+
+    private List<String> acceptedQueryEventPayloads(InboxMessage message) {
+        return jdbcClient.sql("""
+                SELECT payload::text
+                FROM agent_run_event
+                WHERE run_id = :runId
+                  AND event_type = 'ACTION_ACCEPTED'
+                ORDER BY state_revision
+                """)
+                .param("runId", message.runId().value())
+                .query(String.class)
                 .list();
     }
 
@@ -446,7 +479,7 @@ class M2ProductionFlowIT {
             String participantKey) {
     }
 
-    private static AssistantMessage queryToolCall(String attemptId) {
+    private static AssistantMessage queryToolCall() {
         return AssistantMessage.builder()
                 .content("")
                 .toolCalls(List.of(new AssistantMessage.ToolCall(
@@ -454,8 +487,8 @@ class M2ProductionFlowIT {
                         "function",
                         "codebase_list_entry_points",
                         """
-                                {"candidateHandles":["%s:R1"],"questionToResolve":"Find the unresolved entry point","rationale":"inspect the repository entry points","type":"API"}
-                                """.formatted(attemptId))))
+                                {"questionToResolve":"Find the unresolved entry point","rationale":"inspect the repository entry points","type":"API"}
+                                """)))
                 .build();
     }
 
