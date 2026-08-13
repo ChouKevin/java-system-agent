@@ -107,7 +107,7 @@ class PlanningToolInboxIntegrationTest {
                 }, registry::execute, registry, transitions);
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
-                inbox, new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1")), BUDGET, InboxRetryPolicy.defaults());
+                inbox, new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")), BUDGET, InboxRetryPolicy.defaults());
 
         InboxProcessingOutcome outcome = processor.process(claim(), NOW);
 
@@ -140,7 +140,7 @@ class PlanningToolInboxIntegrationTest {
                 }, registry::execute, registry, transitions);
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
-                inbox, new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1")), BUDGET, InboxRetryPolicy.defaults());
+                inbox, new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")), BUDGET, InboxRetryPolicy.defaults());
 
         InboxProcessingOutcome outcome = processor.process(claim(), NOW);
 
@@ -168,7 +168,7 @@ class PlanningToolInboxIntegrationTest {
                             context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
                             List.of(), "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
                 }, registry::execute, registry, transitions);
-        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
+        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
         InboxClaim interruptedClaim = claim();
 
         assertThatThrownBy(() -> service.answer(new AnswerQuestionCommand(
@@ -207,7 +207,8 @@ class PlanningToolInboxIntegrationTest {
                 (mode, context) -> { throw new AssertionError("planning contract test must not verify answers"); },
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
-                new FakeRepositoryCatalogAdapter(),
+                new FakeRepositoryCatalogAdapter(new com.java.system.agent.answering.port.out.RepositoryDescriptor(
+                        new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), "Repository")),
                 registry,
                 repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("unused")),
                 new FakeCancellationAdapter(),

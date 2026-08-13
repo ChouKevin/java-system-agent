@@ -24,6 +24,7 @@ import com.java.system.agent.answering.application.validation.AgentActionValidat
 import com.java.system.agent.answering.application.validation.AnswerDocumentValidator;
 import com.java.system.agent.answering.application.validation.AnswerVerdictValidator;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.interaction.application.InboxLifecycleMetrics;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.port.out.AnalysisAttemptIdGenerator;
@@ -196,7 +197,7 @@ public final class AgentRuntimeConfiguration {
     AnalysisApplicationService analysisApplicationService(
             ValidatedAgentLoop loop,
             AgentRepositoryScopeProperties repositoryScopeProperties) {
-        return new AnalysisApplicationService(loop, repositoryScopeProperties);
+        return new AnalysisApplicationService(loop, new RepositoryId(repositoryScopeProperties.repositoryId()));
     }
 
     @Bean

@@ -1,6 +1,5 @@
 package com.java.system.agent.answering.application;
 
-import com.java.system.agent.AgentRepositoryScopeProperties;
 import com.java.system.agent.answering.application.loop.AgentLoopRequest;
 import com.java.system.agent.answering.application.loop.AgentLoopResult;
 import com.java.system.agent.answering.application.loop.ValidatedAgentLoop;
@@ -21,11 +20,9 @@ public final class AnalysisApplicationService implements AnswerQuestionUseCase {
 
     public AnalysisApplicationService(
             ValidatedAgentLoop loop,
-            AgentRepositoryScopeProperties repositoryScopeProperties) {
+            RepositoryId repositoryId) {
         this.loop = Objects.requireNonNull(loop, "validated agent loop must not be null");
-        AgentRepositoryScopeProperties scopeProperties = Objects.requireNonNull(
-                repositoryScopeProperties, "repository scope properties must not be null");
-        this.repositoryId = new RepositoryId(scopeProperties.repositoryId());
+        this.repositoryId = Objects.requireNonNull(repositoryId, "repository ID must not be null");
     }
 
     @Override

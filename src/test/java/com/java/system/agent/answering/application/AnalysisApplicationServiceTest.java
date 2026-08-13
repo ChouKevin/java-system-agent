@@ -42,7 +42,7 @@ class AnalysisApplicationServiceTest {
                 Optional.of(AnswerVerificationBasis.LLM),
                 RevisionVector.empty());
         ValidatedAgentLoop loop = mock(ValidatedAgentLoop.class);
-        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
+        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
         AnswerQuestionCommand command = new AnswerQuestionCommand(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
@@ -71,7 +71,7 @@ class AnalysisApplicationServiceTest {
     @Test
     void rejectsALoopResultForAnotherRun() {
         ValidatedAgentLoop loop = mock(ValidatedAgentLoop.class);
-        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
+        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
         AnswerQuestionCommand command = new AnswerQuestionCommand(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),

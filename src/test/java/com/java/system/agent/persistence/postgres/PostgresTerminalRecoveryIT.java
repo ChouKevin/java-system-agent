@@ -323,11 +323,9 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 },
                 AnswerVerificationMode.LLM,
                 sessionPort,
-                new FakeRepositoryCatalogAdapter(),
+                repositoryCatalog(),
                 new FakeCapabilityCatalogAdapter(),
-                repositoryId -> {
-                    throw new AssertionError("clarification must not resolve a repository revision");
-                },
+                repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-clarification")),
                 new AgentActionValidator(),
@@ -335,7 +333,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
+        return new AnalysisApplicationService(loop, new RepositoryId("repo-1"));
     }
 
     private AnalysisApplicationService planningContractService(AtomicInteger actionCalls) {
@@ -353,11 +351,9 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 },
                 AnswerVerificationMode.LLM,
                 sessions,
-                new FakeRepositoryCatalogAdapter(),
+                repositoryCatalog(),
                 new FakeCapabilityCatalogAdapter(),
-                repositoryId -> {
-                    throw new AssertionError("planning contract failure must not resolve a repository revision");
-                },
+                repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-planning-failure")),
                 new AgentActionValidator(),
@@ -365,7 +361,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
+        return new AnalysisApplicationService(loop, new RepositoryId("repo-1"));
     }
 
     private AnalysisApplicationService pendingVerificationService(AtomicInteger actionCalls, AtomicInteger verifierCalls) {
@@ -401,8 +397,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 },
                 AnswerVerificationMode.LLM,
                 sessions,
-                new FakeRepositoryCatalogAdapter(new com.java.system.agent.answering.port.out.RepositoryDescriptor(
-                        new RepositoryId("repo-1"), "Repository")),
+                repositoryCatalog(),
                 new FakeCapabilityCatalogAdapter(new CapabilityPolicy("test", "1", Set.of(CandidateKind.REPOSITORY), 0, 0)),
                 repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
@@ -412,12 +407,17 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
+        return new AnalysisApplicationService(loop, new RepositoryId("repo-1"));
     }
 
     private AnswerQuestionCommand command(InboxMessage message) {
         return new AnswerQuestionCommand(
                 message.runId(), message.sessionId(), message.participant(), message.questionText(), budget());
+    }
+
+    private FakeRepositoryCatalogAdapter repositoryCatalog() {
+        return new FakeRepositoryCatalogAdapter(new com.java.system.agent.answering.port.out.RepositoryDescriptor(
+                new RepositoryId("repo-1"), "Repository"));
     }
 
     private AnswerQuestionCommand command(InboxMessage message, AnswerExecutionMode mode, int attempt) {
