@@ -97,7 +97,7 @@ class PlanningToolInboxIntegrationTest {
         AtomicInteger executorInvocations = new AtomicInteger();
         RecordingTransitions transitions = new RecordingTransitions();
         PlanningToolRegistry registry = registry(input -> new QueryPlanningSelection<>(
-                List.of(), input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
+                input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
         ValidatedAgentLoop loop = loop(
                 context -> {
                     modelInvocations.incrementAndGet();
@@ -160,7 +160,7 @@ class PlanningToolInboxIntegrationTest {
         AtomicInteger executorInvocations = new AtomicInteger();
         RecordingTransitions transitions = new RecordingTransitions();
         PlanningToolRegistry registry = registry(input -> new QueryPlanningSelection<>(
-                List.of(), input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
+                input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
         ValidatedAgentLoop loop = loop(
                 context -> {
                     modelInvocations.incrementAndGet();

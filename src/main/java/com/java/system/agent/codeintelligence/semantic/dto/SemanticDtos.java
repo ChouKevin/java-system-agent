@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import jakarta.validation.constraints.Min;
@@ -175,11 +176,15 @@ public final class SemanticDtos {
     public record GraphError(String code, String message, String nodeId) {
     }
 
-    public record Position(@Min(0) Integer line, @Min(0) Integer character) {
+    public record Position(
+            @JsonPropertyDescription("Zero-based source line number") @Min(0) Integer line,
+            @JsonPropertyDescription("Zero-based UTF-16 code-unit character offset within line") @Min(0) Integer character) {
     }
 
     /** Java 型別的 HTTP 識別資料 */
-    public record JavaTypeIdentityPayload(String packageName, String className) {
+    public record JavaTypeIdentityPayload(
+            @JsonPropertyDescription("Java package only, for example com.example.payment") String packageName,
+            @JsonPropertyDescription("Canonical class name relative to package; nested types use dots") String className) {
 
         public JavaTypeIdentityPayload {
             packageName = Objects.requireNonNull(packageName, "packageName is required");
@@ -188,7 +193,9 @@ public final class SemanticDtos {
     }
 
     /** 以來源檔案限定的 Java 型別 HTTP 識別資料 */
-    public record SourceTypeIdentityPayload(JavaTypeIdentityPayload javaType, String sourceFile)
+    public record SourceTypeIdentityPayload(
+            @JsonPropertyDescription("Declaring Java package and class identity") JavaTypeIdentityPayload javaType,
+            @JsonPropertyDescription("Repository-relative Java source file path") String sourceFile)
             implements InternalReferenceIdentity {
 
         public SourceTypeIdentityPayload {
@@ -198,8 +205,11 @@ public final class SemanticDtos {
     }
 
     /** 正規方法目標 HTTP 資料 */
-    public record MethodTargetPayload(SourceTypeIdentityPayload sourceType, String methodName,
-                                      List<String> parameterTypes) implements FollowUpTarget, InternalReferenceIdentity {
+    public record MethodTargetPayload(
+            @JsonPropertyDescription("Source-bound declaring type") SourceTypeIdentityPayload sourceType,
+            @JsonPropertyDescription("Declared Java method name") String methodName,
+            @JsonPropertyDescription("Canonical parameter type names in declaration order; [] means zero arguments")
+            List<String> parameterTypes) implements FollowUpTarget, InternalReferenceIdentity {
 
         public MethodTargetPayload {
             sourceType = Objects.requireNonNull(sourceType, "sourceType is required");
@@ -210,7 +220,9 @@ public final class SemanticDtos {
     }
 
     /** 零基 UTF-16 半開文字範圍 HTTP 資料 */
-    public record TextRangePayload(Position start, Position end) {
+    public record TextRangePayload(
+            @JsonPropertyDescription("Inclusive zero-based UTF-16 start position") Position start,
+            @JsonPropertyDescription("Exclusive zero-based UTF-16 end position; ranges are half-open") Position end) {
 
         public TextRangePayload {
             start = Objects.requireNonNull(start, "start is required");
@@ -247,7 +259,9 @@ public final class SemanticDtos {
     }
 
     /** 含有來源檔案的可導覽文字範圍 HTTP 資料 */
-    public record SourceRangePayload(String sourceFile, TextRangePayload range) {
+    public record SourceRangePayload(
+            @JsonPropertyDescription("Repository-relative source file path") String sourceFile,
+            @JsonPropertyDescription("Zero-based UTF-16 half-open range in sourceFile") TextRangePayload range) {
 
         public SourceRangePayload {
             sourceFile = Objects.requireNonNull(sourceFile, "sourceFile is required");
@@ -472,8 +486,11 @@ public final class SemanticDtos {
     }
 
     /** 來源符號解析 context */
-    public record SourceSymbolContextPayload(JavaTypeIdentityPayload javaType, Optional<String> sourceFile,
-                                             Optional<SourceSymbolMethodContextPayload> method) {
+    public record SourceSymbolContextPayload(
+            @JsonPropertyDescription("Java type that contains the symbol") JavaTypeIdentityPayload javaType,
+            @JsonPropertyDescription("Optional repository-relative source file path") Optional<String> sourceFile,
+            @JsonPropertyDescription("Optional declaring method context for disambiguation")
+            Optional<SourceSymbolMethodContextPayload> method) {
         public SourceSymbolContextPayload {
             javaType = Objects.requireNonNull(javaType, "javaType is required");
             sourceFile = Optional.ofNullable(sourceFile).orElse(Optional.empty());

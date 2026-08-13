@@ -424,7 +424,7 @@ class PlanningToolRegistryTest {
     }
 
     @Test
-    void projectsCurrentRepositoryAuthorityForMapperRegistrationsAndRejectsOtherToolSelections() {
+    void issuesMapperRegistrationsFromCurrentCapabilityWithoutCandidateAuthority() {
         AtomicInteger executorCalls = new AtomicInteger();
         PlanningToolRegistry registry = repositoryMapperRegistry(executorCalls);
         AgentPromptContext context = contextWithRepositoryMapperAuthority();
@@ -432,19 +432,17 @@ class PlanningToolRegistryTest {
         assertThat(registry.issuedTools(context))
                 .filteredOn(issuedTool -> issuedTool.name().equals("repository_mapper_test"))
                 .singleElement()
-                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).containsExactly(
-                        new CandidateHandleRef("candidate-repository")));
+                .satisfies(issuedTool -> assertThat(issuedTool.allowedCandidateHandles()).isEmpty());
         assertThat(registry.issuedRegistrations(contextWithoutRepositoryMapperCandidate()))
                 .extracting(PlanningToolRegistration::name)
-                .doesNotContain("repository_mapper_test");
-        assertThat(registry.interpretToolCall("repository_mapper_test",
-                candidateBoundInput("candidate-other-tool-follow-up", 2), context))
-                .isEqualTo(new AgentActionProposal.Malformed(
-                        "INVALID_TOOL_INPUT: tool=repository_mapper_test; reason=CANDIDATE_SELECTION; "
-                                + "invalidFields=[candidateHandles]; "
-                                + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
+                .contains("repository_mapper_test");
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) registry.interpretToolCall(
-                "repository_mapper_test", candidateBoundInput("candidate-repository", 2), context)).action();
+                "repository_mapper_test", """
+                        {"questionToResolve":"Find callers",
+                         "rationale":"The typed query defines its target"}
+                        """, context)).action();
+        assertThat(payloadCodec().decode(action.payload(), TestExecutionInput.class))
+                .isEqualTo(new TestExecutionInput("mapper-owned-target", 0));
         assertThat(executorCalls).hasValue(0);
     }
 
@@ -453,7 +451,7 @@ class PlanningToolRegistryTest {
         AtomicInteger executorCalls = new AtomicInteger();
         CapabilityPolicy policy = new CapabilityPolicy("zero_candidate_mapper_test", "v1",
                 Set.of(CandidateKind.REPOSITORY), 0, 1);
-        QueryPlanningMapper<TestInput, TestInput> mapper = input -> new QueryPlanningSelection<>(List.of(),
+        QueryPlanningMapper<TestInput, TestInput> mapper = input -> new QueryPlanningSelection<>(
                 input.questionToResolve(), input.rationale(), input);
         QueryPlanningToolRegistration<TestInput, TestInput> registration = PlanningToolRegistry.registration(policy,
                 TestInput.class, TestInput.class, mapper, (executionContext, input) -> {
@@ -643,11 +641,10 @@ class PlanningToolRegistryTest {
     private static PlanningToolRegistry repositoryMapperRegistry(AtomicInteger executorCalls) {
         CapabilityPolicy policy = new CapabilityPolicy("repository_mapper_test", "v1", Set.of(CandidateKind.REPOSITORY),
                 1, 1);
-        QueryPlanningMapper<TestCandidateBoundInput, TestExecutionInput> mapper = input -> new QueryPlanningSelection<>(
-                input.candidateHandles().stream().map(CandidateHandleRef::new).toList(), input.questionToResolve(),
-                input.rationale(), new TestExecutionInput("mapper-owned-target", input.option()));
-        QueryPlanningToolRegistration<TestCandidateBoundInput, TestExecutionInput> registration =
-                PlanningToolRegistry.registration(policy, TestCandidateBoundInput.class, TestExecutionInput.class, mapper,
+        QueryPlanningMapper<TestInput, TestExecutionInput> mapper = input -> new QueryPlanningSelection<>(
+                input.questionToResolve(), input.rationale(), new TestExecutionInput("mapper-owned-target", 0));
+        QueryPlanningToolRegistration<TestInput, TestExecutionInput> registration =
+                PlanningToolRegistry.registration(policy, TestInput.class, TestExecutionInput.class, mapper,
                         (executionContext, input) -> {
                             executorCalls.incrementAndGet();
                             return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
@@ -695,7 +692,7 @@ class PlanningToolRegistryTest {
             String name, String version, CanonicalCapabilityPayloadCodec payloadCodec) {
         CapabilityPolicy policy = new CapabilityPolicy(name, version, Set.of(CandidateKind.REPOSITORY), 0, 1);
         QueryPlanningMapper<TestInput, TestInput> queryMapper = input ->
-                new QueryPlanningSelection<>(List.of(), input.questionToResolve(), input.rationale(), input);
+                new QueryPlanningSelection<>(input.questionToResolve(), input.rationale(), input);
         return PlanningToolRegistry.registration(policy, TestInput.class, TestInput.class, queryMapper,
                 (executionContext, input) -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
                 payloadCodec);

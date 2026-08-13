@@ -6,9 +6,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
-/** 方法實作探索規劃工具的模型輸入。 */
-public record DiscoverMethodImplementationsPlanningInput(
+/** 精確 evidence source 規劃工具的模型輸入。 */
+public record GetEvidenceSourcePlanningInput(
         @JsonProperty(required = true) @NotBlank String questionToResolve,
         @JsonProperty(required = true) @NotBlank String rationale,
-        @JsonProperty(required = true) @NotNull @Valid SemanticDtos.MethodTargetPayload target) {
+        @JsonProperty(required = true) @NotNull @Valid SemanticDtos.EvidenceSourceFollowUpIdentity identity) {
 }

@@ -213,7 +213,7 @@ class PromptResourceCatalogTest {
             CandidateKind candidateKind) {
         CapabilityPolicy policy = new CapabilityPolicy(capabilityName, "v1", Set.of(candidateKind), 1, 1);
         return new QueryPlanningToolRegistration<>(policy, String.class, String.class,
-                input -> new QueryPlanningSelection<>(List.of(), "question", "rationale", input),
+                input -> new QueryPlanningSelection<>("question", "rationale", input),
                 (context, input) -> null,
                 new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()),
                 guidanceId);

@@ -3,22 +3,17 @@ package com.java.system.agent.codeintelligence.planning;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
-import com.java.system.agent.capability.planning.CandidateBoundPlanningInput;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
+import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
-import java.util.List;
-
-/**
- * outgoing-call-graph 規劃工具的模型輸入，缺省 depth 正規化為 2
- */
+/** Outgoing call graph 規劃工具的模型輸入。 */
 public record OutgoingCallGraphPlanningInput(
-        @JsonProperty(required = true) @NotEmpty @NotNull List<@NotBlank String> candidateHandles,
         @JsonProperty(required = true) @NotBlank String questionToResolve,
         @JsonProperty(required = true) @NotBlank String rationale,
-        @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) @Min(1) @Max(2) Integer depth)
-        implements CandidateBoundPlanningInput {
+        @JsonProperty(required = true) @NotNull @Valid SemanticDtos.MethodTargetPayload target,
+        @JsonProperty(required = false) @JsonSetter(nulls = Nulls.SKIP) @Min(1) @Max(2) Integer depth) {
 }

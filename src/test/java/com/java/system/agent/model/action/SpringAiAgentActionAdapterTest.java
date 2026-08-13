@@ -136,8 +136,7 @@ class SpringAiAgentActionAdapterTest {
                         new ActionResult.QuerySucceeded(List.of(), List.of(), List.of()))));
         AgentActionPromptRenderer renderer = mock(AgentActionPromptRenderer.class);
         String renderedPrompt = "PROMPT_SECRET apiKey=TOKEN_SECRET source=evidence secret";
-        Map<String, List<String>> candidateAuthority = Map.of(
-                "callers", List.of("candidate-1", "candidate-2"));
+        Map<String, List<String>> candidateAuthority = Map.of("callers", List.of());
         when(renderer.render(promptContext, candidateAuthority)).thenReturn(renderedPrompt);
         CountingChatModel model = new CountingChatModel(toolCall("callers", """
                 {"candidateHandles":["candidate-1"],"questionToResolve":"Changed question secret","rationale":"Changed rationale secret"}
@@ -831,8 +830,7 @@ class SpringAiAgentActionAdapterTest {
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
         QueryPlanningMapper<ToolInput, FingerprintExecutionInput> mapper = input -> new QueryPlanningSelection<>(
-                input.candidateHandles().stream().map(CandidateHandleRef::new).toList(), input.questionToResolve(),
-                input.rationale(), new FingerprintExecutionInput(input.candidateHandles()));
+                input.questionToResolve(), input.rationale(), new FingerprintExecutionInput(input.candidateHandles()));
         PlanningToolProvider provider = () -> List.of(PlanningToolRegistry.registration(
                 policy, ToolInput.class, FingerprintExecutionInput.class, mapper, executor, payloadCodec));
         return new PlanningToolRegistry(List.of(provider), new StrictPlanningToolDecoder(
@@ -990,8 +988,7 @@ class SpringAiAgentActionAdapterTest {
 
         @Override
         public QueryPlanningSelection<ToolInput> map(ToolInput input) {
-            return new QueryPlanningSelection<>(input.candidateHandles().stream().map(CandidateHandleRef::new).toList(),
-                    input.questionToResolve(), input.rationale(), input);
+            return new QueryPlanningSelection<>(input.questionToResolve(), input.rationale(), input);
         }
     }
     private static class CountingChatModel implements ChatModel {
