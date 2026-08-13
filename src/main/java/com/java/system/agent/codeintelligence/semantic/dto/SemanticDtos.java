@@ -449,7 +449,7 @@ public final class SemanticDtos {
                                           @JsonPropertyDescription("Required only for TYPE") Optional<SourceTypeIdentityPayload> sourceType,
                                           @JsonPropertyDescription("Required only for METHOD, API_ROUTE, MQ_DESTINATION, and SCHEDULE") Optional<MethodTargetPayload> target,
                                           @JsonPropertyDescription("Required only for FIELD, MAPPER_STATEMENT, and MAPPER_STATEMENT_VARIANT") Optional<ConceptIdentityTargetPayload> identity,
-                                          @JsonPropertyDescription("Required only for FIELD and ANNOTATION_USAGE") Optional<DeclarationSubjectPayload> declaration,
+                                          @JsonPropertyDescription("Required only for ANNOTATION_USAGE") Optional<DeclarationSubjectPayload> declaration,
                                           @JsonPropertyDescription("Required only for ANNOTATION_USAGE") Optional<AnnotationTypePayload> annotationType,
                                           @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<DeclarationSubjectPayload> owner,
                                           @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<TypeUsageLocationPayload> location,
@@ -460,7 +460,7 @@ public final class SemanticDtos {
                                           @JsonPropertyDescription("Required only for MQ_DESTINATION") Optional<String> broker,
                                           @JsonPropertyDescription("Required only for MQ_DESTINATION") Optional<String> destination,
                                           @JsonPropertyDescription("Required only for SCHEDULE") Optional<String> triggerKind,
-                                          @JsonPropertyDescription("Required only for SCHEDULE") Optional<String> triggerValue)
+                                          @JsonPropertyDescription("Optional only for SCHEDULE") Optional<String> triggerValue)
             implements FollowUpIdentity, ConceptIdentityPayload {
         public ConceptFollowUpIdentity {
             kind = Objects.requireNonNull(kind, "kind is required");
