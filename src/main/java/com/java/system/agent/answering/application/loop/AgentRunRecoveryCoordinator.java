@@ -210,8 +210,13 @@ final class AgentRunRecoveryCoordinator {
                 "session port must return session history");
         List<CapabilityPolicy> capabilityCatalog = telemetry.loadCapabilities(recoveredState);
         List<RepositoryDescriptor> repositoryCatalog = telemetry.loadRepositories(recoveredState);
-        RevisionVector revisionVector = resolveRepositoryScope(
-                recoveredState, recoveredState.requestIdentity().repositoryId(), repositoryCatalog);
+        RevisionVector revisionVector;
+        try {
+            revisionVector = resolveRepositoryScope(
+                    recoveredState, recoveredState.requestIdentity().repositoryId(), repositoryCatalog);
+        } catch (RepositoryRevisionContractException exception) {
+            throw new ActiveIntegrationContractException(recoveredState, exception);
+        }
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
                 .map(RepositoryDescriptor::repositoryId)
                 .collect(Collectors.toUnmodifiableSet());

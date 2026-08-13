@@ -95,7 +95,7 @@ class AgentPersistenceCodecTest {
 
         assertThat(document.schemaVersion()).isEqualTo(14);
         assertThat(stateCodec.decode(document)).isEqualTo(state);
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(12, document.payload())))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(13, document.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
                 .hasMessage("unsupported state document schema version");
     }

@@ -58,6 +58,7 @@ import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
+import com.java.system.agent.answering.port.out.RepositoryRevisionContractException;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -177,6 +178,27 @@ class AgentRunRecoveryCoordinatorTest {
                 .hasMessage("incoming request does not match the persisted request identity");
         assertThat(fixture.catalogReads()).hasValue(catalogReads);
         assertThat(fixture.revisionReads()).hasValue(revisionReads);
+    }
+
+    @Test
+    void retryConcludesIntegrationFailureWhenRepositoryRevisionContractIsViolated() {
+        AtomicInteger revisionAttempts = new AtomicInteger();
+        Fixture fixture = fixture(
+                (mode, context) -> accepted(),
+                List.of(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
+                repositoryId -> {
+                    if (revisionAttempts.incrementAndGet() == 1) {
+                        return RepositoryRevisionResult.ready(new RepositoryRevision("revision-1"));
+                    }
+                    throw new RepositoryRevisionContractException("raw revision adapter detail");
+                });
+        fixture.coordinator().recover(fixture.initialRequest());
+
+        AgentRunRecoveryOutcome outcome = fixture.coordinator().recover(
+                fixture.request(AnswerExecutionMode.RETRY, 2));
+
+        assertTerminalIntegrationFailure(outcome, fixture);
+        assertThat(fixture.revisionReads()).hasValue(2);
     }
 
     @Test

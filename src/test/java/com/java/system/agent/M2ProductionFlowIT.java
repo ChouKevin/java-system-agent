@@ -79,7 +79,8 @@ import static org.springframework.http.HttpMethod.GET;
         "agent.codebase.base-url=http://semantic.test",
         "agent.codebase.api-token=m2-token",
         "agent.codebase.connect-timeout=2s",
-        "agent.codebase.read-timeout=15s"
+        "agent.codebase.read-timeout=15s",
+        "agent.repository-scope.repository-id=demo"
 })
 @ActiveProfiles({"agent-runtime", "m2-flow-it"})
 @Import(M2IntegrationTestConfiguration.class)
@@ -189,7 +190,7 @@ class M2ProductionFlowIT {
         assertThat(state.questionPlan()).hasValueSatisfying(plan ->
                 assertThat(plan.needs()).extracting(need -> need.id().value())
                         .containsExactly("unresolved-entry-point"));
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(13);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(14);
         assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(12);
         assertThat(deliveryStatuses(enqueued)).containsExactly(
                 "FINAL_RESPONSE:WAITING_FOR_RECEIPT", "RECEIPT:PENDING");
@@ -229,9 +230,9 @@ class M2ProductionFlowIT {
         assertThat(chatModel.prompts()).hasSize(4);
         assertThat(callTimeline.calls()).containsExactly(
                 CallTimeline.HTTP_REPOSITORY_CATALOG,
+                CallTimeline.HTTP_REPOSITORY_REVISION,
                 "LLM plan action",
                 CallTimeline.LLM_QUERY_ACTION,
-                CallTimeline.HTTP_REPOSITORY_REVISION,
                 CallTimeline.HTTP_LIST_ENTRY_POINTS,
                 CallTimeline.LLM_ANSWER_ACTION,
                 CallTimeline.LLM_VERIFIER);
@@ -248,6 +249,11 @@ class M2ProductionFlowIT {
                 .andExpect(header("X-Api-Token", "m2-token"))
                 .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_CATALOG))
                 .andRespond(withSuccess(repositoryCatalogJson(), APPLICATION_JSON));
+        server.expect(requestTo("http://semantic.test/v1/repositories/demo"))
+                .andExpect(method(GET))
+                .andExpect(header("X-Api-Token", "m2-token"))
+                .andExpect(request -> callTimeline.record(CallTimeline.HTTP_REPOSITORY_REVISION))
+                .andRespond(withSuccess(repositoryStatusJson(), APPLICATION_JSON));
 
         InboxClaim claim = inbox.claimNext(NOW).orElseThrow();
         InboxMessage enqueued = claim.message();
@@ -262,7 +268,7 @@ class M2ProductionFlowIT {
         assertThat(state.finalOutcome()).contains(RunOutcome.INCONCLUSIVE);
         assertThat(state.questionPlan()).hasValueSatisfying(plan ->
                 assertThat(plan.needs()).extracting(need -> need.id().value()).containsExactly("repository-scope"));
-        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(13);
+        assertThat(agentRunStateSchemaVersion(enqueued)).isEqualTo(14);
         assertThat(eventSchemaVersions(enqueued)).isNotEmpty().containsOnly(12);
         assertThat(finalDelivery(enqueued)).isEqualTo(new FinalDelivery(
                 "WAITING_FOR_RECEIPT",
@@ -278,6 +284,7 @@ class M2ProductionFlowIT {
         assertOutboundPrompts(chatModel.prompts());
         assertThat(callTimeline.calls()).containsExactly(
                 CallTimeline.HTTP_REPOSITORY_CATALOG,
+                CallTimeline.HTTP_REPOSITORY_REVISION,
                 "LLM plan action",
                 CallTimeline.LLM_CLARIFY_ACTION);
         server.verify();
