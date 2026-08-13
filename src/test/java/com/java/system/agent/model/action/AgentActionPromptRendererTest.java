@@ -193,6 +193,21 @@ class AgentActionPromptRendererTest {
     }
 
     @Test
+    void renders_a_validation_rejection_code_in_model_interaction_history() {
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), new AnalysisRunId("run-1"),
+                attemptId, Map.of(), Map.of(), Map.of(), Map.of(), List.of(
+                        new ModelInteraction.ActionResultRecorded(attemptId,
+                                new ActionResult.ValidationRejected("LIMITATION_OBSERVATION_REQUIRED",
+                                        "LIMITATION_OBSERVATION_REQUIRED"))), Optional.empty(),
+                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+
+        String interactions = (String) renderer().project(context, List.of()).get("modelInteractions");
+
+        assertThat(interactions).contains("VALIDATION_REJECTED: code=LIMITATION_OBSERVATION_REQUIRED");
+    }
+
+    @Test
     void projects_concluded_session_turns_and_preserves_stale_follow_up_candidates_as_generic_context() {
         RepositoryId repositoryId = new RepositoryId("repository-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");

@@ -63,7 +63,7 @@ public final class AnswerDocumentValidator {
             }
             if (statement.type() == StatementType.LIMITATION && statement.observationIds().isEmpty()) {
                 throw new AnswerDocumentContractException(
-                        ActionRejectionCode.INVALID_ANSWER_DOCUMENT,
+                        ActionRejectionCode.LIMITATION_OBSERVATION_REQUIRED,
                         "limitation statements require a relevant observation");
             }
         }

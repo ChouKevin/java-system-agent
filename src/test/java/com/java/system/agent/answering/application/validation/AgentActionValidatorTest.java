@@ -221,8 +221,11 @@ class AgentActionValidatorTest {
 
         ActionValidation validation = validator.validate(action, fixture.contextWithEvidence(evidence));
 
-        assertThat(validation).isEqualTo(new ActionValidation.Rejected(ActionRejectionCode.INVALID_ANSWER_DOCUMENT,
-                ActionRejectionCode.INVALID_ANSWER_DOCUMENT.name(), action));
+        assertThat(validation).isInstanceOf(ActionValidation.Rejected.class);
+        ActionValidation.Rejected rejected = (ActionValidation.Rejected) validation;
+        assertThat(rejected.code().name()).isEqualTo("LIMITATION_OBSERVATION_REQUIRED");
+        assertThat(rejected.description()).isEqualTo("LIMITATION_OBSERVATION_REQUIRED");
+        assertThat(rejected.originalAction()).isSameAs(action);
     }
 
     private static ExecuteAction execute(String target) {

@@ -9,6 +9,7 @@ import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
 import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +41,14 @@ public final class SubmitAnswerPlanningMapper implements Function<SubmitAnswerPl
     }
 
     private NeedResolution resolution(NeedResolutionPlanningInput input) {
+        if (input.status() == NeedResolutionStatus.SUPPORTED && input.evidenceHandles().isEmpty()) {
+            throw PlanningToolInputException.safeDiagnostic("reason=SUPPORTED_RESOLUTION_EVIDENCE_REQUIRED");
+        }
+        if (input.status() == NeedResolutionStatus.UNAVAILABLE
+                && input.evidenceHandles().isEmpty()
+                && input.observationIds().isEmpty()) {
+            throw PlanningToolInputException.safeDiagnostic("reason=UNAVAILABLE_RESOLUTION_AUTHORITY_REQUIRED");
+        }
         Set<EvidenceHandleRef> evidence = input.evidenceHandles().stream().map(EvidenceHandleRef::new)
                 .collect(Collectors.toUnmodifiableSet());
         Set<ObservationId> observations = input.observationIds().stream().map(ObservationId::new)

@@ -126,6 +126,29 @@ class PlanningToolRegistryTest {
                 "INVALID_TOOL_INPUT: tool=agent_request_clarification; reason=JSON_CONTRACT"));
     }
 
+    @Test
+    void rejects_a_supported_resolution_without_evidence_with_a_fixed_safe_diagnostic() {
+        PlanningToolRegistry registry = registry();
+
+        AgentActionProposal proposal = registry.interpretToolCall("agent_submit_answer", submitAnswer(
+                "need-secret-supported", "SUPPORTED", "[]", "[\"observation-secret-supported\"]"),
+                plannedContext(RevisionVector.empty()));
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=SUPPORTED_RESOLUTION_EVIDENCE_REQUIRED"));
+    }
+
+    @Test
+    void rejects_an_unavailable_resolution_without_authority_with_a_fixed_safe_diagnostic() {
+        PlanningToolRegistry registry = registry();
+
+        AgentActionProposal proposal = registry.interpretToolCall("agent_submit_answer", submitAnswer(
+                "need-secret-unavailable", "UNAVAILABLE", "[]", "[]"), plannedContext(RevisionVector.empty()));
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=UNAVAILABLE_RESOLUTION_AUTHORITY_REQUIRED"));
+    }
+
     private static PlanningToolRegistry registry() {
         CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
         CapabilityPolicy policy = new CapabilityPolicy("query_tool", "v1");
@@ -175,6 +198,16 @@ class PlanningToolRegistryTest {
 
     private static CanonicalCapabilityPayloadCodec payloadCodec() {
         return new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator());
+    }
+
+    private static String submitAnswer(
+            String needId,
+            String status,
+            String evidenceHandles,
+            String observationIds) {
+        return """
+                {"facts":[{"statementId":"statement-1","text":"The route was inspected","claimId":"claim-1","citationHandles":["evidence-safe"],"observationIds":[]}],"uncertainties":[],"limitations":[],"questions":[],"resolutions":[{"needId":"%s","status":"%s","evidenceHandles":%s,"observationIds":%s}]}
+                """.formatted(needId, status, evidenceHandles, observationIds);
     }
 
     private record QueryInput(
