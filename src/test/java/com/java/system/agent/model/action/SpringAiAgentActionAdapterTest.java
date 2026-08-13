@@ -322,7 +322,7 @@ class SpringAiAgentActionAdapterTest {
         CountingChatModel model = new CountingChatModel(AssistantMessage.builder()
                 .content("")
                 .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "agent_submit_answer", """
-                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-2","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-2"]},{"needId":"need-1","status":"SUPPORTED","evidenceHandles":["evidence-unknown"],"observationIds":[]}]}
+                        {"facts":[{"statementId":"statement-1","text":"Checkout calls the route","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}],"uncertainties":[{"statementId":"statement-2","text":"The deployment mode is unknown","citationHandles":[],"observationIds":[]}],"limitations":[{"statementId":"statement-3","text":"Runtime fees remain unavailable","citationHandles":[],"observationIds":["observation-2"]}],"questions":[{"statementId":"statement-4","text":"Which deployment is active?","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-2","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-2"]},{"needId":"need-1","status":"SUPPORTED","evidenceHandles":["evidence-unknown"],"observationIds":[]}]}
                         """)))
                 .build());
 
@@ -332,6 +332,9 @@ class SpringAiAgentActionAdapterTest {
         AnswerAction action = (AnswerAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.document().statements().getFirst().citations())
                 .extracting(evidenceHandleReference -> evidenceHandleReference.value()).containsExactly("evidence-unknown");
+        assertThat(action.document().statements()).extracting(AnswerStatement::type)
+                .containsExactly(StatementType.FACT, StatementType.UNCERTAINTY,
+                        StatementType.LIMITATION, StatementType.QUESTION);
         assertThat(action.resolutions()).extracting(resolution -> resolution.needId().value())
                 .containsExactly("need-2", "need-1");
         assertThat(action.resolutions().getFirst().observations())
@@ -430,25 +433,23 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
-    void mapsTypeAndDeclarativeToolInputFailuresToInvalidToolInput() {
-        CountingChatModel unknownEnum = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"UNKNOWN","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
+    void mapsUnknownAndDeclarativeToolInputFailuresToInvalidToolInput() {
+        CountingChatModel unknownGroup = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"facts":[],"uncertainties":[],"limitations":[],"questions":[],"unknownStatements":[],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel blankQuestion = new CountingChatModel(toolCall("agent_request_clarification", """
                 {"question":" ","candidateHandles":[],"reason":"The route scope is ambiguous"}
                 """));
 
-        AgentActionProposal enumProposal = adapter(unknownEnum).nextAction(answerContext());
+        AgentActionProposal unknownProposal = adapter(unknownGroup).nextAction(answerContext());
         AgentActionProposal blankProposal = adapter(blankQuestion).nextAction(context());
 
-        assertThat(enumProposal).isEqualTo(new AgentActionProposal.Malformed(
-                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT; "
-                        + "invalidField=statements.type; expectedJsonType=string; "
-                        + "allowedValues=[FACT, UNCERTAINTY, LIMITATION, QUESTION]"));
+        assertThat(unknownProposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT"));
         assertThat(blankProposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=agent_request_clarification; reason=BEAN_VALIDATION; "
                         + "invalidFields=[question]; constraints=[question:NotBlank]"));
-        assertThat(unknownEnum.calls()).isEqualTo(1);
+        assertThat(unknownGroup.calls()).isEqualTo(1);
         assertThat(blankQuestion.calls()).isEqualTo(1);
     }
 
@@ -456,8 +457,8 @@ class SpringAiAgentActionAdapterTest {
     void returns_actionable_safe_array_feedback_without_calling_answer_mapper() {
         AtomicInteger mapperCalls = new AtomicInteger();
         CountingChatModel model = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"LIMITATION","text":"The source remains unresolved",\
-                "citationHandles":[],"observationIds":"SENSITIVE_VALUE"}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
+                {"facts":[],"uncertainties":[],"limitations":[{"statementId":"statement-1","text":"The source remains unresolved",\
+                "citationHandles":[],"observationIds":"SENSITIVE_VALUE"}],"questions":[],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
         AgentActionProposal proposal = adapter(model, input -> failIfAnswerMapperExecutes(mapperCalls))
@@ -465,7 +466,7 @@ class SpringAiAgentActionAdapterTest {
 
         assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT; "
-                        + "invalidField=statements.observationIds; expectedJsonType=array"));
+                        + "invalidField=limitations.observationIds; expectedJsonType=array"));
         assertThat(proposal.toString()).doesNotContain("SENSITIVE_VALUE").doesNotContain("Set");
         assertThat(model.calls()).isEqualTo(1);
         assertThat(mapperCalls).hasValue(0);
@@ -475,12 +476,12 @@ class SpringAiAgentActionAdapterTest {
     void returnsActionableFeedbackWhenAnswerStatementFieldsViolateTheirCrossFieldContract() {
         AtomicInteger mapperCalls = new AtomicInteger();
         CountingChatModel nonFactClaim = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"LIMITATION","text":"The source remains unresolved",\
-                "claimId":"SENSITIVE_CLAIM","citationHandles":[],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
+                {"facts":[],"uncertainties":[],"limitations":[{"statementId":"statement-1","text":"The source remains unresolved",\
+                "claimId":"SENSITIVE_CLAIM","citationHandles":[],"observationIds":["observation-1"]}],"questions":[],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel incompleteFact = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route",\
-                "citationHandles":[],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
+                {"facts":[{"statementId":"statement-1","text":"Checkout calls the route",\
+                "citationHandles":[],"observationIds":["observation-1"]}],"uncertainties":[],"limitations":[],"questions":[],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
         AgentActionProposal nonFactProposal = adapter(nonFactClaim,
@@ -501,38 +502,37 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
-    void rejectsInvalidNestedAnswerStatementsBeforeExecutingAnswerMapper() {
+    void rejectsInvalidFlatAnswerGroupsBeforeExecutingAnswerMapper() {
         AtomicInteger mapperCalls = new AtomicInteger();
-        CountingChatModel missingType = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
+        CountingChatModel missingFacts = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"uncertainties":[],"limitations":[],"questions":[],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
-        CountingChatModel nullType = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":null,"text":"Checkout calls the route","citationHandles":[],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
+        CountingChatModel nullFacts = new CountingChatModel(toolCall("agent_submit_answer", """
+                {"facts":null,"uncertainties":[],"limitations":[],"questions":[],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
         CountingChatModel blankCitation = new CountingChatModel(toolCall("agent_submit_answer", """
-                {"statements":[{"statementId":"statement-1","type":"FACT","text":"Checkout calls the route","claimId":"claim-1","citationHandles":[" "],"observationIds":[]}],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
+                {"facts":[{"statementId":"statement-1","text":"Checkout calls the route","claimId":"claim-1","citationHandles":[" "],"observationIds":[]}],"uncertainties":[],"limitations":[],"questions":[],"resolutions":[{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                 """));
 
-        AgentActionProposal missingTypeProposal = adapter(missingType, input -> failIfAnswerMapperExecutes(mapperCalls))
+        AgentActionProposal missingFactsProposal = adapter(missingFacts, input -> failIfAnswerMapperExecutes(mapperCalls))
                 .nextAction(answerContext());
-        AgentActionProposal nullTypeProposal = adapter(nullType, input -> failIfAnswerMapperExecutes(mapperCalls))
+        AgentActionProposal nullFactsProposal = adapter(nullFacts, input -> failIfAnswerMapperExecutes(mapperCalls))
                 .nextAction(answerContext());
         AgentActionProposal blankCitationProposal = adapter(blankCitation,
                 input -> failIfAnswerMapperExecutes(mapperCalls)).nextAction(answerContext());
 
-        assertThat(missingTypeProposal).isEqualTo(new AgentActionProposal.Malformed(
+        assertThat(missingFactsProposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT; "
-                        + "invalidField=statements.type; expectedJsonType=string; "
-                        + "allowedValues=[FACT, UNCERTAINTY, LIMITATION, QUESTION]"));
-        assertThat(nullTypeProposal).isEqualTo(new AgentActionProposal.Malformed(
+                        + "invalidField=facts; expectedJsonType=array"));
+        assertThat(nullFactsProposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=EXPLICIT_NULL"));
         assertThat(blankCitationProposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=BEAN_VALIDATION; "
-                        + "invalidFields=[statements.citationHandles]; "
-                        + "constraints=[statements.citationHandles:NotBlank]"));
+                        + "invalidFields=[facts.citationHandles]; "
+                        + "constraints=[facts.citationHandles:NotBlank]"));
         assertThat(mapperCalls).hasValue(0);
-        assertThat(missingType.calls()).isEqualTo(1);
-        assertThat(nullType.calls()).isEqualTo(1);
+        assertThat(missingFacts.calls()).isEqualTo(1);
+        assertThat(nullFacts.calls()).isEqualTo(1);
         assertThat(blankCitation.calls()).isEqualTo(1);
     }
 

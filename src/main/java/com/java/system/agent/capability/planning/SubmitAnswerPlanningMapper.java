@@ -10,6 +10,7 @@ import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
 import com.java.system.agent.answering.domain.plan.NeedResolution;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -23,7 +24,12 @@ public final class SubmitAnswerPlanningMapper implements Function<SubmitAnswerPl
 
     @Override
     public AnswerAction apply(SubmitAnswerPlanningInput input) {
-        List<AnswerStatement> statements = input.statements().stream().map(this::statement).toList();
+        List<AnswerStatementPlanningInput> statementInputs = new ArrayList<>();
+        statementInputs.addAll(input.facts());
+        statementInputs.addAll(input.uncertainties());
+        statementInputs.addAll(input.limitations());
+        statementInputs.addAll(input.questions());
+        List<AnswerStatement> statements = statementInputs.stream().map(this::statement).toList();
         List<NeedResolution> resolutions;
         try {
             resolutions = input.resolutions().stream().map(this::resolution).toList();

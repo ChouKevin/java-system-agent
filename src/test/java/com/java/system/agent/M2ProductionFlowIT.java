@@ -513,7 +513,7 @@ class M2ProductionFlowIT {
                         "function",
                         "agent_submit_answer",
                         """
-                                {"statements":[{"statementId":"limitation-1","type":"LIMITATION","text":"OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND","citationHandles":[],"observationIds":["%s:O1"]}],"resolutions":[{"needId":"unresolved-entry-point","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["%s:O1"]}]}
+                                {"facts":[],"uncertainties":[],"limitations":[{"statementId":"limitation-1","text":"OrderController.list remains unresolved because the semantic service reported TARGET_NOT_FOUND","citationHandles":[],"observationIds":["%s:O1"]}],"questions":[],"resolutions":[{"needId":"unresolved-entry-point","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["%s:O1"]}]}
                                 """.formatted(attemptId, attemptId))))
                 .build();
     }

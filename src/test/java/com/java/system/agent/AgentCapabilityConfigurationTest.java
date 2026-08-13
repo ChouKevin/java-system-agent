@@ -75,7 +75,8 @@ class AgentCapabilityConfigurationTest {
                 CodeIntelligenceQuery.SUGGEST_API_ROUTE.capabilityName(),
                 CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
                 CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
-        assertThat(required(schemas, "agent_submit_answer")).containsExactly("resolutions", "statements");
+        assertThat(required(schemas, "agent_submit_answer")).containsExactly(
+                "facts", "limitations", "questions", "resolutions", "uncertainties");
         assertThat(required(schemas, "agent_request_clarification"))
                 .containsExactlyInAnyOrder("question", "candidateHandles", "reason");
         for (Map.Entry<String, JsonNode> entry : schemas.entrySet()) {
@@ -111,25 +112,21 @@ class AgentCapabilityConfigurationTest {
     void startupRegistryVerifiesTheNestedAnswerStatementSchemaContract() throws Exception {
         PlanningToolRegistry registry = registry();
         JsonNode answerSchema = registeredSchemasByToolName(registry).get("agent_submit_answer");
-        JsonNode statement = answerSchema.path("properties").path("statements").path("items");
+        JsonNode fact = answerSchema.path("properties").path("facts").path("items");
         JsonNode resolution = answerSchema.path("properties").path("resolutions").path("items");
 
         assertThat(answerSchema.path("required")).extracting(jsonNode -> jsonNode.asText())
-                .containsExactly("resolutions", "statements");
-        assertThat(statement.path("anyOf")).hasSize(4);
-        assertThat(statement.path("anyOf")).extracting(
-                variant -> variant.path("allOf").path(1).path("properties").path("type").path("const").asText())
-                .containsExactlyInAnyOrder("FACT", "UNCERTAINTY", "LIMITATION", "QUESTION");
-        JsonNode fact = answerStatementShape(answerStatementVariant(statement, "FACT"));
+                .containsExactly("facts", "limitations", "questions", "resolutions", "uncertainties");
+        assertThat(answerSchema.toString()).doesNotContain("anyOf", "allOf");
         assertThat(fact.path("additionalProperties").asBoolean()).isFalse();
         assertThat(fact.path("required")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder(
-                        "statementId", "type", "text", "claimId", "citationHandles", "observationIds");
+                        "statementId", "text", "claimId", "citationHandles", "observationIds");
         assertThat(fact.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
         assertThat(fact.path("properties").path("citationHandles").path("minItems").asInt()).isEqualTo(1);
         assertThat(fact.path("properties").path("citationHandles").path("items").path("minLength").asInt())
                 .isEqualTo(1);
-        JsonNode limitation = answerStatementShape(answerStatementVariant(statement, "LIMITATION"));
+        JsonNode limitation = answerSchema.path("properties").path("limitations").path("items");
         assertThat(limitation.path("additionalProperties").asBoolean()).isFalse();
         assertThat(limitation.path("properties").has("claimId")).isFalse();
         assertThat(resolution.path("additionalProperties").asBoolean()).isFalse();
@@ -165,7 +162,7 @@ class AgentCapabilityConfigurationTest {
         AgentPromptContext context = contextFor(List.of(), List.of("candidate-1", "candidate-2"));
 
         AgentActionProposal answerProposal = registry.interpretToolCall("agent_submit_answer", """
-                        {"statements":[{"statementId":"statement-1","type":"FACT","text":"The route is called by checkout","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}],"resolutions":[{"needId":"need-2","status":"SUPPORTED","evidenceHandles":["evidence-unknown"],"observationIds":[]},{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
+                        {"facts":[{"statementId":"statement-1","text":"The route is called by checkout","claimId":"claim-1","citationHandles":["evidence-unknown"],"observationIds":["observation-1"]}],"uncertainties":[],"limitations":[],"questions":[],"resolutions":[{"needId":"need-2","status":"SUPPORTED","evidenceHandles":["evidence-unknown"],"observationIds":[]},{"needId":"need-1","status":"UNAVAILABLE","evidenceHandles":[],"observationIds":["observation-1"]}]}
                         """, context);
         AgentActionProposal clarifyProposal = registry.interpretToolCall("agent_request_clarification", """
                         {"question":"Which repository?","candidateHandles":["candidate-2","candidate-1"],"reason":"The route scope is ambiguous"}
@@ -336,15 +333,4 @@ class AgentCapabilityConfigurationTest {
         return schema.path("required").valueStream().map(jsonNode -> jsonNode.textValue()).toList();
     }
 
-    private static JsonNode answerStatementVariant(JsonNode statement, String type) {
-        return statement.path("anyOf").valueStream()
-                .filter(candidate -> type.equals(candidate.path("allOf").path(1)
-                        .path("properties").path("type").path("const").asText()))
-                .findFirst()
-                .orElseThrow();
-    }
-
-    private static JsonNode answerStatementShape(JsonNode variant) {
-        return variant.path("allOf").path(0);
-    }
 }
