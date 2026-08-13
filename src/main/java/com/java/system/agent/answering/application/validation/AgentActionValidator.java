@@ -84,23 +84,6 @@ public final class AgentActionValidator {
         if (Objects.isNull(capability)) {
             return rejected(ActionRejectionCode.UNKNOWN_CAPABILITY, action);
         }
-        Optional<List<IssuedCandidate>> resolved = resolveCandidates(action.candidates(), context);
-        if (resolved.isEmpty()) {
-            return rejected(ActionRejectionCode.UNKNOWN_CANDIDATE, action);
-        }
-        List<IssuedCandidate> candidates = resolved.orElseThrow();
-        if (hasDuplicateCandidateValues(action.candidates())) {
-            return rejected(ActionRejectionCode.DUPLICATE_CANDIDATE, action);
-        }
-        if (!allCandidatesMatchRevision(candidates, context)) {
-            return rejected(ActionRejectionCode.STALE_REVISION, action);
-        }
-        if (!supportsCandidateKinds(candidates, capability)) {
-            return rejected(ActionRejectionCode.INCOMPATIBLE_CANDIDATE_KIND, action);
-        }
-        if (!hasPermittedCardinality(candidates, capability)) {
-            return rejected(ActionRejectionCode.CARDINALITY, action);
-        }
         if (successfulQueryExecutionPolicy.wasAlreadySuccessful(
                 action, context.currentBinding().attemptId(), context.modelInteractions())) {
             return rejected(ActionRejectionCode.REPEATED_SUCCESSFUL_QUERY, action);
@@ -108,7 +91,7 @@ public final class AgentActionValidator {
         if (!context.budget().hasAgentStepRemaining() || !context.budget().hasQueryExecutionRemaining()) {
             return rejected(ActionRejectionCode.BUDGET_EXHAUSTED, action);
         }
-        return new ActionValidation.Accepted(action, candidates);
+        return new ActionValidation.Accepted(action, List.of());
     }
 
     private ActionValidation validateExecute(ExecuteAction action, AgentValidationContext context) {
@@ -178,16 +161,6 @@ public final class AgentActionValidator {
 
     private static boolean hasCurrentRevision(CapabilityHandle capability, HandleBinding currentBinding) {
         return capability.binding().revisionVector().equals(currentBinding.revisionVector());
-    }
-
-    private static boolean supportsCandidateKinds(List<IssuedCandidate> candidates, CapabilityPolicy capability) {
-        return candidates.stream().allMatch(candidate -> capability.acceptedCandidateKinds()
-                .contains(candidate.candidate().kind()));
-    }
-
-    private static boolean hasPermittedCardinality(List<IssuedCandidate> candidates, CapabilityPolicy capability) {
-        int size = candidates.size();
-        return size >= capability.minimumCandidates() && size <= capability.maximumCandidates();
     }
 
     private static boolean hasDuplicateCandidateValues(List<CandidateHandleRef> candidates) {

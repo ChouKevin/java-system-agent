@@ -17,10 +17,14 @@ import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
+import com.java.system.agent.answering.port.in.RepositoryScopeUnavailableException;
 import com.java.system.agent.answering.port.out.AnalysisAttemptIdGenerator;
 import com.java.system.agent.answering.port.out.AgentTransitionConflictException;
 import com.java.system.agent.answering.port.out.CapabilityExecutionContractException;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
+import com.java.system.agent.answering.port.out.RepositoryRevisionContractException;
+import com.java.system.agent.answering.port.out.RepositoryRevisionFailureCode;
+import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import com.java.system.agent.answering.port.out.SessionPort;
 
 import java.util.LinkedHashMap;
@@ -133,7 +137,7 @@ final class AgentRunRecoveryCoordinator {
         BootstrapPreparation preparation;
         try {
             preparation = prepareBootstrap(request, attemptSequence);
-        } catch (CapabilityExecutionContractException exception) {
+        } catch (CapabilityExecutionContractException | RepositoryRevisionContractException exception) {
             throw new AnswerExecutionContractException("runtime context issuance violated its contract", exception);
         }
         return claimInitialRun(request, preparation, attemptSequence);
@@ -143,13 +147,16 @@ final class AgentRunRecoveryCoordinator {
         AnalysisAttemptId attemptId = attemptIdGenerator.nextAttemptId(request.runId(), attemptSequence);
         AgentRunState initialState = AgentRunState.initial(
                 request.runId(), attemptId, attemptSequence, request.budget(),
-                new RunRequestIdentity(request.sessionId().value(), request.participant(), request.question()));
+                new RunRequestIdentity(
+                        request.sessionId().value(), request.participant(), request.question(), request.repositoryId()));
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
         List<CapabilityPolicy> capabilityCatalog = telemetry.loadCapabilities(initialState);
         List<RepositoryDescriptor> repositoryCatalog = telemetry.loadRepositories(initialState);
+        RevisionVector revisionVector = resolveRepositoryScope(
+                initialState, initialState.requestIdentity().repositoryId(), repositoryCatalog);
         RunAttempt initialContext = contextIssuer.issueInitial(
-                request.runId(), attemptId, RevisionVector.empty(), capabilityCatalog, repositoryCatalog);
+                request.runId(), attemptId, revisionVector, capabilityCatalog, repositoryCatalog);
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
                 .map(RepositoryDescriptor::repositoryId)
                 .collect(Collectors.toUnmodifiableSet());
@@ -197,11 +204,19 @@ final class AgentRunRecoveryCoordinator {
     }
 
     private ActiveAgentExecution prepareRetryExecution(AgentLoopRequest request, AgentRunState persistedState) {
+        validateRequestIdentity(request, persistedState);
         AgentRunState recoveredState = terminalResponseCoordinator.closeRecoveredUnresolvedAction(persistedState);
         SessionHistory sessionHistory = Objects.requireNonNull(sessionPort.read(request.sessionId()),
                 "session port must return session history");
         List<CapabilityPolicy> capabilityCatalog = telemetry.loadCapabilities(recoveredState);
         List<RepositoryDescriptor> repositoryCatalog = telemetry.loadRepositories(recoveredState);
+        RevisionVector revisionVector;
+        try {
+            revisionVector = resolveRepositoryScope(
+                    recoveredState, recoveredState.requestIdentity().repositoryId(), repositoryCatalog);
+        } catch (RepositoryRevisionContractException exception) {
+            throw new ActiveIntegrationContractException(recoveredState, exception);
+        }
         Set<RepositoryId> catalogRepositoryIds = repositoryCatalog.stream()
                 .map(RepositoryDescriptor::repositoryId)
                 .collect(Collectors.toUnmodifiableSet());
@@ -209,7 +224,7 @@ final class AgentRunRecoveryCoordinator {
         RunAttempt restartedContext;
         try {
             restartedContext = contextIssuer.issueInitial(
-                    request.runId(), restarted.currentAttempt().attemptId(), RevisionVector.empty(),
+                    request.runId(), restarted.currentAttempt().attemptId(), revisionVector,
                     capabilityCatalog, repositoryCatalog);
         } catch (CapabilityExecutionContractException exception) {
             throw new ActiveIntegrationContractException(restarted, exception);
@@ -309,9 +324,37 @@ final class AgentRunRecoveryCoordinator {
     private void validateRequestIdentity(AgentLoopRequest request, AgentRunState state) {
         if (!state.requestIdentity().sessionIdValue().equals(request.sessionId().value())
                 || !state.requestIdentity().participant().equals(request.participant())
-                || !state.requestIdentity().questionText().equals(request.question())) {
+                || !state.requestIdentity().questionText().equals(request.question())
+                || !state.requestIdentity().repositoryId().equals(request.repositoryId())) {
             throw new IllegalArgumentException("incoming request does not match the persisted request identity");
         }
+    }
+
+    private RevisionVector resolveRepositoryScope(
+            AgentRunState state,
+            RepositoryId repositoryId,
+            List<RepositoryDescriptor> repositoryCatalog) {
+        boolean configuredRepositoryPresent = repositoryCatalog.stream()
+                .map(RepositoryDescriptor::repositoryId)
+                .anyMatch(repositoryId::equals);
+        if (!configuredRepositoryPresent) {
+            throw new AnswerExecutionContractException("configured repository scope is unavailable");
+        }
+        RepositoryRevisionResult resolution = telemetry.resolveRevision(state, repositoryId);
+        return switch (resolution) {
+            case RepositoryRevisionResult.Ready ready -> RevisionVector.empty().pin(repositoryId, ready.revision());
+            case RepositoryRevisionResult.Failed failed -> throw repositoryScopeFailure(failed.failure().code());
+        };
+    }
+
+    private RuntimeException repositoryScopeFailure(
+            RepositoryRevisionFailureCode failureCode) {
+        return switch (failureCode) {
+            case DEPENDENCY_NOT_READY, TIMEOUT, DEPENDENCY_UNAVAILABLE, DEPENDENCY_FAILURE ->
+                    new RepositoryScopeUnavailableException();
+            case FORBIDDEN, REPOSITORY_NOT_FOUND ->
+                    new AnswerExecutionContractException("configured repository scope is unavailable");
+        };
     }
 
     private ActiveAgentExecution activeExecution(

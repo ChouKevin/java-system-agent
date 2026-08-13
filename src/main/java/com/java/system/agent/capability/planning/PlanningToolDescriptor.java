@@ -25,8 +25,7 @@ public record PlanningToolDescriptor(
         if (guidanceId.isPresent() && guidanceId.orElseThrow().isBlank()) {
             throw new IllegalArgumentException("planning tool guidance id must not be blank");
         }
-        boolean queryCategory = category == PlanningToolCategory.QUERY
-                || category == PlanningToolCategory.FOLLOW_UP_QUERY;
+        boolean queryCategory = category == PlanningToolCategory.QUERY;
         if (queryCategory != capability.isPresent()) {
             throw new IllegalArgumentException("only QUERY planning tools must declare a capability");
         }

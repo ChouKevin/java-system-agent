@@ -4,6 +4,7 @@ import com.java.system.agent.answering.domain.conversation.SessionId;
 import com.java.system.agent.answering.domain.conversation.ParticipantRef;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
 import com.java.system.agent.answering.domain.run.AttemptBudget;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 
 import java.util.Objects;
@@ -16,6 +17,7 @@ public record AgentLoopRequest(
         SessionId sessionId,
         ParticipantRef participant,
         String question,
+        RepositoryId repositoryId,
         AttemptBudget budget,
         AnswerExecutionMode executionMode,
         int executionAttempt) {
@@ -25,8 +27,9 @@ public record AgentLoopRequest(
             SessionId sessionId,
             ParticipantRef participant,
             String question,
+            RepositoryId repositoryId,
             AttemptBudget budget) {
-        this(runId, sessionId, participant, question, budget, AnswerExecutionMode.INITIAL, 1);
+        this(runId, sessionId, participant, question, repositoryId, budget, AnswerExecutionMode.INITIAL, 1);
     }
 
     public AgentLoopRequest {
@@ -34,6 +37,7 @@ public record AgentLoopRequest(
         Objects.requireNonNull(sessionId, "session ID must not be null");
         Objects.requireNonNull(participant, "agent loop participant must not be null");
         Objects.requireNonNull(question, "agent loop question must not be null");
+        Objects.requireNonNull(repositoryId, "agent loop repository ID must not be null");
         Objects.requireNonNull(budget, "agent loop budget must not be null");
         Objects.requireNonNull(executionMode, "agent loop execution mode must not be null");
         if (question.isBlank()) {

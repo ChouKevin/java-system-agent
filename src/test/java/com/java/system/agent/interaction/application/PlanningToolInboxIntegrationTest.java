@@ -97,17 +97,17 @@ class PlanningToolInboxIntegrationTest {
         AtomicInteger executorInvocations = new AtomicInteger();
         RecordingTransitions transitions = new RecordingTransitions();
         PlanningToolRegistry registry = registry(input -> new QueryPlanningSelection<>(
-                List.of(), input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
+                input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
         ValidatedAgentLoop loop = loop(
                 context -> {
                     modelInvocations.incrementAndGet();
                     return new AgentActionProposal.Proposed(new QueryAction(
                             context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
-                            List.of(), "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
+                            "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
                 }, registry::execute, registry, transitions);
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
-                inbox, new AnalysisApplicationService(loop), BUDGET, InboxRetryPolicy.defaults());
+                inbox, new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")), BUDGET, InboxRetryPolicy.defaults());
 
         InboxProcessingOutcome outcome = processor.process(claim(), NOW);
 
@@ -140,7 +140,7 @@ class PlanningToolInboxIntegrationTest {
                 }, registry::execute, registry, transitions);
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
-                inbox, new AnalysisApplicationService(loop), BUDGET, InboxRetryPolicy.defaults());
+                inbox, new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")), BUDGET, InboxRetryPolicy.defaults());
 
         InboxProcessingOutcome outcome = processor.process(claim(), NOW);
 
@@ -160,15 +160,15 @@ class PlanningToolInboxIntegrationTest {
         AtomicInteger executorInvocations = new AtomicInteger();
         RecordingTransitions transitions = new RecordingTransitions();
         PlanningToolRegistry registry = registry(input -> new QueryPlanningSelection<>(
-                List.of(), input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
+                input.questionToResolve(), input.rationale(), new ExecutionInput(input.depth())), executorInvocations);
         ValidatedAgentLoop loop = loop(
                 context -> {
                     modelInvocations.incrementAndGet();
                     return new AgentActionProposal.Proposed(new QueryAction(
                             context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
-                            List.of(), "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
+                            "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
                 }, registry::execute, registry, transitions);
-        AnalysisApplicationService service = new AnalysisApplicationService(loop);
+        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
         InboxClaim interruptedClaim = claim();
 
         assertThatThrownBy(() -> service.answer(new AnswerQuestionCommand(
@@ -207,7 +207,8 @@ class PlanningToolInboxIntegrationTest {
                 (mode, context) -> { throw new AssertionError("planning contract test must not verify answers"); },
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
-                new FakeRepositoryCatalogAdapter(),
+                new FakeRepositoryCatalogAdapter(new com.java.system.agent.answering.port.out.RepositoryDescriptor(
+                        new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), "Repository")),
                 registry,
                 repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("unused")),
                 new FakeCancellationAdapter(),
@@ -242,7 +243,7 @@ class PlanningToolInboxIntegrationTest {
     private static PlanningToolRegistry registry(
             QueryPlanningMapper<PlanningInput, ExecutionInput> mapper,
             AtomicInteger executorInvocations) {
-        CapabilityPolicy policy = new CapabilityPolicy("query_tool", "v1", Set.of(CandidateKind.REPOSITORY), 0, 0);
+        CapabilityPolicy policy = new CapabilityPolicy("query_tool", "v1");
         CapabilityExecutor<ExecutionInput> executor = (context, input) -> {
             executorInvocations.incrementAndGet();
             return new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());

@@ -11,9 +11,9 @@ import java.util.Optional;
 public record ResolveSourceSymbolExecutionInput(
         @NotBlank String symbol,
         @Valid Optional<SemanticDtos.Position> position,
-        @Valid Optional<SemanticDtos.SourceSymbolContextPayload> boundContext) {
+        @Valid SemanticDtos.SourceSymbolContextPayload context) {
     public ResolveSourceSymbolExecutionInput {
         position = Objects.requireNonNull(position, "position is required");
-        boundContext = Objects.requireNonNull(boundContext, "bound context is required");
+        context = Objects.requireNonNull(context, "context is required");
     }
 }

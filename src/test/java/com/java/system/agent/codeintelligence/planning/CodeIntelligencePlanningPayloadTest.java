@@ -1,115 +1,80 @@
 package com.java.system.agent.codeintelligence.planning;
 
-import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
-import com.java.system.agent.capability.planning.CandidateBoundPlanningInput;
-import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import com.java.system.agent.capability.planning.PlanningToolInputException;
-import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
+import com.java.system.agent.capability.planning.StrictPlanningToolDecoder;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
-import java.util.List;
-import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Code intelligence planning execution input 的 canonical payload 可選欄位邊界測試
- */
 class CodeIntelligencePlanningPayloadTest {
 
     @Test
-    void decodes_discover_concepts_execution_payload_with_provider_defaults() {
-        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
-                Validation.buildDefaultValidatorFactory().getValidator());
-        CapabilityInputPayload payload = codec.encode(new DiscoverConceptsExecutionInput(
-                java.util.List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")),
-                java.util.List.of("TYPE"), java.util.Optional.empty(), 0, 50));
+    void decodes_exact_candidate_free_method_target_and_rejects_runtime_scope() {
+        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator());
+        GetMethodSourcePlanningInput input = decoder.decode("""
+                {"questionToResolve":"Read","rationale":"Need source","target":{"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"methodName":"find","parameterTypes":[]}}
+                """, GetMethodSourcePlanningInput.class);
 
-        assertThat(codec.decode(payload, DiscoverConceptsExecutionInput.class).limit()).isEqualTo(50);
+        assertThat(input.target().methodName()).isEqualTo("find");
+        assertThatThrownBy(() -> decoder.decode("""
+                {"questionToResolve":"Read","rationale":"Need source","target":{"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"methodName":"find","parameterTypes":[]},"repoId":"orders"}
+                """, GetMethodSourcePlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
     }
 
     @Test
-    void decodesMissingOptionalEntryPointTypeFromCanonicalPayload() {
-        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
-                Validation.buildDefaultValidatorFactory().getValidator());
-        CapabilityInputPayload payload = codec.encode(new ListEntryPointsExecutionInput(null));
+    void rejects_omitted_or_null_required_suggest_limit_before_any_executor_can_run() {
+        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator());
 
-        ListEntryPointsExecutionInput decoded = codec.decode(payload, ListEntryPointsExecutionInput.class);
+        assertThatThrownBy(() -> decoder.decode("""
+                {"questionToResolve":"Suggest","rationale":"Need route","apiPath":"/orders"}
+                """, SuggestApiRoutePlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
+        assertThatThrownBy(() -> decoder.decode("""
+                {"questionToResolve":"Suggest","rationale":"Need route","apiPath":"/orders","limit":null}
+                """, SuggestApiRoutePlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
+    }
 
-        assertThat(payload.value()).isEqualTo("{}");
-        assertThat(decoded.type()).isNull();
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidSourceRanges")
+    void rejects_invalid_source_ranges_at_the_shared_typed_boundary(String scenario, String input) {
+        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator());
+
+        assertThatThrownBy(() -> decoder.decode(input, GetSourceSegmentPlanningInput.class))
+                .isInstanceOf(PlanningToolInputException.class);
     }
 
     @Test
-    void keepsDirectSourceAndSymbolPlanningInputContractsIndependentFromFollowUpTuning() {
-        GetMethodSourcePlanningInput methodSource = new GetMethodSourcePlanningInput(
-                List.of("candidate-1"), "Read method", "Need source");
-        ResolveSourceSymbolPlanningInput symbols = new ResolveSourceSymbolPlanningInput(
-                List.of("candidate-1"), "Resolve symbol", "Need source declaration", "order", Optional.empty());
+    void decodes_empty_and_multiline_half_open_source_ranges() {
+        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator());
+        GetSourceSegmentPlanningInput empty = decoder.decode(sourceSegment("{\"line\":0,\"character\":0}",
+                "{\"line\":0,\"character\":0}"), GetSourceSegmentPlanningInput.class);
+        GetSourceSegmentPlanningInput multiline = decoder.decode(sourceSegment("{\"line\":0,\"character\":5}",
+                "{\"line\":1,\"character\":0}"), GetSourceSegmentPlanningInput.class);
 
-        assertThat(methodSource).isInstanceOf(CandidateBoundPlanningInput.class);
-        assertThat(symbols).isInstanceOf(CandidateBoundPlanningInput.class);
-        assertThat(symbols.symbol()).isEqualTo("order");
-        assertThat(symbols.position()).isEmpty();
+        assertThat(empty.location().range().start()).isEqualTo(empty.location().range().end());
+        assertThat(multiline.location().range().end().line()).isEqualTo(1);
     }
 
-    @Test
-    void acceptsCandidateBoundDiscoveryTuningWithoutModelWritableContinuationOffsets() {
-        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(
-                Validation.buildDefaultValidatorFactory().getValidator());
-
-        assertThatCode(() -> decoder.decode("""
-                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "searchCriteria":{"terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]},"limit":25}
-                """, DiscoverConceptsPlanningInput.class)).doesNotThrowAnyException();
-        assertThatThrownBy(() -> decoder.decode("""
-                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "searchCriteria":{"terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]},"offset":5}
-                """, DiscoverConceptsPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
-        assertThatThrownBy(() -> decoder.decode("""
-                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "eventType":"OrderCreated","offset":5}
-                """, DiscoverEventListenersPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
+    private static Stream<Arguments> invalidSourceRanges() {
+        return Stream.of(
+                Arguments.of("negative coordinate", sourceSegment("{\"line\":-1,\"character\":0}",
+                        "{\"line\":0,\"character\":0}")),
+                Arguments.of("missing coordinate", sourceSegment("{\"line\":0}",
+                        "{\"line\":0,\"character\":0}")),
+                Arguments.of("reversed range", sourceSegment("{\"line\":1,\"character\":0}",
+                        "{\"line\":0,\"character\":5}")));
     }
 
-    @Test
-    void rejects_model_authored_scope_and_invalid_direct_discovery_bounds() {
-        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(
-                Validation.buildDefaultValidatorFactory().getValidator());
-
-        assertThatThrownBy(() -> decoder.decode("""
-                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "searchCriteria":{"terms":[{"value":"orders","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]},"repoId":"orders"}
-                """, DiscoverConceptsPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
-        assertThatThrownBy(() -> decoder.decode("""
-                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "eventType":"OrderCreated","offset":-1}
-                """, DiscoverEventListenersPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
-    }
-
-    @Test
-    void rejects_non_provider_enum_values_and_negative_symbol_positions() {
-        StrictPlanningToolDecoder decoder = new StrictPlanningToolDecoder(
-                Validation.buildDefaultValidatorFactory().getValidator());
-
-        assertThatThrownBy(() -> decoder.decode("""
-                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "searchCriteria":{"terms":[{"value":"orders","matchMode":"EXACT"}],"kinds":["UNKNOWN"]}}
-                """, DiscoverConceptsPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
-        assertThatThrownBy(() -> decoder.decode("""
-                {"candidateHandles":["candidate-1"],"questionToResolve":"Find","rationale":"Need",\
-                "symbol":"orders","position":{"line":-1,"character":0}}
-                """, ResolveSourceSymbolPlanningInput.class)).isInstanceOf(PlanningToolInputException.class);
-        assertThatThrownBy(() -> codec().decode(codec().encode(new DiscoverConceptsExecutionInput(
-                List.of(new DiscoverConceptsExecutionInput.Term("orders", "EXACT")), List.of("UNKNOWN"),
-                Optional.empty(), 0, 1)), DiscoverConceptsExecutionInput.class))
-                .isInstanceOf(com.java.system.agent.answering.port.out.CapabilityExecutionContractException.class);
-    }
-
-    private static CanonicalCapabilityPayloadCodec codec() {
-        return new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator());
+    private static String sourceSegment(String start, String end) {
+        return """
+                {"questionToResolve":"Read","rationale":"Need source","location":{"sourceFile":"src/Orders.java",
+                "range":{"start":%s,"end":%s}}}
+                """.formatted(start, end);
     }
 }

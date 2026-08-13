@@ -4,13 +4,18 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.Valid;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Java Semantic Service v1 HTTP 文件使用的窄 DTO 集合
@@ -175,46 +180,67 @@ public final class SemanticDtos {
     public record GraphError(String code, String message, String nodeId) {
     }
 
-    public record Position(@Min(0) Integer line, @Min(0) Integer character) {
+    public record Position(
+            @JsonPropertyDescription("Zero-based source line number") @NotNull @Min(0) Integer line,
+            @JsonPropertyDescription("Zero-based UTF-16 code-unit character offset within line") @NotNull @Min(0) Integer character) {
+        public Position {
+            line = Objects.requireNonNull(line, "line is required");
+            character = Objects.requireNonNull(character, "character is required");
+        }
     }
 
     /** Java 型別的 HTTP 識別資料 */
-    public record JavaTypeIdentityPayload(String packageName, String className) {
+    public record JavaTypeIdentityPayload(
+            @JsonPropertyDescription("Java package only, for example com.example.payment") @NotNull String packageName,
+            @JsonPropertyDescription("Canonical class name relative to package; nested types use dots") @NotBlank String className) {
 
         public JavaTypeIdentityPayload {
             packageName = Objects.requireNonNull(packageName, "packageName is required");
-            className = Objects.requireNonNull(className, "className is required");
+            className = javaQualifiedIdentifier(className, true, "className");
         }
     }
 
     /** 以來源檔案限定的 Java 型別 HTTP 識別資料 */
-    public record SourceTypeIdentityPayload(JavaTypeIdentityPayload javaType, String sourceFile)
+    public record SourceTypeIdentityPayload(
+            @JsonPropertyDescription("Declaring Java package and class identity") @NotNull @Valid JavaTypeIdentityPayload javaType,
+            @JsonPropertyDescription("Repository-relative Java source file path") @NotBlank String sourceFile)
             implements InternalReferenceIdentity {
 
         public SourceTypeIdentityPayload {
             javaType = Objects.requireNonNull(javaType, "javaType is required");
-            sourceFile = Objects.requireNonNull(sourceFile, "sourceFile is required");
+            sourceFile = repositoryRelativePath(sourceFile, "sourceFile");
         }
     }
 
     /** 正規方法目標 HTTP 資料 */
-    public record MethodTargetPayload(SourceTypeIdentityPayload sourceType, String methodName,
-                                      List<String> parameterTypes) implements FollowUpTarget, InternalReferenceIdentity {
+    public record MethodTargetPayload(
+            @JsonPropertyDescription("Source-bound declaring type") @NotNull @Valid SourceTypeIdentityPayload sourceType,
+            @JsonPropertyDescription("Declared Java method name") @NotBlank String methodName,
+            @JsonPropertyDescription("Canonical parameter type names in declaration order; [] means zero arguments")
+            @NotNull List<@NotBlank String> parameterTypes) implements FollowUpTarget, InternalReferenceIdentity {
 
         public MethodTargetPayload {
             sourceType = Objects.requireNonNull(sourceType, "sourceType is required");
-            methodName = Objects.requireNonNull(methodName, "methodName is required");
+            methodName = javaQualifiedIdentifier(methodName, false, "methodName");
             parameterTypes = List.copyOf(Objects.requireNonNull(
                     parameterTypes, "parameterTypes are required"));
+            for (String parameterType : parameterTypes) {
+                requiredText(parameterType, "parameterType");
+            }
         }
     }
 
     /** 零基 UTF-16 半開文字範圍 HTTP 資料 */
-    public record TextRangePayload(Position start, Position end) {
+    public record TextRangePayload(
+            @JsonPropertyDescription("Inclusive zero-based UTF-16 start position") @NotNull @Valid Position start,
+            @JsonPropertyDescription("Exclusive zero-based UTF-16 end position; ranges are half-open") @NotNull @Valid Position end) {
 
         public TextRangePayload {
             start = Objects.requireNonNull(start, "start is required");
             end = Objects.requireNonNull(end, "end is required");
+            if (comparePositions(start, end) > 0) {
+                throw new IllegalArgumentException("half-open range end must not precede start");
+            }
         }
     }
 
@@ -226,31 +252,34 @@ public final class SemanticDtos {
     public sealed interface SourceMemberIdentityPayload extends InternalReferenceIdentity permits SourceMemberIdentityPayload.TypeMember,
             SourceMemberIdentityPayload.MethodScoped {
 
-        record TypeMember(String scope, SourceTypeIdentityPayload ownerType, String name)
+        record TypeMember(String scope, @NotNull @Valid SourceTypeIdentityPayload ownerType, @NotBlank String name)
                 implements SourceMemberIdentityPayload, ConceptIdentityTargetPayload {
             public TypeMember {
                 scope = requiredKind(scope, "TYPE");
                 ownerType = Objects.requireNonNull(ownerType, "ownerType is required");
-                name = Objects.requireNonNull(name, "name is required");
+                name = javaQualifiedIdentifier(name, false, "name");
             }
         }
 
-        record MethodScoped(String scope, MethodTargetPayload declaringMethod, TextRangePayload declarationRange, String name)
+        record MethodScoped(String scope, @NotNull @Valid MethodTargetPayload declaringMethod,
+                            @NotNull @Valid TextRangePayload declarationRange, @NotBlank String name)
                 implements SourceMemberIdentityPayload, ConceptIdentityTargetPayload {
             public MethodScoped {
                 scope = requiredKind(scope, "METHOD");
                 declaringMethod = Objects.requireNonNull(declaringMethod, "declaringMethod is required");
                 declarationRange = Objects.requireNonNull(declarationRange, "declarationRange is required");
-                name = Objects.requireNonNull(name, "name is required");
+                name = javaQualifiedIdentifier(name, false, "name");
             }
         }
     }
 
     /** 含有來源檔案的可導覽文字範圍 HTTP 資料 */
-    public record SourceRangePayload(String sourceFile, TextRangePayload range) {
+    public record SourceRangePayload(
+            @JsonPropertyDescription("Repository-relative source file path") @NotBlank String sourceFile,
+            @JsonPropertyDescription("Zero-based UTF-16 half-open range in sourceFile") @NotNull @Valid TextRangePayload range) {
 
         public SourceRangePayload {
-            sourceFile = Objects.requireNonNull(sourceFile, "sourceFile is required");
+            sourceFile = repositoryRelativePath(sourceFile, "sourceFile");
             range = Objects.requireNonNull(range, "range is required");
         }
     }
@@ -421,18 +450,23 @@ public final class SemanticDtos {
     /** ten provider concept kinds 的單一 typed superset，validator 依 kind 收緊欄位組合 */
     @JsonIgnoreProperties(ignoreUnknown = false)
     @JsonInclude(JsonInclude.Include.NON_ABSENT)
-    public record ConceptFollowUpIdentity(String kind, Optional<SourceTypeIdentityPayload> sourceType,
-                                          Optional<MethodTargetPayload> target,
-                                          Optional<ConceptIdentityTargetPayload> identity,
-                                          Optional<DeclarationSubjectPayload> declaration,
-                                          Optional<AnnotationTypePayload> annotationType,
-                                          Optional<DeclarationSubjectPayload> owner,
-                                          Optional<TypeUsageLocationPayload> location,
-                                          Optional<List<TypeUsagePathPayload>> path,
-                                          Optional<ReferencedTypePayload> referencedType,
-                                          Optional<String> httpVerb, Optional<String> route,
-                                          Optional<String> broker, Optional<String> destination,
-                                          Optional<String> triggerKind, Optional<String> triggerValue)
+    public record ConceptFollowUpIdentity(
+                                          @JsonPropertyDescription("One of TYPE, METHOD, FIELD, ANNOTATION_USAGE, TYPE_USAGE, API_ROUTE, MQ_DESTINATION, SCHEDULE, MAPPER_STATEMENT, MAPPER_STATEMENT_VARIANT") String kind,
+                                          @JsonPropertyDescription("Required only for TYPE") Optional<SourceTypeIdentityPayload> sourceType,
+                                          @JsonPropertyDescription("Required only for METHOD, API_ROUTE, MQ_DESTINATION, and SCHEDULE") Optional<MethodTargetPayload> target,
+                                          @JsonPropertyDescription("Required only for FIELD, MAPPER_STATEMENT, and MAPPER_STATEMENT_VARIANT") Optional<ConceptIdentityTargetPayload> identity,
+                                          @JsonPropertyDescription("Required only for ANNOTATION_USAGE") Optional<DeclarationSubjectPayload> declaration,
+                                          @JsonPropertyDescription("Required only for ANNOTATION_USAGE") Optional<AnnotationTypePayload> annotationType,
+                                          @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<DeclarationSubjectPayload> owner,
+                                          @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<TypeUsageLocationPayload> location,
+                                          @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<List<TypeUsagePathPayload>> path,
+                                          @JsonPropertyDescription("Required only for TYPE_USAGE") Optional<ReferencedTypePayload> referencedType,
+                                          @JsonPropertyDescription("Required only for API_ROUTE") Optional<String> httpVerb,
+                                          @JsonPropertyDescription("Required only for API_ROUTE") Optional<String> route,
+                                          @JsonPropertyDescription("Required only for MQ_DESTINATION") Optional<String> broker,
+                                          @JsonPropertyDescription("Required only for MQ_DESTINATION") Optional<String> destination,
+                                          @JsonPropertyDescription("Required only for SCHEDULE") Optional<String> triggerKind,
+                                          @JsonPropertyDescription("Optional only for SCHEDULE") Optional<String> triggerValue)
             implements FollowUpIdentity, ConceptIdentityPayload {
         public ConceptFollowUpIdentity {
             kind = Objects.requireNonNull(kind, "kind is required");
@@ -451,6 +485,8 @@ public final class SemanticDtos {
             destination = optional(destination);
             triggerKind = optional(triggerKind);
             triggerValue = optional(triggerValue);
+            validateConceptIdentity(kind, sourceType, target, identity, declaration, annotationType, owner, location,
+                    path, referencedType, httpVerb, route, broker, destination, triggerKind, triggerValue);
         }
     }
 
@@ -472,20 +508,27 @@ public final class SemanticDtos {
     }
 
     /** 來源符號解析 context */
-    public record SourceSymbolContextPayload(JavaTypeIdentityPayload javaType, Optional<String> sourceFile,
-                                             Optional<SourceSymbolMethodContextPayload> method) {
+    public record SourceSymbolContextPayload(
+            @JsonPropertyDescription("Java type that contains the symbol") @NotNull @Valid JavaTypeIdentityPayload javaType,
+            @JsonPropertyDescription("Optional repository-relative source file path") Optional<String> sourceFile,
+            @JsonPropertyDescription("Optional declaring method context for disambiguation")
+            Optional<@Valid SourceSymbolMethodContextPayload> method) {
         public SourceSymbolContextPayload {
             javaType = Objects.requireNonNull(javaType, "javaType is required");
             sourceFile = Optional.ofNullable(sourceFile).orElse(Optional.empty());
+            sourceFile = sourceFile.map(value -> repositoryRelativePath(value, "sourceFile"));
             method = Optional.ofNullable(method).orElse(Optional.empty());
         }
     }
 
     /** 來源符號的可選方法 context */
-    public record SourceSymbolMethodContextPayload(String name, List<String> parameterTypes) {
+    public record SourceSymbolMethodContextPayload(@NotBlank String name, @NotNull List<@NotBlank String> parameterTypes) {
         public SourceSymbolMethodContextPayload {
-            name = Objects.requireNonNull(name, "name is required");
+            name = javaQualifiedIdentifier(name, false, "name");
             parameterTypes = List.copyOf(Objects.requireNonNull(parameterTypes, "parameterTypes are required"));
+            for (String parameterType : parameterTypes) {
+                requiredText(parameterType, "parameterType");
+            }
         }
     }
 
@@ -502,7 +545,7 @@ public final class SemanticDtos {
             FieldDeclarationSubjectPayload {
     }
 
-    public record TypeDeclarationSubjectPayload(String kind, SourceTypeIdentityPayload sourceType)
+    public record TypeDeclarationSubjectPayload(String kind, @NotNull @Valid SourceTypeIdentityPayload sourceType)
             implements DeclarationSubjectPayload {
         public TypeDeclarationSubjectPayload {
             kind = requiredKind(kind, "TYPE");
@@ -510,7 +553,7 @@ public final class SemanticDtos {
         }
     }
 
-    public record ResolvedMethodDeclarationSubjectPayload(String kind, MethodTargetPayload target)
+    public record ResolvedMethodDeclarationSubjectPayload(String kind, @NotNull @Valid MethodTargetPayload target)
             implements DeclarationSubjectPayload {
         public ResolvedMethodDeclarationSubjectPayload {
             kind = requiredKind(kind, "METHOD");
@@ -518,7 +561,7 @@ public final class SemanticDtos {
         }
     }
 
-    public record UnresolvedMethodDeclarationSubjectPayload(String kind, MethodTargetPayload target)
+    public record UnresolvedMethodDeclarationSubjectPayload(String kind, @NotNull @Valid MethodTargetPayload target)
             implements DeclarationSubjectPayload {
         public UnresolvedMethodDeclarationSubjectPayload {
             kind = requiredKind(kind, "METHOD_UNRESOLVED");
@@ -526,7 +569,7 @@ public final class SemanticDtos {
         }
     }
 
-    public record FieldDeclarationSubjectPayload(String kind, SourceMemberIdentityPayload identity)
+    public record FieldDeclarationSubjectPayload(String kind, @NotNull @Valid SourceMemberIdentityPayload identity)
             implements DeclarationSubjectPayload {
         public FieldDeclarationSubjectPayload {
             kind = requiredKind(kind, "FIELD");
@@ -544,7 +587,7 @@ public final class SemanticDtos {
             UnresolvedAnnotationTypePayload {
     }
 
-    public record ResolvedAnnotationTypePayload(String status, JavaTypeIdentityPayload javaType)
+    public record ResolvedAnnotationTypePayload(String status, @NotNull @Valid JavaTypeIdentityPayload javaType)
             implements AnnotationTypePayload {
         public ResolvedAnnotationTypePayload {
             status = requiredKind(status, "RESOLVED");
@@ -552,7 +595,7 @@ public final class SemanticDtos {
         }
     }
 
-    public record UnresolvedAnnotationTypePayload(String status, String writtenName)
+    public record UnresolvedAnnotationTypePayload(String status, @NotBlank String writtenName)
             implements AnnotationTypePayload {
         public UnresolvedAnnotationTypePayload {
             status = requiredKind(status, "UNRESOLVED");
@@ -560,10 +603,13 @@ public final class SemanticDtos {
         }
     }
 
-    public record TypeUsageLocationPayload(String slot, Integer index) {
+    public record TypeUsageLocationPayload(@NotBlank String slot, @NotNull @Min(0) Integer index) {
         public TypeUsageLocationPayload {
-            slot = Objects.requireNonNull(slot, "slot is required");
+            slot = requiredText(slot, "slot");
             index = Objects.requireNonNull(index, "index is required");
+            if (index < 0) {
+                throw new IllegalArgumentException("index must not be negative");
+            }
         }
     }
 
@@ -579,10 +625,13 @@ public final class SemanticDtos {
             WildcardExtendsBoundPathPayload, WildcardSuperBoundPathPayload, TypeVariableBoundPathPayload {
     }
 
-    public record TypeArgumentPathPayload(String kind, Integer index) implements TypeUsagePathPayload {
+    public record TypeArgumentPathPayload(String kind, @NotNull @Min(0) Integer index) implements TypeUsagePathPayload {
         public TypeArgumentPathPayload {
             kind = requiredKind(kind, "TYPE_ARGUMENT");
             index = Objects.requireNonNull(index, "index is required");
+            if (index < 0) {
+                throw new IllegalArgumentException("index must not be negative");
+            }
         }
     }
 
@@ -598,47 +647,73 @@ public final class SemanticDtos {
         }
     }
 
-    public record TypeVariableBoundPathPayload(String kind, Integer index) implements TypeUsagePathPayload {
+    public record TypeVariableBoundPathPayload(String kind, @NotNull @Min(0) Integer index) implements TypeUsagePathPayload {
         public TypeVariableBoundPathPayload {
             kind = requiredKind(kind, "TYPE_VARIABLE_BOUND");
             index = Objects.requireNonNull(index, "index is required");
+            if (index < 0) {
+                throw new IllegalArgumentException("index must not be negative");
+            }
         }
     }
 
-    public record ReferencedTypePayload(JavaTypeIdentityPayload javaType, Integer arrayDimensions) {
+    public record ReferencedTypePayload(@NotNull @Valid JavaTypeIdentityPayload javaType,
+                                        @NotNull @Min(0) Integer arrayDimensions) {
         public ReferencedTypePayload {
             javaType = Objects.requireNonNull(javaType, "javaType is required");
             arrayDimensions = Objects.requireNonNull(arrayDimensions, "arrayDimensions is required");
+            if (arrayDimensions < 0) {
+                throw new IllegalArgumentException("arrayDimensions must not be negative");
+            }
         }
     }
 
-    public record MapperStatementKeyPayload(String namespace, String statementId) implements ConceptIdentityTargetPayload {
+    public record MapperStatementKeyPayload(@NotBlank String namespace, @NotBlank String statementId)
+            implements ConceptIdentityTargetPayload {
         public MapperStatementKeyPayload {
-            namespace = Objects.requireNonNull(namespace, "namespace is required");
-            statementId = Objects.requireNonNull(statementId, "statementId is required");
+            namespace = requiredText(namespace, "namespace");
+            statementId = requiredText(statementId, "statementId");
         }
+    }
+
+    public enum MapperStatementRepresentation {
+        MAPPER_XML_ELEMENT,
+        ANNOTATION_SQL_TEXT
+    }
+
+    public enum MapperFragmentRepresentation {
+        MAPPER_XML_ELEMENT
     }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
-    public record MapperStatementIdentityPayload(MapperStatementKeyPayload statementKey, String resourcePath,
-                                                 Optional<String> databaseId, Integer documentOrdinal,
-                                                 String representation) implements ConceptIdentityTargetPayload {
+    public record MapperStatementIdentityPayload(@NotNull @Valid MapperStatementKeyPayload statementKey, @NotBlank String resourcePath,
+                                                 Optional<@NotBlank String> databaseId, @NotNull @Min(0) Integer documentOrdinal,
+                                                 @NotNull MapperStatementRepresentation representation)
+            implements ConceptIdentityTargetPayload {
         public MapperStatementIdentityPayload {
             statementKey = Objects.requireNonNull(statementKey, "statementKey is required");
-            resourcePath = Objects.requireNonNull(resourcePath, "resourcePath is required");
+            resourcePath = repositoryRelativePath(resourcePath, "resourcePath");
             databaseId = Optional.ofNullable(databaseId).orElse(Optional.empty());
+            databaseId = databaseId.map(value -> requiredText(value, "databaseId"));
             documentOrdinal = Objects.requireNonNull(documentOrdinal, "documentOrdinal is required");
+            if (documentOrdinal < 0) {
+                throw new IllegalArgumentException("documentOrdinal must not be negative");
+            }
             representation = Objects.requireNonNull(representation, "representation is required");
         }
     }
 
-    public record MapperFragmentIdentityPayload(String namespace, String fragmentId, String resourcePath,
-                                                Integer documentOrdinal, String representation) {
+    public record MapperFragmentIdentityPayload(@NotBlank String namespace, @NotBlank String fragmentId, @NotBlank String resourcePath,
+                                                @NotNull @Min(0) Integer documentOrdinal,
+                                                @NotNull MapperFragmentRepresentation representation) {
         public MapperFragmentIdentityPayload {
-            namespace = Objects.requireNonNull(namespace, "namespace is required");
-            fragmentId = Objects.requireNonNull(fragmentId, "fragmentId is required");
-            resourcePath = Objects.requireNonNull(resourcePath, "resourcePath is required");
+            namespace = requiredText(namespace, "namespace");
+            fragmentId = requiredText(fragmentId, "fragmentId");
+            resourcePath = repositoryRelativePath(resourcePath, "resourcePath");
             documentOrdinal = Objects.requireNonNull(documentOrdinal, "documentOrdinal is required");
+            if (documentOrdinal < 0) {
+                throw new IllegalArgumentException("documentOrdinal must not be negative");
+            }
             representation = Objects.requireNonNull(representation, "representation is required");
         }
     }
@@ -679,8 +754,10 @@ public final class SemanticDtos {
 
     @JsonIgnoreProperties(ignoreUnknown = false)
     @JsonInclude(JsonInclude.Include.NON_ABSENT)
-    public record EvidenceSourceFollowUpIdentity(String kind, Optional<MapperStatementIdentityPayload> statementIdentity,
-                                                 Optional<MapperFragmentIdentityPayload> fragmentIdentity)
+    public record EvidenceSourceFollowUpIdentity(
+                                                 @JsonPropertyDescription("One of ANNOTATION_SQL, MAPPER_STATEMENT, MAPPER_FRAGMENT") String kind,
+                                                 @JsonPropertyDescription("Required for ANNOTATION_SQL and MAPPER_STATEMENT only") Optional<MapperStatementIdentityPayload> statementIdentity,
+                                                 @JsonPropertyDescription("Required for MAPPER_FRAGMENT only") Optional<MapperFragmentIdentityPayload> fragmentIdentity)
             implements FollowUpIdentity, EvidenceSourceIdentityPayload {
         public EvidenceSourceFollowUpIdentity {
             kind = Objects.requireNonNull(kind, "kind is required");
@@ -705,8 +782,139 @@ public final class SemanticDtos {
         return required;
     }
 
+    private static void validateConceptIdentity(
+            String kind, Optional<?> sourceType, Optional<?> target, Optional<?> identity,
+            Optional<?> declaration, Optional<?> annotationType, Optional<?> owner, Optional<?> location,
+            Optional<?> path, Optional<?> referencedType, Optional<?> httpVerb, Optional<?> route,
+            Optional<?> broker, Optional<?> destination, Optional<?> triggerKind, Optional<?> triggerValue) {
+        List<Optional<?>> all = List.of(sourceType, target, identity, declaration, annotationType, owner, location,
+                path, referencedType, httpVerb, route, broker, destination, triggerKind, triggerValue);
+        switch (kind) {
+            case "TYPE" -> exactConceptIdentityFields(all, Set.of(0), Set.of());
+            case "METHOD" -> exactConceptIdentityFields(all, Set.of(1), Set.of());
+            case "FIELD" -> {
+                exactConceptIdentityFields(all, Set.of(2), Set.of());
+                if (!(identity.orElseThrow() instanceof SourceMemberIdentityPayload)) {
+                    throw new IllegalArgumentException("concept FIELD identity subtype does not match kind");
+                }
+            }
+            case "ANNOTATION_USAGE" -> exactConceptIdentityFields(all, Set.of(3, 4), Set.of());
+            case "TYPE_USAGE" -> exactConceptIdentityFields(all, Set.of(5, 6, 7, 8), Set.of());
+            case "API_ROUTE" -> exactConceptIdentityFields(all, Set.of(1, 9, 10), Set.of());
+            case "MQ_DESTINATION" -> exactConceptIdentityFields(all, Set.of(1, 11, 12), Set.of());
+            case "SCHEDULE" -> exactConceptIdentityFields(all, Set.of(1, 13), Set.of(14));
+            case "MAPPER_STATEMENT" -> {
+                exactConceptIdentityFields(all, Set.of(2), Set.of());
+                requiredIdentityType(identity, MapperStatementKeyPayload.class);
+            }
+            case "MAPPER_STATEMENT_VARIANT" -> {
+                exactConceptIdentityFields(all, Set.of(2), Set.of());
+                requiredIdentityType(identity, MapperStatementIdentityPayload.class);
+            }
+            default -> throw new IllegalArgumentException("unsupported concept identity kind");
+        }
+    }
+
+    private static void exactConceptIdentityFields(
+            List<Optional<?>> all, Set<Integer> requiredPositions, Set<Integer> optionalPositions) {
+        for (int index = 0; index < all.size(); index++) {
+            boolean present = all.get(index).isPresent();
+            if ((requiredPositions.contains(index) && !present)
+                    || (!requiredPositions.contains(index) && !optionalPositions.contains(index) && present)) {
+                throw new IllegalArgumentException("concept identity does not match kind");
+            }
+        }
+    }
+
+    private static void requiredIdentityType(Optional<?> identity, Class<?> expectedType) {
+        if (!expectedType.isInstance(identity.orElseThrow())) {
+            throw new IllegalArgumentException("concept identity subtype does not match kind");
+        }
+    }
+
+    private static int comparePositions(Position start, Position end) {
+        int lineComparison = Integer.compare(start.line(), end.line());
+        if (lineComparison != 0) {
+            return lineComparison;
+        }
+        return Integer.compare(start.character(), end.character());
+    }
+
     private static <T> Optional<T> optional(Optional<T> value) {
         return Optional.ofNullable(value).orElse(Optional.empty());
+    }
+
+    private static String requiredText(String value, String name) {
+        String required = Objects.requireNonNull(value, name + " is required");
+        if (required.isBlank()) {
+            throw new IllegalArgumentException(name + " must not be blank");
+        }
+        return required;
+    }
+
+    public static String repositoryRelativePath(String value, String name) {
+        String path = requiredText(value, name);
+        if (path.length() > 1_024 || hasControlCharacter(path) || endsWithTerminalWhitespace(path)
+                || path.startsWith("/") || path.startsWith("\\") || path.contains("\\")) {
+            throw new IllegalArgumentException(name + " must be a normalized repository-relative path");
+        }
+        String[] segments = path.split("/", -1);
+        for (String segment : segments) {
+            if (segment.isEmpty() || ".".equals(segment) || "..".equals(segment)) {
+                throw new IllegalArgumentException(name + " must be a normalized repository-relative path");
+            }
+        }
+        return path;
+    }
+
+    public static String javaQualifiedIdentifier(String value, boolean allowsDots, String name) {
+        String required = requiredText(value, name);
+        if (required.length() > 255 || (!allowsDots && required.indexOf('.') >= 0)) {
+            throw new IllegalArgumentException(name + " has an invalid format");
+        }
+        String[] parts = allowsDots ? required.split("\\.", -1) : new String[]{required};
+        for (String part : parts) {
+            if (part.isEmpty() || !isJavaIdentifier(part)) {
+                throw new IllegalArgumentException(name + " has an invalid format");
+            }
+        }
+        return required;
+    }
+
+    private static boolean hasControlCharacter(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character <= 0x1f || (character >= 0x7f && character <= 0x9f)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean endsWithTerminalWhitespace(String value) {
+        int codePoint = value.codePointBefore(value.length());
+        return Character.isWhitespace(codePoint) || codePoint == 0x00a0 || codePoint == 0x1680
+                || codePoint == 0x2007 || codePoint == 0x202f;
+    }
+
+    private static boolean isJavaIdentifier(String value) {
+        int first = value.codePointAt(0);
+        if (!(Character.isLetter(first) || Character.getType(first) == Character.LETTER_NUMBER
+                || Character.getType(first) == Character.CURRENCY_SYMBOL
+                || Character.getType(first) == Character.CONNECTOR_PUNCTUATION)) {
+            return false;
+        }
+        for (int index = Character.charCount(first); index < value.length();) {
+            int codePoint = value.codePointAt(index);
+            int type = Character.getType(codePoint);
+            if (!(Character.isLetter(codePoint) || type == Character.LETTER_NUMBER || type == Character.CURRENCY_SYMBOL
+                    || type == Character.CONNECTOR_PUNCTUATION || type == Character.NON_SPACING_MARK
+                    || type == Character.COMBINING_SPACING_MARK || Character.isDigit(codePoint))) {
+                return false;
+            }
+            index += Character.charCount(codePoint);
+        }
+        return true;
     }
 
     /** 結構化探索的固定頁面計數 */

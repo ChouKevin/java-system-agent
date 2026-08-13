@@ -63,8 +63,8 @@ public final class JavaSemanticFollowUpMapper {
         SemanticDtos.TargetFollowUpRequest request = require(followUp.request(), SemanticDtos.TargetFollowUpRequest.class);
         SemanticDtos.MethodTargetPayload target = methodTarget(request.target(), "call graph");
         Object execution = query == CodeIntelligenceQuery.OUTGOING_CALL_GRAPH
-                ? new OutgoingCallGraphExecutionInput(requiredOptional(request.depth(), "call graph depth"), Optional.of(target))
-                : new IncomingCallGraphExecutionInput(requiredOptional(request.depth(), "call graph depth"), Optional.of(target));
+                ? new OutgoingCallGraphExecutionInput(requiredOptional(request.depth(), "call graph depth"), target)
+                : new IncomingCallGraphExecutionInput(requiredOptional(request.depth(), "call graph depth"), target);
         return candidate(repositoryId, revision, query, execution, methodTargetDescription(target));
     }
 
@@ -73,7 +73,7 @@ public final class JavaSemanticFollowUpMapper {
         SemanticDtos.TargetFollowUpRequest request = require(followUp.request(), SemanticDtos.TargetFollowUpRequest.class);
         SemanticDtos.MethodTargetPayload target = methodTarget(request.target(), "method source");
         return candidate(repositoryId, revision, CodeIntelligenceQuery.GET_METHOD_SOURCE,
-                new GetMethodSourceExecutionInput(Optional.of(target)), methodTargetDescription(target));
+                new GetMethodSourceExecutionInput(target), methodTargetDescription(target));
     }
 
     private FollowUpCandidate implementationsCandidate(RepositoryId repositoryId, RepositoryRevision revision,
@@ -82,7 +82,7 @@ public final class JavaSemanticFollowUpMapper {
                 SemanticDtos.DiscoverMethodImplementationsFollowUpRequest.class);
         SemanticDtos.MethodTargetPayload target = request.declarationTarget();
         return candidate(repositoryId, revision, CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS,
-                new DiscoverMethodImplementationsExecutionInput(Optional.of(target)), methodTargetDescription(target));
+                new DiscoverMethodImplementationsExecutionInput(target), methodTargetDescription(target));
     }
 
     private FollowUpCandidate typeMembersCandidate(RepositoryId repositoryId, RepositoryRevision revision,
@@ -110,7 +110,7 @@ public final class JavaSemanticFollowUpMapper {
     private FollowUpCandidate sourceSymbolCandidate(RepositoryId repositoryId, RepositoryRevision revision, SemanticDtos.AvailableFollowUp followUp) {
         SemanticDtos.ResolveSourceSymbolFollowUpRequest request = require(followUp.request(), SemanticDtos.ResolveSourceSymbolFollowUpRequest.class);
         return candidate(repositoryId, revision, CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL,
-                new ResolveSourceSymbolExecutionInput(request.symbol(), request.position(), Optional.of(request.context())));
+                new ResolveSourceSymbolExecutionInput(request.symbol(), request.position(), request.context()));
     }
 
     private FollowUpCandidate referencesCandidate(RepositoryId repositoryId, RepositoryRevision revision, SemanticDtos.AvailableFollowUp followUp) {

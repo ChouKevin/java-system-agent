@@ -10,6 +10,7 @@ import com.java.system.agent.AgentDatabaseProperties;
 import com.java.system.agent.AgentPersistenceConfiguration;
 import com.java.system.agent.AgentRuntimeConfiguration;
 import com.java.system.agent.AgentRuntimeProperties;
+import com.java.system.agent.AgentRepositoryScopeProperties;
 import com.java.system.agent.AgentWorkerProperties;
 import com.java.system.agent.SlackAgentConfiguration;
 import com.java.system.agent.SlackAgentProperties;
@@ -54,6 +55,7 @@ class PersistenceModuleArchitectureTest {
             AgentDatabaseProperties.class.getName(),
             AgentRuntimeConfiguration.class.getName(),
             AgentRuntimeProperties.class.getName(),
+            AgentRepositoryScopeProperties.class.getName(),
             AgentWorkerProperties.class.getName(),
             SlackAgentConfiguration.class.getName(),
             SlackAgentProperties.class.getName());

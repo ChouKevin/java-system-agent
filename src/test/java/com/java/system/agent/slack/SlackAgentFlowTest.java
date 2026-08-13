@@ -128,7 +128,7 @@ class SlackAgentFlowTest {
         };
         FakeSessionAdapter sessions = new FakeSessionAdapter();
         ValidatedAgentLoop loop = loop(actions, sessions);
-        AnalysisApplicationService analysis = new AnalysisApplicationService(loop);
+        AnalysisApplicationService analysis = new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
         SessionInboxProcessor inboxProcessor = new SessionInboxProcessor(
                 inboxPort, analysis, BUDGET, InboxRetryPolicy.defaults());
         InboxWorkApplicationService inboxWork = new InboxWorkApplicationService(
@@ -207,11 +207,11 @@ class SlackAgentFlowTest {
                 (mode, context) -> new AnswerVerificationResult.ContractAccepted(),
                 AnswerVerificationMode.CONTRACT_ONLY,
                 sessions,
+                () -> List.of(new com.java.system.agent.answering.port.out.RepositoryDescriptor(
+                        new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), "Repository")),
                 List::of,
-                List::of,
-                repositoryId -> {
-                    throw new IllegalStateException("clarification flow must not read a repository revision");
-                },
+                repositoryId -> com.java.system.agent.answering.port.out.RepositoryRevisionResult.ready(
+                        new com.java.system.agent.answering.domain.scope.RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
                 attempts,
                 new AgentActionValidator(),

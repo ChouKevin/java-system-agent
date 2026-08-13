@@ -913,7 +913,7 @@ final class JavaSemanticProviderSchemaValidator {
         sourceFile(required.resourcePath());
         required.databaseId().ifPresent(database -> nonblank(database, "mapper database ID"));
         minimum(required.documentOrdinal(), 0, "mapper statement document ordinal");
-        enumValue(required.representation(), Set.of("MAPPER_XML_ELEMENT", "ANNOTATION_SQL_TEXT"),
+        enumValue(required.representation().name(), Set.of("MAPPER_XML_ELEMENT", "ANNOTATION_SQL_TEXT"),
                 "mapper statement representation");
     }
 
@@ -923,7 +923,7 @@ final class JavaSemanticProviderSchemaValidator {
         nonblank(required.fragmentId(), "mapper fragment ID");
         sourceFile(required.resourcePath());
         minimum(required.documentOrdinal(), 0, "mapper fragment document ordinal");
-        enumValue(required.representation(), Set.of("MAPPER_XML_ELEMENT"), "mapper fragment representation");
+        enumValue(required.representation().name(), Set.of("MAPPER_XML_ELEMENT"), "mapper fragment representation");
     }
 
     private void sourceSymbolContext(SemanticDtos.SourceSymbolContextPayload value) {
@@ -1139,73 +1139,19 @@ final class JavaSemanticProviderSchemaValidator {
     }
 
     private void sourceFile(String value) {
-        String required = requiredString(value, "method target source file");
-        nonblank(required, "method target source file");
-        if (required.length() > 1_024 || hasControlCharacter(required) || endsWithTerminalWhitespace(required)
-                || !normalizedRelativePath(required)) {
+        try {
+            SemanticDtos.repositoryRelativePath(value, "method target source file");
+        } catch (IllegalArgumentException exception) {
             throw contract("method target source file has an invalid format");
         }
     }
 
-    private boolean normalizedRelativePath(String value) {
-        if (value.startsWith("/") || value.startsWith("\\") || value.contains("\\")) {
-            return false;
-        }
-        String[] segments = value.split("/", -1);
-        for (String segment : segments) {
-            if (segment.isEmpty() || ".".equals(segment) || "..".equals(segment)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private boolean hasControlCharacter(String value) {
-        for (int index = 0; index < value.length(); index++) {
-            char character = value.charAt(index);
-            if (character <= 0x1f || (character >= 0x7f && character <= 0x9f)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean endsWithTerminalWhitespace(String value) {
-        int codePoint = value.codePointBefore(value.length());
-        return Character.isWhitespace(codePoint) || codePoint == 0x00a0 || codePoint == 0x1680 || codePoint == 0x2007
-                || codePoint == 0x202f;
-    }
-
     private void javaQualifiedIdentifier(String value, boolean allowsDots, String description) {
-        String required = requiredString(value, description);
-        if (required.length() > 255 || (!allowsDots && required.indexOf('.') >= 0)) {
+        try {
+            SemanticDtos.javaQualifiedIdentifier(value, allowsDots, description);
+        } catch (IllegalArgumentException exception) {
             throw contract(description + " has an invalid format");
         }
-        String[] parts = allowsDots ? required.split("\\.", -1) : new String[]{required};
-        for (String part : parts) {
-            if (part.isEmpty() || !isJavaIdentifier(part)) {
-                throw contract(description + " has an invalid format");
-            }
-        }
-    }
-
-    private boolean isJavaIdentifier(String value) {
-        int first = value.codePointAt(0);
-        if (!(Character.isLetter(first) || Character.getType(first) == Character.LETTER_NUMBER
-                || Character.getType(first) == Character.CURRENCY_SYMBOL || Character.getType(first) == Character.CONNECTOR_PUNCTUATION)) {
-            return false;
-        }
-        for (int index = Character.charCount(first); index < value.length();) {
-            int codePoint = value.codePointAt(index);
-            int type = Character.getType(codePoint);
-            if (!(Character.isLetter(codePoint) || type == Character.LETTER_NUMBER || type == Character.CURRENCY_SYMBOL
-                    || type == Character.CONNECTOR_PUNCTUATION || type == Character.NON_SPACING_MARK
-                    || type == Character.COMBINING_SPACING_MARK || Character.isDigit(codePoint))) {
-                return false;
-            }
-            index += Character.charCount(codePoint);
-        }
-        return true;
     }
 
     private void optionalRepositoryId(String value, String description) {

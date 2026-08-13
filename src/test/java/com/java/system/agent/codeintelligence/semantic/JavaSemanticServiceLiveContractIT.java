@@ -132,7 +132,7 @@ class JavaSemanticServiceLiveContractIT {
         assertThat(followUp.analyzedRevision()).isEqualTo(revision);
         assertThat(followUp.targetCapabilityName()).isEqualTo(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName());
         assertThat(followUp.targetCapabilityVersion()).isEqualTo(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.version());
-        assertThat(providerInput.boundTarget()).contains(abstractDeclaration);
+        assertThat(providerInput.target()).isEqualTo(abstractDeclaration);
 
         JavaSemanticServiceHttpAdapter offlineAdapter = mock(JavaSemanticServiceHttpAdapter.class);
         when(offlineAdapter.discoverMethodImplementations(any(), any())).thenReturn(
@@ -176,10 +176,9 @@ class JavaSemanticServiceLiveContractIT {
                 {"candidateHandles":["implementation-follow-up"],"questionToResolve":"Which concrete lookup implements the declaration?","rationale":"The provider retained the declaration target"}
                 """, context);
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
-        CapabilityInvocation invocation = new CapabilityInvocation(policy, List.of(issuedCandidate), action.questionToResolve(),
+        CapabilityInvocation invocation = new CapabilityInvocation(policy, action.questionToResolve(),
                 action.payload(), revisions);
 
-        assertThat(action.candidates()).extracting(candidate -> candidate.value()).containsExactly(candidateHandle.value());
         assertThat(offlineRegistry.execute(invocation)).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         org.mockito.ArgumentCaptor<CapabilityExecutionContext> executorContext =
                 org.mockito.ArgumentCaptor.forClass(CapabilityExecutionContext.class);
@@ -187,7 +186,7 @@ class JavaSemanticServiceLiveContractIT {
                 org.mockito.ArgumentCaptor.forClass(DiscoverMethodImplementationsExecutionInput.class);
         verify(offlineAdapter).discoverMethodImplementations(executorContext.capture(), executorInput.capture());
         assertThat(executorContext.getValue().expectedRevisions()).isEqualTo(revisions);
-        assertThat(executorInput.getValue().boundTarget()).contains(abstractDeclaration);
+        assertThat(executorInput.getValue().target()).isEqualTo(abstractDeclaration);
     }
 
     @Test
@@ -212,10 +211,10 @@ class JavaSemanticServiceLiveContractIT {
                 new SuggestApiRouteExecutionInput("/v1/repositories", null, 3)))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.outgoingCallGraph(targetContext("codebase_outgoing_call_graph", revision),
-                new OutgoingCallGraphExecutionInput(1, Optional.of(methodTargetPayload()))))
+                new OutgoingCallGraphExecutionInput(1, methodTargetPayload())))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(adapter.incomingCallGraph(targetContext("codebase_incoming_call_graph", revision),
-                new IncomingCallGraphExecutionInput(1, Optional.of(methodTargetPayload()))))
+                new IncomingCallGraphExecutionInput(1, methodTargetPayload())))
                 .isInstanceOf(CapabilityExecutionResult.Succeeded.class);
 
         SemanticDtos.OutgoingCallGraphResponse response = rawOutgoingCallGraph(revision);
@@ -267,15 +266,16 @@ class JavaSemanticServiceLiveContractIT {
         SemanticTarget orderLookup = orderLookupTarget();
         executeDiscovery(CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
                 targetCandidate(repositoryId, revision, revisions, orderLookup, "order-lookup-interface"),
-                payloadCodec.encode(new DiscoverMethodImplementationsExecutionInput(Optional.of(
-                        new JavaSemanticCandidateTargetMapper().methodTarget(orderLookup)))),
+                payloadCodec.encode(new DiscoverMethodImplementationsExecutionInput(
+                        new JavaSemanticCandidateTargetMapper().methodTarget(orderLookup))),
                 revisions, executedCapabilities);
 
         CapabilityExecutionResult.Succeeded resolved = executeDiscovery(
                 CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName(),
                 targetCandidate(repositoryId, revision, revisions, defaultLookupTarget(), "default-order-lookup"),
                 payloadCodec.encode(new com.java.system.agent.codeintelligence.planning.ResolveSourceSymbolExecutionInput(
-                        "findById", Optional.of(new SemanticDtos.Position(11, 18)), Optional.empty())),
+                        "findById", Optional.of(new SemanticDtos.Position(11, 18)),
+                        sourceSymbolContext(defaultLookupTarget()))),
                 revisions, executedCapabilities);
         FollowUpCandidate methodSource = followUp(resolved, CodeIntelligenceQuery.GET_METHOD_SOURCE, revision);
         CapabilityInvocation methodSourceInvocation = invocation(
@@ -486,7 +486,7 @@ class JavaSemanticServiceLiveContractIT {
                 .filter(availableCapability -> availableCapability.name().equals(capabilityName))
                 .findFirst()
                 .orElseThrow();
-        return new CapabilityInvocation(policy, List.of(candidate), "Verify M6 semantic consumer contract", payload, revisions);
+        return new CapabilityInvocation(policy, "Verify M6 semantic consumer contract", payload, revisions);
     }
 
     private FollowUpCandidate followUp(
@@ -538,6 +538,10 @@ class JavaSemanticServiceLiveContractIT {
         return fixtureTarget("src/main/java/com/example/m6/DefaultOrderLookup.java", "DefaultOrderLookup", "findById");
     }
 
+    private SemanticDtos.SourceSymbolContextPayload sourceSymbolContext(SemanticTarget target) {
+        return new JavaSemanticCandidateTargetMapper().sourceSymbolContext(target);
+    }
+
     private SemanticTarget fixtureTarget(String sourceFile, String className, String methodName) {
         return new JavaSemanticResultMapper().semanticTarget(new SemanticDtos.MethodTarget(sourceFile,
                 "com.example.m6", className, methodName, List.of("java.lang.String")));
@@ -550,7 +554,7 @@ class JavaSemanticServiceLiveContractIT {
                 new CandidateHandle("live-repository-candidate", new HandleBinding(new AnalysisRunId("live-run"),
                         new AnalysisAttemptId("live-attempt"), revisions), CandidateKind.REPOSITORY),
                 new RepositoryCandidate(repositoryId, "Live contract repository"));
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(candidate),
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY),
                 "Verify Java Semantic Service consumer contract", revisions);
     }
 
@@ -562,7 +566,7 @@ class JavaSemanticServiceLiveContractIT {
                 new CandidateHandle("live-target-candidate", new HandleBinding(new AnalysisRunId("live-run"),
                         new AnalysisAttemptId("live-attempt"), revisions), CandidateKind.SEMANTIC_TARGET),
                 new SemanticTargetCandidate(repositoryId, revision, target, "Live contract target"));
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), List.of(candidate),
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET),
                 "Verify Java Semantic Service call graph contract", revisions);
     }
 
@@ -579,7 +583,7 @@ class JavaSemanticServiceLiveContractIT {
     }
 
     private CapabilityPolicy descriptor(String name, CandidateKind candidateKind) {
-        return new CapabilityPolicy(name, "v1", Set.of(candidateKind), 0, 1);
+        return new CapabilityPolicy(name, "v1");
     }
 
     private void initializeLiveContract() {

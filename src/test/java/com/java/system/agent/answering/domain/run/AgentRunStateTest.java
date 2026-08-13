@@ -90,6 +90,7 @@ class AgentRunStateTest {
     }
 
     private static RunRequestIdentity identity() {
-        return new RunRequestIdentity("session-1", new ParticipantRef("test", "participant"), "question");
+        return new RunRequestIdentity("session-1", new ParticipantRef("test", "participant"), "question",
+                new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
     }
 }

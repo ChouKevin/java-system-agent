@@ -4,11 +4,54 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** 驗證 call graph HTTP follow-up 契約會以完整 typed DTO 保留 */
 class SemanticDtosContractTest {
+
+    @Test
+    void rejects_invalid_provider_concept_identity_before_it_can_be_sent() {
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "src/Orders.java");
+        SemanticDtos.MethodTargetPayload target = new SemanticDtos.MethodTargetPayload(sourceType, "find", List.of());
+
+        assertThatThrownBy(() -> new SemanticDtos.ConceptFollowUpIdentity("TYPE", Optional.empty(),
+                Optional.of(target), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void preserves_provider_path_rules() {
+        assertThatCode(() -> new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "src/module: one/Orders.java"))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "a".repeat(1_025)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "src/Orders.java\u00a0"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+    }
+
+    @Test
+    void rejects_equal_valued_unexpected_concept_fields_by_field_presence() {
+        SemanticDtos.SourceTypeIdentityPayload sourceType = new SemanticDtos.SourceTypeIdentityPayload(
+                new SemanticDtos.JavaTypeIdentityPayload("com.acme", "Orders"), "src/Orders.java");
+        SemanticDtos.MethodTargetPayload target = new SemanticDtos.MethodTargetPayload(sourceType, "find", List.of());
+        assertThatThrownBy(() -> new SemanticDtos.ConceptFollowUpIdentity("API_ROUTE", Optional.empty(),
+                Optional.of(target), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("GET"), Optional.of("/orders"),
+                Optional.of("GET"), Optional.empty(), Optional.empty(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
     @Test
     void should_deserialize_canonical_follow_up_requests_without_runtime_capability_mapping() throws Exception {

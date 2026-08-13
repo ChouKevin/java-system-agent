@@ -34,13 +34,6 @@ class CapabilityModuleArchitectureTest {
                     "..answering.domain..", "..answering.port.out..");
 
     @ArchTest
-    static final ArchRule CANDIDATE_BOUND_PLANNING_STAYS_FRAMEWORK_AND_ADAPTER_NEUTRAL = classes()
-            .that().haveSimpleNameStartingWith("CandidateBound")
-            .should().onlyDependOnClassesThat()
-            .resideInAnyPackage("java..", "..capability.planning..", "..capability.spi..",
-                    "..answering.domain..", "..answering.port.out..");
-
-    @ArchTest
     static final ArchRule CAPABILITY_HAS_NO_SPRING_AI_DEPENDENCIES = noClasses()
             .that().resideInAPackage("..capability..")
             .should().dependOnClassesThat().resideInAPackage("org.springframework.ai..");

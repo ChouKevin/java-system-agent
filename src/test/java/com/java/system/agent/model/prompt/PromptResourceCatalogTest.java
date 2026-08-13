@@ -1,11 +1,9 @@
 package com.java.system.agent.model.prompt;
 
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
-import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.capability.planning.CanonicalCapabilityPayloadCodec;
 import com.java.system.agent.capability.planning.CorePlanningToolProvider;
 import com.java.system.agent.capability.planning.ExecutePlanningToolRegistration;
-import com.java.system.agent.capability.planning.FollowUpOnlyQueryRegistration;
 import com.java.system.agent.capability.planning.PlanningToolProvider;
 import com.java.system.agent.capability.planning.PlanningToolRegistration;
 import com.java.system.agent.capability.planning.PlanningToolRegistry;
@@ -23,7 +21,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -112,15 +109,32 @@ class PromptResourceCatalogTest {
     }
 
     @Test
-    void includesAllCardinalityAndFollowUpInstructionResourcesInTheCatalogDigest() {
+    void omits_retired_candidate_authority_resources_while_retaining_descriptions_for_every_tool() {
         PromptResourceCatalog catalog = loader().load(productionProperties(), registry());
 
-        assertThat(catalog.resourceDigests()).containsKeys(
-                "action/latest-answer-feedback",
+        for (PlanningToolRegistration<?> registration : registry().registrations()) {
+            assertThat(catalog.toolDescription(registration.descriptor())).isNotBlank();
+        }
+        String generalPromptResources = catalog.actionSystemInstruction() + "\n"
+                + catalog.renderActionContext(actionContextValues()) + "\n"
+                + registry().registrations().stream()
+                        .map(registration -> catalog.toolDescription(registration.descriptor()))
+                        .collect(java.util.stream.Collectors.joining("\n"));
+        assertThat(generalPromptResources).doesNotContain("allowedCandidateHandles", "issued opaque handles",
+                "candidate subset", "provider-bound follow-up", "follow-up-query");
+        assertThat(catalog.resourceDigests()).containsKey("action/latest-answer-feedback");
+        assertThat(catalog.resourceDigests()).doesNotContainKeys(
+                "tools/follow-up-query.st",
                 "tools/cardinality/exact.st",
                 "tools/cardinality/range.st",
                 "tools/follow-up/allowed.st",
                 "tools/follow-up/disallowed.st");
+        DefaultResourceLoader resourceLoader = new DefaultResourceLoader();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/follow-up-query.st").exists()).isFalse();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/cardinality/exact.st").exists()).isFalse();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/cardinality/range.st").exists()).isFalse();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/follow-up/allowed.st").exists()).isFalse();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/follow-up/disallowed.st").exists()).isFalse();
     }
 
     @Test
@@ -186,12 +200,12 @@ class PromptResourceCatalogTest {
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
         List<PlanningToolRegistration<?>> registrations = List.of(
-                query("codebase_outgoing_call_graph", CandidateKind.SEMANTIC_TARGET),
-                query("codebase_incoming_call_graph", CandidateKind.SEMANTIC_TARGET),
-                query("codebase_discover_method_implementations", CandidateKind.FOLLOW_UP),
-                query("codebase_find_internal_references", CandidateKind.FOLLOW_UP),
-                query("codebase_get_method_source", CandidateKind.SEMANTIC_TARGET),
-                followUp("codebase_discover_type_members", "codebase_discover_type_members"),
+                query("codebase_outgoing_call_graph"),
+                query("codebase_incoming_call_graph"),
+                query("codebase_discover_method_implementations"),
+                query("codebase_find_internal_references"),
+                query("codebase_get_method_source"),
+                query("codebase_discover_type_members", "codebase_discover_type_members"),
                 query("codebase_discover_concepts", conceptsGuidanceId));
         PlanningToolProvider provider = () -> registrations;
         return new PlanningToolRegistry(
@@ -199,30 +213,23 @@ class PromptResourceCatalogTest {
                 new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
     }
 
-    private static QueryPlanningToolRegistration<String, String> query(String capabilityName, CandidateKind candidateKind) {
-        return query(capabilityName, Optional.empty(), candidateKind);
+    private static QueryPlanningToolRegistration<String, String> query(String capabilityName) {
+        return query(capabilityName, Optional.empty());
     }
 
     private static QueryPlanningToolRegistration<String, String> query(String capabilityName, String guidanceId) {
-        return query(capabilityName, Optional.of(guidanceId), CandidateKind.REPOSITORY);
+        return query(capabilityName, Optional.of(guidanceId));
     }
 
     private static QueryPlanningToolRegistration<String, String> query(
             String capabilityName,
-            Optional<String> guidanceId,
-            CandidateKind candidateKind) {
-        CapabilityPolicy policy = new CapabilityPolicy(capabilityName, "v1", Set.of(candidateKind), 1, 1);
+            Optional<String> guidanceId) {
+        CapabilityPolicy policy = new CapabilityPolicy(capabilityName, "v1");
         return new QueryPlanningToolRegistration<>(policy, String.class, String.class,
-                input -> new QueryPlanningSelection<>(List.of(), "question", "rationale", input),
+                input -> new QueryPlanningSelection<>("question", "rationale", input),
                 (context, input) -> null,
                 new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()),
                 guidanceId);
-    }
-
-    private static FollowUpOnlyQueryRegistration<String> followUp(String capabilityName, String guidanceId) {
-        CapabilityPolicy policy = new CapabilityPolicy(capabilityName, "v1", Set.of(CandidateKind.FOLLOW_UP), 1, 1);
-        return new FollowUpOnlyQueryRegistration<>(policy, String.class, (context, input) -> null,
-                java.util.Optional.of(guidanceId));
     }
 
     private static final class ExecutePlanningToolProvider implements PlanningToolProvider {

@@ -191,9 +191,9 @@ class AgentModelConfigurationTest {
             String capabilityName,
             CandidateKind candidateKind,
             Optional<String> guidanceId) {
-        CapabilityPolicy policy = new CapabilityPolicy(capabilityName, "v1", Set.of(candidateKind), 1, 1);
+        CapabilityPolicy policy = new CapabilityPolicy(capabilityName, "v1");
         return new QueryPlanningToolRegistration<>(policy, TestPlanningInput.class, String.class,
-                input -> new QueryPlanningSelection<>(List.of(), "question", "rationale", input.value()),
+                input -> new QueryPlanningSelection<>("question", "rationale", input.value()),
                 (context, input) -> null,
                 new CanonicalCapabilityPayloadCodec(Validation.buildDefaultValidatorFactory().getValidator()), guidanceId);
     }

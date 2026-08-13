@@ -40,6 +40,8 @@ import com.java.system.agent.answering.domain.run.RunResponseKind;
 import com.java.system.agent.answering.domain.run.RuntimeNoticeReason;
 import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
+import com.java.system.agent.answering.port.in.RepositoryScopeUnavailableException;
 import com.java.system.agent.answering.port.out.AgentActionPort;
 import com.java.system.agent.answering.port.out.AgentActionProposal;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
@@ -50,6 +52,9 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.CapabilityExecutionResult;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
+import com.java.system.agent.answering.port.out.RepositoryRevisionFailure;
+import com.java.system.agent.answering.port.out.RepositoryRevisionFailureCode;
+import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -66,6 +71,7 @@ import java.util.stream.Stream;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * ValidatedAgentLoop 規劃預算耗盡的 terminal notice 測試
@@ -81,7 +87,7 @@ class ValidatedAgentLoopTest {
         AtomicInteger modelCalls = new AtomicInteger();
         ValidatedAgentLoop loop = loop(transitions, modelCalls);
         AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
-                new ParticipantRef("test", "participant"), "How does this flow work?",
+                new ParticipantRef("test", "participant"), "How does this flow work?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 budget);
 
         AgentLoopResult result = loop.execute(request);
@@ -107,7 +113,6 @@ class ValidatedAgentLoopTest {
             }
             return new AgentActionProposal.Proposed(new QueryAction(
                     context.issuedCapabilities().keySet().iterator().next(),
-                    List.of(new CandidateHandleRef(context.issuedCandidates().keySet().iterator().next().value())),
                     "Trace the repository flow", new CapabilityInputPayload("trace"), "Need repository evidence"));
         };
         CapabilityExecutionPort capabilityExecution = invocation -> {
@@ -116,7 +121,7 @@ class ValidatedAgentLoopTest {
         };
         ValidatedAgentLoop loop = loop(transitions, actionPort, capabilityExecution);
         AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
-                new ParticipantRef("test", "participant"), "How does this flow work?",
+                new ParticipantRef("test", "participant"), "How does this flow work?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(3, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         AgentLoopResult result = loop.execute(request);
@@ -151,7 +156,7 @@ class ValidatedAgentLoopTest {
                     throw new AssertionError("PLAN must not execute a query");
                 });
         AgentLoopRequest request = new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"),
-                new ParticipantRef("test", "participant"), "How does this flow work?",
+                new ParticipantRef("test", "participant"), "How does this flow work?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         loop.execute(request);
@@ -173,6 +178,74 @@ class ValidatedAgentLoopTest {
                 .extracting(ModelInteraction.ActionResultRecorded::result)
                 .containsExactly(new ActionResult.QuestionPlanRecorded(plan()), new ActionResult.ClarificationAccepted());
         assertThat(modelCalls).hasValue(2);
+    }
+
+    @Test
+    void rejectsAnAbsentConfiguredRepositoryBeforeCallingTheModel() {
+        AtomicInteger modelCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                context -> {
+                    modelCalls.incrementAndGet();
+                    throw new AssertionError("unavailable repository scope must not call the model");
+                },
+                invocation -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
+                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repository-a"), "Repository A")),
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("revision-a")));
+
+        AgentLoopRequest request = request(new RepositoryId("repository-b"));
+
+        assertThatThrownBy(() -> loop.execute(request)).isInstanceOf(AnswerExecutionContractException.class);
+        assertThat(modelCalls).hasValue(0);
+    }
+
+    @Test
+    void defersDependencyNotReadyRepositoryScopeBeforeCallingTheModel() {
+        AtomicInteger modelCalls = new AtomicInteger();
+        RecordingTransitionPort transitions = new RecordingTransitionPort();
+        ValidatedAgentLoop loop = loop(
+                transitions,
+                context -> {
+                    modelCalls.incrementAndGet();
+                    throw new AssertionError("unavailable repository scope must not call the model");
+                },
+                invocation -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
+                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
+                repository -> RepositoryRevisionResult.failed(new RepositoryRevisionFailure(
+                        RepositoryRevisionFailureCode.DEPENDENCY_NOT_READY,
+                        "provider response must not escape", "java-semantic-service")));
+
+        assertThatThrownBy(() -> loop.execute(request(new RepositoryId("repo-1"))))
+                .isInstanceOf(RepositoryScopeUnavailableException.class)
+                .hasMessage("configured repository scope is temporarily unavailable");
+        assertThat(modelCalls).hasValue(0);
+    }
+
+    @Test
+    void firstPlanCallReceivesTheRuntimePinnedRepositoryRevision() {
+        AtomicInteger revisionCalls = new AtomicInteger();
+        AtomicInteger modelCalls = new AtomicInteger();
+        RepositoryId repositoryId = new RepositoryId("repository-b");
+        ValidatedAgentLoop loop = loop(
+                new RecordingTransitionPort(),
+                context -> {
+                    modelCalls.incrementAndGet();
+                    assertThat(revisionCalls).hasValue(1);
+                    return new AgentActionProposal.Proposed(new PlanAction(plan()));
+                },
+                invocation -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()),
+                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(repositoryId, "Repository B")),
+                repository -> {
+                    revisionCalls.incrementAndGet();
+                    return RepositoryRevisionResult.ready(new RepositoryRevision("revision-b"));
+                });
+
+        loop.execute(new AgentLoopRequest(
+                new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant"),
+                "How does this flow work?", repositoryId, new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0)));
+
+        assertThat(modelCalls).hasValue(1);
     }
 
     private static Stream<org.junit.jupiter.params.provider.Arguments> exhaustedBudgets() {
@@ -205,7 +278,21 @@ class ValidatedAgentLoopTest {
             RecordingTransitionPort transitions,
             AgentActionPort actionPort,
             CapabilityExecutionPort capabilityExecution) {
-        CapabilityPolicy policy = new CapabilityPolicy("trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 2);
+        return loop(
+                transitions,
+                actionPort,
+                capabilityExecution,
+                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
+                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")));
+    }
+
+    private static ValidatedAgentLoop loop(
+            RecordingTransitionPort transitions,
+            AgentActionPort actionPort,
+            CapabilityExecutionPort capabilityExecution,
+            FakeRepositoryCatalogAdapter repositoryCatalog,
+            RepositoryRevisionPort repositoryRevisionPort) {
+        CapabilityPolicy policy = new CapabilityPolicy("trace", "v1");
         return ValidatedAgentLoop.compose(
                 actionPort,
                 capabilityExecution,
@@ -214,13 +301,19 @@ class ValidatedAgentLoopTest {
                         new AnswerVerdict(AnswerDisposition.ACCEPTED_COMPLETE, List.of(), List.of(), List.of(), List.of())),
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
-                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
+                repositoryCatalog,
                 new FakeCapabilityCatalogAdapter(policy),
-                repository -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
+                repositoryRevisionPort,
                 new FakeCancellationAdapter(),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
                 new AgentActionValidator(), new AnswerDocumentValidator(), new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions), new ContextIssuer());
+    }
+
+    private static AgentLoopRequest request(RepositoryId repositoryId) {
+        return new AgentLoopRequest(
+                new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant"),
+                "How does this flow work?", repositoryId, new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
     }
 
     private static final class RecordingTransitionPort implements AgentTransitionPort {

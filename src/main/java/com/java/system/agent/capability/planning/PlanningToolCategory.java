@@ -9,6 +9,5 @@ public enum PlanningToolCategory {
     ANSWER,
     CLARIFY,
     EXECUTE,
-    QUERY,
-    FOLLOW_UP_QUERY
+    QUERY
 }

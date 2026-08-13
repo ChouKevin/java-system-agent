@@ -50,12 +50,16 @@ import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.out.AgentPromptContext;
 import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -75,8 +79,7 @@ class AgentActionPromptRendererTest {
         AnalysisRunId runId = new AnalysisRunId("run-3");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty());
-        QueryAction query = new QueryAction(new CapabilityHandle("capability-1", binding),
-                List.of(new CandidateHandleRef("candidate-1")), "resolve query",
+        QueryAction query = new QueryAction(new CapabilityHandle("capability-1", binding), "resolve query",
                 new CapabilityInputPayload("{\"secret\":\"canonical-follow-up\"}"), "need evidence");
         ExecuteAction execute = new ExecuteAction(ExternalHttpMethod.PATCH,
                 "https://secret.example.invalid/items/1?token=execute-secret",
@@ -111,9 +114,9 @@ class AgentActionPromptRendererTest {
         AgentActionPromptRenderer renderer = new AgentActionPromptRenderer(catalog);
         when(catalog.renderLatestAnswerFeedback(anyMap())).thenReturn("typed-feedback-fragment");
 
-        Map<String, List<String>> currentToolAuthority = authority("agent_submit_answer", "agent_request_clarification");
+        List<String> currentToolNames = authority("agent_submit_answer", "agent_request_clarification");
 
-        Map<String, Object> projection = renderer.project(context, currentToolAuthority);
+        Map<String, Object> projection = renderer.project(context, currentToolNames);
 
         assertThat(projection).containsOnlyKeys("originalQuestion", "sessionTurns", "currentlyCallableTools", "candidates",
                 "evidence", "evidenceCoverage", "observations", "questionPlan", "latestAnswerFeedback", "latestRejection",
@@ -128,9 +131,10 @@ class AgentActionPromptRendererTest {
                 AgentActionFingerprint.from(execute).value(), "EXECUTE_COMPLETED",
                 AgentActionFingerprint.from(answer).value(), "ANSWER_REJECTED",
                 AgentActionFingerprint.from(clarify).value(), "ACTION_INTERRUPTED");
-        assertThat(interactions).contains("needId=need-1", "status=UNAVAILABLE", "observationIds=[observation-1]");
-        assertThat(interactions).doesNotContain("canonical-follow-up", "secret.example.invalid", "execute-secret",
-                "execute-secret-body");
+        assertThat(interactions).contains("QUERY: capability=capability-1", "payloadSummary=sha256=",
+                "needId=need-1", "status=UNAVAILABLE", "observationIds=[observation-1]");
+        assertThat(interactions).doesNotContain("candidateHandles", "candidate-1", "canonical-follow-up",
+                "secret.example.invalid", "execute-secret", "execute-secret-body");
         verify(catalog).renderLatestAnswerFeedback(argThat(values -> {
             assertThat(values).containsOnlyKeys("disposition", "statementVerdicts", "unaddressedParts",
                     "blockingUncertainties", "rejectionReasons", "subsequentResults");
@@ -164,7 +168,7 @@ class AgentActionPromptRendererTest {
     }
 
     @Test
-    void projects_concluded_session_turns_and_preserves_follow_up_candidates_without_unissued_target_metadata() {
+    void projects_concluded_session_turns_and_preserves_stale_follow_up_candidates_as_generic_context() {
         RepositoryId repositoryId = new RepositoryId("repository-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
@@ -188,8 +192,8 @@ class AgentActionPromptRendererTest {
         assertThat((String) projection.get("sessionTurns")).containsSubsequence(
                 "first question", "first answer", "second question", "second answer");
         assertThat((String) projection.get("candidates")).contains("candidate-follow-up", "repository-1@revision-1",
-                "Read the remaining bounded source segment").doesNotContain("targetCapability=codebase_get_source_segment@v1",
-                payload.value());
+                "Read the remaining bounded source segment").doesNotContain("targetTool=", "suggestedArguments=",
+                "allowedCandidateHandles", payload.value());
     }
 
     @Test
@@ -201,16 +205,14 @@ class AgentActionPromptRendererTest {
         HandleBinding binding = new HandleBinding(runId, attemptId,
                 RevisionVector.empty().pin(repositoryId, repositoryRevision));
         CapabilityHandle issuedButUnused = new CapabilityHandle("capability-1", binding);
-        CapabilityPolicy historicalCapability = new CapabilityPolicy("codebase_find_internal_references", "v1",
-                Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        CapabilityPolicy historicalCapability = new CapabilityPolicy("codebase_find_internal_references", "v1");
         CapabilityHandle producedCapability = new CapabilityHandle("capability-2", binding);
-        CapabilityPolicy producingCapability = new CapabilityPolicy("codebase_get_method_source", "v1",
-                Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
+        CapabilityPolicy producingCapability = new CapabilityPolicy("codebase_get_method_source", "v1");
         EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-1", binding);
         EvidenceRef evidence = new EvidenceRef("semantic", repositoryId, repositoryRevision,
                 new SemanticTarget(SemanticTargetKind.SYMBOL, "Type#method",
                 Optional.empty()), "method source", List.of(), new ArtifactRef("digest-1"));
-        QueryAction query = new QueryAction(producedCapability, List.of(), "read method source",
+        QueryAction query = new QueryAction(producedCapability, "read method source",
                 new CapabilityInputPayload("{}"), "need source evidence");
         AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), runId, attemptId,
                 Map.of(issuedButUnused, historicalCapability, producedCapability, producingCapability), Map.of(),
@@ -229,7 +231,7 @@ class AgentActionPromptRendererTest {
     }
 
     @Test
-    void projects_per_tool_candidate_authority_without_repeating_candidate_descriptions() {
+    void projects_current_tools_without_candidate_authority() {
         RepositoryId repositoryId = new RepositoryId("repository-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
@@ -237,8 +239,12 @@ class AgentActionPromptRendererTest {
         CandidateHandle methodHandle = new CandidateHandle("candidate-method", binding, CandidateKind.FOLLOW_UP);
         CandidateHandle membersHandle = new CandidateHandle("candidate-members", binding, CandidateKind.FOLLOW_UP);
         CandidateHandle unissuedHandle = new CandidateHandle("candidate-unissued", binding, CandidateKind.FOLLOW_UP);
+        CapabilityHandle methodCapability = new CapabilityHandle("capability-method", binding);
+        CapabilityHandle membersCapability = new CapabilityHandle("capability-members", binding);
         AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), new AnalysisRunId("run-1"),
-                new AnalysisAttemptId("attempt-1"), Map.of(), Map.of(
+                new AnalysisAttemptId("attempt-1"), Map.of(
+                methodCapability, new CapabilityPolicy("codebase_get_method_source", "v1"),
+                membersCapability, new CapabilityPolicy("codebase_discover_type_members", "v1")), Map.of(
                 methodHandle, new IssuedCandidate(methodHandle, new FollowUpCandidate(repositoryId, revision,
                         "codebase_get_method_source", "v1", new CapabilityInputPayload("{}"), "Method source candidate")),
                 membersHandle, new IssuedCandidate(membersHandle, new FollowUpCandidate(repositoryId, revision,
@@ -247,25 +253,70 @@ class AgentActionPromptRendererTest {
                         "codebase_get_source_segment", "v1", new CapabilityInputPayload("{}"), "Unissued candidate"))),
                 Map.of(), Map.of(), List.of(), Optional.empty(),
                 new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0));
-        Map<String, List<String>> authority = new LinkedHashMap<>();
-        authority.put("codebase_get_method_source", List.of("candidate-method"));
-        authority.put("codebase_discover_type_members", List.of("candidate-members"));
-        authority.put("agent_submit_answer", List.of());
+        List<String> authority = List.of("codebase_get_method_source", "codebase_discover_type_members",
+                "agent_submit_answer");
 
         Map<String, Object> projection = renderer().project(context, authority);
 
-        assertThat(projection.get("currentlyCallableTools")).isEqualTo("- codebase_get_method_source; "
-                + "allowedCandidateHandles=[candidate-method]\n- codebase_discover_type_members; "
-                + "allowedCandidateHandles=[candidate-members]\n- agent_submit_answer\n");
+        assertThat(projection.get("currentlyCallableTools")).isEqualTo("- codebase_get_method_source\n"
+                + "- codebase_discover_type_members\n- agent_submit_answer\n");
         assertThat((String) projection.get("candidates")).contains(
                 "candidate-method", "candidate-members", "candidate-unissued",
                 "Method source candidate", "Type members candidate", "Unissued candidate",
-                "targetCapability=codebase_get_method_source@v1",
-                "targetCapability=codebase_discover_type_members@v1")
-                .doesNotContain("targetCapability=codebase_get_source_segment@v1");
+                "targetTool=codebase_get_method_source@v1, suggestedArguments={}",
+                "targetTool=codebase_discover_type_members@v1, suggestedArguments={}")
+                .doesNotContain("targetTool=codebase_get_source_segment@v1", "allowedCandidateHandles",
+                        "repoId", "expectedRevision");
         assertThat((String) projection.get("currentlyCallableTools"))
                 .doesNotContain("candidate-unissued", "codebase_get_source_segment", "Method source candidate",
                         "Type members candidate", "Unissued candidate");
+    }
+
+    @ParameterizedTest
+    @MethodSource("followUpCapabilityStates")
+    void renders_follow_up_suggestions_only_for_an_exact_current_capability(
+            String scenario,
+            CapabilityPolicy issuedCapability,
+            HandleBinding issuedCapabilityBinding,
+            boolean suggestionExpected) {
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        RepositoryId repositoryId = new RepositoryId("repository-1");
+        RepositoryRevision revision = new RepositoryRevision("revision-1");
+        HandleBinding candidateBinding = new HandleBinding(runId, attemptId,
+                RevisionVector.empty().pin(repositoryId, revision));
+        CandidateHandle candidateHandle = new CandidateHandle("candidate-follow-up", candidateBinding,
+                CandidateKind.FOLLOW_UP);
+        CapabilityInputPayload payload = new CapabilityInputPayload("{\"target\":\"Member\"}");
+        FollowUpCandidate followUp = new FollowUpCandidate(repositoryId, revision, "callers", "v1", payload,
+                "Inspect member callers");
+        CapabilityHandle capabilityHandle = new CapabilityHandle("capability-callers", issuedCapabilityBinding);
+        AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), runId, attemptId,
+                Map.of(capabilityHandle, issuedCapability), Map.of(candidateHandle, new IssuedCandidate(candidateHandle, followUp)),
+                Map.of(), Map.of(), List.of(), Optional.empty(),
+                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+
+        String candidates = (String) renderer().project(context, authority("callers")).get("candidates");
+
+        assertThat(candidates).as(scenario).contains("Inspect member callers");
+        if (suggestionExpected) {
+            assertThat(candidates).contains("targetTool=callers@v1, suggestedArguments=" + payload.value());
+        } else {
+            assertThat(candidates).doesNotContain("targetTool=", "suggestedArguments=");
+        }
+    }
+
+    private static Stream<Arguments> followUpCapabilityStates() {
+        return Stream.of(
+                Arguments.of("exact current policy", new CapabilityPolicy("callers", "v1"),
+                        new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
+                                RevisionVector.empty()), true),
+                Arguments.of("version mismatch", new CapabilityPolicy("callers", "v2"),
+                        new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
+                                RevisionVector.empty()), false),
+                Arguments.of("stale attempt binding", new CapabilityPolicy("callers", "v1"),
+                        new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-0"),
+                                RevisionVector.empty()), false));
     }
 
     @Test
@@ -275,12 +326,12 @@ class AgentActionPromptRendererTest {
         AgentPromptContext context = minimalContext();
         when(catalog.renderActionContext(anyMap())).thenReturn("resource-rendered-context");
 
-        Map<String, List<String>> currentToolAuthority = authority("agent_submit_answer");
+        List<String> currentToolNames = authority("agent_submit_answer");
 
-        String rendered = renderer.render(context, currentToolAuthority);
+        String rendered = renderer.render(context, currentToolNames);
 
         assertThat(rendered).isEqualTo("resource-rendered-context");
-        verify(catalog).renderActionContext(renderer.project(context, currentToolAuthority));
+        verify(catalog).renderActionContext(renderer.project(context, currentToolNames));
     }
 
     @Test
@@ -298,12 +349,8 @@ class AgentActionPromptRendererTest {
         return new AgentActionPromptRenderer(mock(PromptResourceCatalog.class));
     }
 
-    private static Map<String, List<String>> authority(String... toolNames) {
-        Map<String, List<String>> authority = new LinkedHashMap<>();
-        for (String toolName : toolNames) {
-            authority.put(toolName, List.of());
-        }
-        return java.util.Collections.unmodifiableMap(authority);
+    private static List<String> authority(String... toolNames) {
+        return List.of(toolNames);
     }
 
     private static AgentPromptContext minimalContext() {

@@ -287,12 +287,7 @@ class ContextIssuerTest {
     }
 
     private CapabilityPolicy capability(String name) {
-        return new CapabilityPolicy(
-                name,
-                "v1",
-                Set.of(CandidateKind.REPOSITORY),
-                1,
-                10);
+        return new CapabilityPolicy(name, "v1");
     }
 
     private RevisionVector pin(RepositoryId id, RepositoryRevision revision) {

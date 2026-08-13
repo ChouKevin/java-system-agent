@@ -45,8 +45,7 @@ class TerminalResponseCoordinatorTest {
     private static final SessionId SESSION_ID = new SessionId("session-1");
     private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
     private static final RepositoryId REPOSITORY_ID = new RepositoryId("repo-1");
-    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy(
-            "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy("trace", "v1");
 
     @Test
     void concludesCancelledWithoutAppendingATurnWhenClarificationAcceptanceIsCancelled() {
@@ -78,7 +77,7 @@ class TerminalResponseCoordinatorTest {
                 RUN_ID,
                 ATTEMPT_ID,
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0),
-                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?"));
+                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")));
         RunAttempt context = new ContextIssuer().issueInitial(
                 RUN_ID,
                 ATTEMPT_ID,
@@ -93,7 +92,7 @@ class TerminalResponseCoordinatorTest {
                 RUN_ID,
                 SESSION_ID,
                 PARTICIPANT,
-                "What does this repository flow do?",
+                "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 

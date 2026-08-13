@@ -79,7 +79,7 @@ class CodebaseExecutorTest {
     void delegatesOutgoingCallGraphWithTypedInput() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CapabilityExecutionContext context = context("codebase_outgoing_call_graph");
-        OutgoingCallGraphExecutionInput input = new OutgoingCallGraphExecutionInput(2);
+        OutgoingCallGraphExecutionInput input = new OutgoingCallGraphExecutionInput(2, target());
         when(adapter.outgoingCallGraph(context, input)).thenReturn(RESULT);
 
         assertThat(new OutgoingCallGraphExecutor(adapter).execute(context, input)).isSameAs(RESULT);
@@ -90,7 +90,7 @@ class CodebaseExecutorTest {
     void delegatesIncomingCallGraphWithTypedInput() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CapabilityExecutionContext context = context("codebase_incoming_call_graph");
-        IncomingCallGraphExecutionInput input = new IncomingCallGraphExecutionInput(2);
+        IncomingCallGraphExecutionInput input = new IncomingCallGraphExecutionInput(2, target());
         when(adapter.incomingCallGraph(context, input)).thenReturn(RESULT);
 
         assertThat(new IncomingCallGraphExecutor(adapter).execute(context, input)).isSameAs(RESULT);
@@ -107,18 +107,17 @@ class CodebaseExecutorTest {
         DiscoverConceptsExecutionInput concepts = new DiscoverConceptsExecutionInput(List.of(
                 new DiscoverConceptsExecutionInput.Term("order", "TOKEN_EXACT")), List.of("TYPE"), Optional.empty(), 0, 50);
         DiscoverEventListenersExecutionInput listeners = new DiscoverEventListenersExecutionInput("com.example.Event", 0, 50);
-        DiscoverMethodImplementationsExecutionInput implementations = new DiscoverMethodImplementationsExecutionInput(
-                Optional.of(target));
+        DiscoverMethodImplementationsExecutionInput implementations = new DiscoverMethodImplementationsExecutionInput(target);
         ResolveConceptExecutionInput resolveConcept = new ResolveConceptExecutionInput(concept);
         DiscoverTypeMembersExecutionInput members = new DiscoverTypeMembersExecutionInput(target.sourceType(),
                 List.of("METHOD"), Optional.empty(), 0, 50);
         FindInternalReferencesExecutionInput references = new FindInternalReferencesExecutionInput(
                 new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", target), 0, 50);
         GetEvidenceSourceExecutionInput evidenceSource = new GetEvidenceSourceExecutionInput(evidence);
-        GetMethodSourceExecutionInput methodSource = new GetMethodSourceExecutionInput(Optional.of(target));
+        GetMethodSourceExecutionInput methodSource = new GetMethodSourceExecutionInput(target);
         GetSourceSegmentExecutionInput segment = new GetSourceSegmentExecutionInput(range, 1);
         ResolveSourceSymbolExecutionInput sourceSymbol = new ResolveSourceSymbolExecutionInput("order", Optional.empty(),
-                Optional.empty());
+                sourceSymbolContext(target));
         CapabilityExecutionContext context = context("codebase_discover_concepts");
         when(adapter.discoverConcepts(context, concepts)).thenReturn(RESULT);
         when(adapter.resolveConcept(context, resolveConcept)).thenReturn(RESULT);
@@ -159,6 +158,13 @@ class CodebaseExecutorTest {
                 new SemanticDtos.JavaTypeIdentityPayload("com.example", "Orders"), "src/Orders.java"), "find", List.of());
     }
 
+    private static SemanticDtos.SourceSymbolContextPayload sourceSymbolContext(
+            SemanticDtos.MethodTargetPayload target) {
+        return new SemanticDtos.SourceSymbolContextPayload(target.sourceType().javaType(),
+                Optional.of(target.sourceType().sourceFile()),
+                Optional.of(new SemanticDtos.SourceSymbolMethodContextPayload(target.methodName(), target.parameterTypes())));
+    }
+
     private static SemanticDtos.ConceptFollowUpIdentity conceptIdentity() {
         return new SemanticDtos.ConceptFollowUpIdentity("TYPE", Optional.of(target().sourceType()), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
@@ -169,7 +175,7 @@ class CodebaseExecutorTest {
     private static SemanticDtos.EvidenceSourceFollowUpIdentity evidenceIdentity() {
         SemanticDtos.MapperStatementKeyPayload key = new SemanticDtos.MapperStatementKeyPayload("orders", "find");
         SemanticDtos.MapperStatementIdentityPayload statement = new SemanticDtos.MapperStatementIdentityPayload(key,
-                "src/OrdersMapper.xml", Optional.empty(), 0, "MAPPER_XML_ELEMENT");
+                "src/OrdersMapper.xml", Optional.empty(), 0, SemanticDtos.MapperStatementRepresentation.MAPPER_XML_ELEMENT);
         return new SemanticDtos.EvidenceSourceFollowUpIdentity("MAPPER_STATEMENT", Optional.of(statement), Optional.empty());
     }
 
@@ -180,7 +186,7 @@ class CodebaseExecutorTest {
 
     private static CapabilityExecutionContext context(String capabilityName) {
         return new CapabilityExecutionContext(
-                new CapabilityPolicy(capabilityName, "v1", Set.of(CandidateKind.REPOSITORY), 0, 1),
-                List.of(), "question", RevisionVector.empty());
+                new CapabilityPolicy(capabilityName, "v1"),
+                "question", RevisionVector.empty());
     }
 }

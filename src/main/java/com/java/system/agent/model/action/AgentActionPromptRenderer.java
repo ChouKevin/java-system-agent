@@ -24,6 +24,7 @@ import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
 import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
+import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.observation.AgentObservation;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.run.ActionResult;
@@ -35,7 +36,6 @@ import com.java.system.agent.model.prompt.PromptResourceCatalog;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Collections;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,18 +60,20 @@ public final class AgentActionPromptRenderer {
     /**
      * 依 answering collection 的既有順序輸出明確 action context
      */
-    public String render(AgentPromptContext context, Map<String, List<String>> currentToolAuthority) {
-        return promptCatalog.renderActionContext(project(context, currentToolAuthority));
+    public String render(AgentPromptContext context, List<String> currentToolNames) {
+        return promptCatalog.renderActionContext(project(context, currentToolNames));
     }
 
-    Map<String, Object> project(AgentPromptContext context, Map<String, List<String>> currentToolAuthority) {
+    Map<String, Object> project(AgentPromptContext context, List<String> currentToolNames) {
         Objects.requireNonNull(context, "agent prompt context must not be null");
-        Map<String, List<String>> requiredCurrentToolAuthority = copyCandidateAuthority(currentToolAuthority);
-        Set<String> currentToolNameSet = Set.copyOf(requiredCurrentToolAuthority.keySet());
+        List<String> requiredCurrentToolNames = currentToolNames.stream()
+                .map(name -> Objects.requireNonNull(name, "current planning tool name must not be null"))
+                .toList();
+        Set<String> currentToolNameSet = Set.copyOf(requiredCurrentToolNames);
         Map<String, Object> projection = new LinkedHashMap<>();
         projection.put("originalQuestion", context.originalQuestion());
         projection.put("sessionTurns", sessionTurns(context));
-        projection.put("currentlyCallableTools", currentlyCallableTools(requiredCurrentToolAuthority));
+        projection.put("currentlyCallableTools", currentlyCallableTools(requiredCurrentToolNames));
         projection.put("candidates", candidates(context, currentToolNameSet));
         projection.put("evidence", evidence(context));
         projection.put("evidenceCoverage", evidenceCoverage(context));
@@ -115,41 +117,19 @@ public final class AgentActionPromptRenderer {
         return turns.toString();
     }
 
-    private static String currentlyCallableTools(Map<String, List<String>> currentToolAuthority) {
+    private static String currentlyCallableTools(List<String> currentToolNames) {
         StringBuilder tools = new StringBuilder();
-        for (Map.Entry<String, List<String>> entry : currentToolAuthority.entrySet()) {
-            tools.append("- ").append(entry.getKey());
-            if (!entry.getValue().isEmpty()) {
-                tools.append("; allowedCandidateHandles=").append(entry.getValue());
-            }
-            tools.append('\n');
+        for (String name : currentToolNames) {
+            tools.append("- ").append(name).append('\n');
         }
         return tools.toString();
-    }
-
-    private static Map<String, List<String>> copyCandidateAuthority(Map<String, List<String>> candidateAuthority) {
-        Objects.requireNonNull(candidateAuthority, "current planning tool candidate authority must not be null");
-        Map<String, List<String>> copiedAuthority = new LinkedHashMap<>();
-        for (Map.Entry<String, List<String>> entry : candidateAuthority.entrySet()) {
-            String name = Objects.requireNonNull(entry.getKey(), "current planning tool name must not be null");
-            if (name.isBlank()) {
-                throw new IllegalArgumentException("current planning tool name must not be blank");
-            }
-            List<String> handles = Objects.requireNonNull(entry.getValue(),
-                    "current planning tool candidate handles must not be null");
-            copiedAuthority.put(name, handles.stream()
-                    .map(handle -> Objects.requireNonNull(handle,
-                            "current planning tool candidate handle must not be null"))
-                    .toList());
-        }
-        return Collections.unmodifiableMap(copiedAuthority);
     }
 
     private static String candidates(AgentPromptContext context, Set<String> currentToolNames) {
         StringBuilder candidates = new StringBuilder();
         for (Map.Entry<CandidateHandle, IssuedCandidate> entry : context.issuedCandidates().entrySet()) {
             candidates.append("- ").append(entry.getKey().value()).append(": ")
-                    .append(renderCandidate(entry.getValue().candidate(), currentToolNames)).append('\n');
+                    .append(renderCandidate(entry.getValue().candidate(), context, currentToolNames)).append('\n');
         }
         return candidates.toString();
     }
@@ -182,13 +162,17 @@ public final class AgentActionPromptRenderer {
                 .orElse("none");
     }
 
-    private static String renderCandidate(AnalysisCandidate candidate, Set<String> currentToolNames) {
+    private static String renderCandidate(
+            AnalysisCandidate candidate,
+            AgentPromptContext context,
+            Set<String> currentToolNames) {
         String repository = candidate.repositoryId().value() + candidate.repositoryRevision()
                 .map(revision -> "@" + revision.value())
                 .orElse("");
         String selectionMetadata = switch (candidate) {
-            case FollowUpCandidate followUp -> currentToolNames.contains(followUp.targetCapabilityName())
-                    ? ", targetCapability=" + followUp.targetCapabilityName() + "@" + followUp.targetCapabilityVersion()
+            case FollowUpCandidate followUp -> hasCurrentExactCapability(context, currentToolNames, followUp)
+                    ? ", targetTool=" + followUp.targetCapabilityName() + "@" + followUp.targetCapabilityVersion()
+                    + ", suggestedArguments=" + followUp.payload().value()
                     : "";
             case RouteCandidate route -> ", route=" + route.route();
             case SemanticTargetCandidate target -> ", semanticTarget=" + target.semanticTarget().kind()
@@ -197,6 +181,25 @@ public final class AgentActionPromptRenderer {
         };
         return "kind=" + candidate.kind() + ", repository=" + repository
                 + ", description=" + candidate.description() + selectionMetadata;
+    }
+
+    private static boolean hasCurrentExactCapability(
+            AgentPromptContext context,
+            Set<String> currentToolNames,
+            FollowUpCandidate followUp) {
+        if (!currentToolNames.contains(followUp.targetCapabilityName())) {
+            return false;
+        }
+        CapabilityPolicy target = new CapabilityPolicy(followUp.targetCapabilityName(), followUp.targetCapabilityVersion());
+        return context.issuedCapabilities().entrySet().stream()
+                .filter(entry -> hasCurrentBinding(entry.getKey().binding(), context))
+                .map(Map.Entry::getValue)
+                .anyMatch(target::equals);
+    }
+
+    private static boolean hasCurrentBinding(HandleBinding binding, AgentPromptContext context) {
+        return binding.runId().equals(context.runId())
+                && binding.attemptId().equals(context.attemptId());
     }
 
     private static String remainingBudget(AgentPromptContext context) {
@@ -265,7 +268,6 @@ public final class AgentActionPromptRenderer {
         private static String renderAction(AgentAction action) {
             return switch (action) {
                 case QueryAction query -> "QUERY: capability=" + query.capability().value()
-                        + ", candidates=" + candidateHandles(query.candidates())
                         + ", questionToResolve=" + query.questionToResolve()
                         + ", payloadSummary=" + contentSummary(query.payload().value())
                         + ", rationale=" + query.rationale();
@@ -294,8 +296,8 @@ public final class AgentActionPromptRenderer {
 
         private static String renderResult(ActionResult result) {
             return switch (result) {
-                case ActionResult.QuerySucceeded succeeded -> "QUERY_SUCCEEDED: candidateHandles="
-                        + succeeded.candidateHandleValues() + ", evidenceHandles=" + succeeded.evidenceHandleValues()
+                case ActionResult.QuerySucceeded succeeded -> "QUERY_SUCCEEDED: candidateCount="
+                        + succeeded.candidateHandleValues().size() + ", evidenceHandles=" + succeeded.evidenceHandleValues()
                         + ", observationIds=" + succeeded.observationIds();
                 case ActionResult.QueryFailed failed -> "QUERY_FAILED: observationIds=" + failed.observationIds()
                         + ", description=" + failed.description();

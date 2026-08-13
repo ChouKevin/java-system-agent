@@ -172,7 +172,7 @@ class ValidatedAgentLoopAnswerTest {
         }
         if (context.observations().isEmpty()) {
             return new AgentActionProposal.Proposed(new QueryAction(
-                    context.issuedCapabilities().keySet().iterator().next(), List.of(),
+                    context.issuedCapabilities().keySet().iterator().next(),
                     "Determine whether the planned need is available", new CapabilityInputPayload("test"),
                     "Record availability"));
         }
@@ -943,7 +943,7 @@ class ValidatedAgentLoopAnswerTest {
                 verifier,
                 verificationMode,
                 session,
-                new FakeRepositoryCatalogAdapter(),
+                new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository")),
                 this::testCapabilities,
                 repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("unused")),
                 cancellationPort,
@@ -1050,7 +1050,6 @@ class ValidatedAgentLoopAnswerTest {
             if (!context.observations().containsKey(availabilityObservationId)) {
                 return new AgentActionProposal.Proposed(new QueryAction(
                         context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
-                        List.of(),
                         "Determine whether the planned need is available",
                         new CapabilityInputPayload("test"),
                         "Record availability"));
@@ -1073,7 +1072,7 @@ class ValidatedAgentLoopAnswerTest {
     }
 
     private List<CapabilityPolicy> testCapabilities() {
-        return List.of(new CapabilityPolicy("test-availability", "1", Set.of(CandidateKind.REPOSITORY), 0, 0));
+        return List.of(new CapabilityPolicy("test-availability", "1"));
     }
 
     private boolean questionPlanWasRecorded(AgentPromptContext context) {
@@ -1099,7 +1098,7 @@ class ValidatedAgentLoopAnswerTest {
                 new AnalysisRunId("run-1"),
                 sessionId,
                 PARTICIPANT,
-                question,
+                question, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 
@@ -1109,7 +1108,7 @@ class ValidatedAgentLoopAnswerTest {
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
                 participant,
-                "What is verified?",
+                "What is verified?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 mode,
                 attemptCount);
@@ -1117,19 +1116,19 @@ class ValidatedAgentLoopAnswerTest {
 
     private AgentLoopRequest terminalRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.TERMINAL_RECONCILIATION, 4);
     }
 
     private AgentLoopRequest retryRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.RETRY, 2);
     }
 
     private AgentLoopRequest capacityResumeRequest() {
         return new AgentLoopRequest(new AnalysisRunId("run-1"), new SessionId("session-1"), PARTICIPANT,
-                "What is verified?", new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
+                "What is verified?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.CAPACITY_RESUME, 2);
     }
 
@@ -1139,7 +1138,8 @@ class ValidatedAgentLoopAnswerTest {
                 new AnalysisAttemptId("attempt-1"),
                 new AttemptBudget(2, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 new com.java.system.agent.answering.domain.run.RunRequestIdentity(
-                        "session-1", PARTICIPANT, "What is verified?"));
+                        "session-1", PARTICIPANT, "What is verified?",
+                        new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")));
         AgentStateReducer reducer = new AgentStateReducer();
         AgentRunState started = reducer.reduce(initial,
                 new AgentEvent.RunStarted(initial.runId(), initial.currentAttempt().attemptId(), 0)).candidateState();

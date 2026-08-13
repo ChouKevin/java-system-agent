@@ -83,17 +83,9 @@ class AgentCapabilityConfigurationTest {
                 continue;
             }
             JsonNode schema = entry.getValue();
-            if (schema.path("properties").has("candidateHandles")) {
-                assertThat(schema.path("required")).extracting(jsonNode -> jsonNode.asText())
-                        .contains("candidateHandles");
-                assertThat(schema.path("properties").path("candidateHandles").path("items").path("minLength").asInt())
-                        .isGreaterThanOrEqualTo(1);
-            } else {
-                assertThat(schema.path("required")).extracting(jsonNode -> jsonNode.asText())
-                        .contains("followUpCandidateHandle");
-                assertThat(schema.path("properties").path("followUpCandidateHandle").path("minLength").asInt())
-                        .isGreaterThanOrEqualTo(1);
-            }
+            assertThat(schema.path("properties").fieldNames()).toIterable()
+                    .doesNotContain("candidateHandles", "followUpCandidateHandle", "repoId", "repositoryId",
+                            "revision", "expectedRevision");
         }
         assertThat(schemas.get(CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName())
                 .path("properties").has("boundTarget")).isFalse();
@@ -141,7 +133,7 @@ class AgentCapabilityConfigurationTest {
     }
 
     @Test
-    void maps_blank_registered_candidate_handle_to_invalid_tool_input_before_its_mapper() {
+    void rejects_candidate_fields_from_candidate_free_registered_tool_inputs() {
         PlanningToolRegistry registry = registry();
         CapabilityPolicy policy = registry.availableCapabilities().stream()
                 .filter(value -> value.name().equals("codebase_lookup_api_route"))
@@ -154,8 +146,7 @@ class AgentCapabilityConfigurationTest {
                         """, context);
 
         assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
-                "INVALID_TOOL_INPUT: tool=codebase_lookup_api_route; reason=BEAN_VALIDATION; "
-                        + "invalidFields=[candidateHandles]; constraints=[candidateHandles:NotBlank]"));
+                "INVALID_TOOL_INPUT: tool=codebase_lookup_api_route; reason=JSON_CONTRACT"));
     }
 
     @Test
@@ -210,7 +201,7 @@ class AgentCapabilityConfigurationTest {
 
         JsonNode schema = registeredSchemasByToolName(registry).get(policy.name());
         AgentActionProposal proposal = registry.interpretToolCall(policy.name(), """
-                        {"candidateHandles":["candidate-1"],"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
+                        {"questionToResolve":"Find the route","rationale":"Lookup the route","apiPath":"/orders"}
                         """, contextFor(List.of(policy), List.of("candidate-1")));
 
         assertThat(hostMapper.getPropertyNamingStrategy()).isEqualTo(PropertyNamingStrategies.SNAKE_CASE);

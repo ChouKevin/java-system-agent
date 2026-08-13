@@ -135,7 +135,6 @@ public final class ValidatedAgentLoop {
         QueryActionExecutor queryActionExecutor = new QueryActionExecutor(
                 telemetry,
                 cancellationPort,
-                attemptIdGenerator,
                 contextIssuer,
                 transitions,
                 terminalResponseCoordinator);
@@ -234,10 +233,7 @@ public final class ValidatedAgentLoop {
                         request,
                         state,
                         queryAction,
-                        ((ActionValidation.Accepted) validation).resolvedCandidates(),
                         attemptSequence,
-                        capabilityCatalog,
-                        repositoryCatalog,
                         catalogRepositoryIds);
                 case AnswerAction answerAction -> answerActionExecutor.execute(
                         request, sessionHistory, state, answerAction, attemptSequence);

@@ -148,12 +148,12 @@ class AnswerActionExecutorTest {
                 new AnswerVerdictValidator(), transitions, terminal);
         AgentLoopRequest request = new AgentLoopRequest(
                 new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
+                "What is verified?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         AgentRunState initial = AgentRunState.initial(
                 request.runId(), attemptId, 1, request.budget(),
                 new RunRequestIdentity(
-                        request.sessionId().value(), request.participant(), request.question()));
+                        request.sessionId().value(), request.participant(), request.question(), new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")));
         AgentRunState bootstrapped = transitions.bootstrap(initial, RunAttempt.empty(attemptId));
         QuestionPlan plan = plan();
         AgentRunState planSelected = transitions.apply(bootstrapped, new AgentEvent.ActionSelected(

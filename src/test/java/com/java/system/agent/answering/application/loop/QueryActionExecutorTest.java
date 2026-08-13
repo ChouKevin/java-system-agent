@@ -58,8 +58,7 @@ class QueryActionExecutorTest {
     private static final RepositoryId REPOSITORY_ID = new RepositoryId("repo-1");
     private static final RepositoryRevision REPOSITORY_REVISION = new RepositoryRevision("rev-1");
     private static final ParticipantRef PARTICIPANT = new ParticipantRef("test", "participant-1");
-    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy(
-            "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1);
+    private static final CapabilityPolicy CAPABILITY = new CapabilityPolicy("trace", "v1");
 
     @Test
     void concludesDurablyBeforeSurfacingACapabilityContractFailure() {
@@ -83,7 +82,6 @@ class QueryActionExecutorTest {
                         () -> List.of(repositoryDescriptor()),
                         repositoryId -> RepositoryRevisionResult.ready(REPOSITORY_REVISION)),
                 new FakeCancellationAdapter(),
-                new FakeAttemptIdGenerator(),
                 contextIssuer,
                 transitions,
                 new TerminalResponseCoordinator(transitions, new FakeSessionAdapter()));
@@ -95,10 +93,7 @@ class QueryActionExecutorTest {
                 request(),
                 selectedState,
                 action,
-                List.copyOf(selectedState.currentAttempt().issuedCandidates().values()),
                 1,
-                List.of(CAPABILITY),
-                List.of(repositoryDescriptor()),
                 Set.of(REPOSITORY_ID)))
                 .isInstanceOf(AnswerExecutionContractException.class)
                 .satisfies(throwable -> {
@@ -123,7 +118,7 @@ class QueryActionExecutorTest {
                 RUN_ID,
                 ATTEMPT_ID,
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0),
-                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?"));
+                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")));
         RunAttempt context = contextIssuer.issueInitial(
                 RUN_ID,
                 ATTEMPT_ID,
@@ -136,7 +131,6 @@ class QueryActionExecutorTest {
     private QueryAction query(AgentRunState state) {
         return new QueryAction(
                 state.currentAttempt().issuedCapabilities().keySet().iterator().next(),
-                List.of(new CandidateHandleRef(state.currentAttempt().issuedCandidates().keySet().iterator().next().value())),
                 "Trace the repository flow",
                 new CapabilityInputPayload("trace"),
                 "Need repository evidence");
@@ -147,7 +141,7 @@ class QueryActionExecutorTest {
                 RUN_ID,
                 new SessionId("session-1"),
                 PARTICIPANT,
-                "What does this repository flow do?",
+                "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 

@@ -104,7 +104,7 @@ class ValidatedAgentLoopExecuteTest {
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
                 new ParticipantRef("test", "participant-1"),
-                "Preview this HTTP mutation",
+                "Preview this HTTP mutation", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(3, 0, 1, 0, 1, 0, 1, 0, 1, 0)));
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
@@ -324,8 +324,7 @@ class ValidatedAgentLoopExecuteTest {
                 AnswerVerificationMode.LLM,
                 new FakeSessionAdapter(),
                 new FakeRepositoryCatalogAdapter(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
-                new FakeCapabilityCatalogAdapter(new CapabilityPolicy(
-                        "trace", "v1", Set.of(CandidateKind.REPOSITORY), 1, 1)),
+                new FakeCapabilityCatalogAdapter(new CapabilityPolicy("trace", "v1")),
                 repository -> RepositoryRevisionResult.ready(new RepositoryRevision("revision-1")),
                 cancellation,
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-1")),
@@ -352,7 +351,7 @@ class ValidatedAgentLoopExecuteTest {
                 runId,
                 new SessionId("session-1"),
                 new ParticipantRef("test", "participant-1"),
-                "Preview this HTTP mutation",
+                "Preview this HTTP mutation", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 budget);
     }
 

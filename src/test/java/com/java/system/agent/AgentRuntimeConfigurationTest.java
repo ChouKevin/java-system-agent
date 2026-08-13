@@ -47,6 +47,7 @@ class AgentRuntimeConfigurationTest {
             .withPropertyValues(
                     "spring.profiles.active=test-infrastructure",
                     "spring.ai.model.chat=none",
+                    "agent.repository-scope.repository-id=test-repository",
                     "agent.answer-verification.mode=llm",
                     "agent.codebase.base-url=http://localhost:8081",
                     "agent.codebase.api-token=test-token",
@@ -166,10 +167,35 @@ class AgentRuntimeConfigurationTest {
                 "spring.profiles.active=agent-runtime,test-infrastructure",
                 "agent.answer-verification.mode=",
                 "agent.codebase.base-url=",
-                "agent.codebase.api-token=").run(context -> {
+                "agent.codebase.api-token=",
+                "agent.repository-scope.repository-id=").run(context -> {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure()).hasMessageContaining("agent");
         });
+    }
+
+    @Test
+    @DisplayName("runtime profile rejects a missing repository scope before the action port is usable")
+    void shouldRejectMissingRepositoryScopeBeforeConstructingTheActionPort() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(Application.class, TestInfrastructureConfiguration.class)
+                .withBean(DataSource.class, () -> mock(DataSource.class))
+                .withBean(Flyway.class, () -> mock(Flyway.class))
+                .withBean(JdbcClient.class, () -> mock(JdbcClient.class))
+                .withBean(TransactionTemplate.class, () ->
+                        new TransactionTemplate(new DataSourceTransactionManager(mock(DataSource.class))))
+                .withPropertyValues(
+                        "spring.profiles.active=agent-runtime,test-infrastructure",
+                        "spring.ai.model.chat=none",
+                        "agent.answer-verification.mode=llm",
+                        "agent.codebase.base-url=http://localhost:8081",
+                        "agent.codebase.api-token=test-token",
+                        "agent.codebase.connect-timeout=2s",
+                        "agent.codebase.read-timeout=15s")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasMessageContaining("agent.repository-scope");
+                });
     }
 
     @Test
@@ -178,6 +204,7 @@ class AgentRuntimeConfigurationTest {
         assertStartupFailure("agent.answer-verification.mode=", "agent.answer-verification");
         assertStartupFailure("agent.codebase.base-url=", "agent.codebase");
         assertStartupFailure("agent.codebase.api-token=", "agent.codebase");
+        assertStartupFailure("agent.repository-scope.repository-id=", "agent.repository-scope");
     }
 
     @Test
@@ -188,6 +215,7 @@ class AgentRuntimeConfigurationTest {
                 .withPropertyValues(
                         "spring.profiles.active=agent-runtime,test-infrastructure",
                         "spring.ai.model.chat=none",
+                        "agent.repository-scope.repository-id=test-repository",
                         "agent.answer-verification.mode=llm",
                         "agent.codebase.base-url=http://localhost:8081",
                         "agent.codebase.api-token=test-token",
@@ -211,6 +239,7 @@ class AgentRuntimeConfigurationTest {
                 .withPropertyValues(
                         "spring.profiles.active=agent-runtime,no-chat-model-test",
                         "spring.ai.model.chat=none",
+                        "agent.repository-scope.repository-id=test-repository",
                         "agent.answer-verification.mode=llm",
                         "agent.codebase.base-url=http://localhost:8081",
                         "agent.codebase.api-token=test-token",

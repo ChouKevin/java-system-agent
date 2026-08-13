@@ -66,7 +66,7 @@ import static org.mockito.Mockito.verify;
 class SpringAiPlanningToolCallbackAdapterTest {
 
     @Test
-    void projects_each_issued_tool_with_only_its_registry_candidate_authority_once() {
+    void projects_each_issued_tool_from_one_registry_snapshot() {
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
         PlanningToolRegistry registry = spy(new PlanningToolRegistry(List.of(new CorePlanningToolProvider()),
@@ -77,9 +77,7 @@ class SpringAiPlanningToolCallbackAdapterTest {
 
         IssuedPlanningTools issued = adapter.issuedTools(context);
 
-        assertThat(issued.candidateAuthority()).containsExactly(
-                Map.entry("agent_request_clarification", List.of("candidate-first", "candidate-second")),
-                Map.entry("agent_submit_answer", List.of()));
+        assertThat(issued.names()).containsExactly("agent_request_clarification", "agent_submit_answer");
         assertThat(issued.callbacks()).extracting(callback -> callback.getToolDefinition().name())
                 .containsExactly("agent_request_clarification", "agent_submit_answer");
         verify(registry, times(1)).issuedTools(context);
@@ -110,9 +108,8 @@ class SpringAiPlanningToolCallbackAdapterTest {
     @Test
     void rendersGenericQueryCallbackDescriptionFromTheImmutableCatalog() {
         TrackingSchemaFactory schemaFactory = new TrackingSchemaFactory();
-        CapabilityPolicy policy = new CapabilityPolicy("test_lookup_symbol", "v1", Set.of(CandidateKind.REPOSITORY), 0, 1);
-        CapabilityPolicy unissuedPolicy = new CapabilityPolicy("test_lookup_unissued", "v1",
-                Set.of(CandidateKind.REPOSITORY), 1, 1);
+        CapabilityPolicy policy = new CapabilityPolicy("test_lookup_symbol", "v1");
+        CapabilityPolicy unissuedPolicy = new CapabilityPolicy("test_lookup_unissued", "v1");
         PlanningToolRegistry registry = registry(policy, unissuedPolicy);
         PromptResourceCatalog catalog = catalog(registry);
 
@@ -141,7 +138,7 @@ class SpringAiPlanningToolCallbackAdapterTest {
     }
 
     @Test
-    void issuesSourceSegmentNamesAndCallbacksOnlyForCompatibleCandidateAuthority() {
+    void issuesSourceSegmentAndTypeMemberToolsFromCurrentCapabilityWithoutCandidateAuthority() {
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
         PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(
@@ -171,19 +168,23 @@ class SpringAiPlanningToolCallbackAdapterTest {
         assertThat(sourceRangeTools.names()).contains(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
         assertThat(sourceRangeTools.callbacks()).extracting(callback -> callback.getToolDefinition().name())
                 .contains(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
-        assertThat(methodTools.names()).doesNotContain(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
-        assertThat(methodTools.callbacks()).extracting(callback -> callback.getToolDefinition().name())
-                .doesNotContain(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
-        assertThat(sourceRangeTools.callbacks()).extracting(callback -> callback.getToolDefinition().inputSchema())
-                .allSatisfy(schema -> assertThat(schema).doesNotContain("sourceType", "repoId", "expectedRevision",
-                        "offset", "location"));
-        assertThat(typeMemberTools.callbacks()).extracting(callback -> callback.getToolDefinition().inputSchema())
-                .allSatisfy(schema -> assertThat(schema).doesNotContain("sourceType", "repoId", "expectedRevision",
-                        "offset"));
+        assertThat(methodTools.names()).contains(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName());
+        String sourceSegmentSchema = sourceRangeTools.callbacks().stream()
+                .filter(callback -> callback.getToolDefinition().name()
+                        .equals(CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName()))
+                .findFirst().orElseThrow().getToolDefinition().inputSchema();
+        String typeMembersSchema = typeMemberTools.callbacks().stream()
+                .filter(callback -> callback.getToolDefinition().name()
+                        .equals(CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName()))
+                .findFirst().orElseThrow().getToolDefinition().inputSchema();
+        assertThat(sourceSegmentSchema).contains("location", "contextLines")
+                .doesNotContain("candidateHandles", "repoId", "expectedRevision");
+        assertThat(typeMembersSchema).contains("sourceType", "memberKinds", "offset")
+                .doesNotContain("candidateHandles", "repoId", "expectedRevision");
     }
 
     @Test
-    void issuesOneMixedAuthoritySnapshotWithOnlyCurrentCompatibleFollowUps() {
+    void issuesOneCandidateFreeQuerySnapshotForCurrentCapabilities() {
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
                 Validation.buildDefaultValidatorFactory().getValidator());
         PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(
@@ -194,16 +195,8 @@ class SpringAiPlanningToolCallbackAdapterTest {
 
         IssuedPlanningTools issued = adapter.issuedTools(mixedAuthorityContext(registry, payloadCodec));
 
-        assertThat(issued.names()).containsExactly(
-                CodeIntelligenceQuery.DISCOVER_METHOD_IMPLEMENTATIONS.capabilityName(),
-                CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS.capabilityName(),
-                CodeIntelligenceQuery.FIND_INTERNAL_REFERENCES.capabilityName(),
-                CodeIntelligenceQuery.GET_METHOD_SOURCE.capabilityName(),
-                CodeIntelligenceQuery.GET_SOURCE_SEGMENT.capabilityName(),
-                CodeIntelligenceQuery.INCOMING_CALL_GRAPH.capabilityName(),
-                CodeIntelligenceQuery.OUTGOING_CALL_GRAPH.capabilityName(),
-                CodeIntelligenceQuery.RESOLVE_SOURCE_SYMBOL.capabilityName());
-        assertThat(issued.names()).doesNotContain(CodeIntelligenceQuery.GET_EVIDENCE_SOURCE.capabilityName());
+        assertThat(issued.names()).containsExactlyInAnyOrder(java.util.Arrays.stream(CodeIntelligenceQuery.values())
+                .map(CodeIntelligenceQuery::capabilityName).toArray(String[]::new));
         assertThat(issued.callbacks()).extracting(callback -> callback.getToolDefinition().name())
                 .containsExactlyElementsOf(issued.names());
     }
@@ -222,7 +215,7 @@ class SpringAiPlanningToolCallbackAdapterTest {
             CapabilityPolicy policy,
             CanonicalCapabilityPayloadCodec payloadCodec) {
         return new QueryPlanningToolRegistration<>(policy, TestLookupPlanningInput.class, String.class,
-                input -> new QueryPlanningSelection<>(List.of(), input.questionToResolve(), "test rationale", "input"),
+                input -> new QueryPlanningSelection<>(input.questionToResolve(), "test rationale", "input"),
                 (context, input) -> new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of()), payloadCodec);
     }
 
@@ -238,7 +231,8 @@ class SpringAiPlanningToolCallbackAdapterTest {
     private static AgentPromptContext context(CapabilityPolicy policy) {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
-        HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty());
+        HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty().pin(
+                new RepositoryId("repository-a"), new RepositoryRevision("revision-a")));
         return new AgentPromptContext("Find routes", SessionHistory.empty(), runId, attemptId,
                 Map.of(new CapabilityHandle("capability-1", binding), policy), Map.of(),
                 Map.of(), Map.of(), questionPlanInteractions(), Optional.empty(),

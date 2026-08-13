@@ -323,11 +323,9 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 },
                 AnswerVerificationMode.LLM,
                 sessionPort,
-                new FakeRepositoryCatalogAdapter(),
+                repositoryCatalog(),
                 new FakeCapabilityCatalogAdapter(),
-                repositoryId -> {
-                    throw new AssertionError("clarification must not resolve a repository revision");
-                },
+                repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-clarification")),
                 new AgentActionValidator(),
@@ -335,7 +333,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop);
+        return new AnalysisApplicationService(loop, new RepositoryId("repo-1"));
     }
 
     private AnalysisApplicationService planningContractService(AtomicInteger actionCalls) {
@@ -353,11 +351,9 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 },
                 AnswerVerificationMode.LLM,
                 sessions,
-                new FakeRepositoryCatalogAdapter(),
+                repositoryCatalog(),
                 new FakeCapabilityCatalogAdapter(),
-                repositoryId -> {
-                    throw new AssertionError("planning contract failure must not resolve a repository revision");
-                },
+                repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-planning-failure")),
                 new AgentActionValidator(),
@@ -365,7 +361,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop);
+        return new AnalysisApplicationService(loop, new RepositoryId("repo-1"));
     }
 
     private AnalysisApplicationService pendingVerificationService(AtomicInteger actionCalls, AtomicInteger verifierCalls) {
@@ -377,7 +373,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                     }
                     if (actionCall == 2) {
                         return new AgentActionProposal.Proposed(new QueryAction(
-                                context.issuedCapabilities().keySet().iterator().next(), List.of(),
+                                context.issuedCapabilities().keySet().iterator().next(),
                                 "Find repository evidence", new CapabilityInputPayload("test"), "Need evidence"));
                     }
                     EvidenceHandleRef evidenceHandle = new EvidenceHandleRef(
@@ -401,9 +397,8 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 },
                 AnswerVerificationMode.LLM,
                 sessions,
-                new FakeRepositoryCatalogAdapter(new com.java.system.agent.answering.port.out.RepositoryDescriptor(
-                        new RepositoryId("repo-1"), "Repository")),
-                new FakeCapabilityCatalogAdapter(new CapabilityPolicy("test", "1", Set.of(CandidateKind.REPOSITORY), 0, 0)),
+                repositoryCatalog(),
+                new FakeCapabilityCatalogAdapter(new CapabilityPolicy("test", "1")),
                 repositoryId -> RepositoryRevisionResult.ready(new RepositoryRevision("rev-1")),
                 new FakeCancellationAdapter(),
                 new FakeAttemptIdGenerator().register(new AnalysisAttemptId("attempt-answer")),
@@ -412,12 +407,17 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop);
+        return new AnalysisApplicationService(loop, new RepositoryId("repo-1"));
     }
 
     private AnswerQuestionCommand command(InboxMessage message) {
         return new AnswerQuestionCommand(
                 message.runId(), message.sessionId(), message.participant(), message.questionText(), budget());
+    }
+
+    private FakeRepositoryCatalogAdapter repositoryCatalog() {
+        return new FakeRepositoryCatalogAdapter(new com.java.system.agent.answering.port.out.RepositoryDescriptor(
+                new RepositoryId("repo-1"), "Repository"));
     }
 
     private AnswerQuestionCommand command(InboxMessage message, AnswerExecutionMode mode, int attempt) {

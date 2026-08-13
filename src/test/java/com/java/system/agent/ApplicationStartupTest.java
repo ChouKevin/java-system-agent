@@ -50,7 +50,10 @@ import javax.sql.DataSource;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
-@SpringBootTest(properties = "spring.profiles.active=dev")
+@SpringBootTest(properties = {
+        "spring.profiles.active=dev",
+        "agent.repository-scope.repository-id=test-repository"
+})
 class ApplicationStartupTest {
 
     @Test
@@ -196,6 +199,7 @@ class ApplicationStartupTest {
                         "agent.worker.inbox-poll-interval=1s",
                         "agent.worker.delivery-poll-interval=1s",
                         "agent.worker.shutdown-grace-period=1s",
+                        "agent.repository-scope.repository-id=test-repository",
                         "agent.slack.app-token=xapp-test",
                         "agent.slack.bot-token=xoxb-test",
                         "agent.slack.bot-user-id=U_TEST");
