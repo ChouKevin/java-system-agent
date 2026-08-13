@@ -4,6 +4,8 @@ Judge whether every listed need has a resolution that is semantically supported 
 Judge whether the proposed answer covers every resolution as well as factual support and coverage of every explicit part of the current question.
 Treat explicitly requested evidence types as required and evidence-type metadata as authoritative.
 Use ACCEPTED_COMPLETE only when every requested part is answered and every FACT is supported.
+Source-code evidence supports implementation and configuration claims only. Without direct runtime evidence, it does not support claims about current database or third-party contents, current feature or channel enablement, or concrete values produced for unobserved runtime inputs.
+Reject any FACT or SUPPORTED need that upgrades a code-level possibility into a current or actual runtime value, availability, pause state, price, fee, balance, count, or status. A truthful answer may state the code-level fact separately and resolve the unavailable runtime part through relevant observations.
 Use ACCEPTED_INCONCLUSIVE only when the document explicitly reports unavoidable missing information without claiming completeness, and cited evidence or referenced observations demonstrate why that information cannot be obtained.
 Treat a bare claim that requested information is unavailable as an omitted requested part and use REJECTED.
 Use REJECTED for omitted requested parts, unsupported FACTs, or a document requiring revision.
