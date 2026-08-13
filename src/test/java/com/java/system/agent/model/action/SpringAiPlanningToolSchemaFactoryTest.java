@@ -20,12 +20,36 @@ import com.java.system.agent.codeintelligence.planning.ResolveConceptPlanningInp
 import com.java.system.agent.codeintelligence.planning.ResolveSourceSymbolPlanningInput;
 import com.java.system.agent.codeintelligence.planning.SuggestApiRoutePlanningInput;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.google.genai.schema.JsonSchemaConverter;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 class SpringAiPlanningToolSchemaFactoryTest {
+
+    @Test
+    void creates_schemas_accepted_by_the_runtime_google_tool_converter() {
+        SpringAiPlanningToolSchemaFactory factory = new SpringAiPlanningToolSchemaFactory();
+        List<Class<?>> inputs = List.of(
+                PlanQuestionPlanningInput.class, SubmitAnswerPlanningInput.class,
+                ListEntryPointsPlanningInput.class, LookupApiRoutePlanningInput.class,
+                SuggestApiRoutePlanningInput.class, OutgoingCallGraphPlanningInput.class,
+                IncomingCallGraphPlanningInput.class, DiscoverConceptsPlanningInput.class,
+                ResolveConceptPlanningInput.class, DiscoverEventListenersPlanningInput.class,
+                DiscoverMethodImplementationsPlanningInput.class, DiscoverTypeMembersPlanningInput.class,
+                FindInternalReferencesPlanningInput.class, GetEvidenceSourcePlanningInput.class,
+                GetMethodSourcePlanningInput.class, GetSourceSegmentPlanningInput.class,
+                ResolveSourceSymbolPlanningInput.class);
+
+        for (Class<?> input : inputs) {
+            assertThatCode(() -> JsonSchemaConverter.convertToOpenApiSchema(
+                    JsonSchemaConverter.fromJson(factory.createSchema(input))))
+                    .as(input.getSimpleName())
+                    .doesNotThrowAnyException();
+        }
+    }
 
     @Test
     void exposes_candidate_free_exact_typed_query_schemas() throws Exception {

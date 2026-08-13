@@ -30,6 +30,7 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
                 JakartaValidationOption.NOT_NULLABLE_METHOD_IS_REQUIRED));
         builder.with(
                 Option.FORBIDDEN_ADDITIONAL_PROPERTIES_BY_DEFAULT,
+                Option.INLINE_ALL_SCHEMAS,
                 Option.PLAIN_DEFINITION_KEYS);
         this.generator = new SchemaGenerator(builder.build());
     }
