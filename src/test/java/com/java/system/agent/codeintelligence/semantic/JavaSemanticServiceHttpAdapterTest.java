@@ -324,9 +324,10 @@ class JavaSemanticServiceHttpAdapterTest {
     @Test
     void permitsOnlyBoundedFollowUpTuningAcrossSemanticQueryFamilies() {
         TestClient client = testClient();
-        SemanticDtos.MethodTargetPayload target = graphTargetPayload();
-        OutgoingCallGraphExecutionInput graphProvider = new OutgoingCallGraphExecutionInput(1, target);
-        OutgoingCallGraphExecutionInput graphTuned = new OutgoingCallGraphExecutionInput(2, target);
+        SemanticDtos.MethodTargetPayload graphTarget = graphTargetPayload();
+        SemanticDtos.MethodTargetPayload referencesTarget = targetPayload();
+        OutgoingCallGraphExecutionInput graphProvider = new OutgoingCallGraphExecutionInput(1, graphTarget);
+        OutgoingCallGraphExecutionInput graphTuned = new OutgoingCallGraphExecutionInput(2, graphTarget);
         DiscoverConceptsExecutionInput conceptsProvider = new DiscoverConceptsExecutionInput(
                 List.of(new DiscoverConceptsExecutionInput.Term("orders", "TOKEN_EXACT")), List.of("TYPE"),
                 Optional.of("com.example"), 20, 1);
@@ -337,7 +338,7 @@ class JavaSemanticServiceHttpAdapterTest {
         DiscoverEventListenersExecutionInput listenersTuned = new DiscoverEventListenersExecutionInput(
                 listenersProvider.eventType(), 10, 2);
         FindInternalReferencesExecutionInput referencesProvider = new FindInternalReferencesExecutionInput(
-                new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", target), 5, 1);
+                new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", referencesTarget), 5, 1);
         FindInternalReferencesExecutionInput referencesTuned = new FindInternalReferencesExecutionInput(
                 referencesProvider.target(), 5, 2);
         client.server().expect(once(), requestTo("https://semantic.test/v1/analyses/call-graphs/outgoing"))
@@ -655,6 +656,59 @@ class JavaSemanticServiceHttpAdapterTest {
                 .containsExactly(CandidateKind.ROUTE, CandidateKind.SEMANTIC_TARGET);
         assertThat(result.evidence()).singleElement().extracting(EvidenceRef::content)
                 .asString().contains("class=com.example.web.OrderController", "method=list", "url=/orders");
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsEntryPointResponseOutsideThePinnedRuntimeScope() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/repositories/orders/entry-points?expectedRevision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&types=API"))
+                .andRespond(withSuccess("""
+                        {"repoId":"other","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","entryPoints":[]}
+                        """, MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.listEntryPoints(repositoryContext("codebase_list_entry_points"),
+                new ListEntryPointsExecutionInput(EntryPointType.API)))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageContaining("scope does not match");
+
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsApiRouteCandidateOutsideThePinnedRuntimeScope() {
+        TestClient client = testClient();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/api-routes/lookup"))
+                .andRespond(withSuccess("""
+                        {"candidates":[{"repoId":"other","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","httpMethod":"GET","routeTemplate":"/orders","packageName":"com.example","className":"OrderController","methodName":"list","analysisTarget":{"status":"UNRESOLVED","target":null,"candidates":[],"reasonCode":"TARGET_NOT_FOUND","availableFollowUps":[]},"matchReasons":["EXACT_NORMALIZED_PATH"]}],"observations":[]}
+                        """, MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.lookupApiRoute(repositoryContext("codebase_lookup_api_route"),
+                new LookupApiRouteExecutionInput("/orders", null)))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageContaining("scope does not match");
+
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsInternalReferenceResponseForADifferentRequestedTarget() {
+        TestClient client = testClient();
+        SemanticDtos.MethodTargetPayload target = targetPayload();
+        FindInternalReferencesExecutionInput input = new FindInternalReferencesExecutionInput(
+                new SemanticDtos.InternalReferenceFollowUpTarget("METHOD", target), 0, 1);
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/internal-references"))
+                .andRespond(withSuccess(referencesSuccess().replace("\"methodName\":\"find\"",
+                        "\"methodName\":\"other\""), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.findInternalReferences(
+                candidateFreeContext("codebase_find_internal_references"), input))
+                .isInstanceOf(CapabilityExecutionContractException.class)
+                .hasMessageContaining("target does not match");
+
         client.server().verify();
     }
 

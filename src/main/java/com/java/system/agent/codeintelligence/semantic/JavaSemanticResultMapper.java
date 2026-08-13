@@ -70,10 +70,12 @@ public final class JavaSemanticResultMapper {
         return schemaValidator.repository(response);
     }
 
-    public CapabilityExecutionResult listEntryPoints(SemanticDtos.EntryPointsResponse response) {
+    public CapabilityExecutionResult listEntryPoints(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                     SemanticDtos.EntryPointsResponse response) {
         SemanticDtos.EntryPointsResponse requiredResponse = schemaValidator.entryPoints(response);
-        RepositoryId repositoryId = new RepositoryId(requiredResponse.repoId());
-        RepositoryRevision revision = new RepositoryRevision(requiredResponse.analyzedRevision());
+        discoveryScope(expectedRepositoryId, expectedRevision, requiredResponse.repoId(), requiredResponse.analyzedRevision());
+        RepositoryId repositoryId = expectedRepositoryId;
+        RepositoryRevision revision = expectedRevision;
         List<AnalysisCandidate> candidates = new ArrayList<>();
         List<EvidenceRef> evidence = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>();
@@ -97,13 +99,15 @@ public final class JavaSemanticResultMapper {
         return succeeded(candidates, evidence, observations);
     }
 
-    public CapabilityExecutionResult apiRoutes(SemanticDtos.ApiRouteCandidatesResponse response) {
+    public CapabilityExecutionResult apiRoutes(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                               SemanticDtos.ApiRouteCandidatesResponse response) {
         SemanticDtos.ApiRouteCandidatesResponse requiredResponse = schemaValidator.apiRoutes(response);
         List<AnalysisCandidate> candidates = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>();
         for (SemanticDtos.ApiRouteCandidateResponse route : requiredList(requiredResponse.candidates(), "API route candidate")) {
-            RepositoryId repositoryId = new RepositoryId(route.repoId());
-            RepositoryRevision revision = new RepositoryRevision(route.analyzedRevision());
+            discoveryScope(expectedRepositoryId, expectedRevision, route.repoId(), route.analyzedRevision());
+            RepositoryId repositoryId = expectedRepositoryId;
+            RepositoryRevision revision = expectedRevision;
             String description = description(route.httpMethod() + " " + route.routeTemplate() + " " + route.className()
                     + "#" + route.methodName(), "API route");
             candidates.add(new RouteCandidate(repositoryId, revision,
@@ -296,6 +300,7 @@ public final class JavaSemanticResultMapper {
 
     /** 投影 provider 的內部 reference 結果 */
     public CapabilityExecutionResult findInternalReferences(RepositoryId expectedRepositoryId, RepositoryRevision expectedRevision,
+                                                            SemanticDtos.InternalReferenceFollowUpTarget expectedTarget,
                                                             SemanticDtos.FindInternalReferencesResponse response) {
         SemanticDtos.FindInternalReferencesResponse required = schemaValidator.findInternalReferences(response);
         discoveryScope(expectedRepositoryId, expectedRevision, required.repoId(), required.analyzedRevision());
@@ -305,6 +310,9 @@ public final class JavaSemanticResultMapper {
         List<EvidenceRef> evidence = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(), "COMPLETE"));
         SemanticDtos.InternalReferenceTargetDeclarationResponse declaration = required.targetDeclaration();
+        if (!expectedTarget.equals(declaration.target())) {
+            throw contract("internal reference response target does not match the requested target");
+        }
         SemanticTarget declarationTarget = internalReferenceTarget(declaration.target(), declaration.declarationRange());
         candidates.add(new SemanticTargetCandidate(repositoryId, revision, declarationTarget, "internal reference declaration"));
         evidence.add(metadataEvidenceMapper.declaration(repositoryId, revision, declaration, required.totalReferenceCount(),

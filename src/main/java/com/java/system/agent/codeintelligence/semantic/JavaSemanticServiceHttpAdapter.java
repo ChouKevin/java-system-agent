@@ -180,7 +180,8 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                             .queryParamIfPresent("types", Optional.ofNullable(type).map(entryPointType -> entryPointType.name()))
                             .build(repository.repositoryId().value()))
                     .retrieve().body(SemanticDtos.EntryPointsResponse.class);
-            return resultMapper.listEntryPoints(requiredResponse(response, "entry-points"));
+            return resultMapper.listEntryPoints(repository.repositoryId(), repository.expectedRevision(),
+                    requiredResponse(response, "entry-points"));
         } catch (RestClientResponseException exception) {
             return errorMapper.capability(errorResponse(exception), ENTRY_POINTS_OPERATION);
         } catch (ResourceAccessException exception) {
@@ -285,7 +286,8 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                                 httpMethod, repository.repositoryId().value(), repository.expectedRevision().value()))
                         .retrieve().body(SemanticDtos.ApiRouteCandidatesResponse.class);
             }
-            return resultMapper.apiRoutes(requiredResponse(response, "API route candidates"));
+            return resultMapper.apiRoutes(repository.repositoryId(), repository.expectedRevision(),
+                    requiredResponse(response, "API route candidates"));
         } catch (RestClientResponseException exception) {
             return errorMapper.capability(errorResponse(exception), operation);
         } catch (ResourceAccessException exception) {
@@ -376,7 +378,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                     scope.expectedRevision().value(), input.target(), Optional.empty(), Optional.of(input.offset()), Optional.of(input.limit()));
             SemanticDtos.FindInternalReferencesResponse response = discoveryPost("/v1/discovery/internal-references", request,
                     SemanticDtos.FindInternalReferencesResponse.class, "internal reference discovery");
-            return resultMapper.findInternalReferences(scope.repositoryId(), scope.expectedRevision(), response);
+            return resultMapper.findInternalReferences(scope.repositoryId(), scope.expectedRevision(), input.target(), response);
         }));
     }
 
