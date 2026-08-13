@@ -265,7 +265,6 @@ public final class AgentActionPromptRenderer {
         private static String renderAction(AgentAction action) {
             return switch (action) {
                 case QueryAction query -> "QUERY: capability=" + query.capability().value()
-                        + ", candidates=" + candidateHandles(query.candidates())
                         + ", questionToResolve=" + query.questionToResolve()
                         + ", payloadSummary=" + contentSummary(query.payload().value())
                         + ", rationale=" + query.rationale();

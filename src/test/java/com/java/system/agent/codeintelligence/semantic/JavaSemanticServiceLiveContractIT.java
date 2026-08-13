@@ -176,10 +176,9 @@ class JavaSemanticServiceLiveContractIT {
                 {"candidateHandles":["implementation-follow-up"],"questionToResolve":"Which concrete lookup implements the declaration?","rationale":"The provider retained the declaration target"}
                 """, context);
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
-        CapabilityInvocation invocation = new CapabilityInvocation(policy, List.of(issuedCandidate), action.questionToResolve(),
+        CapabilityInvocation invocation = new CapabilityInvocation(policy, action.questionToResolve(),
                 action.payload(), revisions);
 
-        assertThat(action.candidates()).extracting(candidate -> candidate.value()).containsExactly(candidateHandle.value());
         assertThat(offlineRegistry.execute(invocation)).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         org.mockito.ArgumentCaptor<CapabilityExecutionContext> executorContext =
                 org.mockito.ArgumentCaptor.forClass(CapabilityExecutionContext.class);
@@ -487,7 +486,7 @@ class JavaSemanticServiceLiveContractIT {
                 .filter(availableCapability -> availableCapability.name().equals(capabilityName))
                 .findFirst()
                 .orElseThrow();
-        return new CapabilityInvocation(policy, List.of(candidate), "Verify M6 semantic consumer contract", payload, revisions);
+        return new CapabilityInvocation(policy, "Verify M6 semantic consumer contract", payload, revisions);
     }
 
     private FollowUpCandidate followUp(
@@ -555,7 +554,7 @@ class JavaSemanticServiceLiveContractIT {
                 new CandidateHandle("live-repository-candidate", new HandleBinding(new AnalysisRunId("live-run"),
                         new AnalysisAttemptId("live-attempt"), revisions), CandidateKind.REPOSITORY),
                 new RepositoryCandidate(repositoryId, "Live contract repository"));
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(candidate),
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY),
                 "Verify Java Semantic Service consumer contract", revisions);
     }
 
@@ -567,7 +566,7 @@ class JavaSemanticServiceLiveContractIT {
                 new CandidateHandle("live-target-candidate", new HandleBinding(new AnalysisRunId("live-run"),
                         new AnalysisAttemptId("live-attempt"), revisions), CandidateKind.SEMANTIC_TARGET),
                 new SemanticTargetCandidate(repositoryId, revision, target, "Live contract target"));
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), List.of(candidate),
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET),
                 "Verify Java Semantic Service call graph contract", revisions);
     }
 

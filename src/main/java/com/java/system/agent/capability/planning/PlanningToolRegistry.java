@@ -263,7 +263,7 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
             CapabilityInvocation invocation) {
         E input = payloadCodec.decode(invocation.payload(), registration.executionInputType());
         CapabilityExecutionContext context = new CapabilityExecutionContext(
-                invocation.capability(), invocation.candidates(), invocation.question(), invocation.expectedRevisions());
+                invocation.capability(), invocation.question(), invocation.expectedRevisions());
         CapabilityExecutionResult result = registration.executor().execute(context, input);
         if (Objects.isNull(result)) {
             throw new CapabilityExecutionContractException("capability executor must return a result");

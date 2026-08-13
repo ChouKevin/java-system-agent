@@ -60,6 +60,6 @@ class FakeCapabilityExecutionAdapterTest {
                 new RepositoryCandidate(repositoryId, "repository candidate"));
         CapabilityPolicy capability = new CapabilityPolicy("lookup", "v1", Set.of(CandidateKind.REPOSITORY),
                 1, 1);
-        return new CapabilityInvocation(capability, List.of(candidate), "question", new CapabilityInputPayload("{}"), revisions);
+        return new CapabilityInvocation(capability, "question", new CapabilityInputPayload("{}"), revisions);
     }
 }

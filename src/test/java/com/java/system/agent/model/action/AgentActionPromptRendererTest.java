@@ -75,8 +75,7 @@ class AgentActionPromptRendererTest {
         AnalysisRunId runId = new AnalysisRunId("run-3");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty());
-        QueryAction query = new QueryAction(new CapabilityHandle("capability-1", binding),
-                List.of(new CandidateHandleRef("candidate-1")), "resolve query",
+        QueryAction query = new QueryAction(new CapabilityHandle("capability-1", binding), "resolve query",
                 new CapabilityInputPayload("{\"secret\":\"canonical-follow-up\"}"), "need evidence");
         ExecuteAction execute = new ExecuteAction(ExternalHttpMethod.PATCH,
                 "https://secret.example.invalid/items/1?token=execute-secret",
@@ -210,7 +209,7 @@ class AgentActionPromptRendererTest {
         EvidenceRef evidence = new EvidenceRef("semantic", repositoryId, repositoryRevision,
                 new SemanticTarget(SemanticTargetKind.SYMBOL, "Type#method",
                 Optional.empty()), "method source", List.of(), new ArtifactRef("digest-1"));
-        QueryAction query = new QueryAction(producedCapability, List.of(), "read method source",
+        QueryAction query = new QueryAction(producedCapability, "read method source",
                 new CapabilityInputPayload("{}"), "need source evidence");
         AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), runId, attemptId,
                 Map.of(issuedButUnused, historicalCapability, producedCapability, producingCapability), Map.of(),

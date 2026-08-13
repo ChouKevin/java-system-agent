@@ -78,8 +78,6 @@ public record AgentActionFingerprint(String value) {
         QueryExecutionIdentity identity = QueryExecutionIdentity.from(action);
         frame(digest, "actionType", "QUERY");
         frame(digest, "capabilityHandle", identity.capability().value());
-        sequence(digest, "candidateHandle", identity.candidates().stream()
-                .map(candidate -> candidate.value()).toList());
         if (includeQuestion) {
             frame(digest, "questionToResolve", action.questionToResolve());
         }

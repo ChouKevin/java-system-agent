@@ -167,8 +167,7 @@ public final class QueryPlanningToolRegistration<P, E>
             CapabilityInputPayload payload = ProviderBoundFollowUp.boundPayload(context, capability, policy,
                             selection.candidateReferences())
                     .orElseGet(() -> payloadCodec.encode(selection.executionInput()));
-            return new QueryAction(capability, selection.candidateReferences(), selection.questionToResolve(), payload,
-                    selection.rationale());
+            return new QueryAction(capability, selection.questionToResolve(), payload, selection.rationale());
         }
 
         private boolean isAuthorizedCandidate(

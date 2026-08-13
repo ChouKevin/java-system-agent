@@ -78,8 +78,7 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
         E executionInput = candidate instanceof FollowUpCandidate
                 ? planFollowUp(input, context, reference)
                 : planDirect(input, context, capability, selected);
-        return new QueryAction(capability, List.of(reference), input.questionToResolve(), payloadCodec.encode(executionInput),
-                input.rationale());
+        return new QueryAction(capability, input.questionToResolve(), payloadCodec.encode(executionInput), input.rationale());
     }
 
     private boolean isCompatible(AgentPromptContext context, Map.Entry<CandidateHandle, IssuedCandidate> candidate) {

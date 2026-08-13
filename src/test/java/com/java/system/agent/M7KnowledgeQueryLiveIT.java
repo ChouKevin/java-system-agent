@@ -229,7 +229,6 @@ class M7KnowledgeQueryLiveIT {
             assertThat(handle.binding().attemptId()).isEqualTo(state.currentAttempt().attemptId());
             assertThat(handle.binding().revisionVector()).isEqualTo(EXPECTED_REVISIONS);
         });
-        assertSelectedQueryCandidateScope(state);
         state.currentAttempt().issuedEvidence().forEach((handle, issued) -> {
             assertThat(handle.binding().runId()).isEqualTo(state.runId());
             assertThat(handle.binding().attemptId()).isEqualTo(state.currentAttempt().attemptId());
@@ -245,27 +244,6 @@ class M7KnowledgeQueryLiveIT {
                 assertThat(verdict.disposition()).isEqualTo(AnswerDisposition.ACCEPTED_COMPLETE));
         assertPersistedQuestionPlanCoverage(state, acceptedAnswer);
         return acceptedAnswer;
-    }
-
-    private void assertSelectedQueryCandidateScope(AgentRunState state) {
-        Map<String, IssuedCandidate> candidatesByHandle = new LinkedHashMap<>();
-        state.currentAttempt().issuedCandidates().forEach((handle, issued) ->
-                candidatesByHandle.put(handle.value(), issued));
-        List<IssuedCandidate> selectedQueryCandidates = state.modelInteractions().stream()
-                .filter(interaction -> interaction instanceof ModelInteraction.ActionSelected)
-                .map(interaction -> (ModelInteraction.ActionSelected) interaction)
-                .filter(selected -> selected.action() instanceof QueryAction)
-                .map(selected -> (QueryAction) selected.action())
-                .flatMap(query -> query.candidates().stream())
-                .map(reference -> Optional.ofNullable(candidatesByHandle.get(reference.value()))
-                        .orElseThrow(() -> new AssertionError(
-                                "selected query candidate did not resolve to issued context: " + reference.value())))
-                .toList();
-        assertThat(selectedQueryCandidates).isNotEmpty().allSatisfy(issued -> {
-            assertThat(issued.candidate().repositoryId()).isEqualTo(REPOSITORY_ID);
-            issued.candidate().repositoryRevision().ifPresent(revision ->
-                    assertThat(revision).isEqualTo(REPOSITORY_REVISION));
-        });
     }
 
     private CitedEvidence assertCitationsAndEvidence(

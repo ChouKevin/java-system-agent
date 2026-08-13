@@ -103,7 +103,7 @@ class PlanningToolInboxIntegrationTest {
                     modelInvocations.incrementAndGet();
                     return new AgentActionProposal.Proposed(new QueryAction(
                             context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
-                            List.of(), "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
+                            "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
                 }, registry::execute, registry, transitions);
         RecordingInboxPort inbox = new RecordingInboxPort();
         SessionInboxProcessor processor = new SessionInboxProcessor(
@@ -166,7 +166,7 @@ class PlanningToolInboxIntegrationTest {
                     modelInvocations.incrementAndGet();
                     return new AgentActionProposal.Proposed(new QueryAction(
                             context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
-                            List.of(), "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
+                            "resolve", new CapabilityInputPayload("{ \"depth\" : 1 }"), "inspect"));
                 }, registry::execute, registry, transitions);
         AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
         InboxClaim interruptedClaim = claim();

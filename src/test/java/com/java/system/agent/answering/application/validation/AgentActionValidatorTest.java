@@ -41,20 +41,17 @@ class AgentActionValidatorTest {
     private final AgentActionValidator validator = new AgentActionValidator();
 
     @Test
-    void resolves_current_issued_candidate_values_in_model_order_without_replacing_action() {
+    void accepts_a_current_capability_without_query_candidate_authority() {
         Fixture fixture = fixture();
-        CandidateHandle second = candidate("candidate-2");
-        QueryAction action = new QueryAction(fixture.capability(),
-                List.of(new CandidateHandleRef(second.value()), new CandidateHandleRef(fixture.first().value())),
-                "resolve route", new CapabilityInputPayload("{}"), "inspect both candidates");
+        QueryAction action = new QueryAction(fixture.capability(), "resolve route", new CapabilityInputPayload("{}"),
+                "inspect payload target");
 
-        ActionValidation validation = validator.validate(action, fixture.context(Map.of(
-                fixture.first(), issued(fixture.first()), second, issued(second))));
+        ActionValidation validation = validator.validate(action, fixture.context(Map.of()));
 
         assertThat(validation).isInstanceOf(ActionValidation.Accepted.class);
         ActionValidation.Accepted accepted = (ActionValidation.Accepted) validation;
         assertThat(accepted.originalAction()).isSameAs(action);
-        assertThat(accepted.resolvedCandidates()).containsExactly(issued(second), issued(fixture.first()));
+        assertThat(accepted.resolvedCandidates()).isEmpty();
     }
 
     @Test
@@ -62,45 +59,34 @@ class AgentActionValidatorTest {
         Fixture fixture = fixture();
         CapabilityInputPayload payload = new CapabilityInputPayload("stable-payload");
         QueryAction previous = new QueryAction(
-                fixture.capability(), List.of(new CandidateHandleRef(fixture.first().value())),
-                "Initial wording", payload, "Initial rationale");
+                fixture.capability(), "Initial wording", payload, "Initial rationale");
         QueryAction retry = new QueryAction(
-                fixture.capability(), List.of(new CandidateHandleRef(fixture.first().value())),
-                "Retry wording", payload, "Retry after a typed failure");
+                fixture.capability(), "Retry wording", payload, "Retry after a typed failure");
         List<ModelInteraction> interactions = List.of(
                 new ModelInteraction.ActionSelected(fixture.binding().attemptId(), previous),
                 new ModelInteraction.ActionResultRecorded(fixture.binding().attemptId(),
                         new ActionResult.QueryFailed(List.of("attempt-1:O1"), "dependency unavailable")));
 
         ActionValidation validation = validator.validate(
-                retry, fixture.context(Map.of(fixture.first(), issued(fixture.first())), interactions));
+                retry, fixture.context(Map.of(), interactions));
 
-        assertThat(validation).isEqualTo(new ActionValidation.Accepted(retry, List.of(issued(fixture.first()))));
+        assertThat(validation).isEqualTo(new ActionValidation.Accepted(retry, List.of()));
     }
 
     @Test
-    void rejects_an_unmatched_raw_candidate_value() {
+    void rejects_a_repeated_successful_query_even_when_its_question_and_rationale_change() {
         Fixture fixture = fixture();
-        QueryAction action = new QueryAction(fixture.capability(), List.of(new CandidateHandleRef("unknown")),
-                "resolve route", new CapabilityInputPayload("{}"), "inspect candidate");
+        CapabilityInputPayload payload = new CapabilityInputPayload("{}");
+        QueryAction previous = new QueryAction(fixture.capability(), "first wording", payload, "first rationale");
+        QueryAction action = new QueryAction(fixture.capability(), "changed wording", payload, "changed rationale");
+        List<ModelInteraction> interactions = List.of(
+                new ModelInteraction.ActionSelected(fixture.binding().attemptId(), previous),
+                new ModelInteraction.ActionResultRecorded(fixture.binding().attemptId(),
+                        new ActionResult.QuerySucceeded(List.of(), List.of(), List.of())));
 
-        assertThat(validator.validate(action, fixture.context(Map.of(fixture.first(), issued(fixture.first())))))
-                .isEqualTo(new ActionValidation.Rejected(ActionRejectionCode.UNKNOWN_CANDIDATE,
-                        ActionRejectionCode.UNKNOWN_CANDIDATE.name(), action));
-    }
-
-    @Test
-    void rejects_candidate_values_that_resolve_to_an_incompatible_kind() {
-        Fixture fixture = fixture();
-        CandidateHandle repository = new CandidateHandle("repository", fixture.binding(), CandidateKind.REPOSITORY);
-        QueryAction action = new QueryAction(fixture.capability(), List.of(new CandidateHandleRef(repository.value())),
-                "resolve route", new CapabilityInputPayload("{}"), "inspect candidate");
-        IssuedCandidate issued = new IssuedCandidate(repository,
-                new com.java.system.agent.answering.domain.candidate.RepositoryCandidate(new RepositoryId("repo-1"), "Orders"));
-
-        assertThat(validator.validate(action, fixture.context(Map.of(repository, issued))))
-                .isEqualTo(new ActionValidation.Rejected(ActionRejectionCode.INCOMPATIBLE_CANDIDATE_KIND,
-                        ActionRejectionCode.INCOMPATIBLE_CANDIDATE_KIND.name(), action));
+        assertThat(validator.validate(action, fixture.context(Map.of(), interactions)))
+                .isEqualTo(new ActionValidation.Rejected(ActionRejectionCode.REPEATED_SUCCESSFUL_QUERY,
+                        ActionRejectionCode.REPEATED_SUCCESSFUL_QUERY.name(), action));
     }
 
     @Test

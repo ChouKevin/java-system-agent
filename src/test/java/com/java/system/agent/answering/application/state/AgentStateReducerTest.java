@@ -247,7 +247,7 @@ class AgentStateReducerTest {
     private QueryAction queryAction(AgentRunState state) {
         CapabilityHandle capability = new CapabilityHandle("capability-1", new HandleBinding(
                 state.runId(), state.currentAttempt().attemptId(), RevisionVector.empty()));
-        return new QueryAction(capability, List.of(), "Find the route", new CapabilityInputPayload("{}"),
+        return new QueryAction(capability, "Find the route", new CapabilityInputPayload("{}"),
                 "Need the entry point");
     }
 

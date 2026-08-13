@@ -314,7 +314,6 @@ class PlanningToolRegistryTest {
 
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.capability()).isEqualTo(sourceSegmentCapabilityHandle());
-        assertThat(action.candidates()).containsExactly(new CandidateHandleRef("candidate-follow-up"));
         assertThat(action.payload()).isEqualTo(boundPayload());
         assertThat(executorCalls).hasValue(0);
     }
@@ -446,7 +445,6 @@ class PlanningToolRegistryTest {
                                 + "constraints=[candidateHandles:CurrentlyAuthorizedCandidate]"));
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) registry.interpretToolCall(
                 "repository_mapper_test", candidateBoundInput("candidate-repository", 2), context)).action();
-        assertThat(action.candidates()).containsExactly(new CandidateHandleRef("candidate-repository"));
         assertThat(executorCalls).hasValue(0);
     }
 
@@ -473,10 +471,9 @@ class PlanningToolRegistryTest {
                         {"questionToResolve":"Inspect the repository metadata",
                          "rationale":"This query does not need a candidate"}
                         """, context)).action();
-        CapabilityExecutionResult result = registry.execute(new CapabilityInvocation(policy, List.of(),
+        CapabilityExecutionResult result = registry.execute(new CapabilityInvocation(policy,
                 action.questionToResolve(), action.payload(), binding().revisionVector()));
 
-        assertThat(action.candidates()).isEmpty();
         assertThat(result).isInstanceOf(CapabilityExecutionResult.Succeeded.class);
         assertThat(executorCalls).hasValue(1);
     }
@@ -485,7 +482,7 @@ class PlanningToolRegistryTest {
     void executesFollowUpOnlyRegistrationThroughTheCommonQueryExecutionIndex() {
         AtomicInteger executorCalls = new AtomicInteger();
         PlanningToolRegistry registry = followUpRegistry(executorCalls);
-        CapabilityInvocation invocation = new CapabilityInvocation(sourceSegmentPolicy(), List.of(),
+        CapabilityInvocation invocation = new CapabilityInvocation(sourceSegmentPolicy(),
                 "Read the continuation", boundPayload(), binding().revisionVector());
 
         CapabilityExecutionResult result = registry.execute(invocation);
@@ -512,7 +509,6 @@ class PlanningToolRegistryTest {
                 .extracting(PlanningToolRegistration::name)
                 .containsExactly("candidate_bound_test");
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
-        assertThat(action.candidates()).containsExactly(new CandidateHandleRef("candidate-method"));
         assertThat(action.questionToResolve()).isEqualTo("Find callers");
         assertThat(action.rationale()).isEqualTo("The selected method is the requested scope");
         assertThat(action.payload()).isEqualTo(payloadCodec().encode(new TestExecutionInput("runtime-owned-target", 2)));

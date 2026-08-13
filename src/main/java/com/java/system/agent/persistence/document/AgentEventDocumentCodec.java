@@ -14,7 +14,7 @@ import java.util.Objects;
  */
 public final class AgentEventDocumentCodec {
 
-    private static final int SCHEMA_VERSION = 12;
+    private static final int SCHEMA_VERSION = 13;
 
     private final ObjectMapper objectMapper;
     private final AgentDocumentMapper mapper;

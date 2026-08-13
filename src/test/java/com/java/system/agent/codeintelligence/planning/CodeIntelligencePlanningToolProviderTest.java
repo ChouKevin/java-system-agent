@@ -265,8 +265,8 @@ class CodeIntelligencePlanningToolProviderTest {
                 {"candidateHandles":["candidate-repository"],"questionToResolve":"Find payment concepts","rationale":"Locate payment rules","searchCriteria":{"terms":[{"value":"payment","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}}
                 """, conceptsContext));
 
-        assertThat(entryPointsAction.candidates()).containsExactly(new CandidateHandleRef("candidate-repository"));
-        assertThat(conceptsAction.candidates()).containsExactly(new CandidateHandleRef("candidate-repository"));
+        assertThat(entryPointsAction.payload().value()).isNotBlank();
+        assertThat(conceptsAction.payload().value()).isNotBlank();
     }
 
     @Test
@@ -577,7 +577,7 @@ class CodeIntelligencePlanningToolProviderTest {
         IssuedCandidate candidate = new IssuedCandidate(new CandidateHandle("candidate-follow-up",
                 new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions),
                 CandidateKind.FOLLOW_UP), followUp);
-        CapabilityInvocation invocation = new CapabilityInvocation(policy, List.of(candidate), "Trace call graph", payload,
+        CapabilityInvocation invocation = new CapabilityInvocation(policy, "Trace call graph", payload,
                 revisions);
         CapabilityExecutionResult expected = new CapabilityExecutionResult.Succeeded(List.of(), List.of(), List.of());
         when(adapter.outgoingCallGraph(any(CapabilityExecutionContext.class), eq(input))).thenReturn(expected);
@@ -588,7 +588,6 @@ class CodeIntelligencePlanningToolProviderTest {
         assertThat(result).isSameAs(expected);
         verify(adapter, times(1)).outgoingCallGraph(context.capture(), eq(input));
         assertThat(context.getValue().capability()).isEqualTo(policy);
-        assertThat(context.getValue().candidates()).containsExactly(candidate);
         assertThat(context.getValue().expectedRevisions()).isEqualTo(revisions);
     }
 
@@ -645,8 +644,6 @@ class CodeIntelligencePlanningToolProviderTest {
 
         assertThat(graphAction.payload()).isEqualTo(payloadCodec.encode(graphTunedInput));
         assertThat(graphOmittedDepthAction.payload()).isEqualTo(payloadCodec.encode(graphFollowUpInput));
-        assertThat(graphAction.candidates()).extracting(candidate -> candidate.value())
-                .containsExactly("candidate-graph-follow-up");
         assertThat(graphAction.questionToResolve()).isEqualTo("Trace order calls");
         assertThat(graphAction.rationale()).isEqualTo("Inspect downstream calls");
         assertThat(directConceptsAction.payload()).isEqualTo(payloadCodec.encode(directConceptsInput));
@@ -779,7 +776,7 @@ class CodeIntelligencePlanningToolProviderTest {
     private static CapabilityExecutionResult execute(PlanningToolRegistry registry, CapabilityPolicy policy,
                                                      IssuedCandidate candidate, QueryAction action,
                                                      RevisionVector revisions) {
-        return registry.execute(new CapabilityInvocation(policy, List.of(candidate), action.questionToResolve(),
+        return registry.execute(new CapabilityInvocation(policy, action.questionToResolve(),
                 action.payload(), revisions));
     }
 

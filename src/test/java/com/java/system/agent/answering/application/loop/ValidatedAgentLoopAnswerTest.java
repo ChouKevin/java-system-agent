@@ -172,7 +172,7 @@ class ValidatedAgentLoopAnswerTest {
         }
         if (context.observations().isEmpty()) {
             return new AgentActionProposal.Proposed(new QueryAction(
-                    context.issuedCapabilities().keySet().iterator().next(), List.of(),
+                    context.issuedCapabilities().keySet().iterator().next(),
                     "Determine whether the planned need is available", new CapabilityInputPayload("test"),
                     "Record availability"));
         }
@@ -1050,7 +1050,6 @@ class ValidatedAgentLoopAnswerTest {
             if (!context.observations().containsKey(availabilityObservationId)) {
                 return new AgentActionProposal.Proposed(new QueryAction(
                         context.issuedCapabilities().keySet().stream().findFirst().orElseThrow(),
-                        List.of(),
                         "Determine whether the planned need is available",
                         new CapabilityInputPayload("test"),
                         "Record availability"));

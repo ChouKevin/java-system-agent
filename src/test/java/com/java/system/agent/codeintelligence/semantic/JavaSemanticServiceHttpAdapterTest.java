@@ -841,8 +841,7 @@ class JavaSemanticServiceHttpAdapterTest {
                 new CandidateHandle("candidate-1", new HandleBinding(new AnalysisRunId("run-1"),
                         new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.REPOSITORY),
                 new RepositoryCandidate(repositoryId, "Orders"));
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(candidate),
-                "Find orders", revisions);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), "Find orders", revisions);
     }
 
     private static Stream<Arguments> discoveryFailureCases() {
@@ -973,7 +972,7 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     private static CapabilityExecutionContext candidateFreeContext(String name, RevisionVector revisions) {
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(), "Find orders", revisions);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), "Find orders", revisions);
     }
 
     private static CapabilityExecutionContext followUpContextWithPayload(String name, String payload) {
@@ -991,8 +990,7 @@ class JavaSemanticServiceHttpAdapterTest {
         IssuedCandidate candidate = new IssuedCandidate(new CandidateHandle("candidate-follow-up",
                 new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions),
                 CandidateKind.FOLLOW_UP), followUp);
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.FOLLOW_UP), List.of(candidate),
-                "Find orders", revisions);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.FOLLOW_UP), "Find orders", revisions);
     }
 
     private static void assertSucceeded(java.util.function.Supplier<CapabilityExecutionResult> request) {
@@ -1152,8 +1150,7 @@ class JavaSemanticServiceHttpAdapterTest {
                 new CandidateHandle("candidate-1", new HandleBinding(new AnalysisRunId("run-1"),
                         new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.REPOSITORY),
                 new RepositoryCandidate(repositoryId, "Orders"));
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), List.of(candidate),
-                "Find orders", revisions);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.REPOSITORY), "Find orders", revisions);
     }
 
     private static CapabilityExecutionContext targetContext(String name) {
@@ -1166,8 +1163,7 @@ class JavaSemanticServiceHttpAdapterTest {
                 new CandidateHandle("candidate-2", new HandleBinding(new AnalysisRunId("run-1"),
                         new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.SEMANTIC_TARGET),
                 new SemanticTargetCandidate(repositoryId, revision, target, "Order lookup"));
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), List.of(candidate),
-                "Trace orders", revisions);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), "Trace orders", revisions);
     }
 
     private static CapabilityExecutionContext sourceRangeContext(String name, SemanticDtos.SourceRangePayload location) {
@@ -1179,8 +1175,7 @@ class JavaSemanticServiceHttpAdapterTest {
                 new CandidateHandle("candidate-range", new HandleBinding(new AnalysisRunId("run-1"),
                         new AnalysisAttemptId("attempt-1"), revisions), CandidateKind.SEMANTIC_TARGET),
                 new SemanticTargetCandidate(repositoryId, revision, target, "Source range"));
-        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), List.of(candidate),
-                "Read source", revisions);
+        return new CapabilityExecutionContext(descriptor(name, CandidateKind.SEMANTIC_TARGET), "Read source", revisions);
     }
 
     private static CapabilityPolicy descriptor(String name, CandidateKind candidateKind) {

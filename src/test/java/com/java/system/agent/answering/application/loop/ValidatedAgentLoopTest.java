@@ -113,7 +113,6 @@ class ValidatedAgentLoopTest {
             }
             return new AgentActionProposal.Proposed(new QueryAction(
                     context.issuedCapabilities().keySet().iterator().next(),
-                    List.of(new CandidateHandleRef(context.issuedCandidates().keySet().iterator().next().value())),
                     "Trace the repository flow", new CapabilityInputPayload("trace"), "Need repository evidence"));
         };
         CapabilityExecutionPort capabilityExecution = invocation -> {

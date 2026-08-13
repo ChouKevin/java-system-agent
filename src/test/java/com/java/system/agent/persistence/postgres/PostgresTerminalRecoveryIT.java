@@ -373,7 +373,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                     }
                     if (actionCall == 2) {
                         return new AgentActionProposal.Proposed(new QueryAction(
-                                context.issuedCapabilities().keySet().iterator().next(), List.of(),
+                                context.issuedCapabilities().keySet().iterator().next(),
                                 "Find repository evidence", new CapabilityInputPayload("test"), "Need evidence"));
                     }
                     EvidenceHandleRef evidenceHandle = new EvidenceHandleRef(

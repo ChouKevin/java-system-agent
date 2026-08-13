@@ -123,13 +123,13 @@ class SpringAiAgentActionAdapterTest {
         AgentPromptContext promptContext = contextWithInteractions(List.of(
                 new ModelInteraction.ActionSelected(priorAttemptId, new QueryAction(
                         new CapabilityHandle("cap-1", binding("attempt-0", "rev-1")),
-                        List.of(new CandidateHandleRef("candidate-1")), "Changed question secret",
+                        "Changed question secret",
                         new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
                         "Prior attempt rationale secret")),
                 new ModelInteraction.ActionResultRecorded(priorAttemptId,
                         new ActionResult.QuerySucceeded(List.of(), List.of(), List.of())),
                 new ModelInteraction.ActionSelected(attemptId, new QueryAction(capability(),
-                        List.of(new CandidateHandleRef("candidate-1")), "Previous question secret",
+                        "Previous question secret",
                         new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
                         "Previous rationale secret")),
                 new ModelInteraction.ActionResultRecorded(attemptId,
@@ -217,20 +217,20 @@ class SpringAiAgentActionAdapterTest {
 
     @Test
     void fingerprintsAllActionTypesBySemanticFieldsOnly() {
-        QueryAction query = new QueryAction(capability(), List.of(new CandidateHandleRef("candidate-1")),
+        QueryAction query = new QueryAction(capability(),
                 "Original question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
                 "Original rationale");
-        QueryAction queryWithChangedProse = new QueryAction(capability(), List.of(new CandidateHandleRef("candidate-1")),
+        QueryAction queryWithChangedProse = new QueryAction(capability(),
                 "Changed question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
                 "Changed rationale");
         QueryAction queryWithChangedRationale = new QueryAction(
-                capability(), List.of(new CandidateHandleRef("candidate-1")), "Original question",
+                capability(), "Original question",
                 new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"), "Changed rationale");
-        QueryAction queryWithChangedPayload = new QueryAction(capability(), List.of(new CandidateHandleRef("candidate-1")),
+        QueryAction queryWithChangedPayload = new QueryAction(capability(),
                 "Original question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-2\"]}"),
                 "Original rationale");
         QueryAction queryWithChangedCapability = new QueryAction(
-                new CapabilityHandle("cap-2", capability().binding()), List.of(new CandidateHandleRef("candidate-1")),
+                new CapabilityHandle("cap-2", capability().binding()),
                 "Original question", new CapabilityInputPayload("{\"candidateHandles\":[\"candidate-1\"]}"),
                 "Original rationale");
         ExecuteAction execute = new ExecuteAction(ExternalHttpMethod.POST, "https://service.example/orders",
@@ -283,11 +283,11 @@ class SpringAiAgentActionAdapterTest {
         HandleBinding reissuedBinding = binding("attempt-1", "rev-2");
         QueryAction originalRevisionQuery = new QueryAction(
                 new CapabilityHandle("attempt-1:C1", originalBinding),
-                List.of(new CandidateHandleRef("attempt-1:R1")), "Original question",
+                "Original question",
                 new CapabilityInputPayload("{\"candidateHandles\":[\"repository\"]}"), "Original rationale");
         QueryAction reissuedRevisionQuery = new QueryAction(
                 new CapabilityHandle("attempt-1:C1", reissuedBinding),
-                List.of(new CandidateHandleRef("attempt-1:R1")), "Original question",
+                "Original question",
                 new CapabilityInputPayload("{\"candidateHandles\":[\"repository\"]}"), "Original rationale");
         assertThat(fingerprint(originalRevisionQuery)).isEqualTo(fingerprint(reissuedRevisionQuery));
     }
@@ -307,7 +307,7 @@ class SpringAiAgentActionAdapterTest {
         assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
         QueryAction action = (QueryAction) ((AgentActionProposal.Proposed) proposal).action();
         assertThat(action.capability().value()).isEqualTo("cap-1");
-        assertThat(action.candidates()).extracting(candidateHandleReference -> candidateHandleReference.value()).containsExactly("candidate-2", "candidate-1");
+        assertThat(action.payload().value()).isNotBlank();
         assertThat(model.calls()).isEqualTo(1);
     }
 

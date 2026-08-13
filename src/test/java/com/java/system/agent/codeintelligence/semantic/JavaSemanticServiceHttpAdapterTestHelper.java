@@ -47,7 +47,7 @@ final class JavaSemanticServiceHttpAdapterTestHelper {
                 new SemanticTargetCandidate(repositoryId, revision, target, "Order lookup"));
         CapabilityPolicy capability = new CapabilityPolicy("codebase_outgoing_call_graph", "v1",
                 Set.of(CandidateKind.SEMANTIC_TARGET), 1, 1);
-        return new CapabilityInvocation(capability, List.of(candidate), "Trace orders",
+        return new CapabilityInvocation(capability, "Trace orders",
                 new CapabilityInputPayload("{\"depth\":1}"), revisions);
     }
 }

@@ -69,7 +69,7 @@ class LatestAnswerFeedbackProjectorTest {
 
     private static QueryAction queryAction() {
         HandleBinding binding = new HandleBinding(RUN_ID, ATTEMPT_ID, RevisionVector.empty());
-        return new QueryAction(new CapabilityHandle("capability-1", binding), List.of(), "resolve query",
+        return new QueryAction(new CapabilityHandle("capability-1", binding), "resolve query",
                 new CapabilityInputPayload("{}"), "need evidence");
     }
 }

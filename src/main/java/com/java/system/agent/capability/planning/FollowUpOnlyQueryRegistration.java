@@ -87,8 +87,7 @@ public final class FollowUpOnlyQueryRegistration<E>
         }
         ProviderBoundFollowUp.Selection selection = ProviderBoundFollowUp.selection(context, policy, reference)
                 .orElseThrow(FollowUpOnlyQueryRegistration::invalidFollowUpSelection);
-        return new QueryAction(selection.capability(), List.of(selection.candidateReference()), input.questionToResolve(),
-                selection.providerPayload(), input.rationale());
+        return new QueryAction(selection.capability(), input.questionToResolve(), selection.providerPayload(), input.rationale());
     }
 
     private static PlanningToolInputException invalidFollowUpSelection() {

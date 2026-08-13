@@ -83,7 +83,6 @@ class QueryActionExecutorTest {
                         () -> List.of(repositoryDescriptor()),
                         repositoryId -> RepositoryRevisionResult.ready(REPOSITORY_REVISION)),
                 new FakeCancellationAdapter(),
-                new FakeAttemptIdGenerator(),
                 contextIssuer,
                 transitions,
                 new TerminalResponseCoordinator(transitions, new FakeSessionAdapter()));
@@ -95,10 +94,7 @@ class QueryActionExecutorTest {
                 request(),
                 selectedState,
                 action,
-                List.copyOf(selectedState.currentAttempt().issuedCandidates().values()),
                 1,
-                List.of(CAPABILITY),
-                List.of(repositoryDescriptor()),
                 Set.of(REPOSITORY_ID)))
                 .isInstanceOf(AnswerExecutionContractException.class)
                 .satisfies(throwable -> {
@@ -136,7 +132,6 @@ class QueryActionExecutorTest {
     private QueryAction query(AgentRunState state) {
         return new QueryAction(
                 state.currentAttempt().issuedCapabilities().keySet().iterator().next(),
-                List.of(new CandidateHandleRef(state.currentAttempt().issuedCandidates().keySet().iterator().next().value())),
                 "Trace the repository flow",
                 new CapabilityInputPayload("trace"),
                 "Need repository evidence");

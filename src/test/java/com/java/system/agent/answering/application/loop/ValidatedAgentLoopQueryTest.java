@@ -163,13 +163,15 @@ class ValidatedAgentLoopQueryTest {
     }
 
     @Test
-    void invalidatesThePinnedAttemptBeforeExecutingAQueryAgainstADriftedRevision() {
+    void executesAgainstThePinnedAttemptWithoutResolvingTheRevisionAgain() {
         AtomicInteger capabilityCalls = new AtomicInteger();
         List<AgentPromptContext> prompts = new ArrayList<>();
         RecordingTransitionPort transitions = new RecordingTransitionPort();
         ValidatedAgentLoop loop = loop(
                 transitions,
-                new SequencedRevisionPort("rev-2"),
+                repositoryId -> {
+                    throw new AssertionError("QUERY execution must use the pinned attempt revision");
+                },
                 new FakeAttemptIdGenerator()
                         .register(new AnalysisAttemptId("attempt-2")),
                 invocation -> {
@@ -182,21 +184,22 @@ class ValidatedAgentLoopQueryTest {
         AgentLoopResult result = loop.execute(capacityResumeRequest());
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
-        assertThat(capabilityCalls).hasValue(0);
+        assertThat(capabilityCalls).hasValue(1);
         List<Class<?>> eventTypes = eventTypes(transitions.events());
         assertThat(eventTypes)
                 .containsSubsequence(
                         AgentEvent.ActionSelected.class,
-                        AgentEvent.ActionResultRecorded.class,
-                        AgentEvent.AttemptInvalidated.class,
-                        AgentEvent.AttemptStarted.class);
-        assertThat(transitions.state(RUN_ID).attemptSequence()).isEqualTo(2);
+                        AgentEvent.ActionAccepted.class,
+                        AgentEvent.QueryBudgetConsumed.class,
+                        AgentEvent.ContextIssued.class);
+        assertThat(eventTypes).doesNotContain(AgentEvent.AttemptInvalidated.class);
+        assertThat(transitions.state(RUN_ID).attemptSequence()).isEqualTo(1);
         assertThat(prompts).hasSize(2);
-        assertThat(prompts.get(1).attemptId()).isEqualTo(new AnalysisAttemptId("attempt-2"));
+        assertThat(prompts.get(1).attemptId()).isEqualTo(new AnalysisAttemptId("attempt-1"));
         assertThat(transitions.state(RUN_ID).modelInteractions()).containsSubsequence(
                 new ModelInteraction.ActionSelected(new AnalysisAttemptId("attempt-1"), query(prompts.get(0))),
                 new ModelInteraction.ActionResultRecorded(new AnalysisAttemptId("attempt-1"),
-                        new ActionResult.QueryInvalidated("selected repository revision changed")));
+                        new ActionResult.QuerySucceeded(List.of(), List.of(), List.of())));
     }
 
     @Test
@@ -220,7 +223,6 @@ class ValidatedAgentLoopQueryTest {
         AgentRunState running = transitions.state(RUN_ID);
         QueryAction selectedQuery = new QueryAction(
                 running.currentAttempt().issuedCapabilities().keySet().iterator().next(),
-                List.of(new CandidateHandleRef(running.currentAttempt().issuedCandidates().keySet().iterator().next().value())),
                 "Trace the repository flow", new CapabilityInputPayload("trace"), "Need repository evidence");
         new AgentTransitionCommitter(new AgentStateReducer(), transitions).apply(running, new AgentEvent.ActionSelected(
                 running.runId(), running.currentAttempt().attemptId(), running.stateRevision(), selectedQuery));
@@ -327,8 +329,7 @@ class ValidatedAgentLoopQueryTest {
         assertThat(result.outcome()).isEqualTo(RunOutcome.COMPLETED);
         assertThat(invocations).extracting(CapabilityInvocation::payload)
                 .containsExactly(firstPayload, followUpPayload);
-        assertThat(invocations.get(1).candidates()).extracting(IssuedCandidate::candidate)
-                .containsExactly(followUp);
+        assertThat(invocations.get(1).expectedRevisions().repositoryIds()).containsExactly(REPOSITORY_ID);
         assertThat(transitions.events()).filteredOn(AgentEvent.QueryBudgetConsumed.class::isInstance).hasSize(2);
         assertThat(prompts).hasSize(3);
         assertThat(prompts.get(1).issuedCandidates().values())
@@ -589,19 +590,12 @@ class ValidatedAgentLoopQueryTest {
             String rationale) {
         return new QueryAction(
                 context.issuedCapabilities().keySet().iterator().next(),
-                List.of(new CandidateHandleRef(context.issuedCandidates().keySet().iterator().next().value())),
                 questionToResolve, payload, rationale);
     }
 
     private QueryAction followUpQuery(AgentPromptContext context, CapabilityInputPayload payload) {
-        CandidateHandleRef followUpHandle = context.issuedCandidates().entrySet().stream()
-                .filter(entry -> entry.getValue().candidate() instanceof FollowUpCandidate)
-                .map(entry -> new CandidateHandleRef(entry.getKey().value()))
-                .findFirst()
-                .orElseThrow();
         return new QueryAction(
                 context.issuedCapabilities().keySet().iterator().next(),
-                List.of(followUpHandle),
                 "Read the discovered follow-up", payload, "Need follow-up evidence");
     }
 

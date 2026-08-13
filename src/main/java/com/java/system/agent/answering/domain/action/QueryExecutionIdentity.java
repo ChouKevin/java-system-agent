@@ -2,9 +2,6 @@ package com.java.system.agent.answering.domain.action;
 
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
-import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
-
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -12,14 +9,11 @@ import java.util.Objects;
  */
 public record QueryExecutionIdentity(
         CapabilityHandle capability,
-        List<CandidateHandleRef> candidates,
         CapabilityInputPayload payload) {
 
     public QueryExecutionIdentity {
         Objects.requireNonNull(capability, "query execution capability must not be null");
-        Objects.requireNonNull(candidates, "query execution candidates must not be null");
         Objects.requireNonNull(payload, "query execution payload must not be null");
-        candidates = List.copyOf(candidates);
     }
 
     /**
@@ -27,6 +21,6 @@ public record QueryExecutionIdentity(
      */
     public static QueryExecutionIdentity from(QueryAction action) {
         Objects.requireNonNull(action, "query action must not be null");
-        return new QueryExecutionIdentity(action.capability(), action.candidates(), action.payload());
+        return new QueryExecutionIdentity(action.capability(), action.payload());
     }
 }

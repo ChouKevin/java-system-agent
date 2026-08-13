@@ -23,21 +23,17 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 class AgentActionTest {
 
     @Test
-    void preserves_raw_candidate_values_in_original_order() {
-        List<CandidateHandleRef> candidates = new ArrayList<>(List.of(new CandidateHandleRef("candidate-1")));
+    void preserves_the_candidate_free_query_execution_contract() {
+        QueryAction action = new QueryAction(capability(), "Find the route", new CapabilityInputPayload("{}"),
+                "Need the entry point");
 
-        QueryAction action = new QueryAction(capability(), candidates, "Find the route",
-                new CapabilityInputPayload("{}"), "Need the entry point");
-        candidates.clear();
-
-        assertThat(action.candidates()).containsExactly(new CandidateHandleRef("candidate-1"));
+        assertThat(action.questionToResolve()).isEqualTo("Find the route");
     }
 
     @Test
     void permits_clarification_without_candidates() {
         ClarifyAction action = new ClarifyAction("Which order route?", List.of(), "Multiple repositories remain plausible");
 
-        assertThat(action.candidates()).isEmpty();
     }
 
     @Test
