@@ -17,7 +17,7 @@ import java.util.Optional;
 /** provider follow-up 專用的型別成員探索 input */
 public record DiscoverTypeMembersExecutionInput(
         @NotNull @Valid SemanticDtos.SourceTypeIdentityPayload sourceType,
-        @NotEmpty List<@NotBlank @Pattern(regexp = "METHOD|FIELD") String> memberKinds,
+        @NotEmpty List<@NotBlank @Pattern(regexp = "METHOD|FIELD|ENUM_CONSTANT|RECORD_COMPONENT") String> memberKinds,
         Optional<String> namePrefix,
         @Min(0) int offset,
         @Min(1) @Max(100) int limit) {

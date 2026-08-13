@@ -166,6 +166,8 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 .containsExactlyInAnyOrder("object", "null");
         assertThat(initialFilter.path("required")).extracting(JsonNode::asText).doesNotContain("namePrefix");
         assertThat(memberKinds.path("minItems").asInt()).isEqualTo(1);
+        assertThat(memberKinds.path("items").path("enum")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("METHOD", "FIELD", "ENUM_CONSTANT", "RECORD_COMPONENT");
         assertThat(namePrefix.path("minLength").asInt()).isEqualTo(1);
         assertThat(initialFilter.at("/properties/namePrefix/pattern").isMissingNode()).isTrue();
         assertThat(namePrefix.path("type")).extracting(JsonNode::asText)

@@ -42,6 +42,8 @@ public record DiscoverTypeMembersPlanningInput(
     /** provider 支援的型別成員種類 */
     public enum MemberKind {
         METHOD,
-        FIELD
+        FIELD,
+        ENUM_CONSTANT,
+        RECORD_COMPONENT
     }
 }

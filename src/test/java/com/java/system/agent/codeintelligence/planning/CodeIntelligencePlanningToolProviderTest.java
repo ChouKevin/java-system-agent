@@ -330,7 +330,7 @@ class CodeIntelligencePlanningToolProviderTest {
         CapabilityPolicy policy = policy(registry, CodeIntelligenceQuery.DISCOVER_TYPE_MEMBERS);
         IssuedCandidate direct = semanticTargetCandidate("candidate-method", binding, repositoryId, revision);
         DiscoverTypeMembersExecutionInput directInput = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
-                List.of("FIELD"), Optional.of("order"), 0, 7);
+                List.of("ENUM_CONSTANT", "RECORD_COMPONENT"), Optional.of("order"), 0, 7);
         DiscoverTypeMembersExecutionInput firstPage = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
                 List.of("METHOD"), Optional.of("find"), 0, 1);
         DiscoverTypeMembersExecutionInput continuation = new DiscoverTypeMembersExecutionInput(graphTarget().sourceType(),
@@ -345,10 +345,10 @@ class CodeIntelligencePlanningToolProviderTest {
                 .contains(policy.name());
 
         QueryAction directAction = queryAction(registry.interpretToolCall(policy.name(), """
-                {"candidateHandles":["candidate-method"],"questionToResolve":"Inspect fields","rationale":"Read the owning type","initialFilter":{"memberKinds":["FIELD"],"namePrefix":"order"},"limit":7}
+                {"candidateHandles":["candidate-method"],"questionToResolve":"Inspect members","rationale":"Read the owning type","initialFilter":{"memberKinds":["ENUM_CONSTANT","RECORD_COMPONENT"],"namePrefix":"order"},"limit":7}
                 """, promptContext(policy, direct, binding)));
         QueryAction firstPageAction = queryAction(registry.interpretToolCall(policy.name(), """
-                {"candidateHandles":["candidate-members-first"],"questionToResolve":"Inspect fields","rationale":"Refine the first page","initialFilter":{"memberKinds":["FIELD"],"namePrefix":"order"},"limit":7}
+                {"candidateHandles":["candidate-members-first"],"questionToResolve":"Inspect members","rationale":"Refine the first page","initialFilter":{"memberKinds":["ENUM_CONSTANT","RECORD_COMPONENT"],"namePrefix":"order"},"limit":7}
                 """, promptContext(policy, firstPageFollowUp, binding)));
         QueryAction continuationAction = queryAction(registry.interpretToolCall(policy.name(), """
                 {"candidateHandles":["candidate-members-next"],"questionToResolve":"Inspect more methods","rationale":"Continue the provider page","limit":9}
