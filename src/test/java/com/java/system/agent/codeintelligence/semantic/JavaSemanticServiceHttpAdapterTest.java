@@ -213,6 +213,29 @@ class JavaSemanticServiceHttpAdapterTest {
     }
 
     @Test
+    void decodesAndProjectsExactValueTypeMemberHttpResponses() {
+        TestClient client = testClient();
+        DiscoverTypeMembersExecutionInput input = new DiscoverTypeMembersExecutionInput(
+                targetPayload().sourceType(), List.of("ENUM_CONSTANT", "RECORD_COMPONENT"), Optional.empty(), 0, 10);
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/type-members"))
+                .andExpect(method(POST))
+                .andRespond(withSuccess(valueMembersSuccess(), MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) adapter.discoverTypeMembers(
+                followUpContext("codebase_discover_type_members", input), input);
+
+        assertThat(result.evidence()).extracting(evidence -> evidence.semanticTarget().sourceRange().orElseThrow().startLine())
+                .containsExactly(3, 5);
+        assertThat(result.evidence()).extracting(EvidenceRef::content)
+                .anySatisfy(content -> assertThat(content).contains("kind=ENUM_CONSTANT", "member=CARD"))
+                .anySatisfy(content -> assertThat(content).contains(
+                        "kind=RECORD_COMPONENT", "writtenType=String", "resolvedType=java.lang.String"));
+        assertThat(result.discoveredCandidates()).hasSize(2).allMatch(FollowUpCandidate.class::isInstance);
+        client.server().verify();
+    }
+
+    @Test
     void executesBothCallGraphsForAFollowUpCandidateWithItsBoundTargetAndPinnedScope() {
         TestClient client = testClient();
         SemanticDtos.MethodTargetPayload target = graphTargetPayload();
@@ -1064,6 +1087,12 @@ class JavaSemanticServiceHttpAdapterTest {
     private static String membersSuccess() {
         return """
                 {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"typeKind":"CLASS","annotations":[],"implementedTypes":[],"extendedTypes":[],"members":[],"page":{"offset":0,"limit":1,"returnedCount":0,"totalCount":0,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":0,"extractedFileCount":0,"syntaxFailedFileCount":0},"availableFollowUps":[]}
+                """;
+    }
+
+    private static String valueMembersSuccess() {
+        return """
+                {"repoId":"orders","analyzedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"typeKind":"RECORD","annotations":[],"implementedTypes":[],"extendedTypes":[],"members":[{"kind":"ENUM_CONSTANT","identity":{"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"name":"CARD"},"declarationRange":{"start":{"line":2,"character":4},"end":{"line":2,"character":8}},"annotations":[],"availableFollowUps":[{"operation":"FIND_INTERNAL_REFERENCES","api":{"method":"POST","path":"/v1/discovery/internal-references","operationId":"findInternalReferences"},"request":{"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":{"kind":"MEMBER","identity":{"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"name":"CARD"}},"offset":0,"limit":50}}]},{"kind":"RECORD_COMPONENT","identity":{"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"name":"reference"},"writtenType":"String","resolvedType":"java.lang.String","declarationRange":{"start":{"line":4,"character":13},"end":{"line":4,"character":22}},"annotations":[],"availableFollowUps":[{"operation":"FIND_INTERNAL_REFERENCES","api":{"method":"POST","path":"/v1/discovery/internal-references","operationId":"findInternalReferences"},"request":{"repoId":"orders","expectedRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target":{"kind":"MEMBER","identity":{"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"name":"reference"}},"offset":0,"limit":50}}]}],"page":{"offset":0,"limit":10,"returnedCount":2,"totalCount":2,"hasMore":false},"coverage":{"status":"COMPLETE","scannedFileCount":1,"extractedFileCount":1,"syntaxFailedFileCount":0},"availableFollowUps":[]}
                 """;
     }
 

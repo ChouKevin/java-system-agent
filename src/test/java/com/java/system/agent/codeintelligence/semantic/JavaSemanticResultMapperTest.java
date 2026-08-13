@@ -348,6 +348,43 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void acceptsProviderContinuationsForValueTypeMemberKinds() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Order");
+        SemanticDtos.AvailableFollowUp continuation = new SemanticDtos.AvailableFollowUp(
+                "DISCOVER_TYPE_MEMBERS",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/type-members", "discoverTypeMembers"),
+                new SemanticDtos.TypeMembersFollowUpRequest("orders", REVISION, sourceType,
+                        List.of("ENUM_CONSTANT", "RECORD_COMPONENT"), Optional.empty(), 10, 10));
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
+                sourceType, "RECORD", List.of(), List.of(), List.of(), List.of(),
+                new SemanticDtos.PageResponse(0, 10, 10, 20, true),
+                new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0), List.of(continuation)));
+
+        assertThat(result.discoveredCandidates()).singleElement().isInstanceOf(FollowUpCandidate.class);
+    }
+
+    @Test
+    void deduplicatesRepeatedValueTypeMemberEvidenceBeforeStrictCapabilityIssuance() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Order");
+        SemanticDtos.SourceMemberIdentityPayload.TypeMember identity =
+                new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", sourceType, "CARD");
+        SemanticDtos.EnumConstantTypeMemberResponse repeated = new SemanticDtos.EnumConstantTypeMemberResponse(
+                "ENUM_CONSTANT", identity, textRange(2, 4, 2, 8), List.of(), List.of());
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
+                sourceType, "ENUM", List.of(), List.of(), List.of(), List.of(repeated, repeated),
+                new SemanticDtos.PageResponse(0, 10, 2, 2, false),
+                new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0), List.of()));
+
+        assertThat(result.evidence()).hasSize(1);
+    }
+
+    @Test
     void marks_only_complete_unpaged_empty_type_member_results_as_unsupported_claims() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Order");

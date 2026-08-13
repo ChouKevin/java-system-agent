@@ -280,7 +280,7 @@ public final class JavaSemanticResultMapper {
         RepositoryId repositoryId = expectedRepositoryId;
         RepositoryRevision revision = expectedRevision;
         List<AnalysisCandidate> candidates = new ArrayList<>();
-        List<EvidenceRef> evidence = new ArrayList<>();
+        Set<EvidenceRef> evidence = new LinkedHashSet<>();
         List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(),
                 required.coverage().status()));
         for (SemanticDtos.TypeMemberResponse member : required.members()) {
@@ -309,7 +309,7 @@ public final class JavaSemanticResultMapper {
             observations.add(observation(ObservationCode.UNSUPPORTED_CLAIM,
                     "complete type member discovery returned no members", List.of()));
         }
-        return succeeded(candidates, evidence, List.copyOf(observations));
+        return succeeded(candidates, new ArrayList<>(evidence), List.copyOf(observations));
     }
 
     /** 投影 provider 的內部 reference 結果 */

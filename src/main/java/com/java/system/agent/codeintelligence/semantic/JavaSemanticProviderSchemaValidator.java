@@ -969,7 +969,7 @@ final class JavaSemanticProviderSchemaValidator {
             throw contract("member kinds must be nonempty and distinct");
         }
         for (String kind : kinds) {
-            enumValue(kind, Set.of("METHOD", "FIELD"), "member kind");
+            enumValue(kind, Set.of("METHOD", "FIELD", "ENUM_CONSTANT", "RECORD_COMPONENT"), "member kind");
         }
     }
 
