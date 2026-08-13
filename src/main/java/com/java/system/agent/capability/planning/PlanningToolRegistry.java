@@ -174,8 +174,19 @@ public final class PlanningToolRegistry implements CapabilityCatalogPort {
         if (planningPhase) {
             return registration.descriptor().category() == PlanningToolCategory.PLAN;
         }
-        return registration.descriptor().category() != PlanningToolCategory.PLAN
+        PlanningToolCategory category = registration.descriptor().category();
+        return category != PlanningToolCategory.PLAN
+                && isAllowedByTerminalStepReservation(category, context)
                 && registration.isIssued(context);
+    }
+
+    private static boolean isAllowedByTerminalStepReservation(
+            PlanningToolCategory category,
+            AgentPromptContext context) {
+        int remainingAgentSteps = context.budget().maxAgentSteps() - context.budget().usedAgentSteps();
+        return remainingAgentSteps > 1
+                || category == PlanningToolCategory.ANSWER
+                || category == PlanningToolCategory.CLARIFY;
     }
 
     private <E> CapabilityExecutionResult executeTyped(

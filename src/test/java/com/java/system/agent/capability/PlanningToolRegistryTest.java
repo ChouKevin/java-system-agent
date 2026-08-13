@@ -90,6 +90,19 @@ class PlanningToolRegistryTest {
     }
 
     @Test
+    void reserves_the_final_agent_step_for_answer_or_clarification() {
+        PlanningToolRegistry registry = registry();
+        RevisionVector revisions = RevisionVector.empty().pin(new RepositoryId("repository-a"),
+                new RepositoryRevision("revision-a"));
+        AttemptBudget finalStepBudget = new AttemptBudget(10, 9, 10, 0, 10, 0, 10, 0, 10, 0);
+
+        assertThat(registry.issuedTools(plannedContext(revisions, finalStepBudget)))
+                .containsExactlyInAnyOrder(
+                        new IssuedPlanningTool("agent_submit_answer"),
+                        new IssuedPlanningTool("agent_request_clarification"));
+    }
+
+    @Test
     void preserves_clarification_candidate_selection() {
         PlanningToolRegistry registry = registry();
         AgentActionProposal proposal = registry.interpretToolCall("agent_request_clarification", """
@@ -131,22 +144,33 @@ class PlanningToolRegistryTest {
     }
 
     private static AgentPromptContext plannedContext(RevisionVector revisions) {
+        return plannedContext(revisions, new AttemptBudget(10, 0, 10, 0, 10, 0, 10, 0, 10, 0));
+    }
+
+    private static AgentPromptContext plannedContext(RevisionVector revisions, AttemptBudget budget) {
         return context(revisions, List.of(new com.java.system.agent.answering.domain.run.ModelInteraction.ActionResultRecorded(
                 new AnalysisAttemptId("attempt-1"), new com.java.system.agent.answering.domain.run.ActionResult.QuestionPlanRecorded(
                 new com.java.system.agent.answering.domain.plan.QuestionPlan(List.of(new com.java.system.agent.answering.domain.plan.InformationNeed(
-                        new com.java.system.agent.answering.domain.plan.InformationNeedId("need-1"), "Need")))))));
+                        new com.java.system.agent.answering.domain.plan.InformationNeedId("need-1"), "Need")))))), budget);
     }
 
     private static AgentPromptContext context(
             RevisionVector revisions,
             List<com.java.system.agent.answering.domain.run.ModelInteraction> interactions) {
+        return context(revisions, interactions, new AttemptBudget(10, 0, 10, 0, 10, 0, 10, 0, 10, 0));
+    }
+
+    private static AgentPromptContext context(
+            RevisionVector revisions,
+            List<com.java.system.agent.answering.domain.run.ModelInteraction> interactions,
+            AttemptBudget budget) {
         AnalysisRunId runId = new AnalysisRunId("run-1");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         CapabilityPolicy policy = new CapabilityPolicy("query_tool", "v1");
         CapabilityHandle handle = new CapabilityHandle("capability-query", new HandleBinding(runId, attemptId, revisions));
         return new AgentPromptContext("Question", SessionHistory.empty(), runId, attemptId,
                 Map.of(handle, policy), Map.of(), Map.of(), Map.of(), interactions, Optional.empty(),
-                new AttemptBudget(10, 0, 10, 0, 10, 0, 10, 0, 10, 0));
+                budget);
     }
 
     private static CanonicalCapabilityPayloadCodec payloadCodec() {

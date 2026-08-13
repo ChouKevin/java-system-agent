@@ -53,12 +53,14 @@ class ExecutePlanningToolRegistrationTest {
     @Test
     void issuesExecuteToolOnlyWhileIndependentExecuteBudgetRemains() {
         PlanningToolRegistry registry = registry();
-        AgentPromptContext exhaustedAgentAndQuery = context(0, 3, 3);
+        AgentPromptContext exhaustedQuery = context(0, 1, 3);
+        AgentPromptContext reservedTerminalStep = context(0, 2, 3);
         AgentPromptContext exhaustedExecute = context(1);
 
-        assertThat(registry.issuedRegistrations(exhaustedAgentAndQuery))
+        assertThat(registry.issuedRegistrations(exhaustedQuery))
                 .extracting(registration -> registration.name())
                 .containsExactly("execute_http");
+        assertThat(registry.issuedRegistrations(reservedTerminalStep)).isEmpty();
         assertThat(registry.issuedRegistrations(exhaustedExecute)).isEmpty();
     }
 
