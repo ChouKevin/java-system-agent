@@ -344,6 +344,8 @@ class AgentWorkerManagerTest {
     void stopsBothClaimLoopsWhenTheComposedDeliveryWorkServiceCannotRecoverItsExactClaim() throws Exception {
         CountDownLatch recoveryAttempted = new CountDownLatch(1);
         CountDownLatch stopped = new CountDownLatch(1);
+        AtomicBoolean runningWhenClaimAdmissionStopped = new AtomicBoolean();
+        AtomicReference<AgentWorkerManager> managerReference = new AtomicReference<>();
         AtomicInteger inboxClaims = new AtomicInteger();
         AtomicInteger deliveryClaims = new AtomicInteger();
         ClaimAdmissionCoordinator claimAdmission = new ClaimAdmissionCoordinator();
@@ -376,6 +378,7 @@ class AgentWorkerManagerTest {
                 deliveryOutbox, deliveryProcessor, claimAdmission);
         StopClaimingUseCase stopClaiming = () -> {
             claimAdmission.stopClaiming();
+            runningWhenClaimAdmissionStopped.set(managerReference.get().isRunning());
             stopped.countDown();
         };
         AgentWorkerManager manager = manager(
@@ -384,11 +387,13 @@ class AgentWorkerManagerTest {
                 deliveryWorkService::processNext,
                 Duration.ofMillis(20),
                 stopClaiming);
+        managerReference.set(manager);
 
         manager.start();
 
         assertThat(recoveryAttempted.await(1, TimeUnit.SECONDS)).isTrue();
         assertThat(stopped.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(runningWhenClaimAdmissionStopped).isFalse();
         assertThat(manager.isRunning()).isFalse();
         int inboxClaimsAtStop = inboxClaims.get();
         int deliveryClaimsAtStop = deliveryClaims.get();

@@ -199,9 +199,9 @@ public final class AgentWorkerManager implements SmartLifecycle {
     }
 
     private void stopAfterUnrecoverableClaim(String category, ClaimRecoveryFailureException exception) {
-        claimAdmission.stopClaiming();
         acceptingClaims.set(false);
         running.set(false);
+        claimAdmission.stopClaiming();
         cancelSchedules();
         shutdownExecutors();
         logLoopFailure(category, exception);
