@@ -272,6 +272,69 @@ class AgentActionPromptRendererTest {
                         "Type members candidate", "Unissued candidate");
     }
 
+    @Test
+    void keeps_a_successful_follow_up_as_history_without_suggesting_the_same_execution_again() {
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        RepositoryId repositoryId = new RepositoryId("repository-1");
+        RepositoryRevision revision = new RepositoryRevision("revision-1");
+        HandleBinding binding = new HandleBinding(runId, attemptId,
+                RevisionVector.empty().pin(repositoryId, revision));
+        CapabilityHandle capabilityHandle = new CapabilityHandle("capability-members", binding);
+        CapabilityInputPayload payload = new CapabilityInputPayload("{\"sourceType\":\"FeeQuote\"}");
+        QueryAction successfulQuery = new QueryAction(
+                capabilityHandle, "Inspect FeeQuote", payload, "Need fee structure");
+        CandidateHandle candidateHandle = new CandidateHandle(
+                "candidate-members", binding, CandidateKind.FOLLOW_UP);
+        FollowUpCandidate followUp = new FollowUpCandidate(
+                repositoryId,
+                revision,
+                "codebase_discover_type_members",
+                "v1",
+                payload,
+                "Inspect FeeQuote members");
+        CandidateHandle alternativeCandidateHandle = new CandidateHandle(
+                "candidate-policy-members", binding, CandidateKind.FOLLOW_UP);
+        CapabilityInputPayload alternativePayload = new CapabilityInputPayload(
+                "{\"sourceType\":\"PaymentFeePolicy\"}");
+        FollowUpCandidate alternativeFollowUp = new FollowUpCandidate(
+                repositoryId,
+                revision,
+                "codebase_discover_type_members",
+                "v1",
+                alternativePayload,
+                "Inspect PaymentFeePolicy members");
+        AgentPromptContext context = new AgentPromptContext(
+                "question",
+                SessionHistory.empty(),
+                runId,
+                attemptId,
+                Map.of(capabilityHandle, new CapabilityPolicy("codebase_discover_type_members", "v1")),
+                Map.of(
+                        candidateHandle, new IssuedCandidate(candidateHandle, followUp),
+                        alternativeCandidateHandle,
+                        new IssuedCandidate(alternativeCandidateHandle, alternativeFollowUp)),
+                Map.of(),
+                Map.of(),
+                List.of(
+                        new ModelInteraction.ActionSelected(attemptId, successfulQuery),
+                        new ModelInteraction.ActionResultRecorded(attemptId,
+                                new ActionResult.QuerySucceeded(List.of("candidate-members"), List.of(), List.of()))),
+                Optional.empty(),
+                new AttemptBudget(2, 1, 2, 1, 1, 0, 2, 0, 1, 0));
+
+        String candidates = (String) renderer().project(
+                context, authority("codebase_discover_type_members")).get("candidates");
+
+        assertThat(candidates).contains(
+                "candidate-members: kind=FOLLOW_UP, repository=repository-1@revision-1, "
+                        + "description=Inspect FeeQuote members\n",
+                "candidate-policy-members: kind=FOLLOW_UP, repository=repository-1@revision-1, "
+                        + "description=Inspect PaymentFeePolicy members, "
+                        + "targetTool=codebase_discover_type_members@v1, "
+                        + "suggestedArguments=" + alternativePayload.value());
+    }
+
     @ParameterizedTest
     @MethodSource("followUpCapabilityStates")
     void renders_follow_up_suggestions_only_for_an_exact_current_capability(

@@ -5,6 +5,7 @@ import com.java.system.agent.answering.domain.action.AnswerAction;
 import com.java.system.agent.answering.domain.action.ClarifyAction;
 import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.QueryExecutionIdentity;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.answer.AnswerDocument;
 import com.java.system.agent.answering.domain.answer.AnswerStatement;
@@ -41,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
 
@@ -170,7 +172,7 @@ public final class AgentActionPromptRenderer {
                 .map(revision -> "@" + revision.value())
                 .orElse("");
         String selectionMetadata = switch (candidate) {
-            case FollowUpCandidate followUp -> hasCurrentExactCapability(context, currentToolNames, followUp)
+            case FollowUpCandidate followUp -> shouldSuggestFollowUp(context, currentToolNames, followUp)
                     ? ", targetTool=" + followUp.targetCapabilityName() + "@" + followUp.targetCapabilityVersion()
                     + ", suggestedArguments=" + followUp.payload().value()
                     : "";
@@ -183,7 +185,7 @@ public final class AgentActionPromptRenderer {
                 + ", description=" + candidate.description() + selectionMetadata;
     }
 
-    private static boolean hasCurrentExactCapability(
+    private static boolean shouldSuggestFollowUp(
             AgentPromptContext context,
             Set<String> currentToolNames,
             FollowUpCandidate followUp) {
@@ -191,10 +193,44 @@ public final class AgentActionPromptRenderer {
             return false;
         }
         CapabilityPolicy target = new CapabilityPolicy(followUp.targetCapabilityName(), followUp.targetCapabilityVersion());
-        return context.issuedCapabilities().entrySet().stream()
+        List<QueryExecutionIdentity> matchingExecutions = context.issuedCapabilities().entrySet().stream()
                 .filter(entry -> hasCurrentBinding(entry.getKey().binding(), context))
-                .map(Map.Entry::getValue)
-                .anyMatch(target::equals);
+                .filter(entry -> target.equals(entry.getValue()))
+                .map(entry -> new QueryExecutionIdentity(entry.getKey(), followUp.payload()))
+                .toList();
+        return !matchingExecutions.isEmpty() && !wasSuccessfullyExecuted(context, matchingExecutions);
+    }
+
+    private static boolean wasSuccessfullyExecuted(
+            AgentPromptContext context,
+            List<QueryExecutionIdentity> matchingExecutions) {
+        Optional<QueryExecutionIdentity> pending = Optional.empty();
+        for (ModelInteraction interaction : context.modelInteractions()) {
+            switch (interaction) {
+                case ModelInteraction.ActionSelected selected -> {
+                    if (!selected.attemptId().equals(context.attemptId())) {
+                        continue;
+                    }
+                    pending = selected.action() instanceof QueryAction query
+                            ? Optional.of(QueryExecutionIdentity.from(query))
+                            : Optional.empty();
+                }
+                case ModelInteraction.ActionResultRecorded recorded -> {
+                    if (!recorded.attemptId().equals(context.attemptId())) {
+                        continue;
+                    }
+                    if (recorded.result() instanceof ActionResult.QuerySucceeded
+                            && pending.filter(matchingExecutions::contains).isPresent()) {
+                        return true;
+                    }
+                    pending = Optional.empty();
+                }
+                case ModelInteraction.MalformedResponse ignored -> {
+                    // 無已選定的 QUERY 結果可供比對
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean hasCurrentBinding(HandleBinding binding, AgentPromptContext context) {
