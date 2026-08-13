@@ -43,6 +43,12 @@ final class JavaSemanticMetadataEvidenceMapper {
         return evidence(repositoryId, revision, target, content);
     }
 
+    EvidenceRef typeMemberDeclaration(RepositoryId repositoryId, RepositoryRevision revision, String kind,
+                                      SemanticDtos.TextRangePayload declarationRange, SemanticTarget target) {
+        String content = "typeMember; kind=" + kind + "; range=" + range(declarationRange);
+        return evidence(repositoryId, revision, target, content);
+    }
+
     EvidenceRef occurrence(RepositoryId repositoryId, RepositoryRevision revision,
                            SemanticDtos.ReferenceGroupResponse group, int totalReferenceCount,
                            SemanticDtos.ReferenceOccurrenceResponse occurrence, SemanticTarget target) {

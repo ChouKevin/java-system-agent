@@ -126,6 +126,36 @@ class SemanticDtosContractTest {
     }
 
     @Test
+    void deserializes_closed_enum_constant_and_record_component_type_members() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        String identity = """
+                {"scope":"TYPE","ownerType":{"javaType":{"packageName":"com.acme","className":"Order"},"sourceFile":"Order.java"},"name":"CARD"}
+                """;
+        String declarationRange = """
+                {"start":{"line":2,"character":4},"end":{"line":2,"character":8}}
+                """;
+
+        SemanticDtos.TypeMemberResponse enumConstant = mapper.readValue("""
+                {"kind":"ENUM_CONSTANT","identity":%s,"declarationRange":%s,"annotations":["Deprecated"],"availableFollowUps":[]}
+                """.formatted(identity, declarationRange), SemanticDtos.TypeMemberResponse.class);
+        SemanticDtos.TypeMemberResponse recordComponent = mapper.readValue("""
+                {"kind":"RECORD_COMPONENT","identity":%s,"writtenType":"String","resolvedType":"java.lang.String","declarationRange":%s,"annotations":[],"availableFollowUps":[]}
+                """.formatted(identity.replace("CARD", "reference"), declarationRange),
+                SemanticDtos.TypeMemberResponse.class);
+
+        assertThat(enumConstant).isInstanceOf(SemanticDtos.EnumConstantTypeMemberResponse.class);
+        assertThat(recordComponent).isInstanceOf(SemanticDtos.RecordComponentTypeMemberResponse.class);
+        assertThatThrownBy(() -> mapper.readValue("""
+                {"kind":"UNKNOWN","identity":%s,"declarationRange":%s,"annotations":[],"availableFollowUps":[]}
+                """.formatted(identity, declarationRange), SemanticDtos.TypeMemberResponse.class))
+                .isInstanceOf(Exception.class);
+        assertThatThrownBy(() -> mapper.readValue("""
+                {"kind":"METHOD","identity":%s,"declarationRange":%s,"annotations":[],"availableFollowUps":[]}
+                """.formatted(identity, declarationRange), SemanticDtos.TypeMemberResponse.class))
+                .isInstanceOf(Exception.class);
+    }
+
+    @Test
     void rejects_malformed_implementation_target_identity_and_extra_follow_up_members() {
         ObjectMapper mapper = new ObjectMapper();
 

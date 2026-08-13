@@ -1024,9 +1024,13 @@ public final class SemanticDtos {
     }
 
     /** 型別成員回應的封閉變體 */
-    @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
-    @JsonSubTypes({@JsonSubTypes.Type(MethodTypeMemberResponse.class), @JsonSubTypes.Type(FieldTypeMemberResponse.class)})
-    public sealed interface TypeMemberResponse permits MethodTypeMemberResponse, FieldTypeMemberResponse {
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind", visible = true)
+    @JsonSubTypes({@JsonSubTypes.Type(value = MethodTypeMemberResponse.class, name = "METHOD"),
+            @JsonSubTypes.Type(value = FieldTypeMemberResponse.class, name = "FIELD"),
+            @JsonSubTypes.Type(value = EnumConstantTypeMemberResponse.class, name = "ENUM_CONSTANT"),
+            @JsonSubTypes.Type(value = RecordComponentTypeMemberResponse.class, name = "RECORD_COMPONENT")})
+    public sealed interface TypeMemberResponse permits MethodTypeMemberResponse, FieldTypeMemberResponse,
+            EnumConstantTypeMemberResponse, RecordComponentTypeMemberResponse {
         List<AvailableFollowUp> availableFollowUps();
     }
 
@@ -1052,6 +1056,35 @@ public final class SemanticDtos {
             limitations = List.copyOf(Objects.requireNonNull(limitations, "member field limitations are required"));
             availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
                     "member field follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record EnumConstantTypeMemberResponse(String kind, SourceMemberIdentityPayload identity,
+                                                 TextRangePayload declarationRange, List<String> annotations,
+                                                 List<AvailableFollowUp> availableFollowUps) implements TypeMemberResponse {
+        public EnumConstantTypeMemberResponse {
+            identity = Objects.requireNonNull(identity, "enum constant identity is required");
+            declarationRange = Objects.requireNonNull(declarationRange, "enum constant declaration range is required");
+            annotations = List.copyOf(Objects.requireNonNull(annotations, "enum constant annotations are required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "enum constant follow-ups are required"));
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record RecordComponentTypeMemberResponse(String kind, SourceMemberIdentityPayload identity, String writtenType,
+                                                    Optional<String> resolvedType, TextRangePayload declarationRange,
+                                                    List<String> annotations, List<AvailableFollowUp> availableFollowUps)
+            implements TypeMemberResponse {
+        public RecordComponentTypeMemberResponse {
+            identity = Objects.requireNonNull(identity, "record component identity is required");
+            writtenType = Objects.requireNonNull(writtenType, "record component written type is required");
+            resolvedType = optional(resolvedType);
+            declarationRange = Objects.requireNonNull(declarationRange, "record component declaration range is required");
+            annotations = List.copyOf(Objects.requireNonNull(annotations, "record component annotations are required"));
+            availableFollowUps = List.copyOf(Objects.requireNonNull(availableFollowUps,
+                    "record component follow-ups are required"));
         }
     }
 

@@ -312,6 +312,59 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void projects_value_type_members_as_revision_pinned_declaration_evidence_without_generic_targets() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Order");
+        SemanticDtos.TextRangePayload enumRange = textRange(2, 4, 2, 8);
+        SemanticDtos.TextRangePayload componentRange = textRange(4, 13, 4, 22);
+        SemanticDtos.SourceMemberIdentityPayload.TypeMember enumIdentity =
+                new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", sourceType, "CARD");
+        SemanticDtos.SourceMemberIdentityPayload.TypeMember componentIdentity =
+                new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", sourceType, "reference");
+        SemanticDtos.AvailableFollowUp enumReferences = internalReferencesFollowUp(enumIdentity);
+        SemanticDtos.AvailableFollowUp componentReferences = internalReferencesFollowUp(componentIdentity);
+        SemanticDtos.PageResponse page = new SemanticDtos.PageResponse(0, 10, 2, 2, false);
+        SemanticDtos.ConceptCoverageResponse coverage = new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0);
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
+                sourceType, "RECORD", List.of(), List.of(), List.of(), List.of(
+                new SemanticDtos.EnumConstantTypeMemberResponse("ENUM_CONSTANT", enumIdentity, enumRange,
+                        List.of("Deprecated"), List.of(enumReferences)),
+                new SemanticDtos.RecordComponentTypeMemberResponse("RECORD_COMPONENT", componentIdentity, "String",
+                        Optional.of("java.lang.String"), componentRange, List.of(), List.of(componentReferences))),
+                page, coverage, List.of()));
+
+        assertThat(result.discoveredCandidates()).hasSize(2).allMatch(FollowUpCandidate.class::isInstance);
+        assertThat(result.evidence()).extracting(EvidenceRef::repositoryId).containsOnly(REPOSITORY_ID);
+        assertThat(result.evidence()).extracting(EvidenceRef::repositoryRevision).containsOnly(REPOSITORY_REVISION);
+        assertThat(result.evidence()).extracting(evidence -> evidence.semanticTarget().sourceRange().orElseThrow().startLine())
+                .containsExactly(3, 5);
+        assertThat(result.observations()).isEmpty();
+    }
+
+    @Test
+    void marks_only_complete_unpaged_empty_type_member_results_as_unsupported_claims() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Order");
+        SemanticDtos.ConceptCoverageResponse completeCoverage = new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0);
+
+        CapabilityExecutionResult.Succeeded completeEmpty = (CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
+                sourceType, "RECORD", List.of(), List.of(), List.of(), List.of(),
+                new SemanticDtos.PageResponse(0, 10, 0, 0, false), completeCoverage, List.of()));
+        CapabilityExecutionResult.Succeeded pagedEmpty = (CapabilityExecutionResult.Succeeded) mapper.discoverTypeMembers(
+                REPOSITORY_ID, REPOSITORY_REVISION, new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
+                sourceType, "RECORD", List.of(), List.of(), List.of(), List.of(),
+                new SemanticDtos.PageResponse(0, 10, 0, 1, true), completeCoverage, List.of()));
+
+        assertThat(completeEmpty.observations()).extracting(CapabilityObservation::code)
+                .containsExactly(ObservationCode.UNSUPPORTED_CLAIM);
+        assertThat(pagedEmpty.observations()).extracting(CapabilityObservation::code)
+                .containsExactly(ObservationCode.TRUNCATED_CANDIDATES);
+    }
+
+    @Test
     void projectsGraphEdgeImplementationFollowUpsWithoutInferringThem() throws Exception {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.MethodTargetPayload abstractTarget = methodTargetPayload();
@@ -796,6 +849,37 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void rejects_value_type_members_with_invalid_owner_types_or_ranges() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.SourceTypeIdentityPayload sourceType = sourceType("Order");
+        SemanticDtos.SourceTypeIdentityPayload otherType = sourceType("OtherOrder");
+        SemanticDtos.PageResponse page = new SemanticDtos.PageResponse(0, 10, 1, 1, false);
+        SemanticDtos.ConceptCoverageResponse coverage = new SemanticDtos.ConceptCoverageResponse("COMPLETE", 1, 1, 0);
+        SemanticDtos.DiscoverTypeMembersResponse mismatchedOwner = new SemanticDtos.DiscoverTypeMembersResponse("orders",
+                REVISION, sourceType, "RECORD", List.of(), List.of(), List.of(), List.of(
+                new SemanticDtos.EnumConstantTypeMemberResponse("ENUM_CONSTANT",
+                        new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", otherType, "CARD"),
+                        textRange(1, 0, 1, 4), List.of(), List.of())), page, coverage, List.of());
+        SemanticDtos.DiscoverTypeMembersResponse blankType = new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
+                sourceType, "RECORD", List.of(), List.of(), List.of(), List.of(
+                new SemanticDtos.RecordComponentTypeMemberResponse("RECORD_COMPONENT",
+                        new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", sourceType, "reference"), " ",
+                        Optional.empty(), textRange(1, 0, 1, 9), List.of(), List.of())), page, coverage, List.of());
+        SemanticDtos.DiscoverTypeMembersResponse reversedRange = new SemanticDtos.DiscoverTypeMembersResponse("orders", REVISION,
+                sourceType, "RECORD", List.of(), List.of(), List.of(), List.of(
+                new SemanticDtos.EnumConstantTypeMemberResponse("ENUM_CONSTANT",
+                        new SemanticDtos.SourceMemberIdentityPayload.TypeMember("TYPE", sourceType, "CARD"),
+                        textRange(2, 4, 2, 3), List.of(), List.of())), page, coverage, List.of());
+
+        assertThatThrownBy(() -> mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION, mismatchedOwner))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION, blankType))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> mapper.discoverTypeMembers(REPOSITORY_ID, REPOSITORY_REVISION, reversedRange))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+    }
+
+    @Test
     void rejectsUnknownDiscoveryStatusAndMalformedProviderJson() throws Exception {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
 
@@ -993,6 +1077,15 @@ class JavaSemanticResultMapperTest {
         SemanticDtos.TextRangePayload range = new SemanticDtos.TextRangePayload(
                 new SemanticDtos.Position(0, 0), new SemanticDtos.Position(0, 1));
         return new SemanticDtos.SourceRangePayload("src/ResponseService.java", range);
+    }
+
+    private static SemanticDtos.AvailableFollowUp internalReferencesFollowUp(
+            SemanticDtos.SourceMemberIdentityPayload.TypeMember identity) {
+        return new SemanticDtos.AvailableFollowUp("FIND_INTERNAL_REFERENCES",
+                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/internal-references", "findInternalReferences"),
+                new SemanticDtos.TargetFollowUpRequest("orders", REVISION,
+                        new SemanticDtos.InternalReferenceFollowUpTarget("MEMBER", identity), Optional.empty(),
+                        Optional.of(0), Optional.of(20)));
     }
 
     private static SemanticDtos.GraphEdge graphEdge(String calleeNodeId, int line,

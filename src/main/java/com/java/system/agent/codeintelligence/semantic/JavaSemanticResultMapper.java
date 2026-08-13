@@ -280,6 +280,7 @@ public final class JavaSemanticResultMapper {
         RepositoryId repositoryId = expectedRepositoryId;
         RepositoryRevision revision = expectedRevision;
         List<AnalysisCandidate> candidates = new ArrayList<>();
+        List<EvidenceRef> evidence = new ArrayList<>();
         List<CapabilityObservation> observations = new ArrayList<>(pageObservations(required.page(),
                 required.coverage().status()));
         for (SemanticDtos.TypeMemberResponse member : required.members()) {
@@ -288,11 +289,25 @@ public final class JavaSemanticResultMapper {
                         "type member " + method.target().methodName()));
             } else if (member instanceof SemanticDtos.FieldTypeMemberResponse field) {
                 addLimitations(observations, field.limitations(), "type member field limitation");
+            } else if (member instanceof SemanticDtos.EnumConstantTypeMemberResponse enumConstant) {
+                SemanticTarget declarationTarget = sourceTarget(new SemanticDtos.SourceRangePayload(
+                        sourceFile(enumConstant.identity()), enumConstant.declarationRange()));
+                evidence.add(metadataEvidenceMapper.typeMemberDeclaration(repositoryId, revision, enumConstant.kind(),
+                        enumConstant.declarationRange(), declarationTarget));
+            } else if (member instanceof SemanticDtos.RecordComponentTypeMemberResponse recordComponent) {
+                SemanticTarget declarationTarget = sourceTarget(new SemanticDtos.SourceRangePayload(
+                        sourceFile(recordComponent.identity()), recordComponent.declarationRange()));
+                evidence.add(metadataEvidenceMapper.typeMemberDeclaration(repositoryId, revision, recordComponent.kind(),
+                        recordComponent.declarationRange(), declarationTarget));
             }
             addFollowUps(repositoryId, revision, member.availableFollowUps(), candidates);
         }
         addFollowUps(repositoryId, revision, required.availableFollowUps(), candidates);
-        return succeeded(candidates, List.of(), List.copyOf(observations));
+        if (isCompleteEmptyTypeMemberSearch(required)) {
+            observations.add(observation(ObservationCode.UNSUPPORTED_CLAIM,
+                    "complete type member discovery returned no members", List.of()));
+        }
+        return succeeded(candidates, evidence, List.copyOf(observations));
     }
 
     /** 投影 provider 的內部 reference 結果 */
@@ -589,6 +604,15 @@ public final class JavaSemanticResultMapper {
                 && response.candidates().isEmpty()
                 && response.availableFollowUps().isEmpty()
                 && response.unavailableFollowUps().isEmpty()
+                && response.page().returnedCount() == 0
+                && response.page().totalCount() == 0
+                && !response.page().hasMore();
+    }
+
+    private boolean isCompleteEmptyTypeMemberSearch(SemanticDtos.DiscoverTypeMembersResponse response) {
+        return "COMPLETE".equals(response.coverage().status())
+                && response.members().isEmpty()
+                && response.availableFollowUps().isEmpty()
                 && response.page().returnedCount() == 0
                 && response.page().totalCount() == 0
                 && !response.page().hasMore();

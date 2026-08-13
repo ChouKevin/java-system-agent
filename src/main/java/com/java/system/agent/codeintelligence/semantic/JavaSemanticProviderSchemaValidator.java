@@ -338,6 +338,19 @@ final class JavaSemanticProviderSchemaValidator {
                 field.resolvedType().ifPresent(value -> nonblank(value, "type member field resolved type"));
                 nonemptyOrEmptyStrings(field.annotations(), "type member field annotation");
                 enumValues(field.limitations(), Set.of("FIELD_USAGE_NOT_INDEXED"), "type member field limitation");
+            } else if (member instanceof SemanticDtos.EnumConstantTypeMemberResponse enumConstant) {
+                enumValue(enumConstant.kind(), Set.of("ENUM_CONSTANT"), "type member kind");
+                typeMemberOwnedBy(enumConstant.identity(), required.sourceType(), "enum constant");
+                textRange(enumConstant.declarationRange(), "type member enum constant declaration range");
+                nonemptyOrEmptyStrings(enumConstant.annotations(), "type member enum constant annotation");
+            } else if (member instanceof SemanticDtos.RecordComponentTypeMemberResponse recordComponent) {
+                enumValue(recordComponent.kind(), Set.of("RECORD_COMPONENT"), "type member kind");
+                typeMemberOwnedBy(recordComponent.identity(), required.sourceType(), "record component");
+                nonblank(recordComponent.writtenType(), "type member record component written type");
+                recordComponent.resolvedType().ifPresent(value -> nonblank(value,
+                        "type member record component resolved type"));
+                textRange(recordComponent.declarationRange(), "type member record component declaration range");
+                nonemptyOrEmptyStrings(recordComponent.annotations(), "type member record component annotation");
             } else {
                 throw contract("unsupported type member response");
             }
@@ -839,6 +852,15 @@ final class JavaSemanticProviderSchemaValidator {
                 textRange(member.declarationRange(), "source member declaration range");
                 javaQualifiedIdentifier(member.name(), false, "source member name");
             }
+        }
+    }
+
+    private void typeMemberOwnedBy(SemanticDtos.SourceMemberIdentityPayload identity,
+                                   SemanticDtos.SourceTypeIdentityPayload sourceType, String description) {
+        sourceMemberIdentity(identity);
+        if (!(identity instanceof SemanticDtos.SourceMemberIdentityPayload.TypeMember member)
+                || !sourceType.equals(member.ownerType())) {
+            throw contract(description + " identity owner does not match the enclosing source type");
         }
     }
 
