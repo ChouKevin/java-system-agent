@@ -30,6 +30,7 @@ import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
+import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.conversation.SessionHistory;
@@ -721,6 +722,27 @@ class SpringAiAgentActionAdapterTest {
     }
 
     @Test
+    void renders_a_current_follow_up_as_a_typed_hint_without_candidate_authority() {
+        CountingChatModel model = new CountingChatModel(toolCall("callers", """
+                {"candidateHandles":["candidate-1"],"questionToResolve":"Which route calls it?","rationale":"Trace callers"}
+                """));
+        PlanningToolRegistry registry = registry(new ToolInputMapper());
+        PromptResourceCatalog catalog = promptCatalog(registry);
+        SpringAiPlanningToolCallbackAdapter callbacks = new SpringAiPlanningToolCallbackAdapter(registry,
+                new SpringAiPlanningToolSchemaFactory(), catalog);
+        SpringAiAgentActionAdapter adapter = new SpringAiAgentActionAdapter(ChatClient.builder(model).build(), registry,
+                callbacks, new AgentActionPromptRenderer(catalog), catalog);
+        AgentPromptContext context = contextWithCurrentFollowUp();
+
+        AgentActionProposal proposal = adapter.nextAction(context);
+
+        assertThat(proposal).isInstanceOf(AgentActionProposal.Proposed.class);
+        String prompt = model.lastPrompt().orElseThrow().getUserMessage().getText();
+        assertThat(prompt).contains("targetTool=callers@v1, suggestedArguments={\"target\":\"Member\"}")
+                .doesNotContain("allowedCandidateHandles", "repoId", "expectedRevision");
+    }
+
+    @Test
     void classifiesRateLimitTransportFailureWithoutAnotherCall() {
         CountingChatModel model = new CountingChatModel(new ResourceExhaustedException());
         SpringAiAgentActionAdapter adapter = adapter(model);
@@ -906,6 +928,19 @@ class SpringAiAgentActionAdapterTest {
         return new AgentPromptContext(context.originalQuestion(), context.sessionHistory(), context.runId(), context.attemptId(),
                 context.issuedCapabilities(), context.issuedCandidates(), context.issuedEvidence(), context.observations(),
                 withQuestionPlan(interactions, context.attemptId()), context.latestRejection(), context.budget());
+    }
+
+    private AgentPromptContext contextWithCurrentFollowUp() {
+        AgentPromptContext context = context();
+        HandleBinding binding = new HandleBinding(context.runId(), context.attemptId(), RevisionVector.empty()
+                .pin(new RepositoryId("repo-1"), new RepositoryRevision("rev-1")));
+        CandidateHandle candidateHandle = new CandidateHandle("candidate-follow-up", binding, CandidateKind.FOLLOW_UP);
+        FollowUpCandidate followUp = new FollowUpCandidate(new RepositoryId("repo-1"), new RepositoryRevision("rev-1"),
+                "callers", "v1", new CapabilityInputPayload("{\"target\":\"Member\"}"), "Inspect member callers");
+        return new AgentPromptContext(context.originalQuestion(), context.sessionHistory(), context.runId(), context.attemptId(),
+                context.issuedCapabilities(), Map.of(candidateHandle, new IssuedCandidate(candidateHandle, followUp)),
+                context.issuedEvidence(), context.observations(), context.modelInteractions(), context.latestRejection(),
+                context.budget());
     }
 
     private CapabilityHandle capability() {

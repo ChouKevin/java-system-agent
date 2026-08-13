@@ -10,7 +10,7 @@ Question plan:
 Currently callable planning tools are the only allowed names for the next action:
 <currentlyCallableTools>
 
-Issued candidates:
+Candidates and follow-up context:
 <candidates>
 
 Issued evidence:

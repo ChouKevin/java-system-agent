@@ -109,15 +109,32 @@ class PromptResourceCatalogTest {
     }
 
     @Test
-    void excludes_retired_generic_candidate_instruction_resources_from_the_catalog_digest() {
+    void omits_retired_candidate_authority_resources_while_retaining_descriptions_for_every_tool() {
         PromptResourceCatalog catalog = loader().load(productionProperties(), registry());
 
+        for (PlanningToolRegistration<?> registration : registry().registrations()) {
+            assertThat(catalog.toolDescription(registration.descriptor())).isNotBlank();
+        }
+        String generalPromptResources = catalog.actionSystemInstruction() + "\n"
+                + catalog.renderActionContext(actionContextValues()) + "\n"
+                + registry().registrations().stream()
+                        .map(registration -> catalog.toolDescription(registration.descriptor()))
+                        .collect(java.util.stream.Collectors.joining("\n"));
+        assertThat(generalPromptResources).doesNotContain("allowedCandidateHandles", "issued opaque handles",
+                "candidate subset", "provider-bound follow-up", "follow-up-query");
         assertThat(catalog.resourceDigests()).containsKey("action/latest-answer-feedback");
         assertThat(catalog.resourceDigests()).doesNotContainKeys(
+                "tools/follow-up-query.st",
                 "tools/cardinality/exact.st",
                 "tools/cardinality/range.st",
                 "tools/follow-up/allowed.st",
                 "tools/follow-up/disallowed.st");
+        DefaultResourceLoader resourceLoader = new DefaultResourceLoader();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/follow-up-query.st").exists()).isFalse();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/cardinality/exact.st").exists()).isFalse();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/cardinality/range.st").exists()).isFalse();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/follow-up/allowed.st").exists()).isFalse();
+        assertThat(resourceLoader.getResource("classpath:/prompts/tools/follow-up/disallowed.st").exists()).isFalse();
     }
 
     @Test

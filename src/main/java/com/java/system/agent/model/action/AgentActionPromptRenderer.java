@@ -167,7 +167,8 @@ public final class AgentActionPromptRenderer {
                 .orElse("");
         String selectionMetadata = switch (candidate) {
             case FollowUpCandidate followUp -> currentToolNames.contains(followUp.targetCapabilityName())
-                    ? ", targetCapability=" + followUp.targetCapabilityName() + "@" + followUp.targetCapabilityVersion()
+                    ? ", targetTool=" + followUp.targetCapabilityName() + "@" + followUp.targetCapabilityVersion()
+                    + ", suggestedArguments=" + followUp.payload().value()
                     : "";
             case RouteCandidate route -> ", route=" + route.route();
             case SemanticTargetCandidate target -> ", semanticTarget=" + target.semanticTarget().kind()
@@ -272,8 +273,8 @@ public final class AgentActionPromptRenderer {
 
         private static String renderResult(ActionResult result) {
             return switch (result) {
-                case ActionResult.QuerySucceeded succeeded -> "QUERY_SUCCEEDED: candidateHandles="
-                        + succeeded.candidateHandleValues() + ", evidenceHandles=" + succeeded.evidenceHandleValues()
+                case ActionResult.QuerySucceeded succeeded -> "QUERY_SUCCEEDED: candidateCount="
+                        + succeeded.candidateHandleValues().size() + ", evidenceHandles=" + succeeded.evidenceHandleValues()
                         + ", observationIds=" + succeeded.observationIds();
                 case ActionResult.QueryFailed failed -> "QUERY_FAILED: observationIds=" + failed.observationIds()
                         + ", description=" + failed.description();

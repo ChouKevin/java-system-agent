@@ -1,1 +1,1 @@
-Use concept discovery to locate the owning type or declaration. A direct search supplies its criteria; a continuation retains the resource-provided criteria and may tune only the bounded limit. An abstract type or interface can unlock implementation follow-ups; an owning type can unlock member discovery.
+Use concept discovery to locate typed declarations or owning types. Provide schema-defined search terms and optional filters, and keep result limits within the schema bounds. After an empty result, change valid search arguments or resolve the remaining uncertainty.

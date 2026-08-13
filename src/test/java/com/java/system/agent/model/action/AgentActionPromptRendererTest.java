@@ -127,9 +127,10 @@ class AgentActionPromptRendererTest {
                 AgentActionFingerprint.from(execute).value(), "EXECUTE_COMPLETED",
                 AgentActionFingerprint.from(answer).value(), "ANSWER_REJECTED",
                 AgentActionFingerprint.from(clarify).value(), "ACTION_INTERRUPTED");
-        assertThat(interactions).contains("needId=need-1", "status=UNAVAILABLE", "observationIds=[observation-1]");
-        assertThat(interactions).doesNotContain("canonical-follow-up", "secret.example.invalid", "execute-secret",
-                "execute-secret-body");
+        assertThat(interactions).contains("QUERY: capability=capability-1", "payloadSummary=sha256=",
+                "needId=need-1", "status=UNAVAILABLE", "observationIds=[observation-1]");
+        assertThat(interactions).doesNotContain("candidateHandles", "candidate-1", "canonical-follow-up",
+                "secret.example.invalid", "execute-secret", "execute-secret-body");
         verify(catalog).renderLatestAnswerFeedback(argThat(values -> {
             assertThat(values).containsOnlyKeys("disposition", "statementVerdicts", "unaddressedParts",
                     "blockingUncertainties", "rejectionReasons", "subsequentResults");
@@ -163,7 +164,7 @@ class AgentActionPromptRendererTest {
     }
 
     @Test
-    void projects_concluded_session_turns_and_preserves_follow_up_candidates_without_unissued_target_metadata() {
+    void projects_concluded_session_turns_and_preserves_stale_follow_up_candidates_as_generic_context() {
         RepositoryId repositoryId = new RepositoryId("repository-1");
         RepositoryRevision revision = new RepositoryRevision("revision-1");
         HandleBinding binding = new HandleBinding(new AnalysisRunId("run-3"), new AnalysisAttemptId("attempt-1"),
@@ -187,8 +188,8 @@ class AgentActionPromptRendererTest {
         assertThat((String) projection.get("sessionTurns")).containsSubsequence(
                 "first question", "first answer", "second question", "second answer");
         assertThat((String) projection.get("candidates")).contains("candidate-follow-up", "repository-1@revision-1",
-                "Read the remaining bounded source segment").doesNotContain("targetCapability=codebase_get_source_segment@v1",
-                payload.value());
+                "Read the remaining bounded source segment").doesNotContain("targetTool=", "suggestedArguments=",
+                "allowedCandidateHandles", payload.value());
     }
 
     @Test
@@ -254,9 +255,10 @@ class AgentActionPromptRendererTest {
         assertThat((String) projection.get("candidates")).contains(
                 "candidate-method", "candidate-members", "candidate-unissued",
                 "Method source candidate", "Type members candidate", "Unissued candidate",
-                "targetCapability=codebase_get_method_source@v1",
-                "targetCapability=codebase_discover_type_members@v1")
-                .doesNotContain("targetCapability=codebase_get_source_segment@v1");
+                "targetTool=codebase_get_method_source@v1, suggestedArguments={}",
+                "targetTool=codebase_discover_type_members@v1, suggestedArguments={}")
+                .doesNotContain("targetTool=codebase_get_source_segment@v1", "allowedCandidateHandles",
+                        "repoId", "expectedRevision");
         assertThat((String) projection.get("currentlyCallableTools"))
                 .doesNotContain("candidate-unissued", "codebase_get_source_segment", "Method source candidate",
                         "Type members candidate", "Unissued candidate");
