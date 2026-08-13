@@ -335,7 +335,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop);
+        return new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
     }
 
     private AnalysisApplicationService planningContractService(AtomicInteger actionCalls) {
@@ -365,7 +365,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop);
+        return new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
     }
 
     private AnalysisApplicationService pendingVerificationService(AtomicInteger actionCalls, AtomicInteger verifierCalls) {
@@ -412,7 +412,7 @@ class PostgresTerminalRecoveryIT extends PostgresIntegrationTestSupport {
                 new AnswerVerdictValidator(),
                 new AgentTransitionCommitter(new AgentStateReducer(), transitions),
                 new ContextIssuer());
-        return new AnalysisApplicationService(loop);
+        return new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
     }
 
     private AnswerQuestionCommand command(InboxMessage message) {

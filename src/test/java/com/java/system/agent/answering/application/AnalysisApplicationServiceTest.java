@@ -42,7 +42,7 @@ class AnalysisApplicationServiceTest {
                 Optional.of(AnswerVerificationBasis.LLM),
                 RevisionVector.empty());
         ValidatedAgentLoop loop = mock(ValidatedAgentLoop.class);
-        AnalysisApplicationService service = new AnalysisApplicationService(loop);
+        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
         AnswerQuestionCommand command = new AnswerQuestionCommand(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
@@ -51,7 +51,7 @@ class AnalysisApplicationServiceTest {
                 new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         AgentLoopRequest expectedRequest = new AgentLoopRequest(
-                command.runId(), command.sessionId(), command.participant(), command.question(), command.budget(),
+                command.runId(), command.sessionId(), command.participant(), command.question(), new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), command.budget(),
                 command.executionMode(), command.executionAttempt());
         when(loop.execute(expectedRequest)).thenReturn(loopResult);
 
@@ -71,7 +71,7 @@ class AnalysisApplicationServiceTest {
     @Test
     void rejectsALoopResultForAnotherRun() {
         ValidatedAgentLoop loop = mock(ValidatedAgentLoop.class);
-        AnalysisApplicationService service = new AnalysisApplicationService(loop);
+        AnalysisApplicationService service = new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
         AnswerQuestionCommand command = new AnswerQuestionCommand(
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
@@ -79,7 +79,7 @@ class AnalysisApplicationServiceTest {
                 "How does it work?",
                 new AttemptBudget(2, 0, 1, 0, 1, 0, 1, 0, 1, 0));
         AgentLoopRequest expectedRequest = new AgentLoopRequest(
-                command.runId(), command.sessionId(), command.participant(), command.question(), command.budget(),
+                command.runId(), command.sessionId(), command.participant(), command.question(), new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), command.budget(),
                 command.executionMode(), command.executionAttempt());
         AgentLoopResult mismatchedResult = new AgentLoopResult(
                 new AnalysisRunId("run-2"),

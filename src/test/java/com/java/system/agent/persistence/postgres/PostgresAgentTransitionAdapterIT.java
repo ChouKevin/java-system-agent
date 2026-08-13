@@ -103,7 +103,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 new RunRequestIdentity(
                         bootstrap.runStarted().candidateState().requestIdentity().sessionIdValue(),
                         PARTICIPANT,
-                        "forged bootstrap question"));
+                        "forged bootstrap question",
+                        bootstrap.runStarted().candidateState().requestIdentity().repositoryId()));
         AgentBootstrap forged = new AgentBootstrap(
                 new AgentTransition(bootstrap.runStarted().event(), forgedRunStartedState),
                 bootstrap.attemptStarted(),
@@ -158,7 +159,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
                 new RunRequestIdentity(
                         transition.candidateState().requestIdentity().sessionIdValue(),
                         PARTICIPANT,
-                        "forged ordinary question"));
+                        "forged ordinary question",
+                        transition.candidateState().requestIdentity().repositoryId()));
         AgentTransition forged = new AgentTransition(transition.event(), forgedCandidate);
 
         assertThatThrownBy(() -> transitions.commit(forged)).isInstanceOf(AgentTransitionConflictException.class);
@@ -285,7 +287,8 @@ class PostgresAgentTransitionAdapterIT extends PostgresIntegrationTestSupport {
         AnalysisRunId runId = new AnalysisRunId(runIdValue);
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-" + runIdValue);
         RunRequestIdentity identity = new RunRequestIdentity(
-                "session-" + runIdValue, PARTICIPANT, "question-" + runIdValue);
+                "session-" + runIdValue, PARTICIPANT, "question-" + runIdValue,
+                new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
         insertSession(identity.sessionIdValue());
         AgentRunState initial = AgentRunState.initial(
                 runId,

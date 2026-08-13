@@ -231,7 +231,8 @@ class AgentStateReducerTest {
     private AgentRunState runningState() {
         AgentRunState initial = AgentRunState.initial(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0),
-                new RunRequestIdentity("session-1", new ParticipantRef("test", "participant"), "question"));
+                new RunRequestIdentity("session-1", new ParticipantRef("test", "participant"), "question",
+                        new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")));
         AgentRunState started = reducer.reduce(initial, new AgentEvent.RunStarted(
                 initial.runId(), initial.currentAttempt().attemptId(), initial.stateRevision())).candidateState();
         return reducer.reduce(started, new AgentEvent.AttemptStarted(

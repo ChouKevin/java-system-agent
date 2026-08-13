@@ -14,6 +14,8 @@ public record InboxFailure(String code, String description) {
     public static final int MAX_DESCRIPTION_LENGTH = 512;
     public static final InboxFailure ANSWER_VERIFIER_UNAVAILABLE = new InboxFailure(
             "ANSWER_VERIFIER_UNAVAILABLE", "Answer verifier is unavailable");
+    public static final InboxFailure REPOSITORY_SCOPE_UNAVAILABLE = new InboxFailure(
+            "REPOSITORY_SCOPE_UNAVAILABLE", "Configured repository scope is temporarily unavailable");
     public static final InboxFailure ANSWER_INTEGRATION_CONTRACT = new InboxFailure(
             "ANSWER_INTEGRATION_CONTRACT", "Answer integration contract failed");
     public static final InboxFailure PLANNING_TOOL_CONTRACT = new InboxFailure(

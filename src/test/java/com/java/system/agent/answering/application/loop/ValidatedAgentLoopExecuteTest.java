@@ -104,7 +104,7 @@ class ValidatedAgentLoopExecuteTest {
                 new AnalysisRunId("run-1"),
                 new SessionId("session-1"),
                 new ParticipantRef("test", "participant-1"),
-                "Preview this HTTP mutation",
+                "Preview this HTTP mutation", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(3, 0, 1, 0, 1, 0, 1, 0, 1, 0)));
 
         assertThat(result.outcome()).isEqualTo(RunOutcome.INCONCLUSIVE);
@@ -352,7 +352,7 @@ class ValidatedAgentLoopExecuteTest {
                 runId,
                 new SessionId("session-1"),
                 new ParticipantRef("test", "participant-1"),
-                "Preview this HTTP mutation",
+                "Preview this HTTP mutation", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 budget);
     }
 

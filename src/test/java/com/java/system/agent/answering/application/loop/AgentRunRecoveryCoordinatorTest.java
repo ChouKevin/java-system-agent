@@ -38,6 +38,10 @@ import com.java.system.agent.answering.domain.run.AttemptBudget;
 import com.java.system.agent.answering.domain.run.PendingAnswerVerification;
 import com.java.system.agent.answering.domain.run.RunFailureReason;
 import com.java.system.agent.answering.domain.run.RunOutcome;
+import com.java.system.agent.answering.domain.run.RunRequestIdentity;
+import com.java.system.agent.answering.domain.scope.RepositoryId;
+import com.java.system.agent.answering.domain.scope.RepositoryRevision;
+import com.java.system.agent.answering.domain.scope.RevisionVector;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
@@ -52,8 +56,12 @@ import com.java.system.agent.answering.port.out.CapabilityExecutionPort;
 import com.java.system.agent.answering.port.out.HttpMutationPort;
 import com.java.system.agent.answering.port.out.HttpMutationResult;
 import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
+import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
+import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -61,6 +69,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.lang.reflect.RecordComponent;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -73,6 +82,24 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AgentRunRecoveryCoordinatorTest {
 
     @Test
+    void agentLoopRequestCarriesTheRuntimeOwnedRepositoryId() {
+        List<String> componentNames = java.util.Arrays.stream(AgentLoopRequest.class.getRecordComponents())
+                .map(RecordComponent::getName)
+                .toList();
+
+        assertThat(componentNames).contains("repositoryId");
+    }
+
+    @Test
+    void runRequestIdentityPersistsTheRuntimeOwnedRepositoryId() {
+        List<String> componentNames = java.util.Arrays.stream(RunRequestIdentity.class.getRecordComponents())
+                .map(RecordComponent::getName)
+                .toList();
+
+        assertThat(componentNames).contains("repositoryId");
+    }
+
+    @Test
     void initialWithoutPersistedStateBootstrapsAnActiveExecution() {
         Fixture fixture = fixture((mode, context) -> accepted());
 
@@ -80,6 +107,44 @@ class AgentRunRecoveryCoordinatorTest {
 
         assertThat(outcome).isInstanceOf(AgentRunRecoveryOutcome.Active.class);
         assertThat(fixture.port().events()).filteredOn(AgentEvent.RunStarted.class::isInstance).hasSize(1);
+    }
+
+    @Test
+    void bootstrapPinsTheConfiguredRepositoryRevisionBeforeIssuingContext() {
+        Fixture fixture = fixture((mode, context) -> accepted());
+
+        AgentRunRecoveryOutcome.Active outcome = (AgentRunRecoveryOutcome.Active) fixture.coordinator().recover(
+                fixture.initialRequest());
+
+        assertThat(outcome.execution().state().requestIdentity().repositoryId()).isEqualTo(new RepositoryId("repo-1"));
+        assertThat(outcome.execution().state().currentAttempt().revisionVector().entries())
+                .containsExactly(new RevisionVector.Entry(
+                        new RepositoryId("repo-1"), new RepositoryRevision("revision-1")));
+    }
+
+    @Test
+    void bootstrapSelectsTheConfiguredRepositoryFromTheCatalogAndPinsItsRevision() {
+        RepositoryId repositoryA = new RepositoryId("repository-a");
+        RepositoryId repositoryB = new RepositoryId("repository-b");
+        Fixture fixture = fixture(
+                (mode, context) -> accepted(),
+                List.of(
+                        new RepositoryDescriptor(repositoryA, "Repository A"),
+                        new RepositoryDescriptor(repositoryB, "Repository B")),
+                repositoryId -> {
+                    assertThat(repositoryId).isEqualTo(repositoryB);
+                    return RepositoryRevisionResult.ready(new RepositoryRevision("revision-b"));
+                });
+        AgentLoopRequest request = new AgentLoopRequest(
+                new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
+                "What is verified?", repositoryB,
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
+
+        AgentRunRecoveryOutcome.Active outcome = (AgentRunRecoveryOutcome.Active) fixture.coordinator().recover(request);
+
+        assertThat(outcome.execution().state().requestIdentity().repositoryId()).isEqualTo(repositoryB);
+        assertThat(outcome.execution().state().currentAttempt().revisionVector().entries())
+                .containsExactly(new RevisionVector.Entry(repositoryB, new RepositoryRevision("revision-b")));
     }
 
     @Test
@@ -92,6 +157,26 @@ class AgentRunRecoveryCoordinatorTest {
 
         assertThat(outcome).isInstanceOf(AgentRunRecoveryOutcome.Active.class);
         assertThat(fixture.catalogReads()).hasValue(catalogReads);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AnswerExecutionMode.class, names = {"RETRY", "CAPACITY_RESUME"})
+    void retryAndCapacityResumeRejectAChangedRepositoryIdentityBeforeProviderWork(AnswerExecutionMode mode) {
+        Fixture fixture = fixture((verificationMode, context) -> accepted());
+        fixture.coordinator().recover(fixture.initialRequest());
+        int catalogReads = fixture.catalogReads().get();
+        int revisionReads = fixture.revisionReads().get();
+
+        AgentLoopRequest changedScope = new AgentLoopRequest(
+                new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
+                "What is verified?", new RepositoryId("repo-2"),
+                new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0), mode, mode == AnswerExecutionMode.RETRY ? 2 : 1);
+
+        assertThatThrownBy(() -> fixture.coordinator().recover(changedScope))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("incoming request does not match the persisted request identity");
+        assertThat(fixture.catalogReads()).hasValue(catalogReads);
+        assertThat(fixture.revisionReads()).hasValue(revisionReads);
     }
 
     @Test
@@ -270,6 +355,21 @@ class AgentRunRecoveryCoordinatorTest {
     }
 
     private static Fixture fixture(AnswerVerificationPort verifier) {
+        return fixture(
+                verifier,
+                List.of(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
+                repositoryId -> {
+                    if (!repositoryId.equals(new RepositoryId("repo-1"))) {
+                        throw new AssertionError("recovery must resolve only the configured repository");
+                    }
+                    return RepositoryRevisionResult.ready(new RepositoryRevision("revision-1"));
+                });
+    }
+
+    private static Fixture fixture(
+            AnswerVerificationPort verifier,
+            List<RepositoryDescriptor> repositoryCatalog,
+            RepositoryRevisionPort repositoryRevisionPort) {
         RecordingTransitionPort port = new RecordingTransitionPort();
         FakeSessionAdapter session = new FakeSessionAdapter();
         AtomicInteger catalogReads = new AtomicInteger();
@@ -280,13 +380,15 @@ class AgentRunRecoveryCoordinatorTest {
         };
         RepositoryCatalogPort repositories = () -> {
             catalogReads.incrementAndGet();
-            return List.of();
+            return repositoryCatalog;
         };
         CapabilityExecutionPort execution = invocation -> {
             throw new AssertionError("recovery test must not execute capabilities");
         };
+        AtomicInteger revisionReads = new AtomicInteger();
         RepositoryRevisionPort revisions = repositoryId -> {
-            throw new AssertionError("recovery test must not resolve revisions");
+            revisionReads.incrementAndGet();
+            return repositoryRevisionPort.currentRevision(repositoryId);
         };
         AtomicInteger mutationCalls = new AtomicInteger();
         HttpMutationPort mutations = action -> {
@@ -312,7 +414,7 @@ class AgentRunRecoveryCoordinatorTest {
                 session,
                 answerExecutor,
                 terminal);
-        return new Fixture(coordinator, answerExecutor, session, port, catalogReads, mutationCalls);
+        return new Fixture(coordinator, answerExecutor, session, port, catalogReads, revisionReads, mutationCalls);
     }
 
     private static AnswerVerificationResult accepted() {
@@ -327,7 +429,7 @@ class AgentRunRecoveryCoordinatorTest {
     private AgentLoopRequest request(AnswerExecutionMode mode, int attempt) {
         return new AgentLoopRequest(
                 new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
-                "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0), mode, attempt);
+                "What is verified?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0), mode, attempt);
     }
 
     private static AnswerAction answer() {
@@ -405,18 +507,19 @@ class AgentRunRecoveryCoordinatorTest {
             FakeSessionAdapter session,
             RecordingTransitionPort port,
             AtomicInteger catalogReads,
+            AtomicInteger revisionReads,
             AtomicInteger mutationCalls) {
 
         private AgentLoopRequest initialRequest() {
             return new AgentLoopRequest(
                     new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
-                    "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
+                    "What is verified?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0));
         }
 
         private AgentLoopRequest request(AnswerExecutionMode mode, int attempt) {
             return new AgentLoopRequest(
                     new AnalysisRunId("run-1"), new SessionId("session-1"), new ParticipantRef("test", "participant-1"),
-                    "What is verified?", new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0), mode, attempt);
+                    "What is verified?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"), new AttemptBudget(2, 0, 1, 0, 1, 0, 2, 0, 1, 0), mode, attempt);
         }
     }
 

@@ -15,6 +15,8 @@ spring:
       chat: none
 
 agent:
+  repository-scope:
+    repository-id: ${AGENT_REPOSITORY_ID:}
   answer-verification:
     mode: ${AGENT_ANSWER_VERIFICATION_MODE:llm}
   codebase:

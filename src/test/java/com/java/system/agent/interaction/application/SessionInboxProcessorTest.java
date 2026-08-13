@@ -29,6 +29,7 @@ import com.java.system.agent.answering.port.in.AnalysisExecutionDeferredExceptio
 import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
+import com.java.system.agent.answering.port.in.RepositoryScopeUnavailableException;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerQuestionCommand;
 import com.java.system.agent.answering.port.in.AnswerQuestionResult;
@@ -181,6 +182,21 @@ class SessionInboxProcessorTest {
         assertThat(processor.process(claim(4, Optional.empty()), NOW)).isEqualTo(InboxProcessingOutcome.FAILED);
         assertThat(inbox.failedClaim).isEqualTo(claim(4, Optional.empty()));
         assertThat(inbox.safeResponseText).isEqualTo("處理失敗，請稍後再試");
+    }
+
+    @Test
+    void retriesUnavailableRepositoryScopeWithoutPersistingProviderDiagnostics() {
+        RecordingInboxPort inbox = new RecordingInboxPort();
+        SessionInboxProcessor processor = new SessionInboxProcessor(
+                inbox, command -> {
+                    throw new RepositoryScopeUnavailableException();
+                }, BUDGET, InboxRetryPolicy.defaults());
+
+        InboxProcessingOutcome outcome = processor.process(claim(1, Optional.empty()), NOW);
+
+        assertThat(outcome).isEqualTo(InboxProcessingOutcome.RETRY_SCHEDULED);
+        assertThat(inbox.failure).isEqualTo(InboxFailure.REPOSITORY_SCOPE_UNAVAILABLE);
+        assertThat(inbox.failure.description()).doesNotContain("provider");
     }
 
     @Test

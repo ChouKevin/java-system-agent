@@ -16,6 +16,7 @@ import com.java.system.agent.answering.port.in.AnalysisExecutionDeferredExceptio
 import com.java.system.agent.answering.port.in.AnswerQuestionCommand;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
+import com.java.system.agent.answering.port.in.RepositoryScopeUnavailableException;
 import com.java.system.agent.answering.port.in.AnswerQuestionUseCase;
 import com.java.system.agent.answering.port.in.AnswerQuestionResult;
 
@@ -85,6 +86,10 @@ public final class SessionInboxProcessor {
             metrics.capacityDeferred();
             sessionInboxPort.deferForCapacity(claim, exception.deferral().retryAt());
             return InboxProcessingOutcome.CAPACITY_DEFERRED;
+        } catch (RepositoryScopeUnavailableException exception) {
+            metrics.infrastructureFailure();
+            logFailure("REPOSITORY_SCOPE_UNAVAILABLE", claimedMessage, exception);
+            return retryOrFail(claim, InboxFailure.REPOSITORY_SCOPE_UNAVAILABLE, now);
         } catch (AnswerExecutionUnavailableException exception) {
             metrics.infrastructureFailure();
             logFailure("ANSWER_VERIFIER_UNAVAILABLE", claimedMessage, exception);

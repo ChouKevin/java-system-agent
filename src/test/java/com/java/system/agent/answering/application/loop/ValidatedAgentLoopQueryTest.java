@@ -680,7 +680,7 @@ class ValidatedAgentLoopQueryTest {
                 RUN_ID,
                 new SessionId("session-1"),
                 PARTICIPANT,
-                "What does this repository flow do?",
+                "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(4, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 
@@ -689,7 +689,7 @@ class ValidatedAgentLoopQueryTest {
                 RUN_ID,
                 new SessionId("session-1"),
                 PARTICIPANT,
-                "What does this repository flow do?",
+                "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(4, 0, 2, 0, 1, 0, 2, 0, 1, 0),
                 AnswerExecutionMode.CAPACITY_RESUME,
                 1);
@@ -700,7 +700,7 @@ class ValidatedAgentLoopQueryTest {
                 RUN_ID,
                 new SessionId("session-1"),
                 PARTICIPANT,
-                "What does this repository flow do?",
+                "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(4, 0, 1, 0, 1, 0, 2, 0, 1, 0));
     }
 
@@ -709,7 +709,7 @@ class ValidatedAgentLoopQueryTest {
                 RUN_ID,
                 new SessionId("session-1"),
                 PARTICIPANT,
-                "What does this repository flow do?",
+                "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(4, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 
@@ -718,7 +718,7 @@ class ValidatedAgentLoopQueryTest {
                 RUN_ID,
                 new SessionId("session-1"),
                 PARTICIPANT,
-                "What does this repository flow do?",
+                "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(4, 0, 3, 0, 1, 0, 2, 0, 1, 0));
     }
 
@@ -729,7 +729,7 @@ class ValidatedAgentLoopQueryTest {
                 RUN_ID,
                 attemptId,
                 budget,
-                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?"));
+                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")));
         RevisionVector revisions = RevisionVector.empty().pin(REPOSITORY_ID, new RepositoryRevision("rev-1"));
         RunAttempt context = new ContextIssuer().issueInitial(
                 RUN_ID,

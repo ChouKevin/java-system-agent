@@ -123,7 +123,7 @@ class QueryActionExecutorTest {
                 RUN_ID,
                 ATTEMPT_ID,
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0),
-                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?"));
+                new RunRequestIdentity("session-1", PARTICIPANT, "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1")));
         RunAttempt context = contextIssuer.issueInitial(
                 RUN_ID,
                 ATTEMPT_ID,
@@ -147,7 +147,7 @@ class QueryActionExecutorTest {
                 RUN_ID,
                 new SessionId("session-1"),
                 PARTICIPANT,
-                "What does this repository flow do?",
+                "What does this repository flow do?", new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"),
                 new AttemptBudget(3, 0, 2, 0, 1, 0, 2, 0, 1, 0));
     }
 

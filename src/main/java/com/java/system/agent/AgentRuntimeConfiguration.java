@@ -50,7 +50,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Configuration(proxyBeanMethods = false)
 @Profile("agent-runtime")
-@EnableConfigurationProperties({AgentRuntimeProperties.class, AgentCodebaseProperties.class})
+@EnableConfigurationProperties({
+        AgentRuntimeProperties.class,
+        AgentCodebaseProperties.class,
+        AgentRepositoryScopeProperties.class})
 public final class AgentRuntimeConfiguration {
 
     @Bean
@@ -190,8 +193,10 @@ public final class AgentRuntimeConfiguration {
     }
 
     @Bean
-    AnalysisApplicationService analysisApplicationService(ValidatedAgentLoop loop) {
-        return new AnalysisApplicationService(loop);
+    AnalysisApplicationService analysisApplicationService(
+            ValidatedAgentLoop loop,
+            AgentRepositoryScopeProperties repositoryScopeProperties) {
+        return new AnalysisApplicationService(loop, repositoryScopeProperties);
     }
 
     @Bean

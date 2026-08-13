@@ -128,7 +128,7 @@ class SlackAgentFlowTest {
         };
         FakeSessionAdapter sessions = new FakeSessionAdapter();
         ValidatedAgentLoop loop = loop(actions, sessions);
-        AnalysisApplicationService analysis = new AnalysisApplicationService(loop);
+        AnalysisApplicationService analysis = new AnalysisApplicationService(loop, new com.java.system.agent.AgentRepositoryScopeProperties("repo-1"));
         SessionInboxProcessor inboxProcessor = new SessionInboxProcessor(
                 inboxPort, analysis, BUDGET, InboxRetryPolicy.defaults());
         InboxWorkApplicationService inboxWork = new InboxWorkApplicationService(

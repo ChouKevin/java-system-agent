@@ -88,12 +88,12 @@ class AgentPersistenceCodecTest {
     private final AgentEventDocumentCodec eventCodec = new AgentEventDocumentCodec(new ObjectMapper());
 
     @Test
-    void writes_and_reads_only_schema_thirteen_state_documents() {
+    void writes_and_reads_only_schema_fourteen_state_documents() {
         AgentRunState state = AgentRunState.initial(runId(), attemptId(), budget(), identity());
 
         VersionedJsonDocument document = stateCodec.encode(state);
 
-        assertThat(document.schemaVersion()).isEqualTo(13);
+        assertThat(document.schemaVersion()).isEqualTo(14);
         assertThat(stateCodec.decode(document)).isEqualTo(state);
         assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(12, document.payload())))
                 .isInstanceOf(PersistenceDocumentException.class)
@@ -201,7 +201,7 @@ class AgentPersistenceCodecTest {
         VersionedJsonDocument stateDocument = stateCodec.encode(state);
         VersionedJsonDocument eventDocument = eventCodec.encode(event);
 
-        assertThat(stateDocument.schemaVersion()).isEqualTo(13);
+        assertThat(stateDocument.schemaVersion()).isEqualTo(14);
         assertThat(eventDocument.schemaVersion()).isEqualTo(12);
         assertThat(stateCodec.decode(stateDocument)).isEqualTo(state);
         assertThat(eventCodec.decode(eventCodec.eventType(event), eventDocument)).isEqualTo(event);
@@ -366,7 +366,7 @@ class AgentPersistenceCodecTest {
         ObjectNode malformed = documentPayload.payload().deepCopy();
         ((ObjectNode) malformed.path("pending_answer_verification")).put("verification_mode", "CONTRACT_ONLY");
 
-        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(13, malformed)))
+        assertThatThrownBy(() -> stateCodec.decode(new VersionedJsonDocument(14, malformed)))
                 .isInstanceOf(PersistenceDocumentException.class);
     }
 
@@ -529,7 +529,7 @@ class AgentPersistenceCodecTest {
         VersionedJsonDocument stateDocument = stateCodec.encode(state);
         VersionedJsonDocument eventDocument = eventCodec.encode(event);
 
-        assertThat(stateDocument.schemaVersion()).isEqualTo(13);
+        assertThat(stateDocument.schemaVersion()).isEqualTo(14);
         assertThat(eventDocument.schemaVersion()).isEqualTo(12);
         assertThat(stateCodec.decode(stateDocument)).isEqualTo(state);
         assertThat(eventCodec.decode(eventCodec.eventType(event), eventDocument)).isEqualTo(event);
@@ -668,6 +668,7 @@ class AgentPersistenceCodecTest {
     }
 
     private static RunRequestIdentity identity() {
-        return new RunRequestIdentity("session-1", new ParticipantRef("test", "participant"), "question");
+        return new RunRequestIdentity("session-1", new ParticipantRef("test", "participant"), "question",
+                new com.java.system.agent.answering.domain.scope.RepositoryId("repo-1"));
     }
 }
