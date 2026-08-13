@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.Valid;
 
@@ -189,39 +190,42 @@ public final class SemanticDtos {
 
     /** Java 型別的 HTTP 識別資料 */
     public record JavaTypeIdentityPayload(
-            @JsonPropertyDescription("Java package only, for example com.example.payment") String packageName,
-            @JsonPropertyDescription("Canonical class name relative to package; nested types use dots") String className) {
+            @JsonPropertyDescription("Java package only, for example com.example.payment") @NotNull String packageName,
+            @JsonPropertyDescription("Canonical class name relative to package; nested types use dots") @NotBlank String className) {
 
         public JavaTypeIdentityPayload {
             packageName = Objects.requireNonNull(packageName, "packageName is required");
-            className = Objects.requireNonNull(className, "className is required");
+            className = requiredText(className, "className");
         }
     }
 
     /** 以來源檔案限定的 Java 型別 HTTP 識別資料 */
     public record SourceTypeIdentityPayload(
-            @JsonPropertyDescription("Declaring Java package and class identity") JavaTypeIdentityPayload javaType,
-            @JsonPropertyDescription("Repository-relative Java source file path") String sourceFile)
+            @JsonPropertyDescription("Declaring Java package and class identity") @NotNull @Valid JavaTypeIdentityPayload javaType,
+            @JsonPropertyDescription("Repository-relative Java source file path") @NotBlank String sourceFile)
             implements InternalReferenceIdentity {
 
         public SourceTypeIdentityPayload {
             javaType = Objects.requireNonNull(javaType, "javaType is required");
-            sourceFile = Objects.requireNonNull(sourceFile, "sourceFile is required");
+            sourceFile = repositoryRelativePath(sourceFile, "sourceFile");
         }
     }
 
     /** 正規方法目標 HTTP 資料 */
     public record MethodTargetPayload(
-            @JsonPropertyDescription("Source-bound declaring type") SourceTypeIdentityPayload sourceType,
-            @JsonPropertyDescription("Declared Java method name") String methodName,
+            @JsonPropertyDescription("Source-bound declaring type") @NotNull @Valid SourceTypeIdentityPayload sourceType,
+            @JsonPropertyDescription("Declared Java method name") @NotBlank String methodName,
             @JsonPropertyDescription("Canonical parameter type names in declaration order; [] means zero arguments")
-            List<String> parameterTypes) implements FollowUpTarget, InternalReferenceIdentity {
+            @NotNull List<@NotBlank String> parameterTypes) implements FollowUpTarget, InternalReferenceIdentity {
 
         public MethodTargetPayload {
             sourceType = Objects.requireNonNull(sourceType, "sourceType is required");
-            methodName = Objects.requireNonNull(methodName, "methodName is required");
+            methodName = requiredText(methodName, "methodName");
             parameterTypes = List.copyOf(Objects.requireNonNull(
                     parameterTypes, "parameterTypes are required"));
+            for (String parameterType : parameterTypes) {
+                requiredText(parameterType, "parameterType");
+            }
         }
     }
 
@@ -269,11 +273,11 @@ public final class SemanticDtos {
 
     /** 含有來源檔案的可導覽文字範圍 HTTP 資料 */
     public record SourceRangePayload(
-            @JsonPropertyDescription("Repository-relative source file path") String sourceFile,
+            @JsonPropertyDescription("Repository-relative source file path") @NotBlank String sourceFile,
             @JsonPropertyDescription("Zero-based UTF-16 half-open range in sourceFile") @NotNull @Valid TextRangePayload range) {
 
         public SourceRangePayload {
-            sourceFile = Objects.requireNonNull(sourceFile, "sourceFile is required");
+            sourceFile = repositoryRelativePath(sourceFile, "sourceFile");
             range = Objects.requireNonNull(range, "range is required");
         }
     }
@@ -479,6 +483,8 @@ public final class SemanticDtos {
             destination = optional(destination);
             triggerKind = optional(triggerKind);
             triggerValue = optional(triggerValue);
+            validateConceptIdentity(kind, sourceType, target, identity, declaration, annotationType, owner, location,
+                    path, referencedType, httpVerb, route, broker, destination, triggerKind, triggerValue);
         }
     }
 
@@ -501,22 +507,26 @@ public final class SemanticDtos {
 
     /** 來源符號解析 context */
     public record SourceSymbolContextPayload(
-            @JsonPropertyDescription("Java type that contains the symbol") JavaTypeIdentityPayload javaType,
+            @JsonPropertyDescription("Java type that contains the symbol") @NotNull @Valid JavaTypeIdentityPayload javaType,
             @JsonPropertyDescription("Optional repository-relative source file path") Optional<String> sourceFile,
             @JsonPropertyDescription("Optional declaring method context for disambiguation")
-            Optional<SourceSymbolMethodContextPayload> method) {
+            Optional<@Valid SourceSymbolMethodContextPayload> method) {
         public SourceSymbolContextPayload {
             javaType = Objects.requireNonNull(javaType, "javaType is required");
             sourceFile = Optional.ofNullable(sourceFile).orElse(Optional.empty());
+            sourceFile = sourceFile.map(value -> repositoryRelativePath(value, "sourceFile"));
             method = Optional.ofNullable(method).orElse(Optional.empty());
         }
     }
 
     /** 來源符號的可選方法 context */
-    public record SourceSymbolMethodContextPayload(String name, List<String> parameterTypes) {
+    public record SourceSymbolMethodContextPayload(@NotBlank String name, @NotNull List<@NotBlank String> parameterTypes) {
         public SourceSymbolMethodContextPayload {
-            name = Objects.requireNonNull(name, "name is required");
+            name = requiredText(name, "name");
             parameterTypes = List.copyOf(Objects.requireNonNull(parameterTypes, "parameterTypes are required"));
+            for (String parameterType : parameterTypes) {
+                requiredText(parameterType, "parameterType");
+            }
         }
     }
 
@@ -651,24 +661,24 @@ public final class SemanticDtos {
     }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
-    public record MapperStatementIdentityPayload(MapperStatementKeyPayload statementKey, String resourcePath,
+    public record MapperStatementIdentityPayload(@NotNull @Valid MapperStatementKeyPayload statementKey, @NotBlank String resourcePath,
                                                  Optional<String> databaseId, Integer documentOrdinal,
                                                  String representation) implements ConceptIdentityTargetPayload {
         public MapperStatementIdentityPayload {
             statementKey = Objects.requireNonNull(statementKey, "statementKey is required");
-            resourcePath = Objects.requireNonNull(resourcePath, "resourcePath is required");
+            resourcePath = repositoryRelativePath(resourcePath, "resourcePath");
             databaseId = Optional.ofNullable(databaseId).orElse(Optional.empty());
             documentOrdinal = Objects.requireNonNull(documentOrdinal, "documentOrdinal is required");
             representation = Objects.requireNonNull(representation, "representation is required");
         }
     }
 
-    public record MapperFragmentIdentityPayload(String namespace, String fragmentId, String resourcePath,
+    public record MapperFragmentIdentityPayload(String namespace, String fragmentId, @NotBlank String resourcePath,
                                                 Integer documentOrdinal, String representation) {
         public MapperFragmentIdentityPayload {
             namespace = Objects.requireNonNull(namespace, "namespace is required");
             fragmentId = Objects.requireNonNull(fragmentId, "fragmentId is required");
-            resourcePath = Objects.requireNonNull(resourcePath, "resourcePath is required");
+            resourcePath = repositoryRelativePath(resourcePath, "resourcePath");
             documentOrdinal = Objects.requireNonNull(documentOrdinal, "documentOrdinal is required");
             representation = Objects.requireNonNull(representation, "representation is required");
         }
@@ -738,6 +748,54 @@ public final class SemanticDtos {
         return required;
     }
 
+    private static void validateConceptIdentity(
+            String kind, Optional<?> sourceType, Optional<?> target, Optional<?> identity,
+            Optional<?> declaration, Optional<?> annotationType, Optional<?> owner, Optional<?> location,
+            Optional<?> path, Optional<?> referencedType, Optional<?> httpVerb, Optional<?> route,
+            Optional<?> broker, Optional<?> destination, Optional<?> triggerKind, Optional<?> triggerValue) {
+        List<Optional<?>> all = List.of(sourceType, target, identity, declaration, annotationType, owner, location,
+                path, referencedType, httpVerb, route, broker, destination, triggerKind, triggerValue);
+        switch (kind) {
+            case "TYPE" -> exactConceptIdentityFields(all, List.of(sourceType), List.of());
+            case "METHOD" -> exactConceptIdentityFields(all, List.of(target), List.of());
+            case "FIELD" -> {
+                exactConceptIdentityFields(all, List.of(identity), List.of());
+                if (!(identity.orElseThrow() instanceof SourceMemberIdentityPayload)) {
+                    throw new IllegalArgumentException("concept FIELD identity subtype does not match kind");
+                }
+            }
+            case "ANNOTATION_USAGE" -> exactConceptIdentityFields(all, List.of(declaration, annotationType), List.of());
+            case "TYPE_USAGE" -> exactConceptIdentityFields(all, List.of(owner, location, path, referencedType), List.of());
+            case "API_ROUTE" -> exactConceptIdentityFields(all, List.of(target, httpVerb, route), List.of());
+            case "MQ_DESTINATION" -> exactConceptIdentityFields(all, List.of(target, broker, destination), List.of());
+            case "SCHEDULE" -> exactConceptIdentityFields(all, List.of(target, triggerKind), List.of(triggerValue));
+            case "MAPPER_STATEMENT" -> {
+                exactConceptIdentityFields(all, List.of(identity), List.of());
+                requiredIdentityType(identity, MapperStatementKeyPayload.class);
+            }
+            case "MAPPER_STATEMENT_VARIANT" -> {
+                exactConceptIdentityFields(all, List.of(identity), List.of());
+                requiredIdentityType(identity, MapperStatementIdentityPayload.class);
+            }
+            default -> throw new IllegalArgumentException("unsupported concept identity kind");
+        }
+    }
+
+    private static void exactConceptIdentityFields(
+            List<Optional<?>> all, List<Optional<?>> required, List<Optional<?>> optional) {
+        if (required.stream().anyMatch(Optional::isEmpty)
+                || all.stream().filter(value -> !required.contains(value) && !optional.contains(value))
+                .anyMatch(Optional::isPresent)) {
+            throw new IllegalArgumentException("concept identity does not match kind");
+        }
+    }
+
+    private static void requiredIdentityType(Optional<?> identity, Class<?> expectedType) {
+        if (!expectedType.isInstance(identity.orElseThrow())) {
+            throw new IllegalArgumentException("concept identity subtype does not match kind");
+        }
+    }
+
     private static int comparePositions(Position start, Position end) {
         int lineComparison = Integer.compare(start.line(), end.line());
         if (lineComparison != 0) {
@@ -748,6 +806,30 @@ public final class SemanticDtos {
 
     private static <T> Optional<T> optional(Optional<T> value) {
         return Optional.ofNullable(value).orElse(Optional.empty());
+    }
+
+    private static String requiredText(String value, String name) {
+        String required = Objects.requireNonNull(value, name + " is required");
+        if (required.isBlank()) {
+            throw new IllegalArgumentException(name + " must not be blank");
+        }
+        return required;
+    }
+
+    private static String repositoryRelativePath(String value, String name) {
+        String path = requiredText(value, name);
+        if (path.startsWith("/") || path.contains("\\") || path.matches("^[A-Za-z]:.*")
+                || path.matches("^[A-Za-z][A-Za-z0-9+.-]*:.*") || path.chars().anyMatch(Character::isWhitespace)
+                || path.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException(name + " must be a normalized repository-relative path");
+        }
+        String[] segments = path.split("/", -1);
+        for (String segment : segments) {
+            if (segment.isEmpty() || ".".equals(segment) || "..".equals(segment)) {
+                throw new IllegalArgumentException(name + " must be a normalized repository-relative path");
+            }
+        }
+        return path;
     }
 
     /** 結構化探索的固定頁面計數 */

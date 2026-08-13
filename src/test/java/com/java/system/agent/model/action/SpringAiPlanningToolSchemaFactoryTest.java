@@ -61,16 +61,13 @@ class SpringAiPlanningToolSchemaFactoryTest {
                 .contains("location").doesNotContain("contextLines");
         JsonNode concept = mapper.readTree(factory.createSchema(ResolveConceptPlanningInput.class));
         JsonNode evidence = mapper.readTree(factory.createSchema(GetEvidenceSourcePlanningInput.class));
-        assertThat(concept.at("/properties/identity/description").asText()).contains("Exact concept identity");
-        assertThat(concept.at("/properties/identity/properties/kind/description").asText())
-                .contains("TYPE", "MAPPER_STATEMENT_VARIANT");
-        assertThat(concept.at("/properties/identity/properties/sourceType/description").asText())
-                .contains("TYPE");
-        assertThat(evidence.at("/properties/identity/description").asText()).contains("Exact evidence identity");
-        assertThat(evidence.at("/properties/identity/properties/kind/description").asText())
-                .contains("ANNOTATION_SQL", "MAPPER_FRAGMENT");
-        assertThat(evidence.at("/properties/identity/properties/fragmentIdentity/description").asText())
-                .contains("MAPPER_FRAGMENT");
+        assertThat(concept.at("/properties/identity/anyOf").size()).isEqualTo(10);
+        assertThat(concept.toString()).contains("TYPE", "METHOD", "FIELD", "ANNOTATION_USAGE", "TYPE_USAGE",
+                "API_ROUTE", "MQ_DESTINATION", "SCHEDULE", "MAPPER_STATEMENT", "MAPPER_STATEMENT_VARIANT",
+                "sourceType");
+        assertThat(evidence.at("/properties/identity/anyOf").size()).isEqualTo(3);
+        assertThat(evidence.toString()).contains("ANNOTATION_SQL", "MAPPER_STATEMENT", "MAPPER_FRAGMENT",
+                "fragmentIdentity");
     }
 
     @Test

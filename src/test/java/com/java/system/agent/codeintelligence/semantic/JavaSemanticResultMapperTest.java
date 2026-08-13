@@ -1089,7 +1089,7 @@ class JavaSemanticResultMapperTest {
     @Test
     void preservesEveryLegalMethodTargetComponentAndRejectsNonCanonicalKeys() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
-        SemanticDtos.MethodTarget expected = new SemanticDtos.MethodTarget(" src/模組: a|b.java", " 包.名 ",
+        SemanticDtos.MethodTarget expected = new SemanticDtos.MethodTarget("src/模組/服務.java", " 包.名 ",
                 "服務", "查詢", List.of(" int "));
         SemanticTarget encoded = mapper.semanticTarget(expected);
         SemanticTarget zeroParameters = mapper.semanticTarget(new SemanticDtos.MethodTarget("src/Zero.java", "",

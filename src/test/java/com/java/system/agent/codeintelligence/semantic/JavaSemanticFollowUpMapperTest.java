@@ -180,19 +180,9 @@ class JavaSemanticFollowUpMapperTest {
                 new SemanticDtos.FollowUpApi("POST", "/v1/analyses/call-graphs/outgoing", "analyzeOutgoingCallGraph"),
                 new SemanticDtos.TargetFollowUpRequest("orders", "FIXTURE", target,
                         Optional.of(3), Optional.empty(), Optional.empty()));
-        SemanticDtos.AvailableFollowUp mixedConcept = new SemanticDtos.AvailableFollowUp("RESOLVE_CONCEPT",
-                new SemanticDtos.FollowUpApi("POST", "/v1/discovery/concepts/resolve", "resolveConcept"),
-                new SemanticDtos.IdentityFollowUpRequest("orders", "FIXTURE",
-                        new SemanticDtos.ConceptFollowUpIdentity("TYPE", Optional.of(target.sourceType()), Optional.of(target),
-                                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                                Optional.empty(), Optional.empty(), Optional.empty())));
-
         assertThatThrownBy(() -> mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), wrongIdentity))
                 .isInstanceOf(CapabilityExecutionContractException.class);
         assertThatThrownBy(() -> mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), invalidDepth))
-                .isInstanceOf(CapabilityExecutionContractException.class);
-        assertThatThrownBy(() -> mapper.map(new RepositoryId("orders"), new RepositoryRevision("FIXTURE"), mixedConcept))
                 .isInstanceOf(CapabilityExecutionContractException.class);
     }
 

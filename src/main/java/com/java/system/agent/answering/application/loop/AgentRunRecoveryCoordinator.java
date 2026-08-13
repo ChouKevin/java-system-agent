@@ -350,8 +350,9 @@ final class AgentRunRecoveryCoordinator {
     private RuntimeException repositoryScopeFailure(
             RepositoryRevisionFailureCode failureCode) {
         return switch (failureCode) {
-            case DEPENDENCY_NOT_READY -> new RepositoryScopeUnavailableException();
-            case TIMEOUT, FORBIDDEN, REPOSITORY_NOT_FOUND, DEPENDENCY_UNAVAILABLE, DEPENDENCY_FAILURE ->
+            case DEPENDENCY_NOT_READY, TIMEOUT, DEPENDENCY_UNAVAILABLE, DEPENDENCY_FAILURE ->
+                    new RepositoryScopeUnavailableException();
+            case FORBIDDEN, REPOSITORY_NOT_FOUND ->
                     new AnswerExecutionContractException("configured repository scope is unavailable");
         };
     }

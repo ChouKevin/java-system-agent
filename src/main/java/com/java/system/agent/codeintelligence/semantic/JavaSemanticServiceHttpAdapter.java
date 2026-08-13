@@ -171,6 +171,7 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     private CapabilityExecutionResult listEntryPointsInternal(
             CapabilityExecutionContext context,
             ListEntryPointsExecutionInput input) {
+        requireCapability(context, CodeIntelligenceQuery.LIST_ENTRY_POINTS);
         RepositoryQueryScope repository = runtimeRepositoryScope(context);
         try {
             EntryPointType type = input.type();
@@ -258,10 +259,12 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
     }
 
     private CapabilityExecutionResult lookupApiRouteInternal(CapabilityExecutionContext context, LookupApiRouteExecutionInput input) {
+        requireCapability(context, CodeIntelligenceQuery.LOOKUP_API_ROUTE);
         return apiRoute(context, input.apiPath(), input.httpMethod(), Optional.empty(), LOOKUP_OPERATION);
     }
 
     private CapabilityExecutionResult suggestApiRouteInternal(CapabilityExecutionContext context, SuggestApiRouteExecutionInput input) {
+        requireCapability(context, CodeIntelligenceQuery.SUGGEST_API_ROUTE);
         return apiRoute(context, input.apiPath(), input.httpMethod(), Optional.of(input.limit()), SUGGEST_OPERATION);
     }
 
@@ -323,6 +326,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                     scope.expectedRevision().value(), input.identity());
             SemanticDtos.ResolveConceptResponse response = discoveryPost("/v1/discovery/concepts/resolve", request,
                     SemanticDtos.ResolveConceptResponse.class, "concept resolve");
+            if (!input.identity().equals(response.candidate().identity())) {
+                throw contract("resolved concept response identity does not match the requested identity");
+            }
             return resultMapper.resolveConcept(scope.repositoryId(), scope.expectedRevision(), response);
         }));
     }
@@ -335,6 +341,9 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
                     scope.repositoryId().value(), scope.expectedRevision().value(), input.eventType(), input.offset(), input.limit());
             SemanticDtos.DiscoverEventListenersResponse response = discoveryPost("/v1/discovery/event-listeners", request,
                     SemanticDtos.DiscoverEventListenersResponse.class, "event listener discovery");
+            if (!input.eventType().equals(response.requestedEventType())) {
+                throw contract("event listener response target does not match the requested event type");
+            }
             return resultMapper.discoverEventListeners(scope.repositoryId(), scope.expectedRevision(), response);
         }));
     }
@@ -457,11 +466,17 @@ public final class JavaSemanticServiceHttpAdapter implements RepositoryCatalogPo
         Objects.requireNonNull(context, "capability execution context must not be null");
         Objects.requireNonNull(query, "discovery query must not be null");
         Objects.requireNonNull(input, "discovery input must not be null");
+        requireCapability(context, query);
+        return runtimeDiscoveryScope(context);
+    }
+
+    private void requireCapability(CapabilityExecutionContext context, CodeIntelligenceQuery query) {
+        Objects.requireNonNull(context, "capability execution context must not be null");
+        Objects.requireNonNull(query, "discovery query must not be null");
         if (!query.capabilityName().equals(context.capability().name())
                 || !query.version().equals(context.capability().version())) {
-            throw contract("discovery capability does not match the selected operation");
+            throw contract("capability does not match the selected operation");
         }
-        return runtimeDiscoveryScope(context);
     }
 
     private boolean contains(SemanticDtos.SourceRangePayload requested, SemanticDtos.SourceRangePayload response) {

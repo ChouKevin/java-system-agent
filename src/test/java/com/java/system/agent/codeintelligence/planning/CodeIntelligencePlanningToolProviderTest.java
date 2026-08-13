@@ -145,7 +145,46 @@ class CodeIntelligencePlanningToolProviderTest {
                 {"sourceFile":"src/Orders.java","range":{"start":{"line":0,"character":0},"end":{"line":1,"character":0}}},
                 "contextLines":21}
                 """, context)).isInstanceOf(AgentActionProposal.Malformed.class);
+        assertThat(registry.interpretToolCall("codebase_resolve_concept", """
+                {"questionToResolve":"Read","rationale":"Need evidence","identity":
+                {"kind":"TYPE","target":{"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"src/Orders.java"},"methodName":"find","parameterTypes":[]}}}
+                """, context)).isInstanceOf(AgentActionProposal.Malformed.class);
+        assertThat(registry.interpretToolCall("codebase_outgoing_call_graph", """
+                {"questionToResolve":"Read","rationale":"Need evidence","target":
+                {"sourceType":{"javaType":{"packageName":"com.example","className":"Orders"},"sourceFile":"../Orders.java"},
+                "methodName":"find","parameterTypes":[]}}
+                """, context)).isInstanceOf(AgentActionProposal.Malformed.class);
         org.mockito.Mockito.verifyNoInteractions(adapter);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidSemanticTargets")
+    void rejects_invalid_nested_semantic_targets_before_an_executor_is_selected(
+            String scenario, String toolName, String input) {
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        JavaSemanticServiceHttpAdapter adapter = org.mockito.Mockito.mock(JavaSemanticServiceHttpAdapter.class);
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(adapter, codec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), codec);
+
+        assertThat(registry.interpretToolCall(toolName, input, plannedContext(registry)))
+                .isInstanceOf(AgentActionProposal.Malformed.class);
+        org.mockito.Mockito.verifyNoInteractions(adapter);
+    }
+
+    @Test
+    void accepts_a_default_package_target_with_a_normalized_repository_relative_path() {
+        CanonicalCapabilityPayloadCodec codec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(new CodeIntelligencePlanningToolProvider(
+                org.mockito.Mockito.mock(JavaSemanticServiceHttpAdapter.class), codec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), codec);
+
+        assertThat(registry.interpretToolCall("codebase_outgoing_call_graph", """
+                {"questionToResolve":"Read","rationale":"Need evidence","target":
+                {"sourceType":{"javaType":{"packageName":"","className":"Orders"},"sourceFile":"src/Orders.java"},
+                "methodName":"find","parameterTypes":[]}}
+                """, plannedContext(registry))).isInstanceOf(AgentActionProposal.Proposed.class);
     }
 
     @Test
@@ -223,6 +262,25 @@ class CodeIntelligencePlanningToolProviderTest {
                         "{\"line\":0,\"character\":0}")),
                 Arguments.of("reversed range", sourceSegmentInput("{\"line\":1,\"character\":0}",
                         "{\"line\":0,\"character\":5}")));
+    }
+
+    private static Stream<Arguments> invalidSemanticTargets() {
+        return Stream.of(
+                Arguments.of("dot-dot source path", "codebase_outgoing_call_graph", outgoingTarget("../Orders.java", "Orders", "find", "[]")),
+                Arguments.of("absolute source path", "codebase_outgoing_call_graph", outgoingTarget("/src/Orders.java", "Orders", "find", "[]")),
+                Arguments.of("backslash source path", "codebase_outgoing_call_graph", outgoingTarget("src\\\\Orders.java", "Orders", "find", "[]")),
+                Arguments.of("drive source path", "codebase_outgoing_call_graph", outgoingTarget("C:/Orders.java", "Orders", "find", "[]")),
+                Arguments.of("whitespace source path", "codebase_outgoing_call_graph", outgoingTarget("src/Order Service.java", "Orders", "find", "[]")),
+                Arguments.of("blank class name", "codebase_outgoing_call_graph", outgoingTarget("src/Orders.java", " ", "find", "[]")),
+                Arguments.of("blank method name", "codebase_outgoing_call_graph", outgoingTarget("src/Orders.java", "Orders", " ", "[]")),
+                Arguments.of("blank parameter type", "codebase_outgoing_call_graph", outgoingTarget("src/Orders.java", "Orders", "find", "[\" \"]")));
+    }
+
+    private static String outgoingTarget(String sourceFile, String className, String methodName, String parameterTypes) {
+        return """
+                {"questionToResolve":"Read","rationale":"Need evidence","target":{"sourceType":{"javaType":
+                {"packageName":"com.example","className":"%s"},"sourceFile":"%s"},"methodName":"%s","parameterTypes":%s}}
+                """.formatted(className, sourceFile, methodName, parameterTypes);
     }
 
     private static String sourceSegmentInput(String start, String end) {

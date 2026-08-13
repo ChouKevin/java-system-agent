@@ -2,7 +2,6 @@ package com.java.system.agent.codeintelligence.planning;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
-import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -13,5 +12,5 @@ public record ResolveConceptPlanningInput(
         @JsonProperty(required = true) @NotBlank String rationale,
         @JsonProperty(required = true)
         @JsonPropertyDescription("Exact concept identity; kind selects the required typed identity variant.")
-        @NotNull @Valid SemanticDtos.ConceptFollowUpIdentity identity) {
+        @NotNull @Valid SemanticPlanningIdentities.Concept identity) {
 }

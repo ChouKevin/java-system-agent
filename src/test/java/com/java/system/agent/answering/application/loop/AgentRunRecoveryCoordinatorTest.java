@@ -46,6 +46,7 @@ import com.java.system.agent.answering.port.in.AnswerExecutionContractException;
 import com.java.system.agent.answering.port.in.AnswerExecutionContractFailure;
 import com.java.system.agent.answering.port.in.AnswerExecutionMode;
 import com.java.system.agent.answering.port.in.AnswerExecutionUnavailableException;
+import com.java.system.agent.answering.port.in.RepositoryScopeUnavailableException;
 import com.java.system.agent.answering.port.out.AgentTransitionPort;
 import com.java.system.agent.answering.port.out.AnswerVerificationResult;
 import com.java.system.agent.answering.port.out.AnswerVerificationContext;
@@ -59,6 +60,8 @@ import com.java.system.agent.answering.port.out.RepositoryCatalogPort;
 import com.java.system.agent.answering.port.out.RepositoryDescriptor;
 import com.java.system.agent.answering.port.out.RepositoryRevisionPort;
 import com.java.system.agent.answering.port.out.RepositoryRevisionContractException;
+import com.java.system.agent.answering.port.out.RepositoryRevisionFailure;
+import com.java.system.agent.answering.port.out.RepositoryRevisionFailureCode;
 import com.java.system.agent.answering.port.out.RepositoryRevisionResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -146,6 +149,31 @@ class AgentRunRecoveryCoordinatorTest {
         assertThat(outcome.execution().state().requestIdentity().repositoryId()).isEqualTo(repositoryB);
         assertThat(outcome.execution().state().currentAttempt().revisionVector().entries())
                 .containsExactly(new RevisionVector.Entry(repositoryB, new RepositoryRevision("revision-b")));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = RepositoryRevisionFailureCode.class)
+    void classifiesRepositoryScopeFailuresWithoutIssuingModelWork(RepositoryRevisionFailureCode failureCode) {
+        Fixture fixture = fixture(
+                (mode, context) -> {
+                    throw new AssertionError("repository scope failure must not call the model");
+                },
+                List.of(new RepositoryDescriptor(new RepositoryId("repo-1"), "Repository one")),
+                repositoryId -> RepositoryRevisionResult.failed(new RepositoryRevisionFailure(
+                        failureCode, "sanitized failure", "repository revision")));
+
+        if (failureCode == RepositoryRevisionFailureCode.FORBIDDEN
+                || failureCode == RepositoryRevisionFailureCode.REPOSITORY_NOT_FOUND) {
+            assertThatThrownBy(() -> fixture.coordinator().recover(fixture.initialRequest()))
+                    .isInstanceOf(AnswerExecutionContractException.class)
+                    .hasMessage("configured repository scope is unavailable")
+                    .hasMessageNotContaining("sanitized failure");
+        } else {
+            assertThatThrownBy(() -> fixture.coordinator().recover(fixture.initialRequest()))
+                    .isInstanceOf(RepositoryScopeUnavailableException.class);
+        }
+        assertThat(fixture.revisionReads()).hasValue(1);
+        assertThat(fixture.port().events()).isEmpty();
     }
 
     @Test

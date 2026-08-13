@@ -347,7 +347,7 @@ class JavaSemanticServiceHttpAdapterTest {
                 .andRespond(withSuccess(conceptsScopeMismatchSuccess().replace("\"repoId\":\"other\"",
                         "\"repoId\":\"orders\""), MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/event-listeners"))
-                .andRespond(withSuccess(listenersSuccess(), MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(listenersSuccess().replace("com.example.Event", "com.example.OrderCreated"), MediaType.APPLICATION_JSON));
         client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/internal-references"))
                 .andRespond(withSuccess(referencesSuccess(), MediaType.APPLICATION_JSON));
         JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
@@ -361,6 +361,42 @@ class JavaSemanticServiceHttpAdapterTest {
         assertSucceeded(() -> adapter.findInternalReferences(
                 followUpContext("codebase_find_internal_references", referencesProvider), referencesTuned));
 
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsEchoedConceptAndEventTargetsThatDifferFromTheRequest() {
+        TestClient client = testClient();
+        SemanticDtos.ConceptFollowUpIdentity concept = conceptIdentity();
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/concepts/resolve"))
+                .andRespond(withSuccess(resolveConceptSuccess().replace("\"className\":\"Orders\"",
+                        "\"className\":\"Other\""), MediaType.APPLICATION_JSON));
+        client.server().expect(once(), requestTo("https://semantic.test/v1/discovery/event-listeners"))
+                .andRespond(withSuccess(listenersSuccess().replace("com.example.Event", "com.example.OtherEvent"),
+                        MediaType.APPLICATION_JSON));
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.resolveConcept(
+                followUpContext("codebase_resolve_concept", new ResolveConceptExecutionInput(concept)),
+                new ResolveConceptExecutionInput(concept))).isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.discoverEventListeners(
+                repositoryContext("codebase_discover_event_listeners"),
+                new DiscoverEventListenersExecutionInput("com.example.Event", 0, 1)))
+                .isInstanceOf(CapabilityExecutionContractException.class);
+        client.server().verify();
+    }
+
+    @Test
+    void rejectsCapabilityIdentityMismatchesBeforeEntryPointAndRouteHttpRequests() {
+        TestClient client = testClient();
+        JavaSemanticServiceHttpAdapter adapter = new JavaSemanticServiceHttpAdapter(client.restClient());
+
+        assertThatThrownBy(() -> adapter.listEntryPoints(repositoryContext("codebase_lookup_api_route"),
+                new ListEntryPointsExecutionInput(EntryPointType.API))).isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.lookupApiRoute(repositoryContext("codebase_suggest_api_route"),
+                new LookupApiRouteExecutionInput("/orders", null))).isInstanceOf(CapabilityExecutionContractException.class);
+        assertThatThrownBy(() -> adapter.suggestApiRoute(repositoryContext("codebase_list_entry_points"),
+                new SuggestApiRouteExecutionInput("/orders", null, 1))).isInstanceOf(CapabilityExecutionContractException.class);
         client.server().verify();
     }
 
