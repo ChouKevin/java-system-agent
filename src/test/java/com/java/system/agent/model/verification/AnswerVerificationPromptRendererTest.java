@@ -137,6 +137,30 @@ class AnswerVerificationPromptRendererTest {
     }
 
     @Test
+    void projects_an_evidence_backed_unavailable_resolution_with_an_empty_observation_list() {
+        RepositoryId repositoryId = new RepositoryId("repository-1");
+        RepositoryRevision revision = new RepositoryRevision("revision-1");
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"),
+                RevisionVector.empty().pin(repositoryId, revision));
+        EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-1", binding);
+        IssuedEvidence evidence = evidence(evidenceHandle, repositoryId, revision);
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.UNCERTAINTY, "boundary is unavailable", Optional.empty(),
+                Set.of(new EvidenceHandleRef(evidenceHandle.value())), Set.of())));
+        List<NeedResolution> resolutions = List.of(new NeedResolution(new InformationNeedId("need-1"),
+                NeedResolutionStatus.UNAVAILABLE, Set.of(new EvidenceHandleRef(evidenceHandle.value())), Set.of()));
+        AnswerVerificationContext context = new AnswerVerificationContext(
+                "question", SessionHistory.empty(), document, List.of(evidence), List.of(), List.of(evidence), List.of(),
+                List.of(), defaultPlan(), resolutions);
+
+        Map<String, Object> projection = renderer().project(context, "response contract");
+
+        assertThat(projection.get("needResolutions")).isEqualTo("- need-1 [UNAVAILABLE]\n"
+                + "  evidenceHandles: evidence-1\n"
+                + "  observationIds: \n");
+    }
+
+    @Test
     void renders_the_complete_projection_through_the_injected_catalog() {
         PromptResourceCatalog catalog = mock(PromptResourceCatalog.class);
         AnswerVerificationPromptRenderer renderer = new AnswerVerificationPromptRenderer(catalog);

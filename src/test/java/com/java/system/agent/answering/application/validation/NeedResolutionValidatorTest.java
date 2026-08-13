@@ -63,6 +63,32 @@ class NeedResolutionValidatorTest {
                 .doesNotThrowAnyException();
     }
 
+    @Test
+    void accepts_an_evidence_backed_unavailable_resolution_without_observation() {
+        HandleBinding binding = binding("attempt-1");
+        EvidenceHandle evidence = new EvidenceHandle("evidence-1", binding);
+        QuestionPlan plan = plan("N1");
+        List<NeedResolution> resolutions = List.of(new NeedResolution(
+                new InformationNeedId("N1"), NeedResolutionStatus.UNAVAILABLE,
+                Set.of(new EvidenceHandleRef(evidence.value())), Set.of()));
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.UNCERTAINTY,
+                "The requested value is unavailable from the issued source evidence",
+                Optional.empty(), Set.of(new EvidenceHandleRef(evidence.value())), Set.of())));
+
+        assertThatCode(() -> validator.validate(plan, resolutions, document,
+                Map.of(evidence, issued(evidence)), Map.of(), binding))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejects_an_unavailable_resolution_without_evidence_or_observation() {
+        assertThatThrownBy(() -> new NeedResolution(
+                new InformationNeedId("N1"), NeedResolutionStatus.UNAVAILABLE, Set.of(), Set.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("unavailable need resolutions require evidence or observations");
+    }
+
     @ParameterizedTest
     @MethodSource("invalidResolutionCases")
     void rejects_resolution_contract_violations_with_stable_codes(
@@ -105,6 +131,10 @@ class NeedResolutionValidatorTest {
         return new QuestionPlan(List.of(
                 new InformationNeed(new InformationNeedId(first), "Need " + first),
                 new InformationNeed(new InformationNeedId(second), "Need " + second)));
+    }
+
+    private static QuestionPlan plan(String need) {
+        return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId(need), "Need " + need)));
     }
 
     private static NeedResolution supported(String id, EvidenceHandle evidence) {

@@ -156,7 +156,7 @@ class PaymentKnowledgeLiveIT {
             List<NeedResolution> resolutions = assertPlanAndResolutionAuthority(
                     run.terminal().state(), acceptedState.plan(), acceptedState.answer(), citedEvidence);
             assertScenarioExpectation(
-                    scenario.expectation(), run.terminal().state(), acceptedState.answer(), resolutions);
+                    scenario.expectation(), run.terminal().state(), acceptedState.answer(), resolutions, citedEvidence);
             assertCitedCapabilityProvenance(run.terminal().state(), citedEvidence);
             AcceptedRun acceptedRun = new AcceptedRun(
                     acceptedState.plan(), acceptedState.answer(), resolutions);
@@ -292,7 +292,8 @@ class PaymentKnowledgeLiveIT {
             ScenarioExpectation expectation,
             AgentRunState state,
             PendingTerminalResponse.Answer answer,
-            List<NeedResolution> resolutions) {
+            List<NeedResolution> resolutions,
+            CitedEvidence citedEvidence) {
         if (expectation == ScenarioExpectation.KNOWN_SOURCE) {
             return;
         }
@@ -313,21 +314,38 @@ class PaymentKnowledgeLiveIT {
         Optional<ObservationCode> requiredObservationCode = expectation == ScenarioExpectation.ABSENT_BUSINESS
                 ? Optional.of(ObservationCode.UNSUPPORTED_CLAIM)
                 : Optional.empty();
-        assertUnavailableObservationAuthority(state, resolutions, requiredObservationCode);
+        assertUnavailableResolutionAuthority(
+                state, resolutions, citedEvidence, requiredObservationCode,
+                expectation == ScenarioExpectation.RUNTIME_ONLY);
     }
 
-    private void assertUnavailableObservationAuthority(
+    private void assertUnavailableResolutionAuthority(
             AgentRunState state,
             List<NeedResolution> resolutions,
-            Optional<ObservationCode> requiredObservationCode) {
+            CitedEvidence citedEvidence,
+            Optional<ObservationCode> requiredObservationCode,
+            boolean allowsEvidenceOnlyBoundary) {
+        Map<String, IssuedEvidence> issuedEvidence = new LinkedHashMap<>();
+        state.currentAttempt().issuedEvidence().forEach((handle, issued) -> issuedEvidence.put(handle.value(), issued));
         Map<ObservationId, AgentObservation> observations = state.currentAttempt().observations();
         List<NeedResolution> unavailableResolutions = resolutions.stream()
                 .filter(resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE)
                 .toList();
         assertThat(unavailableResolutions).isNotEmpty();
         unavailableResolutions.forEach(resolution -> {
+            boolean hasBoundaryEvidence = !resolution.evidence().isEmpty();
+            resolution.evidence().forEach(reference -> {
+                IssuedEvidence issued = Optional.ofNullable(issuedEvidence.get(reference.value()))
+                        .orElseThrow(() -> new AssertionError(
+                                "unavailable resolution did not use current-attempt issued evidence"));
+                assertCurrentBinding(state, issued.handle());
+                assertThat(citedEvidence.handles()).contains(reference.value());
+            });
             List<ObservationCode> observationCodes = unavailableObservationCodes(observations, resolution);
-            assertThat(observationCodes).isNotEmpty();
+            assertThat(hasBoundaryEvidence || !observationCodes.isEmpty()).isTrue();
+            if (!allowsEvidenceOnlyBoundary) {
+                assertThat(observationCodes).isNotEmpty();
+            }
             requiredObservationCode.ifPresent(code -> assertThat(observationCodes).contains(code));
         });
     }
@@ -405,6 +423,13 @@ class PaymentKnowledgeLiveIT {
                 });
             }
             if (resolution.status() == NeedResolutionStatus.UNAVAILABLE) {
+                resolution.evidence().forEach(reference -> {
+                    IssuedEvidence issued = Optional.ofNullable(issuedEvidence.get(reference.value()))
+                            .orElseThrow(() -> new AssertionError(
+                                    "unavailable resolution did not use current-attempt issued evidence"));
+                    assertCurrentBinding(state, issued.handle());
+                    assertThat(citedEvidence.handles()).contains(reference.value());
+                });
                 resolution.observations().forEach(observationId ->
                         assertThat(state.currentAttempt().observations()).containsKey(observationId));
             }

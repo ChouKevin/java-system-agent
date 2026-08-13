@@ -25,8 +25,8 @@ public record NeedResolution(
         if (status == NeedResolutionStatus.SUPPORTED && evidence.isEmpty()) {
             throw new IllegalArgumentException("supported need resolutions require evidence");
         }
-        if (status == NeedResolutionStatus.UNAVAILABLE && observations.isEmpty()) {
-            throw new IllegalArgumentException("unavailable need resolutions require observations");
+        if (status == NeedResolutionStatus.UNAVAILABLE && evidence.isEmpty() && observations.isEmpty()) {
+            throw new IllegalArgumentException("unavailable need resolutions require evidence or observations");
         }
     }
 }

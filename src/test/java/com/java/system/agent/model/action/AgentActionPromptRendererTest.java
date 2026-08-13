@@ -32,6 +32,7 @@ import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
 import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.observation.ObservationId;
 import com.java.system.agent.answering.domain.run.ActionResult;
@@ -169,6 +170,26 @@ class AgentActionPromptRendererTest {
 
         assertThat(projection.get("questionPlan")).isEqualTo("- need-2: Resolve the boundary\n"
                 + "- need-1: Trace the entry point\n");
+    }
+
+    @Test
+    void renders_an_evidence_backed_unavailable_resolution_without_observations_in_action_history() {
+        AnalysisRunId runId = new AnalysisRunId("run-1");
+        AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
+        AnswerAction answer = new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.UNCERTAINTY, "boundary is unavailable", Optional.empty(),
+                Set.of(new EvidenceHandleRef("evidence-1")), Set.of()))), List.of(new NeedResolution(
+                new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE,
+                Set.of(new EvidenceHandleRef("evidence-1")), Set.of())));
+        AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), runId, attemptId,
+                Map.of(), Map.of(), Map.of(), Map.of(),
+                List.of(new ModelInteraction.ActionSelected(attemptId, answer)), Optional.empty(),
+                new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0));
+
+        String interactions = (String) renderer().project(context, List.of()).get("modelInteractions");
+
+        assertThat(interactions).contains("needId=need-1", "status=UNAVAILABLE",
+                "evidenceHandles=[evidence-1]", "observationIds=[]");
     }
 
     @Test

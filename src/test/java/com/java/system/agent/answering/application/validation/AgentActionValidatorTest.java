@@ -4,17 +4,31 @@ import com.java.system.agent.answering.domain.action.ExecuteAction;
 import com.java.system.agent.answering.domain.action.ExternalHttpMethod;
 import com.java.system.agent.answering.domain.action.PlanAction;
 import com.java.system.agent.answering.domain.action.QueryAction;
+import com.java.system.agent.answering.domain.action.AnswerAction;
+import com.java.system.agent.answering.domain.answer.AnswerDocument;
+import com.java.system.agent.answering.domain.answer.AnswerStatement;
+import com.java.system.agent.answering.domain.answer.StatementId;
+import com.java.system.agent.answering.domain.answer.StatementType;
 import com.java.system.agent.answering.domain.capability.CapabilityInputPayload;
 import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.CandidateKind;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
 import com.java.system.agent.answering.domain.candidate.RouteCandidate;
+import com.java.system.agent.answering.domain.evidence.ArtifactRef;
+import com.java.system.agent.answering.domain.evidence.EvidenceRef;
+import com.java.system.agent.answering.domain.evidence.IssuedEvidence;
+import com.java.system.agent.answering.domain.evidence.SemanticTarget;
+import com.java.system.agent.answering.domain.evidence.SemanticTargetKind;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
+import com.java.system.agent.answering.domain.handle.EvidenceHandle;
+import com.java.system.agent.answering.domain.handle.EvidenceHandleRef;
 import com.java.system.agent.answering.domain.handle.HandleBinding;
 import com.java.system.agent.answering.domain.plan.InformationNeed;
 import com.java.system.agent.answering.domain.plan.InformationNeedId;
+import com.java.system.agent.answering.domain.plan.NeedResolution;
+import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 import com.java.system.agent.answering.domain.plan.QuestionPlan;
 import com.java.system.agent.answering.domain.run.AnalysisAttemptId;
 import com.java.system.agent.answering.domain.run.AnalysisRunId;
@@ -178,6 +192,39 @@ class AgentActionValidatorTest {
                         ActionRejectionCode.QUESTION_PLAN_ALREADY_EXISTS.name(), plan));
     }
 
+    @Test
+    void accepts_an_evidence_backed_unavailable_answer_with_an_observation_free_uncertainty() {
+        Fixture fixture = fixture();
+        EvidenceHandle evidence = new EvidenceHandle("evidence-1", fixture.binding());
+        AnswerAction action = new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.UNCERTAINTY,
+                "The current value is unavailable from the issued source evidence", Optional.empty(),
+                Set.of(new EvidenceHandleRef(evidence.value())), Set.of()))), List.of(new NeedResolution(
+                new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE,
+                Set.of(new EvidenceHandleRef(evidence.value())), Set.of())));
+
+        ActionValidation validation = validator.validate(action, fixture.contextWithEvidence(evidence));
+
+        assertThat(validation).isEqualTo(new ActionValidation.Accepted(action, List.of()));
+    }
+
+    @Test
+    void rejects_an_observation_free_limitation_even_when_its_unavailable_resolution_has_evidence() {
+        Fixture fixture = fixture();
+        EvidenceHandle evidence = new EvidenceHandle("evidence-1", fixture.binding());
+        AnswerAction action = new AnswerAction(new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.LIMITATION,
+                "The current value cannot be established", Optional.empty(),
+                Set.of(new EvidenceHandleRef(evidence.value())), Set.of()))), List.of(new NeedResolution(
+                new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE,
+                Set.of(new EvidenceHandleRef(evidence.value())), Set.of())));
+
+        ActionValidation validation = validator.validate(action, fixture.contextWithEvidence(evidence));
+
+        assertThat(validation).isEqualTo(new ActionValidation.Rejected(ActionRejectionCode.INVALID_ANSWER_DOCUMENT,
+                ActionRejectionCode.INVALID_ANSWER_DOCUMENT.name(), action));
+    }
+
     private static ExecuteAction execute(String target) {
         return new ExecuteAction(ExternalHttpMethod.POST, target, Optional.empty(), "preview external request");
     }
@@ -228,6 +275,13 @@ class AgentActionValidatorTest {
                     new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.empty());
         }
 
+        private AgentValidationContext contextWithEvidence(EvidenceHandle evidence) {
+            CapabilityPolicy policy = new CapabilityPolicy("callers", "v1");
+            return new AgentValidationContext(
+                    Map.of(capability, policy), Map.of(), Map.of(evidence, issuedEvidence(evidence)), Map.of(), List.of(),
+                    binding, new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.of(plan()));
+        }
+
         private AgentValidationContext context(
                 Map<CandidateHandle, IssuedCandidate> candidates,
                 List<ModelInteraction> modelInteractions,
@@ -242,5 +296,12 @@ class AgentActionValidatorTest {
 
     private static QuestionPlan plan() {
         return new QuestionPlan(List.of(new InformationNeed(new InformationNeedId("need-1"), "Trace the route")));
+    }
+
+    private static IssuedEvidence issuedEvidence(EvidenceHandle handle) {
+        return new IssuedEvidence(handle, new EvidenceRef("semantic", new RepositoryId("repo-1"),
+                new RepositoryRevision("rev-1"),
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Orders#create", Optional.empty()),
+                "Evidence", List.of(), new ArtifactRef("digest")));
     }
 }
