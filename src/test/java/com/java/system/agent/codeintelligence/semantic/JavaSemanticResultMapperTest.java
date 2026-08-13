@@ -340,6 +340,10 @@ class JavaSemanticResultMapperTest {
         assertThat(result.evidence()).extracting(EvidenceRef::repositoryRevision).containsOnly(REPOSITORY_REVISION);
         assertThat(result.evidence()).extracting(evidence -> evidence.semanticTarget().sourceRange().orElseThrow().startLine())
                 .containsExactly(3, 5);
+        assertThat(result.evidence()).extracting(EvidenceRef::content).containsExactly(
+                "typeMember; kind=ENUM_CONSTANT; owner=src/Order.java#Order; member=CARD; range=3:5-3:9",
+                "typeMember; kind=RECORD_COMPONENT; owner=src/Order.java#Order; member=reference; "
+                        + "writtenType=String; resolvedType=java.lang.String; range=5:14-5:23");
         assertThat(result.observations()).isEmpty();
     }
 

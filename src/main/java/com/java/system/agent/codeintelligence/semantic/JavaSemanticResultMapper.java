@@ -293,11 +293,13 @@ public final class JavaSemanticResultMapper {
                 SemanticTarget declarationTarget = sourceTarget(new SemanticDtos.SourceRangePayload(
                         sourceFile(enumConstant.identity()), enumConstant.declarationRange()));
                 evidence.add(metadataEvidenceMapper.typeMemberDeclaration(repositoryId, revision, enumConstant.kind(),
-                        enumConstant.declarationRange(), declarationTarget));
+                        enumConstant.identity(), Optional.empty(), Optional.empty(), enumConstant.declarationRange(),
+                        declarationTarget));
             } else if (member instanceof SemanticDtos.RecordComponentTypeMemberResponse recordComponent) {
                 SemanticTarget declarationTarget = sourceTarget(new SemanticDtos.SourceRangePayload(
                         sourceFile(recordComponent.identity()), recordComponent.declarationRange()));
                 evidence.add(metadataEvidenceMapper.typeMemberDeclaration(repositoryId, revision, recordComponent.kind(),
+                        recordComponent.identity(), Optional.of(recordComponent.writtenType()), recordComponent.resolvedType(),
                         recordComponent.declarationRange(), declarationTarget));
             }
             addFollowUps(repositoryId, revision, member.availableFollowUps(), candidates);

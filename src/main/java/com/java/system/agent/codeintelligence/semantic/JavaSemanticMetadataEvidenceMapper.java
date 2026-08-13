@@ -7,6 +7,7 @@ import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.codeintelligence.semantic.dto.SemanticDtos;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 將已驗證的 Semantic provider metadata 投影為可引用證據，位於結果轉譯流程
@@ -44,8 +45,13 @@ final class JavaSemanticMetadataEvidenceMapper {
     }
 
     EvidenceRef typeMemberDeclaration(RepositoryId repositoryId, RepositoryRevision revision, String kind,
-                                      SemanticDtos.TextRangePayload declarationRange, SemanticTarget target) {
-        String content = "typeMember; kind=" + kind + "; range=" + range(declarationRange);
+                                      SemanticDtos.SourceMemberIdentityPayload identity, Optional<String> writtenType,
+                                      Optional<String> resolvedType, SemanticDtos.TextRangePayload declarationRange,
+                                      SemanticTarget target) {
+        SemanticDtos.SourceMemberIdentityPayload.TypeMember member = typeMemberIdentity(identity);
+        String content = "typeMember; kind=" + kind + "; owner=" + sourceType(member.ownerType()) + "; member="
+                + member.name() + writtenType.map(value -> "; writtenType=" + value).orElse("")
+                + resolvedType.map(value -> "; resolvedType=" + value).orElse("") + "; range=" + range(declarationRange);
         return evidence(repositoryId, revision, target, content);
     }
 
@@ -95,6 +101,14 @@ final class JavaSemanticMetadataEvidenceMapper {
 
     private String sourceType(SemanticDtos.SourceTypeIdentityPayload sourceType) {
         return sourceType.sourceFile() + "#" + sourceType.javaType().className();
+    }
+
+    private SemanticDtos.SourceMemberIdentityPayload.TypeMember typeMemberIdentity(
+            SemanticDtos.SourceMemberIdentityPayload identity) {
+        if (identity instanceof SemanticDtos.SourceMemberIdentityPayload.TypeMember member) {
+            return member;
+        }
+        throw new IllegalArgumentException("type member declaration evidence requires a type member identity");
     }
 
     private String range(SemanticDtos.TextRangePayload range) {
