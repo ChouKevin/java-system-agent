@@ -1,8 +1,11 @@
 package com.java.system.agent.capability.planning;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.InvalidTypeIdException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Path;
@@ -14,6 +17,7 @@ import jakarta.validation.constraints.Size;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.RecordComponent;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -154,6 +158,10 @@ public final class StrictPlanningToolDecoder {
         if (!"NONE".equals(expectedJsonType) && !"NONE".equals(mappingPath)) {
             safeDiagnostic += "; invalidField=" + mappingPath + "; expectedJsonType=" + expectedJsonType;
         }
+        List<String> allowedValues = safeAllowedValues(cause);
+        if (!allowedValues.isEmpty()) {
+            safeDiagnostic += "; allowedValues=" + allowedValues;
+        }
         return new PlanningToolInputException(safeDiagnostic, cause);
     }
 
@@ -168,8 +176,24 @@ public final class StrictPlanningToolDecoder {
                 path.add(fieldName);
             }
         }
+        String discriminator = safeTypeDiscriminator(cause);
+        if (!discriminator.isBlank()) {
+            path.add(discriminator);
+        }
         String safePath = path.toString();
         return safePath.isBlank() ? "input" : safePath;
+    }
+
+    private static String safeTypeDiscriminator(Exception cause) {
+        if (!(cause instanceof InvalidTypeIdException invalidTypeIdException)) {
+            return "";
+        }
+        Class<?> baseType = invalidTypeIdException.getBaseType().getRawClass();
+        JsonTypeInfo typeInfo = baseType.getAnnotation(JsonTypeInfo.class);
+        if (Objects.isNull(typeInfo) || typeInfo.property().isBlank()) {
+            return "";
+        }
+        return typeInfo.property();
     }
 
     private static boolean isDeclaredRecordProperty(Object owner, String fieldName) {
@@ -197,6 +221,9 @@ public final class StrictPlanningToolDecoder {
     }
 
     private static String safeExpectedJsonType(Exception cause) {
+        if (cause instanceof InvalidTypeIdException) {
+            return "string";
+        }
         if (!(cause instanceof MismatchedInputException mismatchedInput)
                 || Objects.isNull(mismatchedInput.getTargetType())) {
             return "NONE";
@@ -207,5 +234,22 @@ public final class StrictPlanningToolDecoder {
         }
         return CharSequence.class.isAssignableFrom(targetType) || targetType == char.class
                 || targetType == Character.class || targetType.isEnum() ? "string" : "NONE";
+    }
+
+    private static List<String> safeAllowedValues(Exception cause) {
+        if (!(cause instanceof InvalidTypeIdException invalidTypeIdException)) {
+            return List.of();
+        }
+        Class<?> baseType = invalidTypeIdException.getBaseType().getRawClass();
+        JsonSubTypes subTypes = baseType.getAnnotation(JsonSubTypes.class);
+        if (Objects.isNull(subTypes)) {
+            return List.of();
+        }
+        return Arrays.stream(subTypes.value())
+                .map(JsonSubTypes.Type::name)
+                .filter(name -> name.matches("[A-Za-z][A-Za-z0-9_-]{0,63}"))
+                .distinct()
+                .limit(MAX_DIAGNOSTIC_ITEMS)
+                .toList();
     }
 }

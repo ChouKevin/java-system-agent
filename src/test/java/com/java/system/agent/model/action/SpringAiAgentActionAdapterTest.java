@@ -442,7 +442,9 @@ class SpringAiAgentActionAdapterTest {
         AgentActionProposal blankProposal = adapter(blankQuestion).nextAction(context());
 
         assertThat(enumProposal).isEqualTo(new AgentActionProposal.Malformed(
-                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT"));
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT; "
+                        + "invalidField=statements.type; expectedJsonType=string; "
+                        + "allowedValues=[FACT, UNCERTAINTY, LIMITATION, QUESTION]"));
         assertThat(blankProposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=agent_request_clarification; reason=BEAN_VALIDATION; "
                         + "invalidFields=[question]; constraints=[question:NotBlank]"));
@@ -519,7 +521,9 @@ class SpringAiAgentActionAdapterTest {
                 input -> failIfAnswerMapperExecutes(mapperCalls)).nextAction(answerContext());
 
         assertThat(missingTypeProposal).isEqualTo(new AgentActionProposal.Malformed(
-                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT"));
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=JSON_CONTRACT; "
+                        + "invalidField=statements.type; expectedJsonType=string; "
+                        + "allowedValues=[FACT, UNCERTAINTY, LIMITATION, QUESTION]"));
         assertThat(nullTypeProposal).isEqualTo(new AgentActionProposal.Malformed(
                 "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=EXPLICIT_NULL"));
         assertThat(blankCitationProposal).isEqualTo(new AgentActionProposal.Malformed(
