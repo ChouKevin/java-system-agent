@@ -234,6 +234,42 @@ class CodeIntelligencePlanningToolProviderTest {
     }
 
     @Test
+    void issuesInitialRepositoryQueriesBeforeRuntimePinsTheSelectedRevision() {
+        JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
+        CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(
+                Validation.buildDefaultValidatorFactory().getValidator());
+        PlanningToolRegistry registry = new PlanningToolRegistry(List.of(
+                new CodeIntelligencePlanningToolProvider(adapter, payloadCodec)),
+                new StrictPlanningToolDecoder(Validation.buildDefaultValidatorFactory().getValidator()), payloadCodec);
+        RepositoryId repositoryId = new RepositoryId("payments");
+        RevisionVector revisions = RevisionVector.empty();
+        HandleBinding binding = new HandleBinding(new AnalysisRunId("run-1"), new AnalysisAttemptId("attempt-1"), revisions);
+        IssuedCandidate repository = repositoryCandidate("candidate-repository", binding, repositoryId);
+        CapabilityPolicy entryPointsPolicy = policy(registry, CodeIntelligenceQuery.LIST_ENTRY_POINTS);
+        CapabilityPolicy conceptsPolicy = policy(registry, CodeIntelligenceQuery.DISCOVER_CONCEPTS);
+        AgentPromptContext entryPointsContext = promptContext(entryPointsPolicy, repository, binding);
+        AgentPromptContext conceptsContext = promptContext(conceptsPolicy, repository, binding);
+
+        assertAll(
+                () -> assertThat(registry.issuedRegistrations(entryPointsContext))
+                        .extracting(PlanningToolRegistration::name)
+                        .contains(entryPointsPolicy.name()),
+                () -> assertThat(registry.issuedRegistrations(conceptsContext))
+                        .extracting(PlanningToolRegistration::name)
+                        .contains(conceptsPolicy.name()));
+
+        QueryAction entryPointsAction = queryAction(registry.interpretToolCall(entryPointsPolicy.name(), """
+                {"candidateHandles":["candidate-repository"],"questionToResolve":"Find payment entry points","rationale":"Locate payment behavior","type":"API"}
+                """, entryPointsContext));
+        QueryAction conceptsAction = queryAction(registry.interpretToolCall(conceptsPolicy.name(), """
+                {"candidateHandles":["candidate-repository"],"questionToResolve":"Find payment concepts","rationale":"Locate payment rules","searchCriteria":{"terms":[{"value":"payment","matchMode":"TOKEN_EXACT"}],"kinds":["TYPE"]}}
+                """, conceptsContext));
+
+        assertThat(entryPointsAction.candidates()).containsExactly(new CandidateHandleRef("candidate-repository"));
+        assertThat(conceptsAction.candidates()).containsExactly(new CandidateHandleRef("candidate-repository"));
+    }
+
+    @Test
     void plansMethodImplementationDiscoveryFromEitherAnExactSemanticCandidateOrProviderFollowUp() {
         JavaSemanticServiceHttpAdapter adapter = mock(JavaSemanticServiceHttpAdapter.class);
         CanonicalCapabilityPayloadCodec payloadCodec = new CanonicalCapabilityPayloadCodec(

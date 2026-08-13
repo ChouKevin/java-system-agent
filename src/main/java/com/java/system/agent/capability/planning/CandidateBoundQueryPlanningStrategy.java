@@ -6,6 +6,7 @@ import com.java.system.agent.answering.domain.capability.CapabilityPolicy;
 import com.java.system.agent.answering.domain.candidate.AnalysisCandidate;
 import com.java.system.agent.answering.domain.candidate.FollowUpCandidate;
 import com.java.system.agent.answering.domain.candidate.IssuedCandidate;
+import com.java.system.agent.answering.domain.candidate.RepositoryCandidate;
 import com.java.system.agent.answering.domain.handle.CapabilityHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandle;
 import com.java.system.agent.answering.domain.handle.CandidateHandleRef;
@@ -113,13 +114,19 @@ final class CandidateBoundQueryPlanningStrategy<P extends CandidateBoundPlanning
         AnalysisCandidate analysisCandidate = candidate.getValue().candidate();
         return hasCurrentBinding(candidate.getKey().binding(), context)
                 && policy.acceptedCandidateKinds().contains(analysisCandidate.kind())
-                && hasPinnedCandidateRevision(candidate.getKey().binding(), analysisCandidate)
+                && isRevisionAuthorized(candidate.getKey().binding(), analysisCandidate)
                 && planner.supportsDirectCandidate(analysisCandidate);
     }
 
-    private static boolean hasPinnedCandidateRevision(HandleBinding binding, AnalysisCandidate candidate) {
+    /**
+     * Repository 初次探索交由 QUERY executor 解析 revision，其餘候選必須已與 binding 的 revision 一致
+     */
+    static boolean isRevisionAuthorized(HandleBinding binding, AnalysisCandidate candidate) {
+        if (candidate instanceof RepositoryCandidate) {
+            return true;
+        }
         return binding.revisionVector().revisionOf(candidate.repositoryId())
-                .map(pinnedRevision -> candidate.repositoryRevision().map(pinnedRevision::equals).orElse(true))
+                .map(pinnedRevision -> candidate.repositoryRevision().map(pinnedRevision::equals).orElse(false))
                 .orElse(false);
     }
 

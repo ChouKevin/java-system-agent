@@ -177,8 +177,8 @@ public final class QueryPlanningToolRegistration<P, E>
             CandidateHandle handle = candidate.getKey();
             if (!hasCurrentBinding(handle.binding(), context)
                     || !policy.acceptedCandidateKinds().contains(candidate.getValue().candidate().kind())
-                    || handle.binding().revisionVector().revisionOf(candidate.getValue().candidate().repositoryId()).isEmpty()
-                    || !matchesCandidateRevision(handle.binding(), candidate.getValue().candidate())) {
+                    || !CandidateBoundQueryPlanningStrategy.isRevisionAuthorized(
+                            handle.binding(), candidate.getValue().candidate())) {
                 return false;
             }
             CandidateHandleRef reference = new CandidateHandleRef(handle.value());
@@ -223,14 +223,6 @@ public final class QueryPlanningToolRegistration<P, E>
                         .isPresent();
             }
             return true;
-        }
-
-        private static boolean matchesCandidateRevision(
-                HandleBinding binding,
-                com.java.system.agent.answering.domain.candidate.AnalysisCandidate candidate) {
-            return candidate.repositoryRevision()
-                    .map(revision -> binding.revisionVector().matches(candidate.repositoryId(), revision))
-                    .orElse(true);
         }
 
         private static boolean hasCurrentBinding(HandleBinding binding, AgentPromptContext context) {
