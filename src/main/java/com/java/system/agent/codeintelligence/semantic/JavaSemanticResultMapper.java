@@ -255,6 +255,10 @@ public final class JavaSemanticResultMapper {
                     "method implementation resolution status=PARTIAL", List.of()));
         }
         addIssueSummaries(observations, required.resolution().issueSummaries(), "method implementation issue");
+        if (isCompleteEmptyImplementationSearch(required)) {
+            observations.add(observation(ObservationCode.UNSUPPORTED_CLAIM,
+                    "complete method implementation discovery returned no implementations", List.of()));
+        }
         return succeeded(candidates, evidence, List.copyOf(observations));
     }
 
@@ -608,6 +612,16 @@ public final class JavaSemanticResultMapper {
                 && response.page().returnedCount() == 0
                 && response.page().totalCount() == 0
                 && !response.page().hasMore();
+    }
+
+    private boolean isCompleteEmptyImplementationSearch(
+            SemanticDtos.DiscoverMethodImplementationsResponse response) {
+        return "COMPLETE".equals(response.resolution().status())
+                && response.resolution().issueSummaries().isEmpty()
+                && response.candidates().isEmpty()
+                && response.limits().returnedCount() == 0
+                && response.limits().totalCount() == 0
+                && !response.limits().truncated();
     }
 
     private CapabilityExecutionResult callGraph(RepositoryId repositoryId, RepositoryRevision expectedRevision,

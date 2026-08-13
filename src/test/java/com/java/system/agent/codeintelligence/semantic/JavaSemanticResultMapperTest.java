@@ -64,6 +64,28 @@ class JavaSemanticResultMapperTest {
     }
 
     @Test
+    void projectsCompleteEmptyImplementationDiscoveryAsAnUnsupportedClaim() {
+        JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
+        SemanticDtos.MethodTargetPayload requestedTarget = methodTargetPayload();
+        SemanticDtos.DiscoverMethodImplementationsResponse response =
+                new SemanticDtos.DiscoverMethodImplementationsResponse(
+                        "orders",
+                        REVISION,
+                        requestedTarget,
+                        List.of(),
+                        new SemanticDtos.BoundedResultResponse(100, 0, 0, false),
+                        new SemanticDtos.MethodImplementationResolutionResponse("COMPLETE", List.of()));
+
+        CapabilityExecutionResult.Succeeded result = (CapabilityExecutionResult.Succeeded)
+                mapper.discoverMethodImplementations(REPOSITORY_ID, REPOSITORY_REVISION, response);
+
+        assertThat(result.discoveredCandidates()).isEmpty();
+        assertThat(result.evidence()).isEmpty();
+        assertThat(result.observations()).extracting(CapabilityObservation::code)
+                .containsExactly(ObservationCode.UNSUPPORTED_CLAIM);
+    }
+
+    @Test
     void preservesUnavailableFollowUpAsTheOnlyAuthorityForACompleteEmptyConceptSearch() {
         JavaSemanticResultMapper mapper = new JavaSemanticResultMapper();
         SemanticDtos.DiscoverConceptsResponse response = new SemanticDtos.DiscoverConceptsResponse(
