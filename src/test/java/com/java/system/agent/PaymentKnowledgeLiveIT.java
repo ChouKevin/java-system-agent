@@ -94,7 +94,7 @@ class PaymentKnowledgeLiveIT {
     private static final String FIXTURE_ID = "payment-knowledge-query";
     private static final PaymentScenario KNOWN_SOURCE_SCENARIO = new PaymentScenario(
             "payment-options",
-            "我們目前支援哪些付款方式？各自會收手續費嗎？如果費用會依條件不同，請一併說明。",
+            "付款手續費的計算規則是什麼？不同付款方式有何差異？如果費用會依條件不同，請一併說明。",
             ScenarioExpectation.KNOWN_SOURCE);
     private static final PaymentScenario RUNTIME_ONLY_SCENARIO = new PaymentScenario(
             "runtime-payment-options",

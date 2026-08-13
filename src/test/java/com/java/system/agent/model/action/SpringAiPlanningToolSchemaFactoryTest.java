@@ -103,11 +103,22 @@ class SpringAiPlanningToolSchemaFactoryTest {
 
         assertThat(schema.path("required")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("statements", "resolutions");
-        assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
-        assertThat(statement.path("required")).extracting(JsonNode::asText)
-                .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
-        assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
+        assertThat(statement.path("anyOf")).hasSize(4);
+        JsonNode fact = statementShape(statementVariant(statement, "FACT"));
+        assertThat(fact.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(fact.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder(
+                        "statementId", "type", "text", "claimId", "citationHandles", "observationIds");
+        assertThat(fact.path("properties").path("citationHandles").path("minItems").asInt()).isEqualTo(1);
+        assertThat(fact.path("properties").path("citationHandles").path("items").path("minLength").asInt())
                 .isEqualTo(1);
+        for (String type : List.of("UNCERTAINTY", "LIMITATION", "QUESTION")) {
+            JsonNode nonFact = statementShape(statementVariant(statement, type));
+            assertThat(nonFact.path("additionalProperties").asBoolean()).isFalse();
+            assertThat(nonFact.path("properties").has("claimId")).isFalse();
+            assertThat(nonFact.path("required")).extracting(JsonNode::asText)
+                    .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
+        }
         assertThat(resolution.path("additionalProperties").asBoolean()).isFalse();
         assertThat(resolution.path("required")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
@@ -127,5 +138,17 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(informationNeed.path("required")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("id", "description");
         assertThat(informationNeed.path("properties").path("id").path("maxLength").asInt()).isEqualTo(32);
+    }
+
+    private static JsonNode statementVariant(JsonNode statement, String type) {
+        return statement.path("anyOf").valueStream()
+                .filter(candidate -> type.equals(candidate.path("allOf").path(1)
+                        .path("properties").path("type").path("const").asText()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static JsonNode statementShape(JsonNode variant) {
+        return variant.path("allOf").path(0);
     }
 }

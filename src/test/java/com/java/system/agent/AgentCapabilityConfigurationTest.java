@@ -116,12 +116,22 @@ class AgentCapabilityConfigurationTest {
 
         assertThat(answerSchema.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactly("resolutions", "statements");
-        assertThat(statement.path("additionalProperties").asBoolean()).isFalse();
-        assertThat(statement.path("required")).extracting(jsonNode -> jsonNode.asText())
-                .containsExactlyInAnyOrder("statementId", "type", "text", "citationHandles", "observationIds");
-        assertThat(statement.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
-        assertThat(statement.path("properties").path("citationHandles").path("items").path("minLength").asInt())
+        assertThat(statement.path("anyOf")).hasSize(4);
+        assertThat(statement.path("anyOf")).extracting(
+                variant -> variant.path("allOf").path(1).path("properties").path("type").path("const").asText())
+                .containsExactlyInAnyOrder("FACT", "UNCERTAINTY", "LIMITATION", "QUESTION");
+        JsonNode fact = answerStatementShape(answerStatementVariant(statement, "FACT"));
+        assertThat(fact.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(fact.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder(
+                        "statementId", "type", "text", "claimId", "citationHandles", "observationIds");
+        assertThat(fact.path("properties").path("text").path("minLength").asInt()).isEqualTo(1);
+        assertThat(fact.path("properties").path("citationHandles").path("minItems").asInt()).isEqualTo(1);
+        assertThat(fact.path("properties").path("citationHandles").path("items").path("minLength").asInt())
                 .isEqualTo(1);
+        JsonNode limitation = answerStatementShape(answerStatementVariant(statement, "LIMITATION"));
+        assertThat(limitation.path("additionalProperties").asBoolean()).isFalse();
+        assertThat(limitation.path("properties").has("claimId")).isFalse();
         assertThat(resolution.path("additionalProperties").asBoolean()).isFalse();
         assertThat(resolution.path("required")).extracting(jsonNode -> jsonNode.asText())
                 .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
@@ -324,5 +334,17 @@ class AgentCapabilityConfigurationTest {
     private static List<String> required(Map<String, JsonNode> schemas, String toolName) {
         JsonNode schema = schemas.get(toolName);
         return schema.path("required").valueStream().map(jsonNode -> jsonNode.textValue()).toList();
+    }
+
+    private static JsonNode answerStatementVariant(JsonNode statement, String type) {
+        return statement.path("anyOf").valueStream()
+                .filter(candidate -> type.equals(candidate.path("allOf").path(1)
+                        .path("properties").path("type").path("const").asText()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static JsonNode answerStatementShape(JsonNode variant) {
+        return variant.path("allOf").path(0);
     }
 }
