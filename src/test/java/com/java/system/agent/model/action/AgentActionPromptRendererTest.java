@@ -79,8 +79,10 @@ class AgentActionPromptRendererTest {
         AnalysisRunId runId = new AnalysisRunId("run-3");
         AnalysisAttemptId attemptId = new AnalysisAttemptId("attempt-1");
         HandleBinding binding = new HandleBinding(runId, attemptId, RevisionVector.empty());
-        QueryAction query = new QueryAction(new CapabilityHandle("capability-1", binding), "resolve query",
-                new CapabilityInputPayload("{\"secret\":\"canonical-follow-up\"}"), "need evidence");
+        CapabilityHandle queryCapability = new CapabilityHandle("capability-1", binding);
+        CapabilityInputPayload queryArguments = new CapabilityInputPayload(
+                "{\"kinds\":[\"TYPE\"],\"terms\":[{\"value\":\"Payment\"}]}");
+        QueryAction query = new QueryAction(queryCapability, "resolve query", queryArguments, "need evidence");
         ExecuteAction execute = new ExecuteAction(ExternalHttpMethod.PATCH,
                 "https://secret.example.invalid/items/1?token=execute-secret",
                 Optional.of("{\"credential\":\"execute-secret-body\"}"), "apply requested change");
@@ -91,7 +93,8 @@ class AgentActionPromptRendererTest {
         ClarifyAction clarify = new ClarifyAction("which item?", List.of(new CandidateHandleRef("candidate-2")),
                 "need selection");
         AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), runId, attemptId,
-                Map.of(), Map.of(), Map.of(), Map.of(), List.of(
+                Map.of(queryCapability, new CapabilityPolicy("codebase_discover_concepts", "v1")),
+                Map.of(), Map.of(), Map.of(), List.of(
                         new ModelInteraction.ActionSelected(attemptId, query),
                         new ModelInteraction.ActionResultRecorded(attemptId,
                                 new ActionResult.QuerySucceeded(List.of("candidate-3"), List.of("evidence-1"),
@@ -131,9 +134,10 @@ class AgentActionPromptRendererTest {
                 AgentActionFingerprint.from(execute).value(), "EXECUTE_COMPLETED",
                 AgentActionFingerprint.from(answer).value(), "ANSWER_REJECTED",
                 AgentActionFingerprint.from(clarify).value(), "ACTION_INTERRUPTED");
-        assertThat(interactions).contains("QUERY: capability=capability-1", "payloadSummary=sha256=",
+        assertThat(interactions).contains("QUERY: tool=codebase_discover_concepts@v1",
+                "arguments=" + queryArguments.value(),
                 "needId=need-1", "status=UNAVAILABLE", "observationIds=[observation-1]");
-        assertThat(interactions).doesNotContain("candidateHandles", "candidate-1", "canonical-follow-up",
+        assertThat(interactions).doesNotContain("candidateHandles", "candidate-1", "payloadSummary=sha256=",
                 "secret.example.invalid", "execute-secret", "execute-secret-body");
         verify(catalog).renderLatestAnswerFeedback(argThat(values -> {
             assertThat(values).containsOnlyKeys("disposition", "statementVerdicts", "unaddressedParts",

@@ -84,7 +84,7 @@ public final class AgentActionPromptRenderer {
         projection.put("latestAnswerFeedback", latestAnswerFeedback(context));
         projection.put("latestRejection", context.latestRejection().orElse("none"));
         projection.put("remainingBudget", remainingBudget(context));
-        projection.put("modelInteractions", ModelInteractionRenderer.render(context.modelInteractions()));
+        projection.put("modelInteractions", ModelInteractionRenderer.render(context));
         return Map.copyOf(projection);
     }
 
@@ -278,22 +278,22 @@ public final class AgentActionPromptRenderer {
 
     private static final class ModelInteractionRenderer {
 
-        private static String render(List<ModelInteraction> interactions) {
-            if (interactions.isEmpty()) {
+        private static String render(AgentPromptContext context) {
+            if (context.modelInteractions().isEmpty()) {
                 return "none";
             }
             StringJoiner lines = new StringJoiner("\n");
-            for (ModelInteraction interaction : interactions) {
-                lines.add(renderInteraction(interaction));
+            for (ModelInteraction interaction : context.modelInteractions()) {
+                lines.add(renderInteraction(context, interaction));
             }
             return lines.toString();
         }
 
-        private static String renderInteraction(ModelInteraction interaction) {
+        private static String renderInteraction(AgentPromptContext context, ModelInteraction interaction) {
             return switch (interaction) {
                 case ModelInteraction.ActionSelected selected -> "- attempt=" + selected.attemptId().value()
                         + " selected actionFingerprint=" + AgentActionFingerprint.from(selected.action()).value()
-                        + " " + renderAction(selected.action());
+                        + " " + renderAction(context, selected.action());
                 case ModelInteraction.ActionResultRecorded recorded -> "- attempt=" + recorded.attemptId().value()
                         + " result " + renderResult(recorded.result());
                 case ModelInteraction.MalformedResponse malformed -> "- attempt=" + malformed.attemptId().value()
@@ -301,11 +301,11 @@ public final class AgentActionPromptRenderer {
             };
         }
 
-        private static String renderAction(AgentAction action) {
+        private static String renderAction(AgentPromptContext context, AgentAction action) {
             return switch (action) {
-                case QueryAction query -> "QUERY: capability=" + query.capability().value()
+                case QueryAction query -> "QUERY: tool=" + capabilityName(context, query.capability())
                         + ", questionToResolve=" + query.questionToResolve()
-                        + ", payloadSummary=" + contentSummary(query.payload().value())
+                        + ", arguments=" + query.payload().value()
                         + ", rationale=" + query.rationale();
                 case ExecuteAction execute -> "EXECUTE: method=" + execute.method()
                         + ", targetUrlSummary=" + contentSummary(execute.targetUrl())
@@ -328,6 +328,12 @@ public final class AgentActionPromptRenderer {
                 case PlanAction plan -> "PLAN: informationNeedIds=" + plan.plan().needs().stream()
                         .map(need -> need.id().value()).toList();
             };
+        }
+
+        private static String capabilityName(AgentPromptContext context, CapabilityHandle handle) {
+            return Optional.ofNullable(context.issuedCapabilities().get(handle))
+                    .map(capability -> capability.name() + "@" + capability.version())
+                    .orElse("unavailable");
         }
 
         private static String renderResult(ActionResult result) {
