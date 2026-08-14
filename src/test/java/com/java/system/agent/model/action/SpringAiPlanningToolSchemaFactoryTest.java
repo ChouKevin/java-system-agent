@@ -126,6 +126,10 @@ class SpringAiPlanningToolSchemaFactoryTest {
         assertThat(resolution.path("additionalProperties").asBoolean()).isFalse();
         assertThat(resolution.path("required")).extracting(JsonNode::asText)
                 .containsExactlyInAnyOrder("needId", "status", "evidenceHandles", "observationIds");
+        JsonNode evidenceHandles = resolution.path("properties").path("evidenceHandles");
+        assertThat(evidenceHandles.path("description").asText())
+                .contains("one complete issued opaque evidence handle", "must not be joined");
+        assertThat(evidenceHandles.path("items").path("pattern").asText()).isNotBlank();
     }
 
     @Test

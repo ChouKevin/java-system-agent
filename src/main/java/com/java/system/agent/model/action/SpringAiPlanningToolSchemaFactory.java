@@ -27,7 +27,8 @@ public final class SpringAiPlanningToolSchemaFactory implements PlanningToolSche
                 JacksonOption.RESPECT_JSONPROPERTY_ORDER));
         builder.with(new JakartaValidationModule(
                 JakartaValidationOption.NOT_NULLABLE_FIELD_IS_REQUIRED,
-                JakartaValidationOption.NOT_NULLABLE_METHOD_IS_REQUIRED));
+                JakartaValidationOption.NOT_NULLABLE_METHOD_IS_REQUIRED,
+                JakartaValidationOption.INCLUDE_PATTERN_EXPRESSIONS));
         builder.with(
                 Option.FORBIDDEN_ADDITIONAL_PROPERTIES_BY_DEFAULT,
                 Option.INLINE_ALL_SCHEMAS,

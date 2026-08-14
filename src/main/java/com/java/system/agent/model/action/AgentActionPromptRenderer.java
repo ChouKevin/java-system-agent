@@ -269,8 +269,10 @@ public final class AgentActionPromptRenderer {
                     .sorted()
                     .toList();
             if (!evidenceHandles.isEmpty()) {
-                coverage.append("- ").append(capability.name()).append('@').append(capability.version()).append(": ")
-                        .append(String.join(",", evidenceHandles)).append('\n');
+                coverage.append("- ").append(capability.name()).append('@').append(capability.version()).append(":\n");
+                for (String evidenceHandle : evidenceHandles) {
+                    coverage.append("  - ").append(evidenceHandle).append('\n');
+                }
             }
         }
         return coverage.toString();

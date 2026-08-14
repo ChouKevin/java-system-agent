@@ -1,9 +1,11 @@
 package com.java.system.agent.capability.planning;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.java.system.agent.answering.domain.plan.NeedResolutionStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.util.List;
@@ -14,6 +16,8 @@ import java.util.List;
 public record NeedResolutionPlanningInput(
         @JsonProperty(required = true) @NotBlank @Size(max = 32) String needId,
         @JsonProperty(required = true) @NotNull NeedResolutionStatus status,
-        @JsonProperty(required = true) @NotNull List<@NotBlank String> evidenceHandles,
+        @JsonProperty(required = true)
+        @JsonPropertyDescription("Each array item must be one complete issued opaque evidence handle; handles must not be joined")
+        @NotNull List<@NotBlank @Pattern(regexp = "[^,\\s]+") String> evidenceHandles,
         @JsonProperty(required = true) @NotNull List<@NotBlank String> observationIds) {
 }

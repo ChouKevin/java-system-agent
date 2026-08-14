@@ -149,6 +149,18 @@ class PlanningToolRegistryTest {
                 "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=UNAVAILABLE_RESOLUTION_AUTHORITY_REQUIRED"));
     }
 
+    @Test
+    void rejects_a_comma_joined_resolution_evidence_handle_without_exposing_its_value() {
+        PlanningToolRegistry registry = registry();
+
+        AgentActionProposal proposal = registry.interpretToolCall("agent_submit_answer", submitAnswer(
+                "need-1", "SUPPORTED", "[\"evidence-1,evidence-2\"]", "[]"), plannedContext(RevisionVector.empty()));
+
+        assertThat(proposal).isEqualTo(new AgentActionProposal.Malformed(
+                "INVALID_TOOL_INPUT: tool=agent_submit_answer; reason=BEAN_VALIDATION; "
+                        + "invalidFields=[resolutions.evidenceHandles]; constraints=[resolutions.evidenceHandles:Constraint]"));
+    }
+
     private static PlanningToolRegistry registry() {
         CanonicalCapabilityPayloadCodec payloadCodec = payloadCodec();
         CapabilityPolicy policy = new CapabilityPolicy("query_tool", "v1");

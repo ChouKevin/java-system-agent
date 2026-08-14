@@ -249,17 +249,22 @@ class AgentActionPromptRendererTest {
         CapabilityHandle producedCapability = new CapabilityHandle("capability-2", binding);
         CapabilityPolicy producingCapability = new CapabilityPolicy("codebase_get_method_source", "v1");
         EvidenceHandle evidenceHandle = new EvidenceHandle("evidence-1", binding);
+        EvidenceHandle secondEvidenceHandle = new EvidenceHandle("evidence-2", binding);
         EvidenceRef evidence = new EvidenceRef("semantic", repositoryId, repositoryRevision,
                 new SemanticTarget(SemanticTargetKind.SYMBOL, "Type#method",
                 Optional.empty()), "method source", List.of(), new ArtifactRef("digest-1"));
+        EvidenceRef secondEvidence = new EvidenceRef("semantic", repositoryId, repositoryRevision,
+                new SemanticTarget(SemanticTargetKind.SYMBOL, "Type#method",
+                Optional.empty()), "method source", List.of(), new ArtifactRef("digest-2"));
         QueryAction query = new QueryAction(producedCapability, "read method source",
                 new CapabilityInputPayload("{}"), "need source evidence");
         AgentPromptContext context = new AgentPromptContext("question", SessionHistory.empty(), runId, attemptId,
                 Map.of(issuedButUnused, historicalCapability, producedCapability, producingCapability), Map.of(),
-                Map.of(evidenceHandle, new IssuedEvidence(evidenceHandle, evidence)), Map.of(), List.of(
+                Map.of(evidenceHandle, new IssuedEvidence(evidenceHandle, evidence),
+                        secondEvidenceHandle, new IssuedEvidence(secondEvidenceHandle, secondEvidence)), Map.of(), List.of(
                         new ModelInteraction.ActionSelected(attemptId, query),
                         new ModelInteraction.ActionResultRecorded(attemptId,
-                                new ActionResult.QuerySucceeded(List.of(), List.of("evidence-1"), List.of()))), Optional.empty(),
+                                new ActionResult.QuerySucceeded(List.of(), List.of("evidence-1", "evidence-2"), List.of()))), Optional.empty(),
                 new AttemptBudget(1, 0, 1, 0, 1, 0, 1, 0, 1, 0));
 
         Map<String, Object> projection = renderer().project(context,
@@ -267,7 +272,8 @@ class AgentActionPromptRendererTest {
 
         assertThat(projection.get("currentlyCallableTools"))
                 .isEqualTo("- agent_submit_answer\n- agent_request_clarification\n");
-        assertThat(projection.get("evidenceCoverage")).isEqualTo("- codebase_get_method_source@v1: evidence-1\n");
+        assertThat(projection.get("evidenceCoverage")).isEqualTo("- codebase_get_method_source@v1:\n"
+                + "  - evidence-1\n  - evidence-2\n");
     }
 
     @Test

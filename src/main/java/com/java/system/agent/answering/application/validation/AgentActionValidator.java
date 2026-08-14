@@ -201,6 +201,16 @@ public final class AgentActionValidator {
     }
 
     private static ActionValidation.Rejected rejected(ActionRejectionCode code, AgentAction action) {
-        return new ActionValidation.Rejected(code, code.name(), action);
+        return new ActionValidation.Rejected(code, rejectionDescription(code), action);
+    }
+
+    private static String rejectionDescription(ActionRejectionCode code) {
+        return switch (code) {
+            case UNKNOWN_RESOLUTION_EVIDENCE ->
+                    "use one issued evidence handle per array item; do not concatenate handles";
+            case UNCITED_RESOLUTION_EVIDENCE ->
+                    "remove resolution evidence not cited by the answer document, or cite it in a statement it supports";
+            default -> code.name();
+        };
     }
 }

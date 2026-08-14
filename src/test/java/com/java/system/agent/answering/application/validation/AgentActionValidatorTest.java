@@ -39,11 +39,15 @@ import com.java.system.agent.answering.domain.scope.RepositoryId;
 import com.java.system.agent.answering.domain.scope.RepositoryRevision;
 import com.java.system.agent.answering.domain.scope.RevisionVector;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -228,6 +232,44 @@ class AgentActionValidatorTest {
         assertThat(rejected.originalAction()).isSameAs(action);
     }
 
+    @ParameterizedTest
+    @MethodSource("resolutionEvidenceRejections")
+    void gives_value_free_correction_feedback_for_resolution_evidence_rejections(
+            AnswerAction action,
+            AgentValidationContext context,
+            ActionRejectionCode expectedCode,
+            String expectedDescription) {
+        ActionValidation validation = validator.validate(action, context);
+
+        assertThat(validation).isEqualTo(new ActionValidation.Rejected(expectedCode, expectedDescription, action));
+        ActionValidation.Rejected rejected = (ActionValidation.Rejected) validation;
+        assertThat(rejected.description()).doesNotContain("need-secret", "evidence-secret", "answer-secret");
+    }
+
+    private static Stream<Arguments> resolutionEvidenceRejections() {
+        Fixture fixture = fixture();
+        EvidenceHandle citedEvidence = new EvidenceHandle("evidence-cited", fixture.binding());
+        EvidenceHandle uncitedEvidenceHandle = new EvidenceHandle("evidence-secret", fixture.binding());
+        AnswerDocument document = new AnswerDocument(List.of(new AnswerStatement(
+                new StatementId("statement-1"), StatementType.UNCERTAINTY, "answer-secret", Optional.empty(),
+                Set.of(new EvidenceHandleRef(citedEvidence.value())), Set.of())));
+        AnswerAction unknownEvidence = new AnswerAction(document, List.of(new NeedResolution(
+                new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE,
+                Set.of(new EvidenceHandleRef("evidence-unknown")), Set.of())));
+        AnswerAction uncitedResolutionEvidence = new AnswerAction(document, List.of(new NeedResolution(
+                new InformationNeedId("need-1"), NeedResolutionStatus.UNAVAILABLE,
+                Set.of(new EvidenceHandleRef(uncitedEvidenceHandle.value())), Set.of())));
+        AgentValidationContext unknownContext = fixture.contextWithEvidence(citedEvidence);
+        AgentValidationContext uncitedContext = fixture.contextWithEvidence(Map.of(
+                citedEvidence, issuedEvidence(citedEvidence), uncitedEvidenceHandle, issuedEvidence(uncitedEvidenceHandle)));
+
+        return Stream.of(
+                Arguments.of(unknownEvidence, unknownContext, ActionRejectionCode.UNKNOWN_RESOLUTION_EVIDENCE,
+                        "use one issued evidence handle per array item; do not concatenate handles"),
+                Arguments.of(uncitedResolutionEvidence, uncitedContext, ActionRejectionCode.UNCITED_RESOLUTION_EVIDENCE,
+                        "remove resolution evidence not cited by the answer document, or cite it in a statement it supports"));
+    }
+
     private static ExecuteAction execute(String target) {
         return new ExecuteAction(ExternalHttpMethod.POST, target, Optional.empty(), "preview external request");
     }
@@ -281,8 +323,15 @@ class AgentActionValidatorTest {
         private AgentValidationContext contextWithEvidence(EvidenceHandle evidence) {
             CapabilityPolicy policy = new CapabilityPolicy("callers", "v1");
             return new AgentValidationContext(
-                    Map.of(capability, policy), Map.of(), Map.of(evidence, issuedEvidence(evidence)), Map.of(), List.of(),
+                Map.of(capability, policy), Map.of(), Map.of(evidence, issuedEvidence(evidence)), Map.of(), List.of(),
                     binding, new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.of(plan()));
+        }
+
+        private AgentValidationContext contextWithEvidence(Map<EvidenceHandle, IssuedEvidence> evidence) {
+            CapabilityPolicy policy = new CapabilityPolicy("callers", "v1");
+            return new AgentValidationContext(
+                    Map.of(capability, policy), Map.of(), evidence, Map.of(), List.of(), binding,
+                    new AttemptBudget(4, 0, 4, 0, 1, 0, 4, 0, 2, 0), Optional.of(plan()));
         }
 
         private AgentValidationContext context(
