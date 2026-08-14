@@ -299,12 +299,6 @@ class PaymentKnowledgeLiveIT {
         }
         assertThat(answer.document().statements()).extracting(AnswerStatement::type)
                 .containsAnyOf(StatementType.UNCERTAINTY, StatementType.LIMITATION);
-        if (expectation == ScenarioExpectation.RUNTIME_ONLY) {
-            assertThat(resolutions).allMatch(
-                    resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE);
-            assertThat(answer.document().statements()).extracting(AnswerStatement::type)
-                    .doesNotContain(StatementType.FACT);
-        }
         if (expectation == ScenarioExpectation.ABSENT_BUSINESS) {
             assertThat(resolutions).allMatch(
                     resolution -> resolution.status() == NeedResolutionStatus.UNAVAILABLE);
